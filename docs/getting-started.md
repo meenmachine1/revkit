@@ -34,6 +34,22 @@ revkit runs on x86-64 Linux with glibc 2.36 or newer (Debian 12, Ubuntu
 23.04 and later, Fedora 37 and later). `scripts/package.sh` builds the
 packages into `build/dist/` ([packaging.md](packaging.md)).
 
+**The installer** (no root): the latest release for this machine, checked
+against its checksums, into `~/.local`; run it again to update:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/meenmachine1/revkit/main/install.sh | sh
+revkit /bin/ls      # starts the server, imports /bin/ls, opens the browser
+```
+
+It puts the bundle in `~/.local/share/revkit` and `revkit` and the `rk-*`
+tools in `~/.local/bin`. Where the system's C library is older than the
+build's (glibc 2.34; Ubuntu 20.04, say) and Docker is installed, `revkit`
+runs the server in a Debian 12 container as you, with your home directory
+read-only and the projects writable. To remove it: `revkit stop`, then
+delete `~/.local/share/revkit`, `~/.local/bin/revkit`, `~/.local/bin/rk-*`
+and `~/.config/revkit/launcher.conf`.
+
 **Portable bundle** (no root; runs from any directory):
 
 ```sh
@@ -63,6 +79,30 @@ It is the web UI in its own window, with its own daemon; see
 **From source**: see the [README](../README.md#building-from-source). A source build serves
 the web UI from `ui/dist` once you have built it, and finds Ghidra as
 described next.
+
+### The revkit command
+
+`revkit` (in the installer's `~/.local/bin`, the bundle's `bin/` and the
+`.deb`'s `/usr/bin`) runs `rk-daemon` with sensible defaults:
+
+| Command | What it does |
+| --- | --- |
+| `revkit [FILE...]` | starts the server if it isn't running, imports the files, opens the web UI |
+| `revkit stop` | stops the server it started |
+| `revkit status` | whether it runs, where, and its version (exit 3 when it doesn't) |
+| `revkit logs` | follows the server's log (`~/.local/state/revkit/daemon.log`) |
+| `revkit update` | runs the installer again |
+| `revkit version` | the installed version |
+
+The server listens on `127.0.0.1:50052` (the web UI, at
+<http://revkit.localhost:50052>) and `127.0.0.1:50051` (gRPC: the SDKs,
+MCP, the tools), keeps projects in `~/.local/share/revkit/projects`, and
+lets the Open dialog browse your home directory. It runs without sign-in,
+so only this computer can connect, unless `~/.config/revkit/revkit.conf`
+says `auth = accounts` ([below](#first-run-on-your-machine)).
+`REVKIT_PORT` moves the web UI (gRPC goes to the port below it),
+`REVKIT_DATA` the projects, and `REVKIT_NO_BROWSER=1` prints the address
+instead of opening a browser.
 
 ## Ghidra processor specs
 

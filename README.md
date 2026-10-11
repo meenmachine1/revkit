@@ -40,56 +40,45 @@ compares revkit with Ghidra feature by feature.
 
 ## Quick start
 
-revkit runs on x86-64 Linux with glibc 2.36 or newer (Debian 12,
-Ubuntu 23.04, Fedora 37 or later). Download a release from the
-[releases page](https://github.com/meenmachine1/revkit/releases), or [build from source](#building-from-source).
+revkit runs on Linux, x86-64 or aarch64 (including Linux VMs on Apple
+Silicon Macs).
 
-**1. Install.** The portable bundle runs from any directory:
-
-```sh
-mkdir -p ~/opt
-tar -xzf revkit-0.1.0-linux-x86_64.tar.gz -C ~/opt
-export PATH=~/opt/revkit-0.1.0-linux-x86_64/bin:$PATH
-```
-
-There is also a `.deb` (`sudo apt install ./revkit_0.1.0_amd64.deb`) and a
-desktop app (`revkit-desktop_0.1.0_amd64.AppImage`: make it executable and
-run it; it starts its own server, so you can skip step 2).
-
-**2. Start the server** with a binary to look at:
+**1. Install** (no root needed):
 
 ```sh
-rk-daemon --no-auth --project-dir ~/revkit-projects --open /bin/ls
+curl -fsSL https://raw.githubusercontent.com/meenmachine1/revkit/main/install.sh | sh
 ```
 
-Then open <http://revkit.localhost:50052>. Import more binaries with
-**Import binary…** or by dropping a file on the page.
+It downloads the latest release for your machine, checks it against the
+release's checksums, and installs it into `~/.local`. Run it again, or
+`revkit update`, to update. On a system older than the build (glibc below
+2.34: Ubuntu 20.04, say) it runs the server in Docker instead, if Docker is
+installed.
 
-- `--no-auth` means no accounts: only this machine can connect, and anyone
-  on it is an admin. Leave it out to sign in with accounts
-  ([security.md](docs/security.md)).
-- `--project-dir` keeps your work between runs; without it, projects live
-  in memory.
-- `--http 127.0.0.1:8080` moves the web UI to another port, and `--grpc`
-  moves the port the SDKs, MCP server and tools connect to (default
-  `127.0.0.1:50051`).
-- To drop the port and use <http://revkit.localhost>, enable the bundled
-  port-80 socket once. systemd listens on port 80 of the loopback
-  addresses only and forwards to the server, so `rk-daemon` never needs
-  root ([getting-started.md](docs/getting-started.md#a-port-free-name-httprevkitlocalhost)):
+**2. Run it:**
 
-  ```sh
-  sudo cp ~/opt/revkit-0.1.0-linux-x86_64/lib/systemd/system/revkit-http80.{socket,service} /etc/systemd/system/
-  sudo systemctl daemon-reload && sudo systemctl enable --now revkit-http80.socket
-  ```
+```sh
+revkit /bin/ls
+```
 
-  The `.deb` installs these units already, so only the last line is needed.
+This starts the server, imports `/bin/ls` and opens
+<http://revkit.localhost:50052> in your browser. `revkit` on its own opens
+it again; `revkit stop`, `revkit status` and `revkit logs` do what they
+say. Your work is kept in `~/.local/share/revkit/projects`. Import more
+binaries with **Import binary…** or by dropping a file on the page.
+
+Other ways to install, from the [releases page](https://github.com/meenmachine1/revkit/releases):
+the desktop app (`revkit-desktop_0.1.0_amd64.AppImage`: make it executable
+and run it), a `.deb` (`sudo apt install ./revkit_0.1.0_amd64.deb`, then
+`revkit`), or the portable bundle. Running `rk-daemon` yourself (ports,
+accounts and TLS, the port-free <http://revkit.localhost>) is in
+[getting-started.md](docs/getting-started.md).
 
 **3. Script it** (optional). The Python SDK ships in the bundle:
 
 ```sh
 python3 -m venv ~/rk-venv
-~/rk-venv/bin/pip install "$HOME/opt/revkit-0.1.0-linux-x86_64/share/revkit/sdk/revkit-0.1.0-py3-none-any.whl[mcp]"
+~/rk-venv/bin/pip install "$(ls ~/.local/share/revkit/current/share/revkit/sdk/revkit-*.whl)[mcp]"
 ```
 
 ```python

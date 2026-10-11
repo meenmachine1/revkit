@@ -1,0 +1,190 @@
+#!/bin/sh
+# revkit: start the revkit server with sensible defaults and open it in the
+# browser; stop it, show it, update it. docs/getting-started.md, "The revkit
+# command".
+#
+#   revkit [FILE...]      start the server (if it isn't running), import FILEs,
+#                         and open the web UI
+#   revkit stop           stop the server
+#   revkit status         whether it runs, where, and its version
+#   revkit logs           follow the server's log
+#   revkit update         install the latest release (the installer again)
+#   revkit version        the installed version
+#
+# Defaults: projects in ~/.local/share/revkit/projects, the web UI at
+# http://revkit.localhost:50052, the Open dialog browsing your home
+# directory. Local use without sign-in (--no-auth: only this computer can
+# connect) unless ~/.config/revkit/revkit.conf says "auth = accounts".
+#
+# Environment: REVKIT_PORT (web UI port, default 50052; gRPC is the next
+# port down, 50051), REVKIT_DATA (projects), REVKIT_NO_BROWSER=1 (don't open
+# a browser), REVKIT_DAEMON (the rk-daemon to run). An installer's Docker
+# mode (glibc too old for the build) runs the server in a Debian 12
+# container instead; ~/.config/revkit/launcher.conf records that.
+set -eu
+
+# Where this script really is (~/.local/bin/revkit is a link into the bundle).
+here=$(dirname "$(readlink -f "$0")")
+data_home=${XDG_DATA_HOME:-$HOME/.local/share}
+state_home=${XDG_STATE_HOME:-$HOME/.local/state}
+config_home=${XDG_CONFIG_HOME:-$HOME/.config}
+port=${REVKIT_PORT:-50052}
+grpc=$((port - 1))
+data=${REVKIT_DATA:-$data_home/revkit/projects}
+state=$state_home/revkit
+log=$state/daemon.log
+pidfile=$state/daemon.pid
+url=http://revkit.localhost:$port/
+mode=native
+bundle=""
+[ -f "$config_home/revkit/launcher.conf" ] && . "$config_home/revkit/launcher.conf"
+daemon=${REVKIT_DAEMON:-}
+if [ -z "$daemon" ]; then
+  if [ -x "$here/rk-daemon" ]; then daemon=$here/rk-daemon
+  elif command -v rk-daemon >/dev/null 2>&1; then daemon=$(command -v rk-daemon)
+  fi
+fi
+
+say() { printf 'revkit: %s\n' "$*" >&2; }
+die() { say "$*"; exit 1; }
+
+up() {  # the server answers on the web UI's port
+  if command -v curl >/dev/null 2>&1; then
+    curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:$port/healthz"
+  else
+    wget -q -O /dev/null --timeout=2 "http://127.0.0.1:$port/healthz"
+  fi
+}
+
+running_pid() {
+  [ -f "$pidfile" ] || return 1
+  p=$(cat "$pidfile")
+  [ -n "$p" ] && kill -0 "$p" 2>/dev/null && { echo "$p"; return 0; }
+  return 1
+}
+
+auth_flag() {
+  # Accounts when the user chose them (rk-daemon's first-run choice);
+  # otherwise local use without sign-in.
+  for f in "$config_home/revkit/revkit.conf" /etc/revkit/revkit.conf; do
+    [ -f "$f" ] || continue
+    v=$(sed -n 's/^[[:space:]]*auth[[:space:]]*=[[:space:]]*\([a-z]*\).*/\1/p' "$f" | tail -n 1)
+    [ -n "$v" ] && { [ "$v" = accounts ] && echo --auth || echo --no-auth; return; }
+  done
+  echo --no-auth
+}
+
+post() {  # POST JSON to a Connect method of the running server
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS --max-time 600 -H 'Content-Type: application/json' -d "$2" "http://127.0.0.1:$port/revkit.v1.$1"
+  else
+    wget -q -O - --timeout=600 --header='Content-Type: application/json' --post-data="$2" "http://127.0.0.1:$port/revkit.v1.$1"
+  fi
+}
+
+json_string() {  # $1 as a JSON string literal
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | { printf '"'; cat; printf '"'; }
+}
+
+import_files() {
+  for f in "$@"; do
+    [ -e "$f" ] || { say "no such file: $f"; continue; }
+    p=$(cd "$(dirname "$f")" && pwd -P)/$(basename "$f")
+    say "importing $p"
+    post ProjectService/ImportProgram "{\"projectId\":\"default\",\"path\":$(json_string "$p")}" >/dev/null ||
+      say "could not import $p (see 'revkit logs')"
+  done
+}
+
+open_browser() {
+  [ "${REVKIT_NO_BROWSER:-}" = 1 ] && { say "web UI at $url"; return; }
+  # Only with a desktop session ("open" is openvt on Linux, never a browser).
+  [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || { say "web UI at $url"; return; }
+  for o in xdg-open sensible-browser x-www-browser; do
+    if command -v "$o" >/dev/null 2>&1; then
+      "$o" "$url" >/dev/null 2>&1 &
+      say "opened $url"
+      return
+    fi
+  done
+  say "web UI at $url"
+}
+
+start() {
+  if up; then return 0; fi
+  mkdir -p "$data" "$state"
+  if [ "$mode" = docker ]; then
+    [ -n "$bundle" ] && [ -d "$bundle" ] || die "the Docker mode's bundle is missing (run 'revkit update')"
+    docker rm -f revkit >/dev/null 2>&1 || true
+    say "starting the server in Docker (Debian 12)"
+    # As this user, so what it writes in the home directory stays the user's.
+    docker run -d --name revkit --network host --restart no -u "$(id -u):$(id -g)" \
+      -e HOME="$HOME" -v "$bundle:/opt/revkit:ro" -v "$data:$data" -v "$HOME:$HOME:ro" \
+      debian:12 /opt/revkit/bin/rk-daemon $(auth_flag) --http "127.0.0.1:$port" --grpc "127.0.0.1:$grpc" \
+      --project-dir "$data" --browse-root "$HOME" >/dev/null
+  else
+    [ -n "$daemon" ] && [ -x "$daemon" ] || die "rk-daemon not found (install revkit: curl -fsSL https://raw.githubusercontent.com/meenmachine1/revkit/main/install.sh | sh)"
+    say "starting the server (log: $log)"
+    # setsid: the server outlives this shell and the terminal.
+    setsid "$daemon" $(auth_flag) --http "127.0.0.1:$port" --grpc "127.0.0.1:$grpc" \
+      --project-dir "$data" --browse-root "$HOME" </dev/null >>"$log" 2>&1 &
+    echo $! >"$pidfile"
+  fi
+  i=0
+  while ! up; do
+    i=$((i + 1))
+    if [ $i -gt 120 ]; then
+      say "the server did not start in time; its log says:"
+      if [ "$mode" = docker ]; then docker logs --tail 20 revkit >&2 || true; else tail -n 20 "$log" >&2 || true; fi
+      exit 1
+    fi
+    sleep 0.5
+  done
+}
+
+stop() {
+  if [ "$mode" = docker ]; then
+    docker rm -f revkit >/dev/null 2>&1 && say "stopped" || say "not running"
+    return
+  fi
+  if p=$(running_pid); then
+    kill "$p"
+    i=0
+    while kill -0 "$p" 2>/dev/null && [ $i -lt 60 ]; do i=$((i + 1)); sleep 0.5; done
+    rm -f "$pidfile"
+    say "stopped"
+  elif up; then
+    say "a server answers on port $port, but not one this command started: stop it where it was started"
+  else
+    say "not running"
+  fi
+}
+
+case ${1:-} in
+  stop) stop ;;
+  status)
+    if up; then
+      v=$(post MetaService/GetServerInfo '{}' | sed -n 's/.*"serverVersion":"\([^"]*\)".*/\1/p')
+      say "running at $url (${v:-unknown version}); projects in $data"
+    else
+      say "not running"
+      exit 3
+    fi ;;
+  logs)
+    if [ "$mode" = docker ]; then exec docker logs -f revkit; fi
+    [ -f "$log" ] || die "no log yet ($log)"
+    exec tail -f "$log" ;;
+  update)
+    command -v curl >/dev/null 2>&1 || die "update needs curl"
+    curl -fsSL https://raw.githubusercontent.com/meenmachine1/revkit/main/install.sh | sh ;;
+  version|--version|-V)
+    if [ "$mode" = docker ]; then echo "revkit (Docker) $(basename "$bundle")"
+    elif [ -n "$daemon" ]; then "$daemon" --version
+    else die "rk-daemon not found"
+    fi ;;
+  -h|--help|help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *)
+    start
+    [ $# -gt 0 ] && import_files "$@"
+    open_browser ;;
+esac

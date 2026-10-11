@@ -63,6 +63,9 @@ endif()
 if(TARGET revkit_example_plugins)
   install(DIRECTORY "${CMAKE_BINARY_DIR}/plugins/" DESTINATION share/revkit/plugins OPTIONAL)
 endif()
+# revkit: starts the server with sensible defaults and opens the browser
+# (docs/getting-started.md, "The revkit command").
+install(PROGRAMS packaging/revkit DESTINATION ${CMAKE_INSTALL_BINDIR})
 # The starter scripts: the daemon's shipped script library (docs/scripting.md).
 install(DIRECTORY sdk/python/revkit/scripts/ DESTINATION share/revkit/scripts
         FILES_MATCHING PATTERN "*.py" PATTERN "__init__.py" EXCLUDE PATTERN "__pycache__" EXCLUDE)
