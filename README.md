@@ -1,7 +1,7 @@
 # revkit
 
 A reverse-engineering workbench built around Ghidra's decompiler and SLEIGH
-engine, compiled into a native C++ server. No Java.
+engine, compiled into a native C++ server.
 
 One server, `rk-daemon`, loads ELF, PE and raw firmware images, analyzes
 them, and serves the results to a web UI, a desktop app, Python and
@@ -14,13 +14,12 @@ comment records who made it and why, and can be undone.
 ## Features
 
 - **Decompiler**: Ghidra's decompiler, fed by revkit's own analysis. Measured
-  against source code, it beats Ghidra's output on more functions than it
-  loses ([decomp-quality.md](docs/decomp-quality.md)).
+  against source code: see [decomp-quality.md](docs/decomp-quality.md).
 - **Analysis**: function discovery, data and strings, switch tables,
   prototype inference, DWARF and PDB, C header import, auto-created structs,
   MSVC RTTI, Function ID, library prototypes.
-- **Firmware**: raw images with processor and load-address detection, every
-  SLEIGH language Ghidra ships (189), Harvard and word-addressed MCUs.
+- **Firmware**: raw images with processor and load-address detection, as well as
+  every SLEIGH language Ghidra ships (189), Harvard and word-addressed MCUs.
 - **Emulator and debugger**: a p-code emulator with rewind and Python hooks;
   live debugging over GDB remote (gdbserver, QEMU, OpenOCD, J-Link) with
   stack unwinding, watches and conditional breakpoints; firmware machines
@@ -34,14 +33,10 @@ comment records who made it and why, and can be undone.
 - **Ghidra interop**: bring a Ghidra project's work into revkit and send
   revkit's edits back.
 
-[docs/status.md](docs/status.md) has the details and the numbers behind
-them; [docs/ghidra-feature-survey.md](docs/ghidra-feature-survey.md)
-compares revkit with Ghidra feature by feature.
-
 ## Quick start
 
 revkit runs on Linux, x86-64 or aarch64 (including Linux VMs on Apple
-Silicon Macs).
+Silicon Macs). It also runs in Docker. See [Slow Start: run with Docker](#docker)
 
 **1. Install** (no root needed):
 
@@ -99,7 +94,7 @@ marked `agent:claude`, and can be reviewed or undone.
 
 ## Slow start
 
-The same thing by hand, one step at a time.
+The same thing by hand.
 
 **1. Check your system.** revkit's builds are for Linux on x86-64 or
 aarch64 with glibc 2.34 or newer and GCC 12's C++ runtime: Ubuntu 22.04,
@@ -119,8 +114,8 @@ them:
 
 ```sh
 arch=$(uname -m)
-base=https://github.com/meenmachine1/revkit/releases/download/v0.1.0
-curl -fLO $base/revkit-0.1.0-linux-$arch.tar.gz
+base=https://github.com/meenmachine1/revkit/releases/download/v0.1.1
+curl -fLO $base/revkit-0.1.1-linux-$arch.tar.gz
 curl -fLO $base/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS     # must say OK
 ```
@@ -129,17 +124,17 @@ sha256sum --check --ignore-missing SHA256SUMS     # must say OK
 
 ```sh
 mkdir -p ~/opt
-tar -xzf revkit-0.1.0-linux-$arch.tar.gz -C ~/opt
-export PATH=~/opt/revkit-0.1.0-linux-$arch/bin:$PATH
+tar -xzf revkit-0.1.1-linux-$arch.tar.gz -C ~/opt
+export PATH=~/opt/revkit-0.1.1-linux-$arch/bin:$PATH
 rk-daemon --version
 # to keep it on your PATH in new shells:
-echo "export PATH=\"$HOME/opt/revkit-0.1.0-linux-$arch/bin:\$PATH\"" >> ~/.profile
+echo "export PATH=\"$HOME/opt/revkit-0.1.1-linux-$arch/bin:\$PATH\"" >> ~/.profile
 ```
 
-Or install the `.deb` instead (`revkit_0.1.0_amd64.deb` or
-`revkit_0.1.0_arm64.deb`): `sudo apt install ./revkit_0.1.0_amd64.deb`
+Or install the `.deb` instead (`revkit_0.1.1_amd64.deb` or
+`revkit_0.1.1_arm64.deb`): `sudo apt install ./revkit_0.1.1_amd64.deb`
 puts everything under `/usr`. On x86-64 there is also the desktop app,
-`revkit-desktop_0.1.0_amd64.AppImage`: make it executable and run it; it
+`revkit-desktop_0.1.1_amd64.AppImage`: make it executable and run it; it
 starts its own server, so you can stop here.
 
 **4. Start the server:**
@@ -163,13 +158,14 @@ your projects stay in `~/revkit-projects`. For <http://revkit.localhost>
 without the port, see
 [getting-started.md](docs/getting-started.md#a-port-free-name-httprevkitlocalhost).
 
-**6. On an older system, with Docker:** run the same bundle in a Debian 12
+<a id="docker"></a>
+**6. With Docker:** run the same bundle in a Debian 12
 container, as you, with your home read-only and the projects writable:
 
 ```sh
 mkdir -p ~/revkit-projects
 docker run -d --name revkit --network host -u "$(id -u):$(id -g)" -e HOME="$HOME" \
-  -v ~/opt/revkit-0.1.0-linux-$arch:/opt/revkit:ro -v ~/revkit-projects:$HOME/revkit-projects \
+  -v ~/opt/revkit-0.1.1-linux-$arch:/opt/revkit:ro -v ~/revkit-projects:$HOME/revkit-projects \
   -v "$HOME:$HOME:ro" debian:12 \
   /opt/revkit/bin/rk-daemon --no-auth --project-dir "$HOME/revkit-projects" --browse-root "$HOME"
 ```
