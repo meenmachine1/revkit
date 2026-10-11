@@ -2,7 +2,8 @@
 // "Changing the language"): the dialog compares the processor's variants on
 // the program's code, marks the current language and auto-detection's pick,
 // and keeps Switch off while the current language is chosen; Escape closes
-// it. Switching itself is covered by the backend's tests
+// it; while a switch runs it says so (the call held back and refused
+// here). Switching itself is covered by the backend's tests
 // (RawRebaseTest.TheLanguageChangesInPlaceAndBack), so the shared test
 // program stays in its language for the checks after this one.
 // run.ts calls languageChecks().
@@ -36,6 +37,30 @@ export async function languageChecks(c: LanguageContext) {
     assert(await p.isDisabled("[data-testid=lang-apply]"), "Switch is off while the current language is chosen");
     await p.keyboard.press("Escape");
     await p.waitForSelector("[data-testid=lang-dialog]", { state: "detached" });
+    await p.context().close();
+  });
+
+  await check("change language: Switch shows its progress while the program is analyzed again; a refusal gives the dialog back", async () => {
+    const p = await open(base);
+    // Held back, then refused here: the shared program keeps its language.
+    await p.route("**/revkit.v1.ProjectService/SetProgramLanguage", async (route) => {
+      await new Promise((r) => setTimeout(r, 1500));
+      await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ code: "failed_precondition", message: "held back by the test" }) });
+    });
+    await p.click("#analyzemenu");
+    await p.click("[data-testid=menu] .menu-item:has-text('Change language')");
+    await p.waitForSelector("[data-testid=lang-row]", { timeout: 60000 });
+    const current = await p.inputValue("[data-testid=lang-other]");
+    const another = (await p.$$eval("[data-testid=lang-other] option", (os) => os.map((o) => (o as HTMLOptionElement).value))).find((v) => v !== current);
+    assert(another, "another language of the processor to pick");
+    await p.selectOption("[data-testid=lang-other]", another);
+    await p.click("[data-testid=lang-apply]");
+    await p.waitForSelector("[data-testid=lang-progress]:not([hidden])");
+    assert(/analyzing the program again/.test((await p.textContent("[data-testid=lang-progress]")) ?? ""), "what it is doing");
+    assert(await p.isDisabled("[data-testid=lang-apply]"), "Switch is off while it runs");
+    await p.waitForSelector("[data-testid=lang-progress]", { state: "hidden", timeout: 10000 });
+    assert(!(await p.isDisabled("[data-testid=lang-apply]")), "Switch is back after the refusal");
+    await p.keyboard.press("Escape");
     await p.context().close();
   });
 

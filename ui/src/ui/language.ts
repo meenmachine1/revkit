@@ -74,6 +74,9 @@ export async function showLanguageDialog(rk: Revkit, o: LanguageOptions) {
   const table = h("div", { class: "lang-table", role: "listbox", "aria-label": "Variants", "data-testid": "lang-table" }, h("div", { class: "dim lang-busy" }, "Comparing the variants on the program's code…"));
   const meta = h("div", { class: "lang-meta dim", "data-testid": "lang-meta" });
   const why = h("div", { class: "lang-why", "data-testid": "lang-why" });
+  // While a switch runs: the program is analyzed again in the new language
+  // before the call returns (as long as the import's analysis took).
+  const progress = h("div", { class: "dim lang-busy", "data-testid": "lang-progress", hidden: true });
   const other = h(
     "select",
     { class: "filter select", "aria-label": "Any language of the processor", "data-testid": "lang-other" },
@@ -96,6 +99,7 @@ export async function showLanguageDialog(rk: Revkit, o: LanguageOptions) {
     meta,
     why,
     h("div", { class: "lang-pick" }, h("label", { class: "dim" }, "Language", other), h("label", { class: "dim" }, "Compiler", compiler)),
+    progress,
     h("div", { class: "modal-hint" }, "The same bytes at the same addresses: names, comments and types stay, and analysis runs again in the new language. One undo step."),
     h("div", { class: "lang-buttons" }, back, h("span", { class: "spacer" }), h("button", { class: "btn", type: "button", "data-testid": "lang-cancel", onclick: close }, "Cancel"), apply),
   );
@@ -133,6 +137,10 @@ export async function showLanguageDialog(rk: Revkit, o: LanguageOptions) {
 
   const switchTo = async (imported = false) => {
     apply.disabled = true;
+    back.disabled = true;
+    const target = imported ? "the imported language" : variantLabel(chosen, "").replace(/ \(big-endian\)$/, "");
+    progress.textContent = `Switching to ${target}: analyzing the program again in it… (as long as its import took; Cancel only closes this)`;
+    progress.hidden = false;
     try {
       const r = await rk.projects.setProgramLanguage({
         programId: o.programId,
@@ -147,10 +155,13 @@ export async function showLanguageDialog(rk: Revkit, o: LanguageOptions) {
       }
       const label = `Language ${r.previousLanguageId} → ${r.languageId || "as imported"}`;
       o.recordUndo(label, [r.assertion.seq]);
-      toast(`${label}: analyzing again…`, { action: { label: "Undo", run: () => o.undo() } });
+      // Analyzed in it already: the call returns once the analysis is done.
+      toast(label, { action: { label: "Undo", run: () => o.undo() } });
       if (r.snapshot?.revision) await o.settle(r.snapshot.revision);
     } catch (e) {
       apply.disabled = false;
+      back.disabled = false;
+      progress.hidden = true;
       toast(errText(e), { kind: "error" });
     }
   };

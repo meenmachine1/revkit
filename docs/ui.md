@@ -889,7 +889,8 @@ marked **current**. Click a row (or Enter) to choose it, or pick any
 language of the processor (the other byte order) and a compiler spec from
 the lists below; **Switch** changes the language in place: the same bytes
 at the same addresses, every name, comment and type kept, analysis run
-again. It is one undo step (Ctrl+Z, or the toast's Undo);
+again (the dialog says so while it runs; it takes about as long as the
+import's analysis, and the views wait for it). It is one undo step (Ctrl+Z, or the toast's Undo);
 **Imported language** goes back to the language of the import. A language
 that lays memory out differently is greyed out: import the file again in
 it.
@@ -2082,6 +2083,11 @@ The status bar's first item, bottom left, is the daemon's chip
 (`ui/src/ui/daemon.ts`), in the browser and in the desktop app:
 
 - **connected** (green): `rk-daemon 0.1.0 · <project>`;
+- **busy…** (amber, pulsing): the daemon is there, but a check (4 s)
+  went unanswered: a long job, such as analyzing a program again in a new
+  language, holds the browser's few connections to it. The page stays
+  usable, and what it asks for arrives when the daemon is done. A minute of
+  unanswered checks is **disconnected**; a refused connection is at once;
 - **connecting** (amber, pulsing): the first call, or a Reconnect;
 - **disconnected** (red), with a button beside it: **Reconnect** in a
   browser, **Start daemon** in the desktop app when its daemon has stopped;

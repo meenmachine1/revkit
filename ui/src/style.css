@@ -317,9 +317,10 @@ select.filter, select.ask-select { font-family: system-ui, -apple-system, "Segoe
 .st-daemon.connected i, .st-daemon-dot.connected { background: var(--ok); }
 .st-daemon.disconnected { border-color: var(--error); color: var(--error); background: color-mix(in srgb, var(--error) 12%, var(--bg)); }
 .st-daemon.disconnected i, .st-daemon-dot.disconnected { background: var(--error); }
-.st-daemon.connecting i, .st-daemon.restarting i { animation: rk-pulse 1s ease-in-out infinite alternate; }
+.st-daemon.busy { border-color: var(--warn); }
+.st-daemon.connecting i, .st-daemon.restarting i, .st-daemon.busy i { animation: rk-pulse 1s ease-in-out infinite alternate; }
 @keyframes rk-pulse { from { opacity: 1; } to { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { .st-daemon.connecting i, .st-daemon.restarting i { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .st-daemon.connecting i, .st-daemon.restarting i, .st-daemon.busy i { animation: none; } }
 #statusbar .st-daemon-action { padding: 0 8px; height: 18px; font-size: 11px; margin-left: -8px; }
 .popover.daemon-pop { min-width: 300px; max-width: min(520px, 94vw); }
 .daemon-pop .dp-head { display: flex; align-items: center; gap: 8px; }

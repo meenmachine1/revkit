@@ -4,6 +4,9 @@
 //
 //   - connected: green, the daemon's version and the project; the popover
 //     shows the server version, the API, the uptime and the address;
+//   - busy: a check that times out (the daemon there but occupied, its
+//     answer held back here) turns the chip amber, not red, and the page
+//     stays writable; the next answer turns it green, with no "back" toast;
 //   - disconnected: the daemon is killed (SIGKILL, by its PID); the chip
 //     turns red, the listing keeps its rows, and the popover offers
 //     Reconnect and the command that starts the daemon with the flags it
@@ -114,6 +117,37 @@ export async function daemonChecks(c: DaemonContext) {
       assert((await text("daemon-address")) === base, `address: ${await text("daemon-address")}`);
       await page.keyboard.press("Escape");
       await page.waitForSelector("[data-testid=daemon-popover]", { state: "detached" });
+    });
+
+    await check("daemon chip: a check that times out is busy (amber, the page writable), not lost; green again when it answers", async () => {
+      // GetServerInfo held past the probe's 4 s deadline, as when a long
+      // analysis has every browser connection to the daemon waiting.
+      const held = "**/revkit.v1.MetaService/GetServerInfo";
+      await page.route(held, async (route) => {
+        await new Promise((r) => setTimeout(r, 6000));
+        await route.continue().catch(() => {});
+      });
+      const toasts: string[] = [];
+      await page.exposeFunction("__daemonToast", (t: string) => toasts.push(t)).catch(() => {});
+      await page.evaluate(() => {
+        new MutationObserver((ms) => {
+          for (const m of ms) for (const n of m.addedNodes) if (n instanceof HTMLElement && n.classList.contains("toast")) (window as unknown as { __daemonToast: (t: string) => void }).__daemonToast(n.textContent ?? "");
+        }).observe(document.body, { childList: true, subtree: true });
+      });
+      await page.evaluate("window.__daemon.probe()");
+      await untilChip("busy", 10000);
+      const [, label] = await chip();
+      assert(label.includes("busy"), `chip: ${label}`);
+      // Read-only is for disconnected and restarting (api/client.ts, daemonDown).
+      assert((await page.evaluate("document.body.dataset.daemon")) === "busy", "the page isn't read-only");
+      await page.click("#st-daemon");
+      await page.waitForSelector("[data-testid=daemon-busy]");
+      assert((await text("daemon-version")).startsWith("rk-daemon"), "the popover keeps the server's details");
+      await page.keyboard.press("Escape");
+      await page.unroute(held);
+      await page.evaluate("window.__daemon.probe()");
+      await untilChip("connected", 10000);
+      assert(!toasts.some((t) => /Lost the daemon|Daemon is back/.test(t)), `toasts: ${toasts.join(" / ")}`);
     });
 
     await check("daemon chip: Restart daemon… in the browser: the confirmation counts the other tab; restarting…; the same daemon (PID, port) back, live, no reload", async () => {

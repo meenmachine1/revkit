@@ -1,6 +1,7 @@
 // The daemon status chip, bottom left of the status bar (docs/ui.md,
 // "Daemon status"): connected (green: the daemon's version and the
-// project), connecting, or disconnected (red). Clicking it opens a popover
+// project), busy (amber: it is there but hasn't answered a check in time),
+// connecting, or disconnected (red). Clicking it opens a popover
 // with the server version, API, uptime and the address the page talks to.
 //
 // Disconnected in a browser, the page keeps what it has loaded, read-only,
@@ -10,16 +11,19 @@
 // and shows its log, through the shell's daemon_* commands (main.rs): the
 // only Tauri IPC the UI uses, and only when it runs there.
 
+import { Code, ConnectError } from "@connectrpc/connect";
 import { Role, type Revkit } from "@revkit/api";
 import { session } from "../api/client";
 import { errText } from "../data/format";
 import { toast } from "./dialogs";
 import { h, overlayRoot, prefs } from "./dom";
 
-export type DaemonState = "connecting" | "connected" | "disconnected" | "restarting";
+export type DaemonState = "connecting" | "connected" | "busy" | "disconnected" | "restarting";
 
 /** How long a restart may take before the chip says disconnected. */
 const RESTART_MS = 90_000;
+/** How long the daemon may leave checks unanswered before the chip says disconnected. */
+const BUSY_MS = 60_000;
 
 /** What GetServerInfo said, and when. */
 interface Info {
@@ -97,6 +101,8 @@ export class DaemonStatus {
   private action: HTMLButtonElement;
   private pop: HTMLElement | null = null;
   private timer: number | undefined;
+  /** When checks started timing out (state "busy"). */
+  private busySince = 0;
   private tick: number | undefined;
   private probing: Promise<boolean> | null = null;
   private lastError = "";
@@ -183,6 +189,14 @@ export class DaemonStatus {
   /** A call could not reach the daemon. */
   failed(e: unknown) {
     this.lastError = errText(e);
+    // A check that timed out reached a daemon too occupied to answer in
+    // time: a long job (analysis in a new language, say) holds the
+    // browser's few connections to it. That's busy, not gone, for up to
+    // BUSY_MS; a refused or dropped connection is gone at once.
+    if (e instanceof ConnectError && e.code === Code.DeadlineExceeded && (this.state === "connected" || this.state === "busy")) {
+      if (this.state === "connected") this.busySince = Date.now();
+      if (Date.now() - this.busySince < BUSY_MS) return this.setState("busy");
+    }
     // Down for a restart: expected, until it takes too long.
     if (this.state === "restarting" && Date.now() - this.restartAt < RESTART_MS) return this.setState("restarting");
     if (this.state === "restarting") toast("The daemon didn't come back after the restart; see its log", { kind: "error", ms: 8000 });
@@ -195,7 +209,7 @@ export class DaemonStatus {
 
   /** The subscription stream's state (Live): a drop is checked at once. */
   noteStream(s: string) {
-    if (s === "reconnecting" && (this.state === "connected" || this.state === "restarting")) void this.probe();
+    if (s === "reconnecting" && (this.state === "connected" || this.state === "busy" || this.state === "restarting")) void this.probe();
   }
 
   /** Asks the daemon; true when it answered. One at a time. */
@@ -219,8 +233,8 @@ export class DaemonStatus {
   private setState(s: DaemonState) {
     this.state = s;
     document.body.dataset.daemon = s;
-    // Checked every 15 s while connected, every 3 s while not, twice a
-    // second while restarting.
+    // Checked every 15 s while connected, every 3 s while busy or not
+    // connected, twice a second while restarting.
     clearTimeout(this.timer);
     this.timer = window.setTimeout(() => void this.probe(), s === "connected" ? 15000 : s === "restarting" ? 500 : 3000);
     this.render();
@@ -242,6 +256,8 @@ export class DaemonStatus {
         return "connecting…";
       case "restarting":
         return "restarting…";
+      case "busy":
+        return "busy…";
       case "disconnected":
         return this.desktop && this.desktopState?.managed && !this.desktopState.running ? "daemon stopped" : "disconnected";
       case "connected": {
@@ -257,7 +273,15 @@ export class DaemonStatus {
     this.chip.dataset.state = this.state;
     this.label.textContent = this.chipText();
     this.chip.title =
-      this.state === "connected" ? `Connected to ${this.address}` : this.state === "connecting" ? `Connecting to ${this.address}` : this.state === "restarting" ? `The daemon at ${this.address} is restarting` : `Can't reach the daemon at ${this.address}`;
+      this.state === "connected"
+        ? `Connected to ${this.address}`
+        : this.state === "busy"
+          ? `The daemon at ${this.address} is busy (a long analysis, say): the page waits for it`
+          : this.state === "connecting"
+            ? `Connecting to ${this.address}`
+            : this.state === "restarting"
+              ? `The daemon at ${this.address} is restarting`
+              : `Can't reach the daemon at ${this.address}`;
     const managed = !!(this.desktop && this.desktopState?.managed);
     const down = this.state === "disconnected";
     this.action.hidden = !down;
@@ -337,7 +361,7 @@ export class DaemonStatus {
       h("span", { class: "dim", "data-testid": "daemon-pop-state" }, this.state),
     );
     const rows: Node[] = [];
-    const connected = this.state === "connected";
+    const connected = this.state === "connected" || this.state === "busy";
     if (i?.serverVersion) rows.push(row("Server", i.serverVersion + (connected ? "" : " (last seen)"), "daemon-version"));
     if (i?.apiMajor) rows.push(row("API", `${i.apiMajor}.${i.apiMinor}`, "daemon-api"));
     const up = this.uptimeNow();
@@ -356,6 +380,14 @@ export class DaemonStatus {
       body.push(h("div", { class: "dim" }, "This daemon was not started by the app (REVKIT_DAEMON); start and stop it where it runs."));
     }
     if (this.state === "restarting") body.push(h("div", { class: "dim", "data-testid": "daemon-restarting" }, "Restarting: the page reconnects when the daemon is back."));
+    else if (this.state === "busy")
+      body.push(
+        h(
+          "div",
+          { class: "dim", "data-testid": "daemon-busy" },
+          `Busy for ${Math.round((Date.now() - this.busySince) / 1000)} s: it is running but hasn't answered a check in time (a long analysis, say). The page stays usable; what it asks for arrives when the daemon is done.`,
+        ),
+      );
     else if (connected && this.canRestart() && !(this.desktop && ds?.managed))
       body.push(
         h(
