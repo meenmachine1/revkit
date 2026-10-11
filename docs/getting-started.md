@@ -30,8 +30,9 @@ names where this page says `0.1.0`
 
 ## Install
 
-revkit runs on x86-64 Linux with glibc 2.36 or newer (Debian 12, Ubuntu
-23.04 and later, Fedora 37 and later). `scripts/package.sh` builds the
+revkit runs on Linux, x86-64 or aarch64, with glibc 2.34 or newer and GCC
+12's C++ runtime (Ubuntu 22.04, Debian 12, Fedora 36 and later); on older
+systems, the installer runs it in Docker. `scripts/package.sh` builds the
 packages into `build/dist/` ([packaging.md](packaging.md)).
 
 **The installer** (no root): the latest release for this machine, checked

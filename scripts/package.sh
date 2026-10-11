@@ -11,8 +11,8 @@
 #   revkit-<v>-linux-x86_64.tar.gz   portable bundle: bin/, lib/revkit/ (private
 #                                    libraries), share/revkit/{ui,ghidra,plugins,sdk,python},
 #                                    share/doc/revkit (notices, licenses); runs from
-#                                    any directory on glibc >= 2.36 (Debian 12,
-#                                    Ubuntu 23.04+)
+#                                    any directory on glibc >= 2.34 with GCC 12's
+#                                    libstdc++ (Ubuntu 22.04, Debian 12 and later)
 #   revkit_<v>_amd64.deb             the same tree under /usr (CPack)
 #   revkit-<pv>-py3-none-any.whl,    the Python SDK and MCP server
 #   revkit-<pv>.tar.gz

@@ -8,9 +8,9 @@
 # into ~/.local/share/revkit and puts the revkit command (and the rk-* tools)
 # in ~/.local/bin. Run it again to update. Then: revkit
 #
-# Where the system's C library is older than the build's (glibc 2.34; Ubuntu
-# 20.04, say) and Docker is there, the revkit command runs the server in a
-# Debian 12 container instead.
+# Where the system is older than the build needs (glibc 2.34 and GCC 12's
+# C++ runtime: Ubuntu 22.04, Debian 12; Ubuntu 20.04 is older) and Docker is
+# there, the revkit command runs the server in a Debian 12 container instead.
 #
 # Environment: REVKIT_VERSION (a release tag, default the latest),
 # REVKIT_PREFIX (default ~/.local), REVKIT_DOCKER=1 (Docker mode even where
@@ -98,7 +98,7 @@ if [ "${REVKIT_DOCKER:-}" = 1 ] || ! "$dir/bin/rk-daemon" --version >/dev/null 2
   else
     say "this system can't run the build natively:"
     sed 's/^/  /' "$tmp/native.err" >&2
-    die "it needs glibc 2.34 or newer (Debian 12, Ubuntu 22.04 is too old, 24.04 works) or Docker (then run this again)"
+    die "it needs glibc 2.34 and GCC 12's C++ runtime or newer (Ubuntu 22.04, Debian 12, Fedora 36 and later), or Docker (then run this again)"
   fi
 fi
 if [ "$mode" = docker ]; then

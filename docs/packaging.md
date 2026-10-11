@@ -110,8 +110,11 @@ beside it.
 
 `scripts/package.sh` builds the preset in Docker on Debian 12
 (`packaging/linux/build.Dockerfile`: GCC 12, CMake 3.25, the system gRPC
-1.51 and protobuf 3.21), so the binaries need glibc 2.36 or newer and
-nothing else from the host; Ubuntu 24.04's toolchain would need 2.39.
+1.51 and protobuf 3.21), so the binaries need glibc 2.34 or newer (the
+newest symbol version they use) and GCC 12's libstdc++ (`GLIBCXX_3.4.30`),
+and nothing else from the host: Ubuntu 22.04, Debian 12, Fedora 36 and
+later (checked in an Ubuntu 22.04 container). Ubuntu 24.04's toolchain would
+need 2.39.
 The archives are reproducible from the same commit: file times are the
 commit's (`SOURCE_DATE_EPOCH`), entries are sorted and owned by root, and
 gzip stores no name or time.

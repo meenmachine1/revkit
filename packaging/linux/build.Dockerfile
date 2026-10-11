@@ -1,5 +1,5 @@
 # The release build environment (scripts/package.sh): Debian 12, whose
-# glibc 2.36 is the oldest the bundle runs on. Everything else revkit links
+# binaries need glibc 2.34 and GCC 12's libstdc++ (Ubuntu 22.04 and later). Everything else revkit links
 # dynamically (gRPC, protobuf, Abseil, OpenSSL, c-ares, RE2, zlib, liblzma,
 # libbz2) is copied into the bundle's lib/revkit; libzstd-dev is for builds
 # without plugins (wasmtime carries zstd otherwise). The mingw-w64 headers

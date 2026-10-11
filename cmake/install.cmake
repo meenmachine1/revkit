@@ -131,8 +131,9 @@ else()
   set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE amd64)
 endif()
 # Private libraries live in /usr/lib/revkit, so only the C and C++ runtimes
-# are dependencies (Debian 12's glibc 2.36 is the oldest it runs on).
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.36), libstdc++6 (>= 12)")
+# are dependencies: glibc 2.34 (the newest symbol version the binaries use)
+# and GCC 12's libstdc++ (GLIBCXX_3.4.30): Ubuntu 22.04, Debian 12 and later.
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.34), libstdc++6 (>= 12)")
 # Scripts (rk-script, the Script Manager) run in a Python environment made
 # from the shipped wheel: wanted, never required (the daemon, the CLIs and
 # the web UI need no Python).
