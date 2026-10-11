@@ -1,0 +1,188 @@
+// Replication between daemons (docs/collab.md). Daemons sharing a project
+// exchange its assertion log, and nothing else: derived facts are
+// recomputed by each daemon from the same inputs. Ops carry global ids, so
+// a daemon summarises what it holds as a version vector and asks a peer
+// for the rest (anti-entropy), then keeps a live stream open.
+//
+// The service is unauthenticated. Serve it on loopback or a trusted
+// network only; a peer can write anything any user could.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "revkit/v1/common.proto";
+import "revkit/v1/presence.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// Daemon-to-daemon replication: `rk-daemon --peer <host:port>` is a client
+// of its peer's SyncService and serves its own.
+service SyncService {
+  // Replica ids and version vectors of this daemon's projects.
+  rpc GetSyncState(GetSyncStateRequest) returns (GetSyncStateResponse);
+  // Streams a project's ops the caller lacks (by its version vector) in a
+  // causal order, then CaughtUp, then (live) every op this daemon commits
+  // afterwards, its own and those relayed from other peers, and presence.
+  rpc Pull(PullRequest) returns (stream PullResponse);
+  // Delivers a peer's ops, presence or program bytes. Ops are merged:
+  // ones already held are skipped, ones whose predecessors are missing
+  // wait for them. Merged ops commit as a revision with cause REPLICATION
+  // and invalidate subscribers' caches like any edit.
+  rpc Push(PushRequest) returns (PushResponse);
+  // A chunk of a program's file, for a peer that holds the program's
+  // record (an op) but not the bytes it was imported from.
+  rpc FetchProgram(FetchProgramRequest) returns (FetchProgramResponse);
+}
+
+// Per replica, the highest op counter held (counters are held contiguously).
+message VersionVector {
+  repeated VersionVectorEntry entries = 1;
+}
+
+message VersionVectorEntry {
+  fixed64 replica = 1;
+  uint64 counter = 2;
+}
+
+// One assertion-log op.
+message ReplicatedOp {
+  // Its global identity (also inside `encoded`), for filtering.
+  OpId id = 1;
+  // The op in the fact store's binary encoding (sync format `format`):
+  // key, value, provenance, stamp, references by id and the API's
+  // metadata. Opaque to clients.
+  bytes encoded = 2;
+}
+
+message ProjectSyncState {
+  string project_id = 1;
+  // This daemon's replica id for the project.
+  fixed64 replica = 2;
+  VersionVector version_vector = 3;
+  // Ops received from peers that wait for a predecessor.
+  uint64 waiting = 4;
+  uint64 head_revision = 5;
+  // Programs whose record this daemon holds but whose file it has not
+  // received yet (they are not served until it has).
+  repeated MissingProgram missing_programs = 6;
+}
+
+message MissingProgram {
+  string program_id = 1;
+  string sha256 = 2;
+  uint64 size = 3;
+}
+
+message GetSyncStateRequest {
+  // One project; empty = all.
+  string project_id = 1;
+}
+
+message GetSyncStateResponse {
+  // The op encoding this daemon speaks; peers must match.
+  uint32 format = 1;
+  repeated ProjectSyncState projects = 2;
+}
+
+message PullRequest {
+  string project_id = 1;
+  // The caller's replica id for the project (0 = none yet): ops it pushes
+  // itself are not echoed back.
+  fixed64 replica = 2;
+  // What the caller holds.
+  VersionVector have = 3;
+  // The caller's op encoding.
+  uint32 format = 4;
+  // Keep streaming after CaughtUp.
+  bool live = 5;
+  // Also stream presence.
+  bool include_presence = 6;
+  // Ops per OpBatch; 0 = 1000.
+  uint32 max_batch = 7;
+  // The caller's name, for logs.
+  string peer = 8;
+}
+
+message PullResponse {
+  oneof event {
+    PullHello hello = 1;
+    OpBatch ops = 2;
+    CaughtUp caught_up = 3;
+    Presence presence = 4;
+    SyncHeartbeat heartbeat = 5;
+  }
+}
+
+// First event: the serving daemon's replica for the project.
+message PullHello {
+  fixed64 replica = 1;
+  VersionVector version_vector = 2;
+  uint32 format = 3;
+  uint64 head_revision = 4;
+}
+
+message OpBatch {
+  repeated ReplicatedOp ops = 1;
+}
+
+// The backlog has been sent; live ops follow.
+message CaughtUp {
+  VersionVector version_vector = 1;
+}
+
+message SyncHeartbeat {
+  uint64 head_revision = 1;
+}
+
+message PushRequest {
+  string project_id = 1;
+  // The pushing replica (0 = none), so the receiver does not send these
+  // ops back to it.
+  fixed64 from_replica = 2;
+  uint32 format = 3;
+  repeated ReplicatedOp ops = 4;
+  repeated Presence presence = 5;
+  // A chunk of a program file the receiver reported missing.
+  ProgramChunk program = 6;
+  // Create the project (with this id) if the receiver has none.
+  bool create_project = 7;
+}
+
+message PushResponse {
+  // The receiver's version vector after the merge.
+  VersionVector version_vector = 1;
+  uint64 staged = 2;
+  uint64 duplicate = 3;
+  uint64 waiting = 4;
+  uint64 rejected = 5;
+  repeated string errors = 6;
+  // Head after the push (a new revision when ops were staged).
+  Snapshot snapshot = 7;
+  // Programs whose records the receiver holds but not their files.
+  repeated MissingProgram missing_programs = 8;
+  // The receiver's replica id for the project.
+  fixed64 replica = 9;
+}
+
+message ProgramChunk {
+  // SHA-256 of the whole file, hex.
+  string sha256 = 1;
+  uint64 offset = 2;
+  uint64 total_size = 3;
+  bytes data = 4;
+}
+
+message FetchProgramRequest {
+  string project_id = 1;
+  string sha256 = 2;
+  uint64 offset = 3;
+  // 0 = 1 MiB; at most 4 MiB.
+  uint32 max_bytes = 4;
+}
+
+message FetchProgramResponse {
+  ProgramChunk chunk = 1;
+}

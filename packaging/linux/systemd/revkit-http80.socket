@@ -1,0 +1,22 @@
+# http://revkit.localhost without a port (docs/getting-started.md, "A port-free
+# name"). systemd listens on port 80 of the loopback addresses only and
+# starts revkit-http80.service, which forwards each connection to the
+# daemon's own port, 127.0.0.1:50052 (rk-daemon itself keeps no privilege).
+#
+# Opt in, once, as root (nothing is enabled by installing the package):
+#
+#   sudo systemctl enable --now revkit-http80.socket
+#
+# The daemon must be listening on 127.0.0.1:50052: started by hand, or on
+# first use by your user's revkit-daemon.socket.
+[Unit]
+Description=revkit web UI at http://revkit.localhost (port 80 on loopback)
+Documentation=file:///usr/share/doc/revkit/getting-started.md
+
+[Socket]
+ListenStream=127.0.0.1:80
+ListenStream=[::1]:80
+NoDelay=true
+
+[Install]
+WantedBy=sockets.target

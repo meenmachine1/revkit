@@ -1,0 +1,44 @@
+{
+ "arch": "ppc",
+ "counts": {
+  "c_alpha": 3362,
+  "c_ast": 2632,
+  "c_both": 4045,
+  "c_flow": 3914,
+  "c_ghidra_only": 0,
+  "c_revkit_only": 0,
+  "c_shape": 3509,
+  "c_shape_dwarf": 3578,
+  "common": 4045,
+  "dwarf": 4406,
+  "dwarf_ghidra": 3979,
+  "dwarf_revkit": 3962,
+  "ghidra": 4090,
+  "insn_both": 249463,
+  "insn_ghidra": 251801,
+  "insn_revkit": 251003,
+  "revkit": 4149,
+  "truth_ghidra": 4006,
+  "truth_revkit": 3986
+ },
+ "images": [
+  "ppc/fwkit-ppc-O2",
+  "ppc/fwkit-ppc-Os",
+  "ppc/uboot-MCR3000",
+  "ppc/uboot-MPC837XERDB"
+ ],
+ "rates": {
+  "c_alpha": 0.83115,
+  "c_ast": 0.65068,
+  "c_flow": 0.967614,
+  "c_shape": 0.867491,
+  "c_shape_dwarf": 0.884549,
+  "dwarf_recall": 0.899228,
+  "ghidra_dwarf_recall": 0.903087,
+  "ghidra_truth_precision": 0.979462,
+  "listing_both": 0.990715,
+  "precision": 0.974934,
+  "recall": 0.988998,
+  "truth_precision": 0.960713
+ }
+}

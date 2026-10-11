@@ -1,0 +1,463 @@
+// Scripts the daemon runs for its clients (docs/scripting.md, "The daemon's
+// script service"): the libraries it knows (shipped, per-user,
+// per-project), running one as a Python host process that streams its
+// output, progress and prompts, and saving the editable ones.
+//
+// A run is the same `revkit.script` code `rk-script` runs, started by the
+// daemon with a run token that acts as the caller (its role and projects)
+// and is revoked when the run ends, so the script's edits pass the normal
+// authorization and provenance stamping: kind script, the script's name,
+// on_behalf_of the caller, the run id as the session.
+//
+// A script is full Python with the rights of the daemon's user. The daemon
+// runs scripts only for callers with the role --scripts-host-role names:
+// editor by default when every listener is on loopback, nobody otherwise
+// (docs/security.md, "Scripts").
+//
+// Added in api_minor 31 (feature "scripts-host"); older daemons answer
+// UNIMPLEMENTED. The console (RunScriptRequest.interactive, CompleteConsole,
+// CancelScriptRequest.interrupt) was added in api_minor 43 (features
+// "script-console" and "script-completion").
+syntax = "proto3";
+
+package revkit.v1;
+
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+service ScriptService {
+  // The scripts the daemon knows, with their metadata, and whether it runs
+  // scripts for the caller.
+  rpc ListScripts(ListScriptsRequest) returns (ListScriptsResponse);
+  // One script's source.
+  rpc GetScript(GetScriptRequest) returns (GetScriptResponse);
+  // Runs a script on a program: the stream's first message is `started`
+  // (or `trust_required`, and then it ends), then output, progress and
+  // prompts as the script makes them, then `result` or `error`.
+  // Cancelling the call cancels the run.
+  //
+  // With `interactive` (api_minor 43, feature "script-console") it runs
+  // `input` in the caller's Python console for the program instead: one
+  // live host per caller and program, kept between calls (and started
+  // again when it died or idled out), whose namespace persists. The stream
+  // is `started` (the console's run_id, whether the host was started for
+  // this call, the caller's history), then output and prompts, then
+  // `console_result`; or `error` when the host died during the statement.
+  // Cancelling the call interrupts the statement (KeyboardInterrupt); the
+  // console stays.
+  rpc RunScript(RunScriptRequest) returns (stream RunScriptResponse);
+  // Answers a prompt a run asked (RunScriptResponse.prompt).
+  rpc AnswerPrompt(AnswerPromptRequest) returns (AnswerPromptResponse);
+  // Cancels a run: the script's monitor is cancelled and the host gets
+  // SIGTERM, then SIGKILL 2 s later if it is still running. What the run
+  // had not committed is discarded. For a console (its run_id) this closes
+  // it; with `interrupt` it raises KeyboardInterrupt in what it runs.
+  rpc CancelScript(CancelScriptRequest) returns (CancelScriptResponse);
+  // The caller's cursor and selection moved: a running script's
+  // current_address, current_function and current_selection follow.
+  rpc UpdateContext(UpdateContextRequest) returns (UpdateContextResponse);
+  // Writes a per-user or per-project script (never a shipped one). The
+  // caller's trust in the saved text is pinned.
+  rpc SaveScript(SaveScriptRequest) returns (SaveScriptResponse);
+  // The caller's recent runs (an admin's: everyone's), newest first; kept
+  // in memory, the last 200.
+  rpc ListScriptRuns(ListScriptRunsRequest) returns (ListScriptRunsResponse);
+  // Makes the Python environment the daemon runs scripts with,
+  // ~/.local/share/revkit/pyenv (or under XDG_DATA_HOME), as
+  // `rk-script setup` does: a venv from python3 (rk-daemon
+  // --script-setup-python) with the revkit SDK the daemon ships
+  // (share/revkit/python's wheel; in a source build, sdk/python), whose
+  // dependencies pip fetches. For a daemon that found no Python
+  // (ListScriptsResponse.python_problem); callers who may run scripts.
+  // Streams the steps' output, then `result`. One at a time. Added in
+  // api_minor 33 (feature "scripts-setup").
+  rpc SetupScriptPython(SetupScriptPythonRequest) returns (stream SetupScriptPythonResponse);
+  // Completions for the caller's console of a program, from its live
+  // namespace (jedi when the host's Python has it, else rlcompleter).
+  // FAILED_PRECONDITION when the caller has no live console there. Answered
+  // while a statement runs, too. Added in api_minor 43 (feature
+  // "script-completion").
+  rpc CompleteConsole(CompleteConsoleRequest) returns (CompleteConsoleResponse);
+}
+
+enum ScriptLibrary {
+  SCRIPT_LIBRARY_UNSPECIFIED = 0;
+  // Installed with revkit (share/revkit/scripts; the source tree's
+  // sdk/python/revkit/scripts). Read-only, and trusted like the daemon.
+  SCRIPT_LIBRARY_SHIPPED = 1;
+  // The daemon's user's own (~/.config/revkit/scripts, or
+  // $XDG_CONFIG_HOME/revkit/scripts).
+  SCRIPT_LIBRARY_USER = 2;
+  // A project's (<project-dir>/<project>/scripts), with --project-dir.
+  SCRIPT_LIBRARY_PROJECT = 3;
+}
+
+// An `@arg name[:type][[a|b]][=default] description` line.
+message ScriptArg {
+  string name = 1;
+  // str, int, float, bool, address, file or choice.
+  string type = 2;
+  bool has_default = 3;
+  string default_value = 4;
+  string description = 5;
+  repeated string choices = 6;
+}
+
+message ScriptInfo {
+  // How every call names it: "shipped/<file>", "user/<file>",
+  // "project/<project_id>/<file>".
+  string script_id = 1;
+  ScriptLibrary library = 2;
+  // SCRIPT_LIBRARY_PROJECT: whose.
+  string project_id = 3;
+  // The file's name ("rename_by_strings.py").
+  string file_name = 4;
+  // Its provenance id: @name, else the file's stem.
+  string name = 5;
+  string category = 6;
+  string description = 7;
+  string menupath = 8;
+  string keybinding = 9;
+  // program, function, address or selection.
+  string context = 10;
+  repeated ScriptArg args = 11;
+  // Hex SHA-256 of the source; its first 12 digits are the provenance
+  // version.
+  string sha256 = 12;
+  // The caller may run this exact text without confirming it: shipped, or
+  // pinned by the caller (a confirmed run, or the caller saved it).
+  bool trusted = 13;
+  // The caller may save over it (SaveScript).
+  bool writable = 14;
+  // Malformed metadata lines.
+  repeated string errors = 15;
+  int64 modified_unix = 16;
+  uint64 size = 17;
+}
+
+message ListScriptsRequest {
+  // Also the project's library; empty: shipped and per-user only.
+  string project_id = 1;
+}
+
+message ListScriptsResponse {
+  // By category, then name.
+  repeated ScriptInfo scripts = 1;
+  // Whether RunScript and SaveScript are open to the caller; when not,
+  // host_disabled_reason says why (scripts off on a non-loopback daemon,
+  // the caller's role) and what turns them on.
+  bool host_enabled = 2;
+  string host_disabled_reason = 3;
+  // The Python the daemon runs scripts with, or empty with python_problem
+  // saying what was tried and how to set one up.
+  string python = 4;
+  string python_problem = 5;
+}
+
+message GetScriptRequest {
+  string script_id = 1;
+}
+
+message GetScriptResponse {
+  ScriptInfo script = 1;
+  string source = 2;
+}
+
+// Where the caller is: the script's current_address (and so
+// current_function) and current_selection.
+message ScriptContext {
+  Address address = 1;
+  AddressRange selection = 2;
+}
+
+message RunScriptRequest {
+  string script_id = 1;
+  string program_id = 2;
+  // --arg name=value: fills `args` and answers the ask_* of that name.
+  map<string, string> args = 3;
+  ScriptContext context = 4;
+  // The script's sha256 the caller was shown and confirmed
+  // (trust_required): pins it and runs it.
+  string confirm_sha256 = 5;
+  // The provenance reason; default the script's @description.
+  string reason = 6;
+  // The console (api_minor 43, feature "script-console"): run `input` in
+  // the caller's live console of program_id (script_id, args and
+  // confirm_sha256 are not used). Empty `input` only opens it (the stream
+  // is `started`, then `console_result`). `context` moves current_address
+  // and current_selection first.
+  bool interactive = 7;
+  // A statement, or several lines (a block, a paste). An open block
+  // answers `console_result.more`: send the lines again with the next one;
+  // a blank last line ends a block, as in Python's REPL.
+  string input = 8;
+  // Interactive: also bind Ghidra's names (currentProgram, currentAddress,
+  // getFunctionAt, ...; revkit.ghidra.compat), as Ghidra's Python console
+  // does. Takes effect in the live console when it changes.
+  bool ghidra_names = 9;
+}
+
+message ScriptStarted {
+  string run_id = 1;
+  ScriptInfo script = 2;
+  string program_id = 3;
+  // Unix milliseconds.
+  int64 started_at_ms = 4;
+  // Interactive: the console's host was started for this call (its first,
+  // or the old one died or idled out: the namespace is new).
+  bool console_started = 5;
+  // Interactive: the caller's console history on this daemon, oldest first
+  // (at most 1000 entries), kept per caller.
+  repeated string history = 6;
+  // Interactive: the console can't edit (the caller is a viewer): reads
+  // work, edits fail at once.
+  bool read_only = 7;
+  // Interactive: the console's Python ("3.12.3") and completion engine
+  // ("jedi" or "rlcompleter").
+  string python_version = 8;
+  string completion_engine = 9;
+}
+
+message ScriptOutput {
+  // "stdout" (print) or "stderr" (log, warnings, the host's own messages).
+  string stream = 1;
+  string text = 2;
+}
+
+message ScriptProgress {
+  int64 current = 1;
+  // 0: indeterminate.
+  int64 maximum = 2;
+  string message = 3;
+}
+
+message ScriptPrompt {
+  // Answer with AnswerPrompt{run_id, prompt_id}.
+  uint32 prompt_id = 1;
+  // string, int, float, address, yes_no, choice, choices or file.
+  string kind = 2;
+  string name = 3;
+  string message = 4;
+  bool has_default = 5;
+  // The default as text (for choices: comma-separated).
+  string default_value = 6;
+  repeated string choices = 7;
+}
+
+// How a run ended.
+message ScriptResult {
+  // "ok", "error" or "cancelled".
+  string status = 1;
+  // What the run committed: one revision unless the script called
+  // commit() (and, after a failure, what those commits landed).
+  repeated uint64 revisions = 2;
+  // The committed assertions' seqs, in order (one undo step:
+  // RetractAssertions, or RevertByProvenance with session = run_id).
+  repeated uint64 seqs = 3;
+  // Buffered edits a failure or cancel discarded.
+  uint32 discarded = 4;
+  double seconds = 5;
+  int32 exit_code = 6;
+}
+
+// A failure: the script raised, exited non-zero or was cancelled, or its
+// host could not start or died.
+message ScriptError {
+  ScriptResult result = 1;
+  // "ValueError: bad thing"
+  string message = 2;
+  string error_type = 3;
+  // From the script's own frame down; file paths as script ids.
+  string traceback = 4;
+  // Where the script failed: the script id (when it was the script that
+  // ran) and line.
+  string script_id = 5;
+  uint32 line = 6;
+}
+
+// The script's text has not been confirmed by the caller (first run, or
+// it changed since the caller's last confirmed run or save). Show the
+// source and hash, and run again with confirm_sha256.
+message ScriptTrustRequired {
+  ScriptInfo script = 1;
+  string source = 2;
+  // "unseen" or "changed".
+  string reason = 3;
+  // The hash the caller confirmed last, when changed.
+  string previous_sha256 = 4;
+}
+
+// How a console statement ended (RunScriptRequest.interactive).
+message ConsoleResult {
+  // The input is an open block (or an unfinished statement): nothing ran;
+  // send it again with the next line.
+  bool more = 1;
+  // "ok"; "error" (it raised: the traceback went to stderr, from the
+  // console's own frames); "interrupted" (KeyboardInterrupt); "" with
+  // `more`.
+  string status = 2;
+  // What the statement committed: one revision (more if it called
+  // commit()), with provenance script "console", the console's run_id as
+  // the session. Its seqs are one undo step.
+  repeated uint64 revisions = 3;
+  repeated uint64 seqs = 4;
+  // Edits a failed or interrupted statement discarded.
+  uint32 discarded = 5;
+  double seconds = 6;
+  // "ValueError: bad thing" for "error".
+  string error = 7;
+}
+
+message RunScriptResponse {
+  string run_id = 1;
+  oneof event {
+    ScriptStarted started = 2;
+    ScriptOutput output = 3;
+    ScriptProgress progress = 4;
+    ScriptPrompt prompt = 5;
+    ScriptResult result = 6;
+    ScriptError error = 7;
+    ScriptTrustRequired trust_required = 8;
+    // Interactive: the statement's end.
+    ConsoleResult console_result = 9;
+  }
+}
+
+message AnswerPromptRequest {
+  string run_id = 1;
+  uint32 prompt_id = 2;
+  // The answer's text (choices: `values`).
+  string value = 3;
+  repeated string values = 4;
+  // The user dismissed it: the script sees the run cancelled.
+  bool cancelled = 5;
+}
+
+message AnswerPromptResponse {}
+
+message CancelScriptRequest {
+  string run_id = 1;
+  // Raise KeyboardInterrupt in what the run is doing (SIGINT) rather than
+  // end it: for a console, Ctrl+C. A script that doesn't catch it ends as
+  // cancelled. Added in api_minor 43.
+  bool interrupt = 2;
+}
+
+message CancelScriptResponse {
+  // False when the run had already ended.
+  bool was_running = 1;
+}
+
+message UpdateContextRequest {
+  string run_id = 1;
+  ScriptContext context = 2;
+}
+
+message UpdateContextResponse {}
+
+message SaveScriptRequest {
+  // SCRIPT_LIBRARY_USER or SCRIPT_LIBRARY_PROJECT.
+  ScriptLibrary library = 1;
+  // SCRIPT_LIBRARY_PROJECT: whose.
+  string project_id = 2;
+  // "name.py": letters, digits, _ . -, at most 64 characters.
+  string file_name = 3;
+  string source = 4;
+  // The sha256 the caller last read, so a concurrent change isn't
+  // overwritten (ABORTED); empty to create a new file (ALREADY_EXISTS if
+  // there is one).
+  string expected_sha256 = 5;
+}
+
+message SaveScriptResponse {
+  ScriptInfo script = 1;
+}
+
+message ScriptRun {
+  string run_id = 1;
+  string script_id = 2;
+  string name = 3;
+  // The script's sha256's first 12 digits.
+  string version = 4;
+  string program_id = 5;
+  // Who ran it ("user:alice").
+  string caller = 6;
+  // "running", "ok", "error" or "cancelled".
+  string status = 7;
+  int64 started_at_ms = 8;
+  double seconds = 9;
+  repeated uint64 revisions = 10;
+  uint32 assertions = 11;
+  string error = 12;
+}
+
+message ListScriptRunsRequest {
+  // Only this program's runs; empty: all.
+  string program_id = 1;
+  // At most this many (default 50).
+  uint32 limit = 2;
+}
+
+message ListScriptRunsResponse {
+  repeated ScriptRun runs = 1;
+}
+
+message SetupScriptPythonRequest {
+  // Make the environment again where it exists (rk-script setup --force);
+  // otherwise an existing one only gets the SDK updated.
+  bool force = 1;
+}
+
+message SetupScriptPythonResponse {
+  oneof event {
+    // What the steps print, a line or more at a time: each command as it
+    // starts (prefixed by a dollar sign and a space), then its output.
+    string output = 1;
+    SetupScriptPythonResult result = 2;
+  }
+}
+
+message SetupScriptPythonResult {
+  bool ok = 1;
+  // The Python scripts now run with (as ListScriptsResponse.python).
+  string python = 2;
+  // When not ok: what failed and what to do about it.
+  string error = 3;
+  // The environment's directory.
+  string directory = 4;
+}
+
+message CompleteConsoleRequest {
+  // Whose console: the caller's for this program.
+  string program_id = 1;
+  // The console's input up to the cursor.
+  string text = 2;
+  // At most this many (default 200).
+  uint32 limit = 3;
+}
+
+message ConsoleCompletion {
+  // The whole word it completes to ("decompile_many").
+  string text = 1;
+  // function, class, module, keyword, instance, statement, param,
+  // property or "" (rlcompleter knows less than jedi).
+  string kind = 2;
+  // "decompile_many(funcs=None, *, text=True, parallelism=0)" for a
+  // callable, when known.
+  string signature = 3;
+  // The docstring's first line.
+  string doc = 4;
+}
+
+message CompleteConsoleResponse {
+  repeated ConsoleCompletion completions = 1;
+  // How many characters at the end of `text` the completions replace (the
+  // partial word).
+  uint32 prefix_length = 2;
+  // "jedi" or "rlcompleter".
+  string engine = 3;
+}

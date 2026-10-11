@@ -1,0 +1,277 @@
+<!--
+  An instruction whose constructor tree needs more ConstructStates than the
+  75 a ParserContext holds (ARM v8, little endian):
+    1000: 1c 9a ab 4c   vldmiami r11!,{s19, ... 28 single registers}: a register
+                        list SLEIGH decodes by recursion, 2 states per register
+    1004: bx lr
+  Made with the console: restore a savefile holding only the <binaryimage>,
+  map function 0x1000 deeplist, save; then <symbollist/> added to the empty
+  local scope, which the console's save leaves out and its restore requires.
+-->
+
+<xml_savefile name="deeplist" target="default" adjustvma="0x0">
+  <binaryimage arch="ARM:LE:32:v8:default">
+    <bytechunk space="ram" offset="0x1000" readonly="true">
+1c9aab4c1eff2fe1
+</bytechunk>
+    <bytechunk space="ram" offset="0x1008">
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+0000000000000000000000000000000000000000
+000000000000000000000000
+</bytechunk>
+  </binaryimage>
+  <coretypes>
+    <type name="float16" id="0xee3339c49fe02f8b" size="16" metatype="float" core="true"/>
+    <type name="float10" id="0xee3339c49fe02f85" size="10" metatype="float" core="true"/>
+    <type name="float8" id="0xd52e33393a341e9d" size="8" metatype="float" core="true"/>
+    <type name="float4" id="0xd52e33393a341e99" size="4" metatype="float" core="true"/>
+    <type name="code" id="0xc0000085c891cf65" size="1" metatype="code" core="true"/>
+    <type name="bool" id="0xc0feab8537c491c7" size="1" metatype="bool" core="true"/>
+    <type name="wchar4" id="0xc085dc639634279f" size="4" metatype="int" core="true" utf="true"/>
+    <type name="wchar2" id="0xc085dc6396342799" size="2" metatype="int" core="true" utf="true"/>
+    <type name="uint8" id="0xc0008520c2902193" size="8" metatype="uint" core="true"/>
+    <type name="uint4" id="0xc0008520c290219f" size="4" metatype="uint" core="true"/>
+    <type name="uint2" id="0xc0008520c2902199" size="2" metatype="uint" core="true"/>
+    <type name="uint1" id="0xc00085203c3bdf31" size="1" metatype="uint" core="true"/>
+    <type name="int8" id="0xc000fe2ec2902193" size="8" metatype="int" core="true"/>
+    <type name="int4" id="0xc000fe2ec290219f" size="4" metatype="int" core="true"/>
+    <type name="int2" id="0xc000fe2ec2902199" size="2" metatype="int" core="true"/>
+    <type name="int1" id="0xc000fe2e3c3bdf31" size="1" metatype="int" core="true"/>
+    <type name="char" id="0xc000fed063689fd9" size="1" metatype="int" core="true" char="true"/>
+    <type name="xunknown8" id="0xf56e6b6d6e22171b" size="8" metatype="unknown" core="true"/>
+    <type name="xunknown4" id="0xf56e6b6d6e221707" size="4" metatype="unknown" core="true"/>
+    <type name="xunknown2" id="0xf56e6b6d6e221701" size="2" metatype="unknown" core="true"/>
+    <type name="xunknown1" id="0xf56e6b6d9089e9a9" size="1" metatype="unknown" core="true"/>
+    <void/>
+  </coretypes>
+  <save_state loadersymbols="false">
+    <typegrp/>
+    <db scopeidbyname="true">
+      <property_changepoint space="ram" offset="0x1000" val="0x2000"/>
+      <property_changepoint space="ram" offset="0x1008" val="0x0"/>
+      <scope name="" id="0x0">
+        <rangelist>
+          <range space="OTHER" first="0x0" last="0xffffffffffffffff"/>
+          <range space="ram" first="0x0" last="0xffffffff"/>
+        </rangelist>
+        <symbollist>
+          <mapsym>
+            <symbol name="DataAbort" id="0x4000000000000004" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0x10"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="FIQ" id="0x4000000000000007" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0x1c"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="H_DataAbort" id="0x400000000000000c" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0xffff0010"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="H_FIQ" id="0x400000000000000f" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0xffff001c"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="H_IRQ" id="0x400000000000000e" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0xffff0018"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="H_NotUsed" id="0x400000000000000d" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0xffff0014"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="H_PrefetchAbort" id="0x400000000000000b" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0xffff000c"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="H_Reset" id="0x4000000000000008" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0xffff0000"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="H_SupervisorCall" id="0x400000000000000a" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0xffff0008"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="H_UndefinedInstruction" id="0x4000000000000009" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0xffff0004"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="IRQ" id="0x4000000000000006" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0x18"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="NotUsed" id="0x4000000000000005" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0x14"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="PrefetchAbort" id="0x4000000000000003" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0xc"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="Reset" id="0x4000000000000000" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0x0"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="SupervisorCall" id="0x4000000000000002" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0x8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol name="UndefinedInstruction" id="0x4000000000000001" cat="-1">
+              <typeref name="xunknown1" id="0xf56e6b6d9089e9a9"/>
+            </symbol>
+            <addr space="ram" offset="0x4"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <function id="0x4000000000000010" name="deeplist" size="0">
+              <addr space="ram" offset="0x1000"/>
+              <localdb main="stack" lock="false">
+                <scope name="deeplist" id="0x4000000000000010">
+                  <parent id="0x0"/>
+                  <rangelist>
+                    <range space="stack" first="0x0" last="0x1f3"/>
+                    <range space="stack" first="0xfff0bdc0" last="0xffffffff"/>
+                  </rangelist>
+                  <symbollist/>
+                </scope>
+              </localdb>
+              <prototype model="__stdcall" extrapop="0">
+                <returnsym>
+                  <addr/>
+                  <void/>
+                </returnsym>
+              </prototype>
+            </function>
+            <addr space="ram" offset="0x1000"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </db>
+    <context_points>
+      <context_pointset space="ram" offset="0x0">
+        <set name="ARMcond" val="0x0"/>
+        <set name="ARMcondCk" val="0x0"/>
+        <set name="CALLoverride" val="0x0"/>
+        <set name="ISA_MODE" val="0x0"/>
+        <set name="LRset" val="0x0"/>
+        <set name="LowBitCodeMode" val="0x0"/>
+        <set name="REToverride" val="0x0"/>
+        <set name="T" val="0x0"/>
+        <set name="TEEMode" val="0x0"/>
+        <set name="TMode" val="0x0"/>
+        <set name="cond_base" val="0x0"/>
+        <set name="cond_full" val="0x0"/>
+        <set name="cond_mask" val="0x0"/>
+        <set name="cond_shft" val="0x0"/>
+        <set name="cond_true" val="0x0"/>
+        <set name="condit" val="0x0"/>
+        <set name="counter" val="0x0"/>
+        <set name="counter2" val="0x0"/>
+        <set name="itmode" val="0x0"/>
+        <set name="reg2Num" val="0x0"/>
+        <set name="regInc" val="0x0"/>
+        <set name="regNum" val="0x0"/>
+        <set name="sdOv" val="0x0"/>
+      </context_pointset>
+      <context_pointset space="register" offset="0x0">
+        <set name="ARMcond" val="0x0"/>
+        <set name="ARMcondCk" val="0x0"/>
+        <set name="CALLoverride" val="0x0"/>
+        <set name="ISA_MODE" val="0x0"/>
+        <set name="LRset" val="0x0"/>
+        <set name="LowBitCodeMode" val="0x0"/>
+        <set name="REToverride" val="0x0"/>
+        <set name="T" val="0x0"/>
+        <set name="TEEMode" val="0x0"/>
+        <set name="TMode" val="0x0"/>
+        <set name="cond_base" val="0x0"/>
+        <set name="cond_full" val="0x0"/>
+        <set name="cond_mask" val="0x0"/>
+        <set name="cond_shft" val="0x0"/>
+        <set name="cond_true" val="0x0"/>
+        <set name="condit" val="0x0"/>
+        <set name="counter" val="0x0"/>
+        <set name="counter2" val="0x0"/>
+        <set name="itmode" val="0x0"/>
+        <set name="reg2Num" val="0x0"/>
+        <set name="regInc" val="0x0"/>
+        <set name="regNum" val="0x0"/>
+        <set name="sdOv" val="0x0"/>
+      </context_pointset>
+      <tracked_pointset space="ram" offset="0x0">
+        <set space="register" offset="0x74" size="4" val="0x0"/>
+      </tracked_pointset>
+    </context_points>
+    <commentdb/>
+    <stringmanage/>
+  </save_state>
+</xml_savefile>

@@ -1,0 +1,997 @@
+// Binary diffing and version tracking (docs/diff.md): match the functions
+// of two programs of one project, see what changed, and port names,
+// comments and prototypes from the analysed program (A) to the new one
+// (B). Added in api_minor 16 (feature "diff"); inside a pair's functions
+// (block and instruction maps, aligned listings, the reference diff and
+// summaries) in api_minor 17 (feature "diff-detail"); any two functions
+// compared and markup ported between them, Unmatch, and the ops of each
+// decision for undo in api_minor 54 (feature "function-compare").
+//
+// A session names the two programs. Its proposals are derived (the
+// diff.matches query: recomputed when either program's functions change,
+// so a re-diff is incremental); what a person or an apply run decides is
+// an assertion: FACT_KIND_MATCH at B's entry (accepted, applied or
+// rejected pairs). Ported markup is ordinary assertions on B with
+// provenance MIGRATION "diff" (version = the session, session = the apply
+// run), each depending on its Match assertion: retracting the match, or
+// RevertApply, removes what was ported through it.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "revkit/v1/common.proto";
+import "revkit/v1/decompile.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+service DiffService {
+  // Records a session over two programs of a project (one revision).
+  rpc CreateDiffSession(CreateDiffSessionRequest) returns (CreateDiffSessionResponse);
+  // The project's sessions, newest first.
+  rpc ListDiffSessions(ListDiffSessionsRequest) returns (ListDiffSessionsResponse);
+  // Computes the session's matches at head in the background: every
+  // function's fingerprints, then the matching. Progress through
+  // GetDiffStatus. Running again after edits recomputes only what changed.
+  rpc RunDiff(RunDiffRequest) returns (RunDiffResponse);
+  rpc GetDiffStatus(GetDiffStatusRequest) returns (GetDiffStatusResponse);
+  rpc CancelDiff(CancelDiffRequest) returns (CancelDiffResponse);
+  // Matched pairs with their evidence, filtered, sorted and paged. Reads
+  // compute the matches if no run has.
+  rpc ListMatches(ListMatchesRequest) returns (ListMatchesResponse);
+  // Functions of one side without a match, with candidates on the other.
+  rpc ListUnmatched(ListUnmatchedRequest) returns (ListUnmatchedResponse);
+  // One function on either side (or a pair): summaries and the match's
+  // evidence; with `detail` (api_minor 17), what changed inside the pair:
+  // block and instruction maps, both listings annotated and aligned, the
+  // calls and data references gained or lost, and a summary.
+  rpc GetFunctionDiff(GetFunctionDiffRequest) returns (GetFunctionDiffResponse);
+  // What changed inside matched pairs, in a line each (the match table's
+  // tooltips): counts and "1 instruction changed: sub r0,r0,#0x7 -> bl
+  // FUN_00000400 (new)". Added in api_minor 17 (feature "diff-detail").
+  rpc SummarizeFunctionDiffs(SummarizeFunctionDiffsRequest) returns (SummarizeFunctionDiffsResponse);
+  // Accept proposed (or any) pairs: a Match assertion each, by the caller.
+  // Pairs that conflict with an accepted pair are refused.
+  rpc AcceptMatches(AcceptMatchesRequest) returns (AcceptMatchesResponse);
+  // Reject pairs: never proposed again in this session; an accepted or
+  // applied match of the same pair is retracted (with what was ported
+  // through it).
+  rpc RejectMatches(RejectMatchesRequest) returns (RejectMatchesResponse);
+  // Match two functions by hand: retracts the accepted matches either
+  // takes part in, then accepts the pair.
+  rpc SetMatch(SetMatchRequest) returns (SetMatchResponse);
+  // Ports markup from A to B over the given pairs, or over every match at
+  // or above min_confidence, as one revision (one apply run).
+  rpc ApplyMarkup(ApplyMarkupRequest) returns (ApplyMarkupResponse);
+  // Retracts everything an apply run asserted, in one revision.
+  rpc RevertApply(RevertApplyRequest) returns (RevertApplyResponse);
+  // Undoes decisions on pairs: retracts their accepted, applied or rejected
+  // Match assertions (and so what was ported through them), so the
+  // matcher's proposals apply to both functions again. One revision.
+  // Added in api_minor 54 (feature "function-compare").
+  rpc Unmatch(UnmatchRequest) returns (UnmatchResponse);
+
+  // Any two functions of the project, in one program or two, with or
+  // without a session: both summaries, what changed inside the pair
+  // (DiffDetail: the instruction map, aligned listings), and with `markup`
+  // what can be ported between them: names, signatures, variables (paired
+  // by parameter position and by the instructions they are printed from)
+  // and comments (by aligned instruction). Added in api_minor 54 (feature
+  // "function-compare").
+  rpc CompareFunctions(CompareFunctionsRequest) returns (CompareFunctionsResponse);
+  // Ports markup from one function to another, either way of a comparison:
+  // the name, the signature, variables' names and types, comments; single
+  // items or everything. One revision on the target program, by the
+  // caller, each assertion recording where it came from
+  // (Assertion.ported_from). Added in api_minor 54.
+  rpc PortFunctionMarkup(PortFunctionMarkupRequest) returns (PortFunctionMarkupResponse);
+}
+
+// The evidence class of a match, best first.
+enum DiffTier {
+  DIFF_TIER_UNSPECIFIED = 0;
+  // A Match assertion: accepted by someone (or recorded by an apply run).
+  DIFF_TIER_ACCEPTED = 1;
+  // The same non-default name (symbol, export, import, asserted).
+  DIFF_TIER_NAME = 2;
+  // The same bytes with address fields masked.
+  DIFF_TIER_BYTES = 3;
+  // The same p-code opcodes and operand kinds.
+  DIFF_TIER_PCODE = 4;
+  // The same control-flow shape, opcode multiset and references.
+  DIFF_TIER_SHAPE_REFS = 5;
+  // The same control-flow shape.
+  DIFF_TIER_SHAPE = 6;
+  // The same references (imports, named callees, strings, constants).
+  DIFF_TIER_REFS = 7;
+  // The same position among a matched pair's call sites.
+  DIFF_TIER_CALL_ORDER = 8;
+  // The one function left on each side of a neighbourhood.
+  DIFF_TIER_LONE = 9;
+  // A similarity tier over what is left (M2: BSim).
+  DIFF_TIER_SIMILARITY = 10;
+  // The most similar pair of a neighbourhood, both ways, by a margin.
+  DIFF_TIER_NEIGHBOUR = 11;
+}
+
+// Where a match was found.
+enum DiffRelation {
+  DIFF_RELATION_UNSPECIFIED = 0;
+  // Unique over both programs.
+  DIFF_RELATION_GLOBAL = 1;
+  // Unique over what was unmatched after propagation.
+  DIFF_RELATION_RESIDUE = 2;
+  // Among the functions a matched pair calls.
+  DIFF_RELATION_CALLEE = 3;
+  // Among the functions calling a matched pair.
+  DIFF_RELATION_CALLER = 4;
+  // Among the functions reading one string.
+  DIFF_RELATION_STRING = 5;
+  // Among the functions touching a global the matched pair touches in the same place.
+  DIFF_RELATION_DATA = 6;
+  // A Match assertion.
+  DIFF_RELATION_SEED = 7;
+  // A similarity tier.
+  DIFF_RELATION_SIMILAR = 8;
+  // Identical code between the same matched neighbours, paired in address order.
+  DIFF_RELATION_ADDRESS = 9;
+}
+
+enum DiffMatchStatus {
+  DIFF_MATCH_STATUS_UNSPECIFIED = 0;
+  // Derived only.
+  DIFF_MATCH_STATUS_PROPOSED = 1;
+  // A Match assertion by a user or an agent.
+  DIFF_MATCH_STATUS_ACCEPTED = 2;
+  // A Match assertion recorded by an apply run.
+  DIFF_MATCH_STATUS_APPLIED = 3;
+}
+
+enum DiffChangeKind {
+  DIFF_CHANGE_KIND_UNSPECIFIED = 0;
+  // Equal bytes with address fields masked.
+  DIFF_CHANGE_KIND_UNCHANGED = 1;
+  // Matched, different code.
+  DIFF_CHANGE_KIND_MODIFIED = 2;
+  // Only in B (unmatched).
+  DIFF_CHANGE_KIND_ADDED = 3;
+  // Only in A (unmatched).
+  DIFF_CHANGE_KIND_REMOVED = 4;
+}
+
+enum DiffSide {
+  DIFF_SIDE_UNSPECIFIED = 0;
+  DIFF_SIDE_A = 1;
+  DIFF_SIDE_B = 2;
+}
+
+enum DiffRunState {
+  DIFF_RUN_STATE_UNSPECIFIED = 0;
+  // Never run: reads compute the matches on demand.
+  DIFF_RUN_STATE_IDLE = 1;
+  DIFF_RUN_STATE_RUNNING = 2;
+  DIFF_RUN_STATE_SUCCEEDED = 3;
+  DIFF_RUN_STATE_FAILED = 4;
+  DIFF_RUN_STATE_CANCELLED = 5;
+}
+
+message DiffOptions {
+  // Similarity tiers to run over the residue, by name (M2: "bsim").
+  // Unknown names are ignored. Empty: the exact tiers and propagation only.
+  repeated string similarity_tiers = 1;
+}
+
+// Counts at a revision.
+message DiffCounts {
+  uint32 functions_a = 1;
+  uint32 functions_b = 2;
+  uint32 matched = 3;
+  uint32 accepted = 4;
+  uint32 applied = 5;
+  // Proposed at or above 0.95 confidence: what ApplyMarkup applies by default.
+  uint32 auto_matches = 6;
+  uint32 unchanged = 7;
+  uint32 unmatched_a = 8;
+  uint32 unmatched_b = 9;
+  uint32 rounds = 10;
+}
+
+message DiffRun {
+  DiffRunState state = 1;
+  // "features 1200/5000", "matching", "done".
+  string phase = 2;
+  // 0..1; -1 when unknown.
+  float progress = 3;
+  google.protobuf.Timestamp started_at = 4;
+  google.protobuf.Timestamp finished_at = 5;
+  // The revision the run computed the matches at.
+  uint64 revision = 6;
+  // Failure reason.
+  string message = 7;
+  // Milliseconds spent on fingerprints and on the matching.
+  double features_ms = 8;
+  double match_ms = 9;
+}
+
+message DiffSessionInfo {
+  string session_id = 1;
+  string project_id = 2;
+  // The analysed program (markup comes from it) and the new one.
+  string program_a = 3;
+  string program_b = 4;
+  string name = 5;
+  DiffOptions options = 6;
+  google.protobuf.Timestamp created_at = 7;
+  Provenance created_by = 8;
+  // The last run in this daemon (not persisted: IDLE after a restart).
+  DiffRun run = 9;
+}
+
+message CreateDiffSessionRequest {
+  string project_id = 1;
+  string program_a = 2;
+  string program_b = 3;
+  // Display name; default "<A> -> <B>".
+  string name = 4;
+  DiffOptions options = 5;
+  // Who creates it; the server stamps the caller.
+  Provenance provenance = 6;
+  // Start a run right away (RunDiff).
+  bool run = 7;
+}
+
+message CreateDiffSessionResponse {
+  Snapshot snapshot = 1;
+  DiffSessionInfo session = 2;
+}
+
+message ListDiffSessionsRequest {
+  string project_id = 1;
+  ReadOptions read = 2;
+  // Only sessions with this program on either side.
+  string program_id = 3;
+}
+
+message ListDiffSessionsResponse {
+  Snapshot snapshot = 1;
+  repeated DiffSessionInfo sessions = 2;
+}
+
+message RunDiffRequest {
+  string project_id = 1;
+  string session_id = 2;
+}
+
+message RunDiffResponse {
+  DiffRun run = 1;
+}
+
+message GetDiffStatusRequest {
+  string project_id = 1;
+  string session_id = 2;
+}
+
+message GetDiffStatusResponse {
+  DiffSessionInfo session = 1;
+  // As of the run's revision, once it succeeded.
+  DiffCounts counts = 2;
+}
+
+message CancelDiffRequest {
+  string project_id = 1;
+  string session_id = 2;
+}
+
+message CancelDiffResponse {
+  DiffRun run = 1;
+}
+
+// What a match is based on.
+message DiffEvidence {
+  DiffTier tier = 1;
+  DiffRelation relation = 2;
+  // For a match found in a neighbourhood: the pair whose neighbourhood it was.
+  Address parent_a = 3;
+  Address parent_b = 4;
+  // Propagation round (0: global tiers and seeds).
+  uint32 round = 5;
+  // Functions on each side among which it was unique.
+  uint32 group = 6;
+  // In words: "same p-code among 4 callees of FUN_00401000 / FUN_00402000".
+  string detail = 7;
+}
+
+message DiffFunctionRef {
+  Address entry = 1;
+  // The effective name at the read revision.
+  string name = 2;
+  // The name is a default one (FUN_...): a name port may replace it.
+  bool default_name = 3;
+  uint32 instructions = 4;
+  uint32 blocks = 5;
+}
+
+message DiffMatch {
+  DiffFunctionRef a = 1;
+  DiffFunctionRef b = 2;
+  DiffTier tier = 3;
+  // 0..1, calibrated on the tuning corpus (docs/diff.md).
+  float confidence = 4;
+  // 1 for equal bytes or p-code; otherwise a structural score (M2: BSim cosine).
+  float similarity = 5;
+  DiffMatchStatus status = 6;
+  DiffChangeKind change_kind = 7;
+  DiffEvidence evidence = 8;
+  // The Match assertion, when accepted or applied.
+  uint64 match_seq = 9;
+}
+
+message DiffMatchFilter {
+  // Empty: every tier.
+  repeated DiffTier tiers = 1;
+  float min_confidence = 2;
+  // 0: no upper bound.
+  float max_confidence = 3;
+  repeated DiffMatchStatus statuses = 4;
+  repeated DiffChangeKind change_kinds = 5;
+  // Either side's name contains this (case-insensitive).
+  string name_contains = 6;
+}
+
+enum DiffSort {
+  DIFF_SORT_UNSPECIFIED = 0;  // by A's entry
+  DIFF_SORT_ADDRESS_A = 1;
+  DIFF_SORT_ADDRESS_B = 2;
+  DIFF_SORT_CONFIDENCE = 3;
+  DIFF_SORT_SIMILARITY = 4;
+  DIFF_SORT_NAME_A = 5;
+  DIFF_SORT_NAME_B = 6;
+  DIFF_SORT_TIER = 7;
+  DIFF_SORT_STATUS = 8;
+}
+
+message ListMatchesRequest {
+  string project_id = 1;
+  string session_id = 2;
+  ReadOptions read = 3;
+  DiffMatchFilter filter = 4;
+  DiffSort sort = 5;
+  bool descending = 6;
+  PageRequest page = 7;
+  // Start at this position (with no page token), for virtualized tables.
+  uint32 offset = 8;
+}
+
+message ListMatchesResponse {
+  Snapshot snapshot = 1;
+  repeated DiffMatch matches = 2;
+  PageInfo page = 3;
+  // For the whole session, unfiltered.
+  DiffCounts counts = 4;
+}
+
+enum DiffUnmatchedReason {
+  DIFF_UNMATCHED_REASON_UNSPECIFIED = 0;
+  // Nothing on the other side resembles it.
+  DIFF_UNMATCHED_REASON_NO_CANDIDATE = 1;
+  // It shares an exact fingerprint with several functions: a tie.
+  DIFF_UNMATCHED_REASON_TIE = 2;
+  // Only structurally similar candidates.
+  DIFF_UNMATCHED_REASON_WEAK = 3;
+}
+
+message DiffCandidate {
+  DiffFunctionRef function = 1;
+  // The fingerprint they share, or UNSPECIFIED (similar only).
+  DiffTier tier = 2;
+  float score = 3;
+  // Already matched to something else (only after a seed was accepted).
+  bool matched = 4;
+}
+
+message DiffUnmatched {
+  DiffFunctionRef function = 1;
+  DiffSide side = 2;
+  DiffUnmatchedReason reason = 3;
+  // Best first.
+  repeated DiffCandidate candidates = 4;
+}
+
+message ListUnmatchedRequest {
+  string project_id = 1;
+  string session_id = 2;
+  ReadOptions read = 3;
+  DiffSide side = 4;
+  string name_contains = 5;
+  PageRequest page = 6;
+  uint32 offset = 7;
+  // Candidates per function (default 8, at most 16).
+  uint32 max_candidates = 8;
+}
+
+message ListUnmatchedResponse {
+  Snapshot snapshot = 1;
+  repeated DiffUnmatched functions = 2;
+  PageInfo page = 3;
+}
+
+message GetFunctionDiffRequest {
+  string project_id = 1;
+  string session_id = 2;
+  ReadOptions read = 3;
+  // Either, or both (a pair that need not be matched).
+  Address entry_a = 4;
+  Address entry_b = 5;
+  // Also correlate the pair's blocks and instructions (DiffDetail; a
+  // matched function, or both entries). Added in api_minor 17.
+  bool detail = 6;
+  // With detail: leave the raw bytes out of the listing rows.
+  bool omit_bytes = 7;
+}
+
+message DiffFunctionSummary {
+  DiffFunctionRef function = 1;
+  uint32 edges = 2;
+  uint32 loops = 3;
+  uint32 pcode_ops = 4;
+  // Entries it calls, in call order, with their names.
+  repeated DiffFunctionRef callees = 5;
+  uint32 callers = 6;
+  // Fingerprints, hex: for comparing by eye.
+  string bytes_hash = 7;
+  string pcode_hash = 8;
+  string shape_hash = 9;
+  string refs_hash = 10;
+  // The effective prototype, as C, when one is asserted.
+  string prototype = 11;
+}
+
+message GetFunctionDiffResponse {
+  Snapshot snapshot = 1;
+  DiffFunctionSummary a = 2;
+  DiffFunctionSummary b = 3;
+  // When A's (or B's) function is matched: the match.
+  DiffMatch match = 4;
+  // For an unmatched function: its candidates.
+  repeated DiffCandidate candidates = 5;
+  // With `detail`, for a pair.
+  DiffDetail detail = 6;
+}
+
+// An instruction's standing inside a pair.
+enum DiffLineStatus {
+  DIFF_LINE_STATUS_UNSPECIFIED = 0;
+  // The same instruction on both sides (masked bytes; calls to functions
+  // that match each other).
+  DIFF_LINE_STATUS_EQUAL = 1;
+  // Corresponds to an instruction of the other side that differs (other
+  // operands, or another instruction in its place).
+  DIFF_LINE_STATUS_CHANGED = 2;
+  // Only in B.
+  DIFF_LINE_STATUS_INSERTED = 3;
+  // Only in A.
+  DIFF_LINE_STATUS_DELETED = 4;
+}
+
+// A basic block's standing inside a pair.
+enum DiffBlockStatus {
+  DIFF_BLOCK_STATUS_UNSPECIFIED = 0;
+  // Every instruction equal, both ways.
+  DIFF_BLOCK_STATUS_UNCHANGED = 1;
+  // Corresponds to code on the other side, not all equal.
+  DIFF_BLOCK_STATUS_MODIFIED = 2;
+  // Only in B.
+  DIFF_BLOCK_STATUS_ADDED = 3;
+  // Only in A.
+  DIFF_BLOCK_STATUS_REMOVED = 4;
+}
+
+// A basic block of one side, cut as GetFunctionGraph cuts them.
+message DiffBlock {
+  // First and last byte of its instructions.
+  AddressRange range = 1;
+  DiffBlockStatus status = 2;
+  // The corresponding block on the other side (an index into its blocks,
+  // one to one), or -1.
+  int32 partner = 3;
+  // Its instructions: rows [first_row, first_row + rows) of its side.
+  uint32 first_row = 4;
+  uint32 rows = 5;
+  // Blocks it goes to (indexes into this side's blocks).
+  repeated uint32 successors = 6;
+}
+
+// A piece of an instruction's text, as ListingToken (listing.proto, which
+// this file can't import: it depends on it through assertion.proto).
+message DiffToken {
+  string text = 1;
+  // A ListingTokenKind value.
+  uint32 kind = 2;
+  // Address and symbol tokens: the address referred to.
+  Address target = 3;
+  // The operand it belongs to (-1: the mnemonic or a separator).
+  int32 operand = 4;
+}
+
+// An instruction of one side as the listing shows it, with its standing.
+message DiffRow {
+  Address address = 1;
+  DiffLineStatus status = 2;
+  // The corresponding instruction on the other side (an index into its
+  // rows), or -1.
+  int32 partner = 3;
+  // Its block (an index into this side's blocks).
+  uint32 block = 4;
+  // Corresponds out of order (code that moved): it has a line of its own.
+  bool moved = 5;
+  uint32 length = 6;
+  // Mnemonic and operands ("sub r0,r0,#0x7"), and as tokens.
+  string text = 7;
+  repeated DiffToken tokens = 8;
+  // The primary label at the address (a block's start), if any.
+  string label = 9;
+  // Its comments, joined.
+  string comment = 10;
+  // A FlowKind value (calls, branches, returns), as ListingRow.flow.
+  uint32 flow = 11;
+}
+
+// One line of the aligned listings: a row of each side, or a gap (-1).
+message DiffLine {
+  int32 a = 1;
+  int32 b = 2;
+}
+
+enum DiffReferenceKind {
+  DIFF_REFERENCE_KIND_UNSPECIFIED = 0;
+  // A call (or a jump to another function).
+  DIFF_REFERENCE_KIND_CALL = 1;
+  // Data read, written or pointed to.
+  DIFF_REFERENCE_KIND_DATA = 2;
+}
+
+// A reference the pair's differing instructions gained or lost: one side
+// makes it and the other doesn't (a call to functions that match, the
+// same string or the same address cancel out).
+message DiffReferenceChange {
+  // A: lost (A's instruction refers to it, B's don't); B: gained.
+  DiffSide side = 1;
+  DiffReferenceKind kind = 2;
+  // The referring instruction on that side, and its row.
+  Address from = 3;
+  uint32 row = 4;
+  Address target = 5;
+  // The target's name (a function's or a label's), or a string's text.
+  string name = 6;
+  // A call target's match on the other side, when it has one.
+  DiffFunctionRef partner = 7;
+  // A call target with no match: a function only in B (new code) for a
+  // gained call, only in A for a lost one.
+  bool unmatched = 8;
+}
+
+// What changed inside a pair, counted and in a line.
+message DiffChangeSummary {
+  uint32 equal = 1;
+  uint32 changed = 2;
+  uint32 inserted = 3;
+  uint32 deleted = 4;
+  uint32 blocks_unchanged = 5;
+  uint32 blocks_modified = 6;
+  uint32 blocks_added = 7;
+  uint32 blocks_removed = 8;
+  // Differences: runs of lines that aren't equal (DiffDetail.hunks).
+  uint32 hunks = 9;
+  // "1 instruction changed: sub r0,r0,#0x7 -> bl FUN_00000400 (new)";
+  // "12 changed, 3 inserted, 1 deleted; calls FUN_00012000 (new)".
+  string text = 10;
+  // The pair it describes (SummarizeFunctionDiffs).
+  Address entry_a = 11;
+  Address entry_b = 12;
+}
+
+// Inside a pair (GetFunctionDiff with detail): docs/diff.md "Inside a
+// function".
+message DiffDetail {
+  repeated DiffBlock blocks_a = 1;
+  repeated DiffBlock blocks_b = 2;
+  // Each side's instructions in address order.
+  repeated DiffRow rows_a = 3;
+  repeated DiffRow rows_b = 4;
+  // Both listings aligned: corresponding rows share a line, gaps where a
+  // side has nothing.
+  repeated DiffLine lines = 5;
+  // Indexes of the lines where a difference (a run of lines not both
+  // EQUAL, or moved) starts: next/previous difference.
+  repeated uint32 hunks = 6;
+  repeated DiffReferenceChange references = 7;
+  DiffChangeSummary summary = 8;
+  // Time spent correlating (0 when memoized) and building the response.
+  double correlate_ms = 9;
+  double total_ms = 10;
+}
+
+message SummarizeFunctionDiffsRequest {
+  string project_id = 1;
+  string session_id = 2;
+  ReadOptions read = 3;
+  // Pairs to summarize (at most 500).
+  repeated DiffPair pairs = 4;
+}
+
+message SummarizeFunctionDiffsResponse {
+  Snapshot snapshot = 1;
+  // In request order.
+  repeated DiffChangeSummary summaries = 2;
+}
+
+message DiffPair {
+  Address entry_a = 1;
+  Address entry_b = 2;
+}
+
+message AcceptMatchesRequest {
+  string project_id = 1;
+  string session_id = 2;
+  repeated DiffPair pairs = 3;
+  Provenance provenance = 4;
+  // Accept every proposed match at or above this confidence instead of
+  // `pairs` (0 with no pairs: an error).
+  float min_confidence = 5;
+}
+
+message AcceptMatchesResponse {
+  Snapshot snapshot = 1;
+  // The Match assertions, in request order (0 where a pair was already accepted).
+  repeated uint64 match_seqs = 2;
+  // Every op of the revision (assertions, and retractions of conflicting
+  // decisions): retracting them (RetractAssertions on program B) undoes
+  // the decision. api_minor 54.
+  repeated uint64 seqs = 3;
+}
+
+message RejectMatchesRequest {
+  string project_id = 1;
+  string session_id = 2;
+  repeated DiffPair pairs = 3;
+  Provenance provenance = 4;
+}
+
+message RejectMatchesResponse {
+  Snapshot snapshot = 1;
+  repeated uint64 match_seqs = 2;
+  // Accepted or applied matches of these pairs that were retracted.
+  repeated uint64 retracted_seqs = 3;
+  // Every op of the revision: retracting them undoes it (api_minor 54).
+  repeated uint64 seqs = 4;
+}
+
+message SetMatchRequest {
+  string project_id = 1;
+  string session_id = 2;
+  Address entry_a = 3;
+  Address entry_b = 4;
+  Provenance provenance = 5;
+}
+
+message SetMatchResponse {
+  Snapshot snapshot = 1;
+  uint64 match_seq = 2;
+  repeated uint64 retracted_seqs = 3;
+  // Every op of the revision: retracting them undoes it (api_minor 54).
+  repeated uint64 seqs = 4;
+}
+
+message UnmatchRequest {
+  string project_id = 1;
+  string session_id = 2;
+  // Pairs whose decisions go: an accepted or applied match of A's entry to
+  // B's, and a rejection of the pair.
+  repeated DiffPair pairs = 3;
+  Provenance provenance = 4;
+}
+
+message UnmatchResponse {
+  Snapshot snapshot = 1;
+  // The Match assertions retracted.
+  repeated uint64 retracted_seqs = 2;
+  // The retractions: retracting them (RetractAssertions on program B)
+  // undoes the unmatch.
+  repeated uint64 seqs = 3;
+}
+
+// What ApplyMarkup ports.
+enum DiffMarkupItem {
+  DIFF_MARKUP_ITEM_UNSPECIFIED = 0;
+  // Function names, over B's default (FUN_) names only.
+  DIFF_MARKUP_ITEM_NAMES = 1;
+  // Function-level comments (plate, pre and repeatable at the entry), and
+  // instruction comments: where both functions' bytes are equal at the same
+  // offset, else at the instruction's partner in the instruction map
+  // (api_minor 54).
+  DIFF_MARKUP_ITEM_COMMENTS = 2;
+  // Prototypes (a hashed type), with every type they reach defined in B
+  // by hash (DefineType); names are never bound (BindTypeName).
+  DIFF_MARKUP_ITEM_PROTOTYPES = 3;
+}
+
+enum DiffApplyPolicy {
+  // SAFE.
+  DIFF_APPLY_POLICY_UNSPECIFIED = 0;
+  // Names over default names, comments and prototypes where B has none.
+  DIFF_APPLY_POLICY_SAFE = 1;
+  // As SAFE, and comments are appended to B's own (unless equal).
+  DIFF_APPLY_POLICY_ADD = 2;
+  // Comments and prototypes also over values asserted by analysis,
+  // agents, imports and earlier ports; never over a user's. Names still
+  // go only over default names.
+  DIFF_APPLY_POLICY_REPLACE = 3;
+}
+
+message ApplyMarkupRequest {
+  string project_id = 1;
+  string session_id = 2;
+  // Pairs to port through (matched or not: a pair not yet accepted gets a
+  // Match assertion in the same revision). Empty: every match at or above
+  // min_confidence.
+  repeated DiffPair pairs = 3;
+  // Default 0.95 when pairs is empty. Recorded in the run's reason.
+  float min_confidence = 4;
+  // Empty: names, comments and prototypes.
+  repeated DiffMarkupItem items = 5;
+  DiffApplyPolicy policy = 6;
+  // Who applies: recorded in the run's reason; the ported assertions'
+  // provenance is MIGRATION "diff" with version = the session and
+  // session = the run id.
+  Provenance provenance = 7;
+  // Count what would be ported; commit nothing.
+  bool dry_run = 8;
+}
+
+message ApplyMarkupResponse {
+  Snapshot snapshot = 1;
+  // The run id (Provenance.session of every assertion it made); empty for
+  // a dry run or when nothing was ported.
+  string run_id = 2;
+  uint32 pairs = 3;
+  // Match assertions the run made for pairs not accepted before.
+  uint32 matches_recorded = 4;
+  uint32 names = 5;
+  uint32 comments = 6;
+  uint32 prototypes = 7;
+  uint32 types = 8;
+  // Items left alone: B already had a value (or a user's), or A had none.
+  uint32 skipped = 9;
+  repeated string warnings = 10;
+  // The assertions the run made, in order (what retracting undoes).
+  repeated uint64 seqs = 11;
+}
+
+message RevertApplyRequest {
+  string project_id = 1;
+  string session_id = 2;
+  string run_id = 3;
+  Provenance provenance = 4;
+}
+
+message RevertApplyResponse {
+  Snapshot snapshot = 1;
+  repeated uint64 retracted_seqs = 2;
+}
+
+// The body of a Match assertion as history and blame show it.
+message DiffMatchBody {
+  string session_id = 1;
+  Address entry_a = 2;
+  Address entry_b = 3;
+  DiffMatchStatus status = 4;
+  // A rejected pair.
+  bool rejected = 5;
+  DiffTier tier = 6;
+  float confidence = 7;
+}
+
+// Where a ported assertion came from (Assertion.ported_from).
+message PortedFrom {
+  string session_id = 1;
+  string run_id = 2;
+  // The source: program A, and the function and address the value was read at.
+  string program_id = 3;
+  Address function = 4;
+  Address address = 5;
+  // The assertion on A whose value was copied (unset: a derived value,
+  // such as a symbol's name), for detecting a source edited later.
+  uint64 source_seq = 6;
+  OpId source_id = 7;
+  // The Match assertion it depends on.
+  uint64 match_seq = 8;
+}
+
+// --- Comparing any two functions (api_minor 54, feature "function-compare") ---
+
+message CompareFunctionsRequest {
+  string project_id = 1;
+  ReadOptions read = 2;
+  // Each side's program and function; both may be in one program. With a
+  // session the programs may be left out (they are the session's).
+  string program_a = 3;
+  Address entry_a = 4;
+  string program_b = 5;
+  Address entry_b = 6;
+  // Optional: a session over these programs (A and B as in it), whose
+  // matches decide which calls correspond and give the pair's match.
+  // Without one, calls correspond within one program by address, and
+  // across two by equal names that aren't default ones.
+  string session_id = 7;
+  // Leave the raw bytes out of the listing rows.
+  bool omit_bytes = 8;
+  // Also decompile both and say what can be ported between them.
+  bool markup = 9;
+}
+
+message CompareFunctionsResponse {
+  Snapshot snapshot = 1;
+  DiffFunctionSummary a = 2;
+  DiffFunctionSummary b = 3;
+  // What changed inside the pair, as GetFunctionDiff's.
+  DiffDetail detail = 4;
+  // With a session, when the pair is a match of it.
+  DiffMatch match = 5;
+  // With `markup`.
+  CompareMarkup markup = 6;
+}
+
+// A variable or parameter of one side, as its decompilation shows it.
+message CompareVariable {
+  // Its identity (LocalVariableRef.storage_key).
+  string storage_key = 1;
+  string name = 2;
+  // The type as C ("int", "struct point *").
+  string type = 3;
+  VariableKind kind = 4;
+  optional uint32 parameter_index = 5;
+  // Someone named it (an assertion, debug info): not one of the
+  // decompiler's names (param_1, local_14, uVar2, ...).
+  bool named = 6;
+  // Its type was asserted, or it came with the name (debug info): not the
+  // decompiler's guess.
+  bool typed = 7;
+}
+
+// Two variables that correspond, or one with no partner (the other unset).
+message CompareVariablePair {
+  CompareVariable a = 1;
+  CompareVariable b = 2;
+  // How they correspond: "parameter 2", "5 instructions, 2 C lines".
+  string evidence = 3;
+  // Instructions and C lines that pair them (0 for parameters, paired by
+  // position).
+  uint32 votes = 4;
+}
+
+// A comment of either function, where it is on each side: an instruction
+// and its partner in the instruction map, or the entries for a function's
+// plate, pre and repeatable comments at its entry.
+message CompareComment {
+  // "plate", "pre", "post", "eol" or "repeatable".
+  string kind = 1;
+  // Unset where that side has no corresponding instruction.
+  Address address_a = 2;
+  Address address_b = 3;
+  // The comment on each side (empty: none).
+  string text_a = 4;
+  string text_b = 5;
+}
+
+message CompareMarkup {
+  // Each signature as C, and whether someone set it (an assertion, debug
+  // info, a library, the demangler) rather than the decompiler guessing.
+  string signature_a = 1;
+  string signature_b = 2;
+  bool signature_set_a = 3;
+  bool signature_set_b = 4;
+  // A's variables in order, each with its partner in B; then B's without one.
+  repeated CompareVariablePair variables = 5;
+  repeated CompareComment comments = 6;
+  // A side's decompilation failed (no variables or signature from it).
+  string error_a = 7;
+  string error_b = 8;
+}
+
+enum FunctionMarkupKind {
+  FUNCTION_MARKUP_KIND_UNSPECIFIED = 0;
+  // The function's name (never a default one).
+  FUNCTION_MARKUP_KIND_NAME = 1;
+  // The prototype: an asserted one with every type it uses (defined in the
+  // target by hash), else the decompiled declaration as C.
+  FUNCTION_MARKUP_KIND_SIGNATURE = 2;
+  // A variable's name, to its partner (CompareVariablePair).
+  FUNCTION_MARKUP_KIND_VARIABLE_NAME = 3;
+  // A variable's type, to its partner.
+  FUNCTION_MARKUP_KIND_VARIABLE_TYPE = 4;
+  // Comments: at the entry, and in the body by aligned instruction.
+  FUNCTION_MARKUP_KIND_COMMENT = 5;
+  // What the function's aligned instructions reference (api_minor 71,
+  // feature "port-globals-callees"): a global's name and its type (a TYPE
+  // someone set), paired by aligned data references; a callee's name and
+  // signature (its asserted prototype), paired by aligned calls.
+  FUNCTION_MARKUP_KIND_GLOBAL_NAME = 6;
+  FUNCTION_MARKUP_KIND_GLOBAL_TYPE = 7;
+  FUNCTION_MARKUP_KIND_CALLEE_NAME = 8;
+  FUNCTION_MARKUP_KIND_CALLEE_SIGNATURE = 9;
+}
+
+message FunctionMarkupItem {
+  FunctionMarkupKind kind = 1;
+  // VARIABLE_NAME, VARIABLE_TYPE: the source variable's storage key; empty
+  // for every variable that has a partner.
+  string variable = 2;
+  // COMMENT: the source comment's address (unset: every comment of the
+  // function) and kind (empty: every kind there). GLOBAL_*: the source
+  // global's address, CALLEE_*: the source callee's entry (unset: every one
+  // that pairs).
+  Address address = 3;
+  string comment_kind = 4;
+}
+
+message PortFunctionMarkupRequest {
+  string project_id = 1;
+  // Where markup comes from and where it goes (both may be in one program).
+  string from_program = 2;
+  Address from_entry = 3;
+  string to_program = 4;
+  Address to_entry = 5;
+  // Empty: everything someone set on the source side (its name unless a
+  // default one, an asserted or known signature, named and typed
+  // variables, every comment). An item asked for by kind is ported even
+  // when it is the decompiler's (a variable's guessed type), never a
+  // default name.
+  repeated FunctionMarkupItem items = 6;
+  // Replace what the target has. Without it: names only over default
+  // names, signatures and types only over the decompiler's guesses,
+  // comments only where the target has none of that kind.
+  bool overwrite = 7;
+  // Who ports (the assertions are theirs); default the caller as a user.
+  Provenance provenance = 8;
+  // Say what would be ported; commit nothing.
+  bool dry_run = 9;
+  // Optional: the diff session the pair comes from, recorded in each
+  // assertion's ported_from (with the pair's Match, when it has one).
+  string session_id = 10;
+}
+
+// One thing ported (or, for a dry run, that would be).
+message PortedMarkup {
+  FunctionMarkupKind kind = 1;
+  // The target: its function, the variable's storage key, or the comment's
+  // address and kind.
+  Address address = 2;
+  string variable = 3;
+  string comment_kind = 4;
+  // The target's value before and after.
+  string before = 5;
+  string after = 6;
+}
+
+message PortFunctionMarkupResponse {
+  Snapshot snapshot = 1;
+  uint32 names = 2;
+  uint32 signatures = 3;
+  uint32 variable_names = 4;
+  uint32 variable_types = 5;
+  uint32 comments = 6;
+  // Type definitions copied to the target program for a signature or a type.
+  uint32 types = 7;
+  // Items left alone (the target has a value and no overwrite; nothing to port).
+  uint32 skipped = 8;
+  repeated string warnings = 9;
+  repeated PortedMarkup ported = 10;
+  // The assertions made, in order: retracting them undoes the port.
+  repeated uint64 seqs = 11;
+  // Globals' names and types, callees' names and signatures (api_minor 71).
+  uint32 globals = 12;
+  uint32 callees = 13;
+}

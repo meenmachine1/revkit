@@ -1,0 +1,44 @@
+{
+ "arch": "m68k",
+ "counts": {
+  "c_alpha": 1171,
+  "c_ast": 936,
+  "c_both": 1676,
+  "c_flow": 1599,
+  "c_ghidra_only": 0,
+  "c_revkit_only": 0,
+  "c_shape": 1229,
+  "c_shape_dwarf": 1294,
+  "common": 1676,
+  "dwarf": 3253,
+  "dwarf_ghidra": 1598,
+  "dwarf_revkit": 1657,
+  "ghidra": 1733,
+  "insn_both": 126349,
+  "insn_ghidra": 128576,
+  "insn_revkit": 129901,
+  "revkit": 1762,
+  "truth_ghidra": 1606,
+  "truth_revkit": 1665
+ },
+ "images": [
+  "m68k/fwkit-m68k-O2",
+  "m68k/fwkit-m68k-Os",
+  "m68k/uboot-M5208EVBE",
+  "m68k/uboot-M5373EVB"
+ ],
+ "rates": {
+  "c_alpha": 0.698687,
+  "c_ast": 0.558473,
+  "c_flow": 0.954057,
+  "c_shape": 0.733294,
+  "c_shape_dwarf": 0.772076,
+  "dwarf_recall": 0.509376,
+  "ghidra_dwarf_recall": 0.491239,
+  "ghidra_truth_precision": 0.926717,
+  "listing_both": 0.98268,
+  "precision": 0.951192,
+  "recall": 0.967109,
+  "truth_precision": 0.944949
+ }
+}

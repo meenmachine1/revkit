@@ -1,0 +1,44 @@
+{
+ "arch": "mips",
+ "counts": {
+  "c_alpha": 1649,
+  "c_ast": 1360,
+  "c_both": 2836,
+  "c_flow": 2648,
+  "c_ghidra_only": 0,
+  "c_revkit_only": 0,
+  "c_shape": 1787,
+  "c_shape_dwarf": 1968,
+  "common": 2836,
+  "dwarf": 3422,
+  "dwarf_ghidra": 2837,
+  "dwarf_revkit": 2775,
+  "ghidra": 2943,
+  "insn_both": 181925,
+  "insn_ghidra": 183350,
+  "insn_revkit": 183265,
+  "revkit": 2872,
+  "truth_ghidra": 2853,
+  "truth_revkit": 2791
+ },
+ "images": [
+  "mips/fwkit-mips-O2",
+  "mips/fwkit-mipsel-Os",
+  "mips/uboot-malta",
+  "mips/uboot-maltael"
+ ],
+ "rates": {
+  "c_alpha": 0.581453,
+  "c_ast": 0.479549,
+  "c_flow": 0.933709,
+  "c_shape": 0.630113,
+  "c_shape_dwarf": 0.693935,
+  "dwarf_recall": 0.810929,
+  "ghidra_dwarf_recall": 0.829047,
+  "ghidra_truth_precision": 0.969419,
+  "listing_both": 0.992228,
+  "precision": 0.987465,
+  "recall": 0.963643,
+  "truth_precision": 0.971797
+ }
+}

@@ -1,0 +1,23 @@
+// ARM Versatile/PB as qemu-system-arm -M versatilepb has it: the parts the
+// fixtures use (docs/firmware-emulation.md). Times: one instruction is one
+// microsecond, the SP804s count at 1 MHz.
+{
+  "machine": 1,
+  "name": "versatilepb",
+  "description": "ARM Versatile/PB (ARM926EJ-S): PL190 VIC, SP804 timers, PL011 UART, PL031 RTC",
+  "language": "ARM:LE:32:v4t",
+  "cpu": {"model": "arm", "semihosting": true, "undefined": true},
+  "clock": {"mode": "instructions", "hz": 1000000},
+  "memory": [
+    {"name": "ram", "start": "0x0", "size": "128M", "kind": "ram"}
+  ],
+  "image": {"load": "0x0"},
+  "entry": "reset",
+  "peripherals": [
+    {"name": "vic", "kind": "pl190", "base": "0x10140000"},
+    {"name": "timer01", "kind": "sp804", "base": "0x101e2000", "irq": "vic.4", "clock_hz": 1000000},
+    {"name": "timer23", "kind": "sp804", "base": "0x101e3000", "irq": "vic.5", "clock_hz": 1000000},
+    {"name": "rtc", "kind": "pl031", "base": "0x101e8000", "irq": "vic.10"},
+    {"name": "uart0", "kind": "pl011", "base": "0x101f1000", "irq": "vic.12"}
+  ]
+}

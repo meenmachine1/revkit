@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: revkit <revkit@localhost>
+Date: Wed, 7 Oct 2026 05:48:20 -0400
+Subject: [PATCH] SLEIGH: an operand whose constructor exports nothing has no
+ p-code value
+
+A constructor's semantics may use an operand for its value (getCopCondition(2:1,
+COP2CC) in microMIPS bc2f and bc2t) whose subtable constructors export nothing
+(COP2CC: is mic_cc=0 {}). Sleigh::resolveHandles then never sets that
+operand's handle, and the p-code builder reads whatever the ConstructState's
+handle held from an earlier instruction, or never-initialized memory: a
+crash in SleighBuilder::generateLocation. Clear a state's handle when it is
+allocated, and throw UnimplError where a varnode's space would come from a
+handle that was never set.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/context.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/context.hh
+index 4356f47..f046257 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/context.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/context.hh
+@@ -187,6 +187,8 @@ struct SleighError : public LowlevelError {
+ 
+ inline void ParserContext::deallocateState(ParserWalkerChange &walker) {
+   alloc = 1;
++  state[0].hand.space = (AddrSpace *)0;	// Set only if the root constructor exports a value
++  state[0].hand.offset_space = (AddrSpace *)0;
+   walker.context=this;
+   walker.baseState();
+ }
+@@ -199,6 +201,10 @@ inline void ParserContext::allocateOperand(int4 i,ParserWalkerChange &walker) {
+   ConstructState *opstate = &state[alloc++];
+   opstate->parent = walker.point;
+   opstate->ct = (Constructor *)0;
++  // The handle is set only if the operand's constructor exports a value;
++  // until then it must not look like a previous instruction's.
++  opstate->hand.space = (AddrSpace *)0;
++  opstate->hand.offset_space = (AddrSpace *)0;
+   walker.point->resolve[i] = opstate;
+   walker.breadcrumb[walker.depth++] += 1;
+   walker.point = opstate;
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/semantics.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/semantics.cc
+index 7b06da8..700a2ce 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/semantics.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/semantics.cc
+@@ -190,8 +190,13 @@ AddrSpace *ConstTpl::fixSpace(const ParserWalker &walker) const
+       const FixedHandle &hand(walker.getFixedHandle(value.handle_index));
+       switch(select) {
+       case v_space:
+-	if (hand.offset_space == (AddrSpace *)0)
++	if (hand.offset_space == (AddrSpace *)0) {
++	  // An operand used for its value whose constructor exports none (a
++	  // display-only subtable): there is no p-code for it.
++	  if (hand.space == (AddrSpace *)0)
++	    throw UnimplError("Operand has no value: its constructor exports nothing",0);
+ 	  return hand.space;
++	}
+ 	return hand.temp_space;
+       default:
+ 	break;

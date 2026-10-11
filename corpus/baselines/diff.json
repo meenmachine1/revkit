@@ -1,0 +1,30 @@
+{
+ "a": {
+  "auto_precision": 100.0,
+  "auto_recall": 95.82,
+  "ported_name_accuracy": 100.0,
+  "precision": 99.94,
+  "recall": 99.72
+ },
+ "b": {
+  "auto_precision": 88.89,
+  "auto_recall": 0.88,
+  "ported_name_accuracy": 80.0,
+  "precision": 86.14,
+  "recall": 41.17
+ },
+ "c": {
+  "auto_precision": 97.89,
+  "auto_recall": 16.67,
+  "ported_name_accuracy": 98.56,
+  "precision": 94.29,
+  "recall": 71.34
+ },
+ "e": {
+  "auto_precision": 99.73,
+  "auto_recall": 43.42,
+  "ported_name_accuracy": 99.73,
+  "precision": 96.89,
+  "recall": 76.05
+ }
+}

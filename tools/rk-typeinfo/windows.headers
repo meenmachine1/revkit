@@ -1,0 +1,13 @@
+# The mingw-w64 headers the Windows archives are made from: the Win32 API
+# (WIN32_LEAN_AND_MEAN, so winsock2.h comes first), the native API
+# winternl.h declares, and the C runtime's headers. Each DLL's archive keeps
+# the functions its import library exports.
+winsock2.h
+ws2tcpip.h
+windows.h
+winternl.h
+ntsecapi.h
+shellapi.h
+assert.h conio.h ctype.h direct.h errno.h fcntl.h float.h io.h locale.h malloc.h math.h
+mbstring.h process.h setjmp.h signal.h stdio.h stdlib.h string.h time.h wchar.h wctype.h
+sys/stat.h sys/timeb.h sys/utime.h

@@ -1,0 +1,16828 @@
+#include "revkit/infer/infer.h"
+#include "revkit/backend/image_backend.h"
+#include "revkit/lift/abi.hh"
+
+#include "revkit/demangle/demangle.h"
+
+#include "revkit/api/host_files.h"
+
+#include "api_util.h"
+#include "debug_import.h"
+#include "msvc_import.h"
+#include "symbol_server.h"
+#include "define_type.h"
+#include "parse_c.h"
+#include "type_archive.h"
+
+#include "revkit/cparse/archive.h"
+#include "revkit/runtime/runtime.h"
+#include "diff_detail.h"
+#include "diff_session.h"
+#include "function_compare.h"
+#include "debugger.h"
+#include "emulator.h"
+#include "import_progress.h"
+#include "listing_edit.h"
+#include "auto_struct.h"
+#include "bsim_catalog.h"
+#include "fid.h"
+#include "filesystems.h"
+#include "raw_detect.h"
+#include "rebase.h"
+#include "revkit/detect/detect.hh"
+#include "libraries.h"
+#include "machines.h"
+#include "own_inputs.h"
+#include "param_id.h"
+#include "patching.h"
+#include "project_archive.h"
+#include "program.h"
+#include "queries.h"
+#include "search.h"
+#include "signatures.h"
+#include "slice.h"
+#include "sync_util.h"
+#include "type_record.h"
+
+#include "revkit/analysis/user_refs.h"
+#include "revkit/diff/correlate.h"
+#include "revkit/diff/match.h"
+#include "revkit/facts/fact_db.h"
+#include "revkit/facts/storage.h"
+#include "revkit/facts/thread_pool.h"
+#include "revkit/lift/lifter.hh"
+#include "revkit/loader/load.hh"
+#include "revkit/plugins/host.h"
+#include "revkit/plugins/load.h"
+#include "revkit/plugins/peripheral.h"
+#include "revkit/plugins/queries.h"
+#include "revkit/types/print.h"
+
+#include <google/protobuf/util/message_differencer.h>
+#include <google/protobuf/util/time_util.h>
+#include <openssl/evp.h>
+
+#include <malloc.h>
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cctype>
+#include <cstdlib>
+#include <condition_variable>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <google/protobuf/util/json_util.h>
+#include <functional>
+#include <iostream>
+#include <iterator>
+#include <map>
+#include <mutex>
+#include <deque>
+#include <random>
+#include <set>
+#include <thread>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
+#include <unistd.h>
+
+namespace revkit::backend {
+namespace {
+
+namespace fs = std::filesystem;
+
+// Inference's options as the decompiler uses its prototypes (rk-lift's
+// too): an unknown return keeps its register's width, so callers reading
+// the whole register don't see a truncated value.
+// The analysis job and provenance id of the background inference.
+constexpr std::string_view kInferAnalyzer = "infer.prototypes";
+
+infer::Options DecompilerInferOptions() {
+  infer::Options o;
+  o.keep_return_width = true;
+  return o;
+}
+
+using api::CallContext;
+using api::Error;
+using api::EventSink;
+using api::Status;
+using api::StatusCode;
+using facts::FactKind;
+using facts::FactValue;
+using facts::Seq;
+using google::protobuf::util::TimeUtil;
+
+constexpr std::uint32_t kApiMinor = 73;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language")
+
+// Fact-store address spaces: project records, then two per program (its
+// addresses in fact keys, and its file's bytes).
+constexpr facts::SpaceId kProjectSpace = 15;
+constexpr facts::SpaceId kFirstProgramSpace = 16;
+constexpr std::string_view kProjectMetaKey = "revkit.project";
+// A program's display name and soft deletion (RenameProgram, DeleteProgram):
+// NOTE keys in the project space at the program's ordinal, beside its
+// record (sub "program"). They are assertions like any edit, so blame,
+// precedence and undo (a retraction) apply, and peers replicate them. The
+// API names them as NOTE keys of the program with no address and these
+// subs, which AppendAssertions refuses as note tags.
+constexpr std::string_view kProgramNameSub = "revkit:program.name";
+constexpr std::string_view kProgramDeletedSub = "revkit:program.deleted";
+// Its folder (api_minor 37): the folder id, "" for the root.
+constexpr std::string_view kProgramFolderSub = "revkit:program.folder";
+// The program a library it needs is (api_minor 70, LinkProgramLibrary):
+// sub "revkit:program.library:<library>", value the target program's id
+// ("" to find it by name again). Not carried by project archives (program
+// ids change on import there).
+constexpr std::string_view kProgramLibrarySubPrefix = "revkit:program.library:";
+bool IsProgramMetaSub(std::string_view sub) {
+  return sub == kProgramNameSub || sub == kProgramDeletedSub || sub == kProgramFolderSub ||
+         sub.starts_with(kProgramLibrarySubPrefix);
+}
+// Folders (api_minor 37, docs/api.md "Folders"): NOTE keys in the project
+// space at kFolderAddress, sub "revkit:folder:<id>", value "<parent
+// id>/<name>" ("" once deleted). They belong to no program.
+constexpr std::string_view kFolderSubPrefix = "revkit:folder:";
+constexpr std::uint64_t kFolderAddress = archive::kFolderAddress;
+// How deep folders go: deeper ones made by a peer hang from the root.
+constexpr std::size_t kMaxFolderDepth = 64;
+// A project-wide type or a type archive setting (docs/types.md#project-types):
+// the project's own keys, which every program sees.
+bool IsProjectTypeKey(const facts::FactKey &k) {
+  return k.addr.space == kProjectSpace &&
+         ((k.kind == FactKind::TypeDef && k.addr.offset == archive::kProjectTypesAddress) ||
+          (k.kind == FactKind::Note && k.addr.offset == archive::kTypeArchiveAddress &&
+           k.sub.starts_with(archive::kTypeArchiveSubPrefix)));
+}
+
+bool IsFolderKey(const facts::FactKey &k) {
+  return k.kind == FactKind::Note && k.addr.space == kProjectSpace && k.addr.offset == kFolderAddress &&
+         k.sub.starts_with(kFolderSubPrefix);
+}
+static_assert(kProjectSpace == archive::kProjectSpace && kFirstProgramSpace == archive::kFirstProgramSpace);
+static_assert(kProgramNameSub == archive::kProgramNameSub && kProgramDeletedSub == archive::kProgramDeletedSub &&
+              kProgramFolderSub == archive::kProgramFolderSub && kFolderSubPrefix == archive::kFolderSubPrefix &&
+              kDiffSessionSub == archive::kDiffSessionSubName);
+
+// Wall time of an import's phases on stderr, with REVKIT_TIMING set.
+class PhaseTimer {
+ public:
+  explicit PhaseTimer(std::string what)
+      : what_(std::move(what)), on_(std::getenv("REVKIT_TIMING") != nullptr), last_(std::chrono::steady_clock::now()) {}
+  void mark(const char *phase) {
+    if (!on_) return;
+    const auto now = std::chrono::steady_clock::now();
+    std::fprintf(stderr, "revkit: %s: %s %.1f ms\n", what_.c_str(), phase,
+                 std::chrono::duration<double, std::milli>(now - last_).count());
+    last_ = now;
+  }
+
+ private:
+  std::string what_;
+  bool on_;
+  std::chrono::steady_clock::time_point last_;
+};
+
+// "1.3 MB", "820 KB".
+std::string Megabytes(std::uint64_t n) {
+  char buf[32];
+  if (n >= (1u << 20)) std::snprintf(buf, sizeof buf, "%.1f MB", static_cast<double>(n) / (1 << 20));
+  else std::snprintf(buf, sizeof buf, "%llu KB", static_cast<unsigned long long>((n + 1023) / 1024));
+  return buf;
+}
+
+std::string Hex(std::uint64_t v) {
+  char buf[24];
+  std::snprintf(buf, sizeof buf, "%llx", static_cast<unsigned long long>(v));
+  return buf;
+}
+
+pb::Address A(std::uint64_t offset) {
+  pb::Address a;
+  a.set_offset(offset);
+  return a;
+}
+
+pb::AddressRange Range(std::uint64_t first, std::uint64_t last) {
+  pb::AddressRange r;
+  *r.mutable_first() = A(first);
+  *r.mutable_last() = A(last);
+  return r;
+}
+
+bool IsDefaultSpace(const pb::Address &a) { return a.space().empty() || a.space() == "ram"; }
+
+// The key (loader::AddressSpace) of an address a request names: in the
+// code space by name or unnamed, or in another memory space the program
+// has (AVR's "mem"), whose offset is a byte offset there.
+std::optional<std::uint64_t> KeyOf(const Program &p, const pb::Address &a) {
+  if (IsDefaultSpace(a) || a.space() == p.code_space()) return a.offset();
+  return loader::space_key(p.image(), a.space(), a.offset());
+}
+
+std::string Sha256Hex(const std::string &bytes) {
+  unsigned char md[EVP_MAX_MD_SIZE];
+  unsigned int len = 0;
+  EVP_Digest(bytes.data(), bytes.size(), md, &len, EVP_sha256(), nullptr);
+  std::string out;
+  char buf[3];
+  for (unsigned i = 0; i < len; ++i) {
+    std::snprintf(buf, sizeof buf, "%02x", md[i]);
+    out += buf;
+  }
+  return out;
+}
+
+pb::DataCategory DataCategoryOf(const analysis::DataItem &d) {
+  if (d.origin == analysis::kDataUser && d.kind == analysis::DataKind::defined) return pb::DATA_CATEGORY_DEFINED;
+  switch (d.kind) {
+    case analysis::DataKind::string:
+    case analysis::DataKind::unicode:
+    case analysis::DataKind::unicode32: return pb::DATA_CATEGORY_STRING;
+    case analysis::DataKind::pointer: return pb::DATA_CATEGORY_POINTER;
+    case analysis::DataKind::undefined: return pb::DATA_CATEGORY_UNDEFINED;
+    default: return pb::DATA_CATEGORY_UNSPECIFIED;  // a label: no data
+  }
+}
+
+std::string Lower(std::string s) {
+  std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+  return s;
+}
+
+bool InRange(const pb::AddressRange &r, const pb::Address &a) {
+  return IsDefaultSpace(a) && a.offset() >= r.first().offset() && a.offset() <= r.last().offset();
+}
+
+// --- Provenance and keys between the API and the fact store ----------------
+
+facts::Provenance ToFacts(const pb::Provenance &p) {
+  facts::Provenance out;
+  switch (p.kind()) {
+    case pb::PROVENANCE_KIND_IMPORT: out.kind = facts::ProvenanceKind::Import; break;
+    case pb::PROVENANCE_KIND_AGENT: out.kind = facts::ProvenanceKind::Agent; break;
+    case pb::PROVENANCE_KIND_ANALYSIS: out.kind = facts::ProvenanceKind::Analysis; break;
+    case pb::PROVENANCE_KIND_MIGRATION: out.kind = facts::ProvenanceKind::Migration; break;
+    case pb::PROVENANCE_KIND_PLUGIN: out.kind = facts::ProvenanceKind::Plugin; break;
+    case pb::PROVENANCE_KIND_SCRIPT: out.kind = facts::ProvenanceKind::Script; break;
+    default: out.kind = facts::ProvenanceKind::User; break;
+  }
+  out.id = p.id();
+  out.version = p.version();
+  return out;
+}
+
+pb::Provenance ToPb(const facts::Provenance &p) {
+  pb::Provenance out;
+  switch (p.kind) {
+    case facts::ProvenanceKind::User: out.set_kind(pb::PROVENANCE_KIND_USER); break;
+    case facts::ProvenanceKind::Import: out.set_kind(pb::PROVENANCE_KIND_IMPORT); break;
+    case facts::ProvenanceKind::Agent: out.set_kind(pb::PROVENANCE_KIND_AGENT); break;
+    case facts::ProvenanceKind::Analysis: out.set_kind(pb::PROVENANCE_KIND_ANALYSIS); break;
+    case facts::ProvenanceKind::Migration: out.set_kind(pb::PROVENANCE_KIND_MIGRATION); break;
+    case facts::ProvenanceKind::Plugin: out.set_kind(pb::PROVENANCE_KIND_PLUGIN); break;
+    case facts::ProvenanceKind::Script: out.set_kind(pb::PROVENANCE_KIND_SCRIPT); break;
+  }
+  out.set_id(p.id);
+  out.set_version(p.version);
+  return out;
+}
+
+pb::AssertionStatus ToPb(facts::OpStatus s) {
+  switch (s) {
+    case facts::OpStatus::Effective: return pb::ASSERTION_STATUS_EFFECTIVE;
+    case facts::OpStatus::Shadowed: return pb::ASSERTION_STATUS_SHADOWED;
+    case facts::OpStatus::Retracted: return pb::ASSERTION_STATUS_RETRACTED;
+    case facts::OpStatus::DependencyDead: return pb::ASSERTION_STATUS_DEPENDENCY_DEAD;
+  }
+  return pb::ASSERTION_STATUS_UNSPECIFIED;
+}
+
+// What an op's meta holds: the API's full provenance (session, reason,
+// tool), the request body and the revision it was committed at, as a
+// partial Assertion. The rest comes from the op itself.
+std::string Meta(const pb::Provenance &prov, const pb::AssertionBody *body, std::uint64_t revision) {
+  pb::Assertion m;
+  *m.mutable_provenance() = prov;
+  if (body) *m.mutable_body() = *body;
+  m.set_revision(revision);
+  return Deterministic(m);
+}
+
+pb::Assertion MetaOf(const facts::Op &op) {
+  pb::Assertion a;
+  if (op.meta.empty() || !a.ParseFromString(op.meta)) *a.mutable_provenance() = ToPb(op.prov);
+  return a;
+}
+
+// --- Projects ---------------------------------------------------------------
+
+// Fact-store space -> program id. Replaced, never mutated, so a reader can
+// hold one without a lock.
+using SpaceMap = std::map<facts::SpaceId, std::string>;
+
+struct ProgramEntry {
+  ProgramSource source;  // with the loaded program
+  std::uint64_t first_revision = 0;
+  // Some client read the listing with header rows: commits then report
+  // the windows of that numbering (InvalidatedQuery.header_rows).
+  std::shared_ptr<std::atomic<bool>> header_rows_read = std::make_shared<std::atomic<bool>>(false);
+  const Program &program() const { return *source.program; }
+  const std::string &id() const { return source.id; }
+};
+
+struct Retained {
+  facts::Snapshot snapshot;
+  Seq log_size = 0;  // ops visible at this revision
+};
+
+struct Subscriber {
+  std::uint64_t id;
+  std::shared_ptr<EventSink> sink;
+  std::set<std::string> programs;  // empty = all
+  bool include_assertions;
+  bool presence = false;
+};
+
+// A peer's live SyncService.Pull stream (docs/collab.md).
+struct PullStream {
+  std::uint64_t id;
+  std::shared_ptr<api::PullSink> sink;
+  facts::ReplicaId peer = 0;
+  facts::VersionVector known;  // what the peer holds, as far as we know
+  bool presence = false;
+};
+
+struct Project {
+  std::string id, name, path;
+  fs::path dir;  // empty: in memory
+  std::unique_ptr<facts::FactDb> db;
+  // Serializes writers. Taken before Core::mu, never while holding it.
+  std::mutex write_mu;
+
+  // Guarded by Core::mu.
+  bool open = true;
+  std::map<std::string, std::shared_ptr<const ProgramEntry>> programs;
+  std::shared_ptr<const SpaceMap> spaces = std::make_shared<SpaceMap>();
+  std::set<std::uint32_t> ordinals;  // of programs loaded, importing or awaiting their file
+  std::uint64_t head = 0;
+  std::map<std::uint64_t, Retained> history;
+  std::map<std::uint64_t, pb::RevisionEvent> events;
+  std::vector<Subscriber> subscribers;
+  std::vector<pb::AnalysisJob> jobs;
+  // Jobs running in the background (inference), by job id: listed by
+  // GetAnalysisStatus and cancellable; moved to `jobs` when they end.
+  std::map<std::string, pb::AnalysisJob> running_jobs;
+  std::uint64_t commits = 0;
+  // Every folder id the log has ever named (api_minor 37): folders are
+  // read by these keys, as of any revision.
+  std::set<std::string> folder_ids;
+  // Replication: peers' pull streams, presence, and programs whose record
+  // came from a peer before their file (sha256 -> record, and the file's
+  // bytes received so far).
+  std::vector<PullStream> pulls;
+  // The ops published at head (the log can be ahead while a commit is
+  // being published): what this daemon reports holding.
+  facts::VersionVector published;
+  PresenceTable presence;
+  std::map<std::string, ProgramSource> missing;
+  std::map<std::string, std::string> incoming;
+  // Memory-map regions a peer added whose bytes (from another file) this
+  // daemon doesn't have yet, by their sha256: fetched like a program's
+  // file (docs/memory-map.md, "Collaborators").
+  struct MissingRegionBytes {
+    std::string program_id;
+    analysis::RegionBytes bytes;
+  };
+  std::map<std::string, MissingRegionBytes> missing_regions;
+  // Per program, the functions with a parameter-ID signature published
+  // (param_id.published set): guarded by write_mu.
+  std::map<std::string, std::set<std::uint64_t>> param_id_published;
+  // Per program, the functions with an inferred prototype published
+  // (infer.published set): guarded by write_mu.
+  std::map<std::string, std::set<std::uint64_t>> infer_published;
+  // Function ID's last run per program (not persisted: a reopen runs it
+  // again, and its names are assertions).
+  struct FidRun {
+    std::uint64_t revision = 0;
+    std::vector<std::string> databases;
+    std::uint32_t hashed = 0;
+    std::vector<pb::FidMatch> matches;  // status left to the reader
+  };
+  std::map<std::string, FidRun> fid_runs;
+  // Programs a commit being made reloaded at a new image base (the fact
+  // store's on_rebase, docs/memory-map.md "Rebase"): Commit() publishes
+  // them with its revision. Guarded by write_mu.
+  std::map<std::string, std::shared_ptr<const ProgramEntry>> rebased;
+
+  bool persistent() const { return !dir.empty(); }
+  facts::AssertionLog const &log() const { return db->log(); }
+};
+
+class Core {
+ public:
+  explicit Core(ImageBackendOptions o)
+      : options(std::move(o)),
+        pool(std::make_unique<facts::ThreadPool>(options.analysis_threads
+                                                     ? options.analysis_threads
+                                                     : std::min(8u, std::max(1u, std::thread::hardware_concurrency())))) {
+    decompd::PoolOptions po = decompd::default_pool_options();
+    po.workers = options.decompile_workers != 0 ? options.decompile_workers : std::max(1u, options.decompilers_per_program);
+    if (options.decompile_in_process) po.in_process = true;
+    workers = std::make_shared<decompd::WorkerPool>(po);
+  }
+  ~Core() {
+    // Derived facts are a cache; keep them for the next session.
+    for (auto &[id, p] : projects)
+      if (p->persistent()) p->db->engine().flush();
+  }
+
+  ImageBackendOptions options;
+  // The symbol path settings (SetSymbolSettings), under their own mutex.
+  std::mutex symbols_mu;
+  // Import-time analysis runs on it; shared by every project.
+  std::unique_ptr<facts::ThreadPool> pool;
+  // Decompiler worker processes, shared by every program.
+  std::shared_ptr<decompd::WorkerPool> workers;
+  std::mutex mu;
+  std::condition_variable head_changed;
+  std::map<std::string, std::unique_ptr<Project>> projects;
+  // Program id -> project id; ids being imported are reserved here too.
+  std::map<std::string, std::string> program_project;
+  std::uint64_t next_subscriber = 1;
+  std::uint64_t next_job = 1;
+  // Imports clients follow with GetImportProgress (its own mutex).
+  ImportProgressRegistry imports;
+  // DetectRawLayout calls: their progress, and how many run at once
+  // (raw_detect.h; its own mutexes).
+  DetectRegistry detections;
+
+  // Ghidra's Decompiler Parameter ID in the background (param_id.h):
+  // programs waiting for it (queued once each), the one being analyzed, and
+  // the thread that does it. Its own mutex, taken after mu, never before.
+  struct ParamIdWork {
+    std::mutex mu;
+    std::condition_variable cv;
+    std::deque<std::pair<Project *, std::string>> queue;
+    std::set<std::pair<Project *, std::string>> queued;
+    std::optional<std::pair<Project *, std::string>> running;
+    bool stop = false;
+    std::thread thread;
+    std::unique_ptr<facts::ThreadPool> pool;  // its decompilations beyond the thread's own
+  } param_id;
+
+  // revkit::infer in the background (docs/infer.md, "In the backend"):
+  // programs waiting (queued once each), the one being inferred, its job
+  // and whether CancelAnalysis asked to stop it, and the thread. Its own
+  // mutex, taken after mu, never before.
+  struct InferWork {
+    std::mutex mu;
+    std::condition_variable cv;
+    std::deque<std::pair<Project *, std::string>> queue;
+    std::set<std::pair<Project *, std::string>> queued;
+    // Imported, its analysis still running: queued after it (and busy).
+    std::set<std::pair<Project *, std::string>> expected;
+    std::optional<std::pair<Project *, std::string>> running;
+    std::string running_job;
+    std::atomic<bool> cancel{false};  // the running job's
+    std::atomic<bool> stop{false};
+    std::thread thread;
+    std::unique_ptr<facts::ThreadPool> pool;  // its threads beyond the loop's own
+  } infer;
+
+  // Function ID in the background (docs/fid.md, "In the daemon"): programs
+  // waiting (with whose user databases count), the one running, its job,
+  // and the thread. Its own mutex, taken after mu, never before.
+  struct FidWork {
+    std::mutex mu;
+    std::condition_variable cv;
+    std::deque<std::tuple<Project *, std::string, std::string>> queue;  // project, program, caller
+    std::set<std::pair<Project *, std::string>> queued;
+    std::optional<std::pair<Project *, std::string>> running;
+    std::string running_job;
+    std::atomic<bool> cancel{false};
+    std::atomic<bool> stop{false};
+    std::thread thread;
+  } fid;
+  std::unique_ptr<FidCatalog> fid_catalog;
+  std::unique_ptr<BsimCatalog> bsim_catalog = std::make_unique<BsimCatalog>();
+
+  void Unsubscribe(const std::string &project, std::uint64_t id) {
+    std::lock_guard lock(mu);
+    auto it = projects.find(project);
+    if (it == projects.end()) return;
+    std::erase_if(it->second->subscribers, [&](const Subscriber &s) { return s.id == id; });
+    std::erase_if(it->second->pulls, [&](const PullStream &s) { return s.id == id; });
+  }
+  std::uint64_t Head(const std::string &project) {
+    std::lock_guard lock(mu);
+    auto it = projects.find(project);
+    return it == projects.end() ? 0 : it->second->head;
+  }
+};
+
+class ImageSubscription final : public api::Subscription {
+ public:
+  ImageSubscription(std::shared_ptr<Core> core, std::string project, std::uint64_t id)
+      : core_(std::move(core)), project_(std::move(project)), id_(id) {}
+  ~ImageSubscription() override { core_->Unsubscribe(project_, id_); }
+  std::uint64_t head_revision() const override { return core_->Head(project_); }
+
+ private:
+  std::shared_ptr<Core> core_;
+  std::string project_;
+  std::uint64_t id_;
+};
+
+// One read: a project, a pinned revision, and (for program reads) a program.
+struct Read {
+  Project *project = nullptr;
+  std::optional<facts::Snapshot> snapshot;
+  std::uint64_t revision = 0;
+  std::uint64_t head = 0;
+  Seq log_size = 0;
+  std::shared_ptr<const SpaceMap> spaces;
+  std::shared_ptr<const ProgramEntry> program;
+  std::size_t page_offset = 0;
+};
+
+// --- Header rows: display numbering ----------------------------------------
+
+// GetListing's header_rows numbering at one revision, from listing.headers
+// (the non-empty buckets) and the buckets' entries, loaded as needed.
+class HeaderMap {
+ public:
+  // No header rows: the identity numbering.
+  HeaderMap() = default;
+  HeaderMap(const facts::Snapshot &snap, std::string program) : snap_(snap), program_(std::move(program)) {
+    top_ = snap_->get<q::Headers>(program_);
+  }
+
+  std::int64_t total_lines() const { return top_ ? top_->total_lines : 0; }
+  const std::vector<HeaderIndex::Bucket> &buckets() const {
+    static const std::vector<HeaderIndex::Bucket> kNone;
+    return top_ ? top_->buckets : kNone;
+  }
+  const HeaderBucket &bucket(std::size_t i) {
+    auto &ref = loaded_[i];
+    if (!ref) ref = snap_->get<q::HeaderBucket>({program_, buckets()[i].index});
+    return *ref;
+  }
+
+  // Header lines above base rows < row.
+  std::int64_t lines_before(std::int64_t row) {
+    const auto &bs = buckets();
+    auto it = std::upper_bound(bs.begin(), bs.end(), row - 1, [](std::int64_t r, const HeaderIndex::Bucket &b) { return r < b.first_row; });
+    if (it == bs.begin()) return 0;
+    const std::size_t i = static_cast<std::size_t>(it - bs.begin()) - 1;
+    const HeaderIndex::Bucket &b = bs[i];
+    if (row > b.last_row) return b.before + b.lines;
+    const auto &es = bucket(i).entries;
+    auto e = std::lower_bound(es.begin(), es.end(), row, [](const HeaderBucket::Entry &x, std::int64_t r) { return x.row < r; });
+    return b.before + (e == es.end() ? bucket(i).lines : e->before);
+  }
+  std::uint32_t lines_at(std::int64_t row) {
+    const auto &bs = buckets();
+    auto it = std::upper_bound(bs.begin(), bs.end(), row, [](std::int64_t r, const HeaderIndex::Bucket &b) { return r < b.first_row; });
+    if (it == bs.begin()) return 0;
+    const std::size_t i = static_cast<std::size_t>(it - bs.begin()) - 1;
+    if (row > bs[i].last_row) return 0;
+    const auto &es = bucket(i).entries;
+    auto e = std::lower_bound(es.begin(), es.end(), row, [](const HeaderBucket::Entry &x, std::int64_t r) { return x.row < r; });
+    return e != es.end() && e->row == row ? e->lines : 0;
+  }
+  // Display row of base row `row`'s first header line (of the row itself
+  // when it has none); for row = total rows, the display total.
+  std::int64_t display_start(std::int64_t row) { return row + lines_before(row); }
+  std::int64_t display_row(std::int64_t row) { return display_start(row) + lines_at(row); }
+
+  // What a display row shows: base row `row`, and header line `header`
+  // of it, or -1 for the code unit itself.
+  struct Position {
+    std::int64_t row = 0;
+    std::int32_t header = -1;
+  };
+  Position at(std::int64_t d) {
+    const auto &bs = buckets();
+    // The last bucket whose first header line is at or before d.
+    auto it = std::upper_bound(bs.begin(), bs.end(), d, [](std::int64_t x, const HeaderIndex::Bucket &b) { return x < b.first_row + b.before; });
+    if (it == bs.begin()) return {d, -1};
+    const std::size_t i = static_cast<std::size_t>(it - bs.begin()) - 1;
+    const HeaderIndex::Bucket &b = bs[i];
+    const auto &es = bucket(i).entries;
+    auto e = std::upper_bound(es.begin(), es.end(), d, [&](std::int64_t x, const HeaderBucket::Entry &y) { return x < y.row + b.before + y.before; });
+    const HeaderBucket::Entry &x = *std::prev(e);
+    const std::int64_t start = x.row + b.before + x.before;
+    if (d < start + x.lines) return {x.row, static_cast<std::int32_t>(d - start)};
+    return {d - b.before - x.before - x.lines, -1};
+  }
+
+ private:
+  std::optional<facts::Snapshot> snap_;
+  std::string program_;
+  facts::Ref<HeaderIndex> top_;
+  std::map<std::size_t, facts::Ref<HeaderBucket>> loaded_;
+};
+
+// --- View: one program's effective facts at one revision --------------------
+
+// Reads through a pinned snapshot, so every value is the one at the read's
+// revision; derived values are fetched once per request.
+class View {
+ public:
+  explicit View(const Read &r)
+      : r_(r), snap_(*r.snapshot), entry_(*r.program), space_(entry_.source.ram_space), id_(entry_.id()) {}
+
+  const Read &read() const { return r_; }
+  // The program as loaded, before memory-map edits.
+  const Program &loaded_program() const { return entry_.program(); }
+  // The program with the memory map at this revision (docs/memory-map.md).
+  const Program &program() const {
+    if (!effective_) effective_ = EffectiveProgram(snap_, id_);
+    return *effective_;
+  }
+  const std::shared_ptr<const Program> &program_ptr() const {
+    program();
+    return effective_;
+  }
+  const std::string &id() const { return id_; }
+  std::uint64_t revision() const { return r_.revision; }
+  facts::SpaceId space() const { return space_; }
+  const facts::AssertionLog &log() const { return r_.project->log(); }
+
+  const FunctionTable &functions() { return Get<q::Functions>(functions_); }
+  const LabelMap &defaults() { return Get<q::DefaultNames>(defaults_); }
+  const XrefTable &xrefs() { return Get<q::Xrefs>(xrefs_); }
+  const RowIndex &rows() { return Get<q::Rows>(rows_); }
+  const CodeMap &code() { return Get<q::Code>(code_); }
+  // The listing's edits (docs/listing-edit.md).
+  const analysis::UnitMap &units() {
+    if (!units_) units_ = snap_.get<analysis::Units>(AnalysisKey(id_));
+    return *units_;
+  }
+  const std::vector<analysis::MutabilityPiece> &mutability() {
+    if (!mutability_) mutability_ = snap_.get<analysis::MutabilityMap>(AnalysisKey(id_));
+    return *mutability_;
+  }
+  const facts::Snapshot &snapshot() const { return snap_; }
+  std::shared_ptr<const std::vector<StaticRow>> page(std::int64_t page) {
+    auto ref = snap_.get<q::Page>({id_, page});
+    // Keep the memo alive with the rows.
+    return std::shared_ptr<const std::vector<StaticRow>>(std::make_shared<facts::Ref<std::vector<StaticRow>>>(ref), &*ref);
+  }
+
+  facts::FactKey Key(FactKind kind, std::uint64_t addr, std::string sub = {}) const {
+    return FactKeyAt(kind, space_, addr, std::move(sub));
+  }
+  // The program's own record keys (kProgramNameSub, kProgramDeletedSub).
+  facts::FactKey ProgramKey(std::string sub) const {
+    return FactKeyAt(FactKind::Note, kProjectSpace, entry_.source.ordinal, std::move(sub));
+  }
+  // Whether a key has a live value, from the key index: one bucket read
+  // serves every address in it.
+  bool Asserted(const facts::FactKey &k) {
+    // The key's own space: the program's, or the project's (project types).
+    auto &bucket = buckets_[{k.kind, k.addr.space, k.addr.offset >> facts::kBucketShift}];
+    if (!bucket)
+      bucket = snap_.get<facts::AssertedKeys>(facts::BucketKey{k.kind, k.addr.space, k.addr.offset >> facts::kBucketShift});
+    return std::binary_search(bucket->begin(), bucket->end(), std::pair{k.addr.offset, k.sub});
+  }
+  // Asserted keys of `kind` at exactly `addr` (any sub).
+  std::vector<facts::FactKey> KeysAt(FactKind kind, std::uint64_t addr) {
+    auto &bucket = buckets_[{kind, space_, addr >> facts::kBucketShift}];
+    if (!bucket) bucket = snap_.get<facts::AssertedKeys>(facts::BucketKey{kind, space_, addr >> facts::kBucketShift});
+    std::vector<facts::FactKey> out;
+    for (auto it = std::lower_bound(bucket->begin(), bucket->end(), std::pair{addr, std::string()});
+         it != bucket->end() && it->first == addr; ++it)
+      out.push_back(Key(kind, addr, it->second));
+    return out;
+  }
+  // Every asserted key of `kind` in the program's space.
+  std::vector<facts::FactKey> AllKeys(FactKind kind) {
+    std::vector<facts::FactKey> out;
+    for (std::uint64_t b : *snap_.get<facts::AssertedBuckets>({kind, space_}))
+      for (const auto &[offset, sub] : *snap_.get<facts::AssertedKeys>(facts::BucketKey{kind, space_, b}))
+        out.push_back(Key(kind, offset, sub));
+    return out;
+  }
+  FactValue Value(const facts::FactKey &k) {
+    if (!Asserted(k)) return {};
+    return *snap_.get<facts::AssertedFact>(k);
+  }
+  std::string Text(const facts::FactKey &k) {
+    FactValue v = Value(k);
+    const std::string *s = std::get_if<std::string>(&v);
+    return s ? *s : std::string();
+  }
+  // The winning assertion of a key at this revision, as read (its key and
+  // body at their moved addresses in a rebased program).
+  std::optional<facts::Op> Winner(const facts::FactKey &k) {
+    if (!Asserted(k)) return std::nullopt;
+    auto w = log().blame(Stored(k), r_.log_size).winner;
+    if (w) w = ShiftedOp(std::move(*w), Shift());
+    return w;
+  }
+
+  // Rebase (docs/memory-map.md): the program's Shift at this revision; the
+  // log keeps keys image-relative, the index and the API show them moved.
+  const facts::Shift &Shift() {
+    if (!shift_) shift_ = ShiftAt(snap_, space_);
+    return *shift_;
+  }
+  // A key as the log stores it, and a stored one as read.
+  facts::FactKey Stored(const facts::FactKey &k) {
+    if (k.addr.space != space_ || Shift().identity() || k.kind == FactKind::Rebase || k.kind == FactKind::Language) return k;
+    return facts::shifted_key(Relocator().get(), k, Shift().inverse());
+  }
+  facts::FactKey Moved(const facts::FactKey &k) {
+    if (k.addr.space != space_ || Shift().identity() || k.kind == FactKind::Rebase || k.kind == FactKind::Language) return k;
+    return facts::shifted_key(Relocator().get(), k, Shift());
+  }
+  // Every key ever asserted on this program, as read.
+  std::vector<facts::FactKey> LogKeys() {
+    std::vector<facts::FactKey> out = log().keys();
+    for (facts::FactKey &k : out) k = Moved(k);
+    return out;
+  }
+
+  pb::FactOrigin Origin(const facts::Op &op) const {
+    pb::FactOrigin o;
+    o.mutable_asserted()->set_seq(op.seq);
+    *o.mutable_asserted()->mutable_provenance() = MetaOf(op).provenance();
+    *o.mutable_asserted()->mutable_id() = ToPbId(op.id);
+    return o;
+  }
+
+  // Effective symbol name at addr, or "" when there is none.
+  std::string Symbol(std::uint64_t addr) {
+    if (std::string n = Text(Key(FactKind::Name, addr)); !n.empty()) return n;
+    return DefaultName(addr);
+  }
+  std::string DefaultName(std::uint64_t addr) {
+    if (const Func *f = functions().at(addr)) return f->name;
+    if (const Label *l = defaults().find(addr)) return l->name;
+    return {};
+  }
+  // The name as the file spells it, where the default name at addr is
+  // the demangler analysis's (docs/demangle.md); "" otherwise.
+  const std::string &MangledName(std::uint64_t addr) {
+    static const std::string kNone;
+    if (const Func *f = functions().at(addr)) return f->mangled;
+    if (const Label *l = defaults().find(addr)) return l->mangled;
+    return kNone;
+  }
+  // The demangled name's other spellings, where the effective name at addr
+  // is the demangler analysis's (not a rename).
+  std::optional<pb::DemangledName> Demangled(std::uint64_t addr) {
+    const std::string &mangled = MangledName(addr);
+    if (mangled.empty() || !Text(Key(FactKind::Name, addr)).empty()) return std::nullopt;
+    pb::DemangledName out;
+    out.set_mangled(mangled);
+    if (std::optional<demangle::Demangled> d = demangle::parse(mangled)) out.set_full(d->full);
+    return out;
+  }
+  // Whether a search for `needle` (lower case) finds the name at addr:
+  // its effective name, or the mangled name its default came from.
+  bool NameMatches(std::uint64_t addr, const std::string &name, const std::string &needle) {
+    if (Lower(name).find(needle) != std::string::npos) return true;
+    const std::string &mangled = MangledName(addr);
+    return !mangled.empty() && Lower(mangled).find(needle) != std::string::npos;
+  }
+
+  pb::FactOrigin NameOrigin(std::uint64_t addr) {
+    if (!Text(Key(FactKind::Name, addr)).empty())
+      if (auto w = Winner(Key(FactKind::Name, addr))) return Origin(*w);
+    if (const Func *f = functions().at(addr))
+      return Derived(!f->mangled.empty()       ? "analysis.demangler"
+                     : f->name.starts_with("FUN_") ? "names.default"
+                                                   : "analysis.functions",
+                     revision());
+    if (const Label *l = defaults().find(addr); l && !l->mangled.empty()) return Derived("analysis.demangler", revision());
+    if (const Label *l = defaults().find(addr);
+        l && !l->name.starts_with("LAB_") && !l->name.starts_with("DAT_") && !l->name.starts_with("FUN_"))
+      return Derived("names.loader", revision());
+    return Derived("names.default", revision());
+  }
+
+  std::vector<pb::CommentView> Comments(std::uint64_t addr) {
+    std::vector<pb::CommentView> out;
+    for (const facts::FactKey &k : KeysAt(FactKind::Comment, addr)) {
+      std::string text = Text(k);
+      if (text.empty()) continue;
+      auto w = Winner(k);
+      if (!w) continue;
+      pb::CommentView c;
+      c.set_kind(MetaOf(*w).body().comment().kind());
+      c.set_text(std::move(text));
+      *c.mutable_origin() = Origin(*w);
+      out.push_back(std::move(c));
+    }
+    std::sort(out.begin(), out.end(), [](const auto &a, const auto &b) { return a.kind() < b.kind(); });
+    return out;
+  }
+
+  // The asserted type text at a key: the C declaration, or the type hash.
+  // The C declaration a winning retype was asserted with, which a parsed
+  // one still shows as written (its value is the parsed type's hash); "".
+  std::string AssertedCText(const facts::FactKey &k) {
+    auto w = Winner(k);
+    if (!w) return {};
+    pb::Assertion m = MetaOf(*w);
+    return m.body().has_retype() ? m.body().retype().type().c_declaration() : std::string();
+  }
+
+  std::string TypeText(const facts::FactKey &k) {
+    std::string t = Text(k);
+    if (t.starts_with("c:") || t.starts_with("h:")) return t.substr(2);
+    return t;
+  }
+
+  // The display of a type hash ("lua_State *"), or the hash if unknown.
+  std::string TypeDisplay(const std::string &hash) {
+    auto closure = snap_.get<q::ResolvedTypes>({id_, hash});
+    if (closure->empty()) return hash;
+    types::TypeStore store;
+    std::map<std::string, std::string> records(closure->begin(), closure->end());
+    auto ids = InternRecords(records, store);
+    return types::type_name(store, ids.at(hash));
+  }
+
+  // A hashed function type as a prototype with `name`, as Ghidra's listing
+  // prints it ("int lua_gettop(lua_State * L)"); the hash if unknown.
+  std::string PrototypeDisplay(const std::string &hash, const std::string &name) {
+    auto closure = snap_.get<q::ResolvedTypes>({id_, hash});
+    if (closure->empty()) return hash;
+    types::TypeStore store;
+    std::map<std::string, std::string> records(closure->begin(), closure->end());
+    auto ids = InternRecords(records, store);
+    types::PrintOptions o;
+    o.style = types::Style::Ghidra;
+    return types::prototype(store, ids.at(hash), name, o);
+  }
+
+  // A call's signature override (CALL_SIGNATURE; docs/api.md, "Call-site
+  // signature overrides") as a prototype naming `callee`; "" when the call
+  // has none. `who`: the assertion that set it.
+  std::string CallSignatureText(std::uint64_t call, const std::string &callee, std::optional<facts::Op> *who = nullptr) {
+    const facts::FactKey k = Key(FactKind::CallSignature, call);
+    auto w = Winner(k);
+    if (!w) return {};
+    const std::string t = Text(k);
+    if (!t.starts_with("h:")) return {};
+    if (who != nullptr) *who = std::move(w);
+    return PrototypeDisplay(t.substr(2), callee);
+  }
+
+ private:
+  template <class Q>
+  const typename Q::Value &Get(facts::Ref<typename Q::Value> &slot) {
+    if (!slot) slot = snap_.get<Q>(id_);
+    return *slot;
+  }
+
+  const Read &r_;
+  facts::Snapshot snap_;
+  const ProgramEntry &entry_;
+  facts::SpaceId space_;
+  std::string id_;
+  mutable std::shared_ptr<const Program> effective_;
+  std::optional<facts::Shift> shift_;
+  facts::Ref<FunctionTable> functions_;
+  facts::Ref<LabelMap> defaults_;
+  facts::Ref<XrefTable> xrefs_;
+  facts::Ref<RowIndex> rows_;
+  facts::Ref<CodeMap> code_;
+  facts::Ref<analysis::UnitMap> units_;
+  facts::Ref<std::vector<analysis::MutabilityPiece>> mutability_;
+  std::map<std::tuple<FactKind, facts::SpaceId, std::uint64_t>, facts::Ref<facts::AssertedKeys::Value>> buckets_;
+};
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+void AddToken(google::protobuf::RepeatedPtrField<pb::ListingToken> *out, pb::ListingTokenKind kind, std::string text) {
+  auto *t = out->Add();
+  t->set_kind(kind);
+  t->set_text(std::move(text));
+}
+
+// Typed SLEIGH tokens, with addresses shown as the symbols they name. A
+// scalar the instruction references (a RIP-relative or immediate address)
+// becomes an address token too. A scalar with an operand display (an
+// EQUATE key: a conversion, an equate, an enum member) shows as it says;
+// an operand with a primary user reference shows its target's symbol
+// (docs/api.md, "Equates and user references").
+void RenderTokens(View &v, std::uint64_t addr, const std::vector<lift::Token> &tokens,
+                  google::protobuf::RepeatedPtrField<pb::ListingToken> *out, int only_operand = -2) {
+  std::vector<const StaticXref *> refs;
+  bool refs_loaded = false;
+  auto referenced = [&](std::uint64_t value) {
+    if (!refs_loaded) {
+      refs = v.xrefs().from(addr, addr);
+      refs_loaded = true;
+    }
+    return std::any_of(refs.begin(), refs.end(), [&](const StaticXref *x) { return x->to == value; });
+  };
+  struct Display {
+    analysis::EquateSub sub;
+    facts::FactKey key;
+  };
+  std::vector<Display> displays;
+  for (const facts::FactKey &k : v.KeysAt(FactKind::Equate, addr))
+    if (auto sub = analysis::parse_equate_sub(k.sub); sub && sub->operand >= 0) displays.push_back({*sub, k});
+  struct Primary {
+    std::uint64_t to = 0;
+    facts::FactKey key;
+    bool shown = false;
+  };
+  std::map<int, Primary> primary;
+  for (const facts::FactKey &k : v.KeysAt(FactKind::Reference, addr))
+    if (auto r = analysis::parse_user_ref(k.sub, v.Text(k)); r && !r->remove && r->primary && r->operand >= 0)
+      primary[r->operand] = {r->to, k};
+  // `to` as its symbol, or as an address: the token's own text, or (for
+  // a reference's target) the address in hex.
+  auto symbol_token = [&](pb::ListingToken *o, std::uint64_t to, bool keep_text = true) {
+    *o->mutable_target() = A(to);
+    std::string name = v.Symbol(to);
+    if (name.empty()) {
+      o->set_kind(pb::LISTING_TOKEN_KIND_ADDRESS);
+      if (!keep_text) {
+        char buf[32];
+        std::snprintf(buf, sizeof buf, "%08llx", static_cast<unsigned long long>(to));
+        o->set_text(buf);
+      }
+    } else {
+      o->set_kind(pb::LISTING_TOKEN_KIND_SYMBOL);
+      o->set_text(std::move(name));
+      if (auto d = v.Demangled(to)) *o->mutable_demangled() = std::move(*d);
+    }
+  };
+  // An operand whose primary reference no scalar of it showed: "=>" and
+  // the target after its last token, as Ghidra's listing shows one.
+  auto flush = [&](int operand) {
+    auto it = primary.find(operand);
+    if (it == primary.end() || it->second.shown) return;
+    it->second.shown = true;
+    AddToken(out, pb::LISTING_TOKEN_KIND_SEPARATOR, "=>");
+    out->rbegin()->set_operand_index(static_cast<std::uint32_t>(operand));
+    auto *o = out->Add();
+    o->set_operand_index(static_cast<std::uint32_t>(operand));
+    symbol_token(o, it->second.to, false);
+    if (auto w = v.Winner(it->second.key)) *o->mutable_reference_origin() = v.Origin(*w);
+  };
+  int current = -1;
+  for (const lift::Token &t : tokens) {
+    if (only_operand != -2 && t.operand != only_operand) continue;
+    if (t.operand != current) {
+      if (current >= 0) flush(current);
+      current = t.operand;
+    }
+    auto *o = out->Add();
+    o->set_text(t.text);
+    if (t.operand >= 0) o->set_operand_index(static_cast<std::uint32_t>(t.operand));
+    using K = lift::Token::Kind;
+    switch (t.kind) {
+      case K::mnemonic: o->set_kind(pb::LISTING_TOKEN_KIND_MNEMONIC); break;
+      case K::reg:
+        o->set_kind(pb::LISTING_TOKEN_KIND_REGISTER);
+        o->mutable_register_varnode()->set_space(t.reg.space);
+        o->mutable_register_varnode()->set_offset(t.reg.offset);
+        o->mutable_register_varnode()->set_size(t.reg.size);
+        o->mutable_register_varnode()->set_register_name(t.text);
+        break;
+      case K::whitespace: o->set_kind(pb::LISTING_TOKEN_KIND_WHITESPACE); break;
+      case K::separator: o->set_kind(pb::LISTING_TOKEN_KIND_SEPARATOR); break;
+      case K::scalar:
+      case K::address: {
+        // A scalar keeps its value and width even when it shows as the
+        // address it names (api_minor 34, feature "token-scalars").
+        if (t.kind == K::scalar) {
+          o->set_value(static_cast<std::int64_t>(t.value));
+          if (t.bits) o->set_scalar_bits(t.bits);
+          // The user's display of it (api_minor 39, feature "equates").
+          bool displayed = false;
+          for (const Display &d : displays) {
+            if (d.sub.operand != t.operand || !analysis::scalar_matches(t.value, d.sub.value, t.bits)) continue;
+            auto disp = analysis::parse_operand_display(v.Text(d.key));
+            if (!disp || (!disp->equate() && disp->format == analysis::ScalarFormat::none)) continue;
+            std::string text = disp->equate() ? disp->name : analysis::format_scalar(t.value, t.bits, disp->format);
+            if (text.empty()) continue;
+            o->set_kind(pb::LISTING_TOKEN_KIND_SCALAR);
+            o->set_text(std::move(text));
+            if (auto w = v.Winner(d.key)) *o->mutable_display_origin() = v.Origin(*w);
+            displayed = true;
+            break;
+          }
+          if (displayed) break;
+        }
+        if (auto p = primary.find(t.operand); p != primary.end() && !p->second.shown) {
+          // The operand's primary reference (api_minor 39, feature
+          // "user-references"): its target in place of the value.
+          p->second.shown = true;
+          symbol_token(o, p->second.to, false);
+          if (auto w = v.Winner(p->second.key)) *o->mutable_reference_origin() = v.Origin(*w);
+          break;
+        }
+        const bool is_address = t.kind == K::address || referenced(t.value);
+        if (!is_address) {
+          o->set_kind(pb::LISTING_TOKEN_KIND_SCALAR);
+          break;
+        }
+        symbol_token(o, t.value);
+        break;
+      }
+    }
+  }
+  if (current >= 0) flush(current);
+}
+
+// An instruction row's flow: the decoded flow after any override, its
+// static targets, and a recovered jump table's cases.
+void FillFlow(View &v, const StaticRow &r, pb::ListingRow *out) {
+  pb::FlowKind flow = r.flow;
+  const facts::FactKey key = v.Key(FactKind::FlowOverride, r.address);
+  if (auto w = v.Winner(key)) {
+    FactValue val = v.Value(key);
+    if (const auto *k = std::get_if<std::int64_t>(&val)) {
+      const auto kind = static_cast<pb::FlowOverrideKind>(*k);
+      out->set_flow_override(kind);
+      *out->mutable_flow_override_origin() = v.Origin(*w);
+      switch (kind) {
+        case pb::FLOW_OVERRIDE_KIND_BRANCH: flow = pb::FLOW_KIND_UNCONDITIONAL_BRANCH; break;
+        case pb::FLOW_OVERRIDE_KIND_CALL:
+        case pb::FLOW_OVERRIDE_KIND_CALL_RETURN: flow = pb::FLOW_KIND_CALL; break;
+        case pb::FLOW_OVERRIDE_KIND_RETURN: flow = pb::FLOW_KIND_RETURN; break;
+        default: break;
+      }
+    }
+  }
+  out->set_flow(flow);
+  if (flow == pb::FLOW_KIND_CALL || flow == pb::FLOW_KIND_INDIRECT_CALL) {
+    std::optional<facts::Op> who;
+    const std::string callee = r.targets.size() == 1 ? v.Symbol(r.targets[0]) : std::string();
+    if (std::string sig = v.CallSignatureText(r.address, callee, &who); !sig.empty()) {
+      out->set_call_signature(std::move(sig));
+      *out->mutable_call_signature_origin() = v.Origin(*who);
+    }
+  }
+  std::set<std::uint64_t> seen;
+  for (std::uint64_t t : r.targets)
+    if (seen.insert(t).second) *out->add_flow_targets() = A(t);
+  if (r.flow == pb::FLOW_KIND_INDIRECT_BRANCH)
+    for (const StaticXref *x : v.xrefs().from(r.address, r.address))
+      if (x->kind == pb::XREF_KIND_INDIRECT_JUMP && seen.insert(x->to).second) *out->add_flow_targets() = A(x->to);
+}
+
+void FillRow(View &v, const StaticRow &r, std::int64_t index, bool omit_bytes, pb::ListingRow *out) {
+  const Program &p = v.program();
+  out->set_row(index);
+  *out->mutable_address() = A(r.address);
+  out->set_length(r.length);
+  out->set_kind(r.kind);
+  out->set_block(p.image().blocks[r.block].name);
+  if (!omit_bytes) out->set_bytes(r.bytes);
+  if (r.patched) {
+    out->set_patched(true);
+    if (!omit_bytes) out->set_original_bytes(r.original);
+  }
+  if (std::string name = v.Symbol(r.address); !name.empty()) {
+    auto *l = out->add_labels();
+    l->set_name(name);
+    l->set_primary(true);
+    *l->mutable_origin() = v.NameOrigin(r.address);
+    if (auto d = v.Demangled(r.address)) *l->mutable_demangled() = std::move(*d);
+  }
+  if (const Func *f = v.functions().containing(r.address)) {
+    *out->mutable_function() = A(f->entry);
+    out->set_function_entry(f->entry == r.address);
+  } else if (v.functions().at(r.address)) {
+    *out->mutable_function() = A(r.address);
+    out->set_function_entry(true);
+  }
+  if (r.kind == pb::LISTING_ROW_KIND_INSTRUCTION) {
+    RenderTokens(v, r.address, r.tokens, out->mutable_tokens());
+    FillFlow(v, r, out);
+  } else if (r.kind == pb::LISTING_ROW_KIND_DATA) {
+    // Data analysis's data: type, then its value or the symbol it points at.
+    out->set_data_type(r.data_type);
+    if (r.data_components) out->set_data_components(r.data_components);
+    if (r.data_collapsed) out->set_data_collapsed(true);
+    if (r.data_parent) {
+      *out->mutable_data_parent() = A(*r.data_parent);
+      out->set_data_field(r.data_field);
+      out->set_data_depth(r.data_depth);
+    }
+    AddToken(out->mutable_tokens(), pb::LISTING_TOKEN_KIND_TYPE, r.data_mnemonic);
+    AddToken(out->mutable_tokens(), pb::LISTING_TOKEN_KIND_WHITESPACE, " ");
+    if (r.data_target) {
+      auto *t = out->add_tokens();
+      *t->mutable_target() = A(*r.data_target);
+      if (std::string name = v.Symbol(*r.data_target); !name.empty()) {
+        t->set_kind(pb::LISTING_TOKEN_KIND_SYMBOL);
+        t->set_text(name);
+        if (auto d = v.Demangled(*r.data_target)) *t->mutable_demangled() = std::move(*d);
+      } else {
+        char buf[32];
+        std::snprintf(buf, sizeof buf, "%08llx", static_cast<unsigned long long>(*r.data_target));
+        t->set_kind(pb::LISTING_TOKEN_KIND_ADDRESS);
+        t->set_text(buf);
+      }
+    } else {
+      AddToken(out->mutable_tokens(), pb::LISTING_TOKEN_KIND_DATA_VALUE, r.data_value);
+    }
+  } else {
+    AddToken(out->mutable_tokens(), pb::LISTING_TOKEN_KIND_TYPE,
+             r.length == 1 ? "undefined" : "undefined[" + std::to_string(r.length) + "]");
+  }
+  if (!out->function_entry()) {
+    // A global's asserted type, for display (over analysis's data type).
+    const facts::FactKey type = v.Key(FactKind::Type, r.address);
+    if (std::string t = v.Text(type); !t.empty()) {
+      if (t.starts_with("h:")) {
+        out->set_data_type(v.TypeDisplay(t.substr(2)));
+        out->set_data_type_hash(t.substr(2));
+      } else {
+        out->set_data_type(v.TypeText(type));
+      }
+    }
+  }
+  for (auto &c : v.Comments(r.address)) *out->add_comments() = std::move(c);
+  out->set_xref_to_count(v.xrefs().count_to(r.address));
+  // Who said what these bytes are, and whether they are constant
+  // (docs/listing-edit.md).
+  if (!r.data_parent) {
+    const analysis::UnitMap &units = v.units();
+    if (const analysis::UnitMap::Mark *m = units.owner(r.address))
+      if (auto w = v.Winner(v.Key(FactKind::CodeUnit, m->start, m->sub))) *out->mutable_unit_origin() = v.Origin(*w);
+  }
+  if (const analysis::MutabilityPiece *m = analysis::mutability_at(v.mutability(), r.address)) {
+    switch (m->kind) {
+      case analysis::MutabilityKind::constant: out->set_mutability(pb::MUTABILITY_CONSTANT); break;
+      case analysis::MutabilityKind::is_volatile: out->set_mutability(pb::MUTABILITY_VOLATILE); break;
+      case analysis::MutabilityKind::normal: out->set_mutability(pb::MUTABILITY_NORMAL); break;
+      case analysis::MutabilityKind::as_map: break;
+    }
+    if (auto w = v.Winner(v.Key(FactKind::Mutability, m->start, m->sub))) *out->mutable_mutability_origin() = v.Origin(*w);
+  }
+}
+
+// What header rows (GetListingRequest.header_rows) show above the code unit
+// at `addr`, in order. Its length must be what listing.headers counted
+// (queries.cc), which uses the same predicates.
+struct HeaderLine {
+  pb::ListingHeaderKind kind;
+  std::string text;
+  std::uint32_t line = 0;
+  pb::FactOrigin origin;
+  std::optional<pb::DemangledName> demangled;
+};
+
+std::vector<HeaderLine> HeaderLines(View &v, std::uint64_t addr) {
+  std::vector<HeaderLine> out;
+  auto comment = [&](const char *sub, pb::ListingHeaderKind kind) {
+    const facts::FactKey k = v.Key(FactKind::Comment, addr, sub);
+    std::string text = v.Text(k);
+    if (text.empty()) return;
+    auto w = v.Winner(k);
+    std::uint32_t i = 0;
+    for (std::string &line : CommentLines(text)) {
+      HeaderLine h{kind, std::move(line), i++, {}};
+      if (w) h.origin = v.Origin(*w);
+      out.push_back(std::move(h));
+    }
+  };
+  comment("plate", pb::LISTING_HEADER_KIND_PLATE);
+  const std::string name = v.Symbol(addr);
+  std::optional<pb::DemangledName> demangled = v.Demangled(addr);
+  if (v.functions().at(addr)) {
+    HeaderLine sig{pb::LISTING_HEADER_KIND_SIGNATURE, {}, 0, {}, demangled};
+    const facts::FactKey type = v.Key(FactKind::Type, addr);
+    std::string t = v.Text(type);
+    // The demangler's prototype outranks an agent's (docs/demangle.md).
+    std::optional<facts::Op> w = t.empty() ? std::nullopt : v.Winner(type);
+    auto mangled = w && facts::rank(w->prov.kind) < facts::rank(facts::ProvenanceKind::Import)
+                       ? v.snapshot().get<q::Demangled>({v.id(), addr})
+                       : facts::Ref<std::optional<DemangledProto>>{};
+    if (mangled && *mangled) {
+      sig.text = (*mangled)->text(name);
+    } else if (t.starts_with("c:")) {
+      sig.text = t.substr(2);
+    } else if (t.starts_with("h:")) {
+      sig.text = v.AssertedCText(type);
+      if (sig.text.empty()) sig.text = v.PrototypeDisplay(t.substr(2), name);
+    } else if (auto d = v.snapshot().get<q::Demangled>({v.id(), addr}); *d) {
+      sig.text = (*d)->text(name);
+    } else {
+      sig.text = "undefined " + name + "()";
+    }
+    if (w && !(mangled && *mangled)) sig.origin = v.Origin(*w);
+    out.push_back(std::move(sig));
+  }
+  if (!name.empty()) out.push_back({pb::LISTING_HEADER_KIND_LABEL, name, 0, v.NameOrigin(addr), demangled});
+  comment("pre", pb::LISTING_HEADER_KIND_PRE_COMMENT);
+  return out;
+}
+
+void FillHeaderRow(View &v, const StaticRow &r, const HeaderLine &h, std::int64_t index, pb::ListingRow *out) {
+  out->set_row(index);
+  *out->mutable_address() = A(r.address);
+  out->set_kind(pb::LISTING_ROW_KIND_HEADER);
+  out->set_block(v.program().image().blocks[r.block].name);
+  if (const Func *f = v.functions().containing(r.address)) {
+    *out->mutable_function() = A(f->entry);
+    out->set_function_entry(f->entry == r.address);
+  } else if (v.functions().at(r.address)) {
+    *out->mutable_function() = A(r.address);
+    out->set_function_entry(true);
+  }
+  auto *hd = out->mutable_header();
+  hd->set_kind(h.kind);
+  hd->set_text(h.text);
+  hd->set_line(h.line);
+  if (h.origin.source_case() != pb::FactOrigin::SOURCE_NOT_SET) *hd->mutable_origin() = h.origin;
+  if (h.demangled) *hd->mutable_demangled() = *h.demangled;
+  if (h.kind == pb::LISTING_HEADER_KIND_LABEL) {
+    auto *l = out->add_labels();
+    l->set_name(h.text);
+    l->set_primary(true);
+    *l->mutable_origin() = h.origin;
+    if (h.demangled) *l->mutable_demangled() = *h.demangled;
+    out->set_xref_to_count(v.xrefs().count_to(r.address));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Search helpers (api_minor 41, feature "search")
+// ---------------------------------------------------------------------------
+
+// A listing row as its tokens read: an instruction's mnemonic and operands
+// (an address as the symbol it names, as RenderTokens shows it), data's
+// mnemonic and value, "undefined[N]". `operands` is where the part after
+// the mnemonic begins (the text's size when there is none).
+std::string UnitText(View &v, const SearchRow &r, std::size_t *operands = nullptr) {
+  std::string out;
+  std::size_t ops = std::string::npos;
+  if (r.kind == pb::LISTING_ROW_KIND_INSTRUCTION &&
+      (!v.KeysAt(FactKind::Equate, r.address).empty() || !v.KeysAt(FactKind::Reference, r.address).empty())) {
+    // The user's display of a scalar (an equate, a format) or a primary
+    // reference: decoded again and rendered as the listing renders it.
+    SnapshotPatches patches(v.snapshot(), v.space());
+    if (auto d = v.program().instruction(r.address, v.code().thumb_at(r.address), &patches)) {
+      google::protobuf::RepeatedPtrField<pb::ListingToken> toks;
+      RenderTokens(v, r.address, d->insn.tokens, &toks);
+      for (const pb::ListingToken &t : toks) {
+        if (ops == std::string::npos && t.kind() != pb::LISTING_TOKEN_KIND_MNEMONIC && t.kind() != pb::LISTING_TOKEN_KIND_WHITESPACE)
+          ops = out.size();
+        out += t.text();
+      }
+      if (operands) *operands = ops == std::string::npos ? out.size() : ops;
+      return out;
+    }
+  }
+  if (r.kind == pb::LISTING_ROW_KIND_INSTRUCTION) {
+    std::vector<const StaticXref *> refs;
+    bool refs_loaded = false;
+    std::size_t at = 0;  // copied from r.text up to here
+    auto copy_to = [&](std::size_t end) {
+      if (ops == std::string::npos && r.operands >= at && r.operands <= end) ops = out.size() + (r.operands - at);
+      out.append(r.text, at, end - at);
+      at = end;
+    };
+    for (const SearchRow::Number &n : r.numbers) {
+      bool is_address = n.address;
+      if (!is_address) {
+        if (!refs_loaded) {
+          refs = v.xrefs().from(r.address, r.address);
+          refs_loaded = true;
+        }
+        is_address = std::any_of(refs.begin(), refs.end(), [&](const StaticXref *x) { return x->to == n.value; });
+      }
+      if (!is_address) continue;
+      std::string name = v.Symbol(n.value);
+      if (name.empty()) continue;
+      copy_to(n.at);
+      out += name;
+      at = n.at + n.len;
+    }
+    copy_to(r.text.size());
+  } else if (r.kind == pb::LISTING_ROW_KIND_DATA) {
+    out = r.data_mnemonic;
+    out += ' ';
+    ops = out.size();
+    if (r.data_target) {
+      std::string name = v.Symbol(*r.data_target);
+      if (name.empty()) {
+        char buf[32];
+        std::snprintf(buf, sizeof buf, "%08llx", static_cast<unsigned long long>(*r.data_target));
+        name = buf;
+      }
+      out += name;
+    } else {
+      out += r.text;
+    }
+  } else {
+    out = r.length == 1 ? "undefined" : "undefined[" + std::to_string(r.length) + "]";
+  }
+  if (operands) *operands = ops == std::string::npos ? out.size() : ops;
+  return out;
+}
+
+pb::CommentKind CommentKindOfSub(std::string_view sub) {
+  for (int k = pb::COMMENT_KIND_EOL; k <= pb::COMMENT_KIND_DECOMPILER; ++k)
+    if (sub == CommentSub(static_cast<pb::CommentKind>(k))) return static_cast<pb::CommentKind>(k);
+  return pb::COMMENT_KIND_UNSPECIFIED;
+}
+
+// One line the listing shows that a text search can match.
+struct SearchLine {
+  pb::TextField field = pb::TEXT_FIELD_UNSPECIFIED;
+  pb::CommentKind comment = pb::COMMENT_KIND_UNSPECIFIED;
+  std::string text;
+  // An instruction or data searched whole: where the operands (value)
+  // begin, which decides the field a match is reported in.
+  std::size_t split = std::string::npos;
+};
+
+// Which fields a SearchText request covers.
+struct TextFields {
+  bool comments = true, labels = true, functions = true, mnemonics = true, operands = true, data_mnemonics = true,
+       data_values = true;
+  explicit TextFields(const google::protobuf::RepeatedField<int> &f) {
+    if (f.empty()) return;
+    comments = labels = functions = mnemonics = operands = data_mnemonics = data_values = false;
+    for (int x : f) switch (x) {
+        case pb::TEXT_FIELD_COMMENTS: comments = true; break;
+        case pb::TEXT_FIELD_LABELS: labels = true; break;
+        case pb::TEXT_FIELD_FUNCTIONS: functions = true; break;
+        case pb::TEXT_FIELD_MNEMONICS: mnemonics = true; break;
+        case pb::TEXT_FIELD_OPERANDS: operands = true; break;
+        case pb::TEXT_FIELD_DATA_MNEMONICS: data_mnemonics = true; break;
+        case pb::TEXT_FIELD_DATA_VALUES: data_values = true; break;
+        default: break;
+      }
+  }
+  bool any_unit() const { return mnemonics || operands || data_mnemonics || data_values; }
+};
+
+// The lines the listing shows at a code unit (`row`, or only its header
+// and comments when null), in display order: plate comment, the
+// function's signature, the label, pre-comment, the unit itself, then its
+// end-of-line, post and repeatable comments.
+void UnitLines(View &v, std::uint64_t addr, const SearchRow *row, const TextFields &f, std::vector<SearchLine> &out) {
+  out.clear();
+  std::vector<std::pair<pb::CommentKind, std::string>> comments;
+  if (f.comments)
+    for (const facts::FactKey &k : v.KeysAt(FactKind::Comment, addr)) {
+      const pb::CommentKind kind = CommentKindOfSub(k.sub);
+      if (kind == pb::COMMENT_KIND_UNSPECIFIED || kind == pb::COMMENT_KIND_DECOMPILER) continue;
+      if (std::string t = v.Text(k); !t.empty()) comments.emplace_back(kind, std::move(t));
+    }
+  auto comment = [&](pb::CommentKind kind) {
+    for (const auto &[k, text] : comments)
+      if (k == kind)
+        for (std::string &line : CommentLines(text)) out.push_back({pb::TEXT_FIELD_COMMENTS, kind, std::move(line)});
+  };
+  comment(pb::COMMENT_KIND_PLATE);
+  const bool entry = v.functions().at(addr) != nullptr;
+  std::string name;
+  if (f.labels || (f.functions && entry)) name = v.Symbol(addr);
+  if (f.functions && entry) {
+    const facts::FactKey type = v.Key(FactKind::Type, addr);
+    std::string t = v.Text(type), sig;
+    if (t.starts_with("c:")) {
+      sig = t.substr(2);
+    } else if (t.starts_with("h:")) {
+      sig = v.AssertedCText(type);
+      if (sig.empty()) sig = v.PrototypeDisplay(t.substr(2), name);
+    } else {
+      sig = "undefined " + name + "()";
+    }
+    out.push_back({pb::TEXT_FIELD_FUNCTIONS, pb::COMMENT_KIND_UNSPECIFIED, std::move(sig)});
+  }
+  if (f.labels && !name.empty()) out.push_back({pb::TEXT_FIELD_LABELS, pb::COMMENT_KIND_UNSPECIFIED, name});
+  comment(pb::COMMENT_KIND_PRE);
+  if (row && row->kind != pb::LISTING_ROW_KIND_UNSPECIFIED) {
+    const bool insn = row->kind == pb::LISTING_ROW_KIND_INSTRUCTION, data = row->kind == pb::LISTING_ROW_KIND_DATA;
+    const bool head = insn ? f.mnemonics : data ? f.data_mnemonics : false;
+    const bool tail = insn ? f.operands : data ? f.data_values : false;
+    if (head || tail) {
+      std::size_t split = 0;
+      std::string text = UnitText(v, *row, &split);
+      const pb::TextField hf = insn ? pb::TEXT_FIELD_MNEMONICS : pb::TEXT_FIELD_DATA_MNEMONICS;
+      const pb::TextField tf = insn ? pb::TEXT_FIELD_OPERANDS : pb::TEXT_FIELD_DATA_VALUES;
+      if (head && tail) {
+        out.push_back({hf, pb::COMMENT_KIND_UNSPECIFIED, std::move(text), split});
+      } else if (head) {
+        std::string h = text.substr(0, split);
+        while (!h.empty() && h.back() == ' ') h.pop_back();
+        out.push_back({hf, pb::COMMENT_KIND_UNSPECIFIED, std::move(h)});
+      } else if (split < text.size()) {
+        out.push_back({tf, pb::COMMENT_KIND_UNSPECIFIED, text.substr(split)});
+      }
+    }
+  }
+  comment(pb::COMMENT_KIND_EOL);
+  comment(pb::COMMENT_KIND_POST);
+  comment(pb::COMMENT_KIND_REPEATABLE);
+}
+
+// Data types whose value is a scalar (Ghidra's scalar search reads them).
+bool ScalarDataType(const std::string &t, bool &is_signed) {
+  static const std::set<std::string, std::less<>> kUnsigned = {
+      "byte", "word", "dword", "qword", "undefined", "undefined1", "undefined2", "undefined4", "undefined8", "uchar",
+      "ushort", "uint", "ulong", "ulonglong", "unsigned char", "unsigned short", "unsigned int", "unsigned long",
+      "unsigned long long", "uint8_t", "uint16_t", "uint32_t", "uint64_t", "size_t"};
+  static const std::set<std::string, std::less<>> kSigned = {
+      "sbyte", "sword", "sdword", "sqword", "char", "schar", "signed char", "short", "int", "long", "longlong",
+      "long long", "int8_t", "int16_t", "int32_t", "int64_t", "ssize_t"};
+  if (kUnsigned.contains(t)) return is_signed = false, true;
+  if (kSigned.contains(t)) return is_signed = true, true;
+  return false;
+}
+
+// A scalar's two readings, from its value as printed and its width.
+void ScalarReadings(std::uint64_t value, unsigned bits, std::int64_t &as_signed, std::uint64_t &as_unsigned) {
+  if (bits == 0 || bits >= 64) {
+    as_signed = static_cast<std::int64_t>(value);
+    as_unsigned = value;
+    return;
+  }
+  as_unsigned = value & ((std::uint64_t{1} << bits) - 1);
+  const unsigned shift = 64 - bits;
+  as_signed = static_cast<std::int64_t>(as_unsigned << shift) >> shift;
+}
+
+// ---------------------------------------------------------------------------
+// Assertion keys, values and effects
+// ---------------------------------------------------------------------------
+
+// Validates an assertion body against the program and computes its key and
+// value. `local_keys(entry)` returns the function's variable storage keys
+// (from a decompile), or nullopt when it can't tell; `batch_types` are the
+// hashes the request's define_type bodies define. Returns an error or "".
+// define_type bodies are keyed by DefineTypes (define_type.h), not here.
+std::string KeyFor(View &v, const pb::AssertionBody &body,
+                   const std::function<std::optional<std::set<std::string>>(std::uint64_t)> &local_keys,
+                   const std::set<std::string> &batch_types, facts::FactKey &key, FactValue &value) {
+  const Program &p = v.program();
+  auto check_addr = [&](const pb::Address &a) -> std::string {
+    if (!IsDefaultSpace(a)) return "only the default space is supported, got \"" + a.space() + "\"";
+    if (!p.block_containing(a.offset())) return "address 0x" + Hex(a.offset()) + " is not in memory";
+    return {};
+  };
+  auto set_target = [&](const pb::Target &t, FactKind kind) -> std::string {
+    if (t.has_address()) {
+      if (auto e = check_addr(t.address()); !e.empty()) return e;
+      key = v.Key(kind, t.address().offset());
+      return {};
+    }
+    if (t.has_local()) {
+      std::uint64_t entry = t.local().function().offset();
+      if (!v.functions().at(entry)) return "no function at 0x" + Hex(entry);
+      if (t.local().storage_key().empty()) return "local.storage_key is required";
+      if (auto keys = local_keys(entry); keys && !keys->contains(t.local().storage_key()))
+        return "function 0x" + Hex(entry) + " has no variable with storage_key \"" + t.local().storage_key() + "\"";
+      key = v.Key(kind, entry, "local:" + t.local().storage_key());
+      return {};
+    }
+    return "target is required";
+  };
+
+  switch (body.kind_case()) {
+    case pb::AssertionBody::kRename: {
+      const auto &name = body.rename().name();
+      if (name.size() > 256) return "name is longer than 256 bytes";
+      if (std::any_of(name.begin(), name.end(), [](unsigned char c) { return std::isspace(c) || c < 0x20; }))
+        return "name contains whitespace or control characters";
+      value = name;
+      return set_target(body.rename().target(), FactKind::Name);
+    }
+    case pb::AssertionBody::kRetype: {
+      const auto &t = body.retype().type();
+      if (t.kind_case() == pb::TypeSpec::KIND_NOT_SET) return "type is required";
+      if (t.has_type_hash()) {
+        if (!batch_types.contains(t.type_hash()) && !v.Asserted(TypeDefKey(v.space(), t.type_hash())) &&
+            !v.Asserted(TypeDefKey(kProjectSpace, t.type_hash())) &&
+            !v.snapshot().get<q::Library>(v.id())->record(t.type_hash()))
+          return "unknown type hash " + t.type_hash() + " (not defined in this program)";
+        value = "h:" + t.type_hash();
+      } else {
+        if (t.c_declaration().empty()) return "c_declaration is empty";
+        value = "c:" + t.c_declaration();
+      }
+      return set_target(body.retype().target(), FactKind::Type);
+    }
+    case pb::AssertionBody::kComment: {
+      const auto &c = body.comment();
+      if (c.kind() == pb::COMMENT_KIND_UNSPECIFIED || !*CommentSub(c.kind())) return "comment.kind is required";
+      if (auto e = check_addr(c.address()); !e.empty()) return e;
+      key = v.Key(FactKind::Comment, c.address().offset(), CommentSub(c.kind()));
+      value = c.text();
+      return {};
+    }
+    case pb::AssertionBody::kFunctionBounds: {
+      const auto &b = body.function_bounds();
+      if (auto e = check_addr(b.entry()); !e.empty()) return e;
+      if (!b.remove() && !p.instruction(b.entry().offset())) return "no instruction at entry 0x" + Hex(b.entry().offset());
+      facts::AddressSet set;
+      for (const auto &r : b.body()) {
+        if (r.first().offset() > r.last().offset()) return "body range first > last";
+        if (auto e = check_addr(r.first()); !e.empty()) return e;
+        if (auto e = check_addr(r.last()); !e.empty()) return e;
+        set.add(facts::AddressRange{{v.space(), r.first().offset()}, {v.space(), r.last().offset()}});
+      }
+      key = v.Key(FactKind::FunctionBounds, b.entry().offset());
+      if (b.remove()) value = kRemovedFunction;
+      else value = std::move(set);
+      return {};
+    }
+    case pb::AssertionBody::kNoReturn: {
+      // Whether a function returns, over analysis's no-return set.
+      const auto &n = body.no_return();
+      if (auto e = check_addr(n.function()); !e.empty()) return "function: " + e;
+      const Func *f = v.functions().at(n.function().offset());
+      if (f == nullptr || f->entry != n.function().offset()) return "no function at 0x" + Hex(n.function().offset());
+      key = v.Key(FactKind::NoReturn, n.function().offset());
+      value = static_cast<std::int64_t>(n.no_return() ? 1 : 0);
+      return {};
+    }
+    case pb::AssertionBody::kFlowOverride: {
+      const auto &f = body.flow_override();
+      if (auto e = check_addr(f.address()); !e.empty()) return e;
+      if (!p.instruction(f.address().offset())) return "no instruction at 0x" + Hex(f.address().offset());
+      if (f.kind() == pb::FLOW_OVERRIDE_KIND_UNSPECIFIED) return "flow_override.kind is required";
+      key = v.Key(FactKind::FlowOverride, f.address().offset());
+      value = static_cast<std::int64_t>(f.kind());
+      return {};
+    }
+    case pb::AssertionBody::kNote: {
+      const auto &n = body.note();
+      if (auto e = check_addr(n.address()); !e.empty()) return e;
+      if (IsProgramMetaSub(n.tag())) return "note tag " + n.tag() + " is reserved (RenameProgram, DeleteProgram)";
+      key = v.Key(FactKind::Note, n.address().offset(), n.tag());
+      value = n.text();
+      return {};
+    }
+    case pb::AssertionBody::kTypeCategory: {
+      const auto &c = body.type_category();
+      if (!IsNamedTypeKey(c.named_key()))
+        return "type_category.named_key must be \"struct|union|class|enum|typedef <name>\", got \"" +
+               c.named_key().substr(0, 64) + "\"";
+      std::string err;
+      std::optional<std::string> path = NormalizeTypeCategory(c.path(), &err);
+      if (!path) return "type_category.path: " + err;
+      key = TypeDefKey(v.space(), TypeCategorySub(c.named_key()));
+      value = *path;
+      return {};
+    }
+    case pb::AssertionBody::kTypeArchive: {
+      // A project setting (docs/types.md#project-types): NOTE in the
+      // project's space.
+      const pb::TypeArchiveSetting &a = body.type_archive();
+      if (a.name().empty() || a.name().size() > 64 || cparse::archive_stem(a.name()) != a.name())
+        return "type_archive.name must be 1 to 64 letters, digits, '_', '-' or '.', got \"" + a.name().substr(0, 64) + "\"";
+      if (a.header().size() > (32u << 20)) return "type_archive.header is larger than 32 MiB";
+      if (a.sidecar().size() > (64u << 20)) return "type_archive.sidecar is larger than 64 MiB";
+      if (!a.sidecar().empty() && a.header().empty()) return "type_archive.sidecar without a header";
+      if (!a.sidecar().empty()) {
+        std::string err;
+        if (!ReadTypeArchiveSidecar(a.sidecar(), &err)) return "type_archive.sidecar: " + err;
+      }
+      if (a.detach() && !a.header().empty()) return "type_archive.detach with a header";
+      key = FactKeyAt(FactKind::Note, kProjectSpace, archive::kTypeArchiveAddress,
+                      std::string(archive::kTypeArchiveSubPrefix) + a.name());
+      if (a.detach()) {
+        value = std::string();
+        return {};
+      }
+      pb::TypeArchiveSetting stored = a;
+      // Switching an attached archive on or off keeps its header.
+      if (stored.header().empty()) {
+        pb::TypeArchiveSetting current;
+        if (const std::string now = v.Text(key); !now.empty() && current.ParseFromString(now)) {
+          stored.set_header(current.header());
+          stored.set_sidecar(current.sidecar());
+        }
+      }
+      value = stored.SerializeAsString();
+      return {};
+    }
+    case pb::AssertionBody::kDefineType: return "define_type is keyed by DefineTypes";
+    case pb::AssertionBody::kBindTypeName: return "bind_type_name is keyed by AppendAssertions";
+    case pb::AssertionBody::kDiffMatch: return "diff_match assertions are written by DiffService";
+    case pb::AssertionBody::kPatch: return "patch assertions are written by PatchService";
+    case pb::AssertionBody::kMemoryRegion:
+      return "memory_region assertions are written by AddMemoryRegion, UpdateMemoryRegion and RemoveMemoryRegion";
+    case pb::AssertionBody::kListingEdit:
+    case pb::AssertionBody::kMutability: return "listing edits are keyed by AppendAssertions";
+    case pb::AssertionBody::kOperandDisplay: return "operand displays are keyed by AppendAssertions";
+    case pb::AssertionBody::kImageBase: return "image_base assertions are written by SetImageBase";
+    case pb::AssertionBody::kLanguage: return "language assertions are written by SetProgramLanguage";
+    case pb::AssertionBody::kCallSignature: {
+      // A call's signature override (docs/api.md, "Call-site signature
+      // overrides"): a C prototype was parsed to a hash before this.
+      const auto &c = body.call_signature();
+      if (auto e = check_addr(c.call()); !e.empty()) return "call: " + e;
+      const std::uint64_t at = c.call().offset();
+      auto insn = p.instruction(at, v.code().thumb_at(at));
+      if (!insn) return "no instruction at 0x" + Hex(at);
+      bool call = std::any_of(insn->insn.pcode.begin(), insn->insn.pcode.end(),
+                              [](const lift::PcodeOp &op) { return op.opcode == "CALL" || op.opcode == "CALLIND"; });
+      if (!call) {
+        // A branch made a call (FlowOverride CALL or CALL_RETURN).
+        FactValue fo = v.Value(v.Key(FactKind::FlowOverride, at));
+        if (const auto *k = std::get_if<std::int64_t>(&fo))
+          call = *k == pb::FLOW_OVERRIDE_KIND_CALL || *k == pb::FLOW_OVERRIDE_KIND_CALL_RETURN;
+      }
+      if (!call) return "the instruction at 0x" + Hex(at) + " is not a call";
+      key = v.Key(FactKind::CallSignature, at);
+      if (c.signature().kind_case() == pb::TypeSpec::KIND_NOT_SET) {
+        value = std::string();  // removed
+        return {};
+      }
+      if (!c.signature().has_type_hash()) return "call_signature.signature: the C prototype doesn't parse";
+      const std::string &hash = c.signature().type_hash();
+      std::string record;
+      if (!batch_types.contains(hash)) {
+        record = v.Text(TypeDefKey(v.space(), hash));
+        if (record.empty())
+          if (const std::string *lib = v.snapshot().get<q::Library>(v.id())->record(hash)) record = *lib;
+        if (record.empty()) return "unknown type hash " + hash + " (not defined in this program)";
+        try {
+          if (DecodeTypeRecord(record).type.as<types::FunctionType>() == nullptr)
+            return "call_signature.signature: type " + hash + " is not a function type";
+        } catch (const facts::DecodeError &) {
+          return "call_signature.signature: type " + hash + " can't be read";
+        }
+      }
+      value = "h:" + hash;
+      return {};
+    }
+    case pb::AssertionBody::kReference: {
+      const auto &u = body.reference();
+      if (auto e = check_addr(u.from()); !e.empty()) return "from: " + e;
+      if (!p.instruction(u.from().offset(), v.code().thumb_at(u.from().offset())))
+        return "no instruction at 0x" + Hex(u.from().offset());
+      if (!IsDefaultSpace(u.to())) return "to: only the default space is supported, got \"" + u.to().space() + "\"";
+      if (!p.block_containing(u.to().offset())) return "to: address 0x" + Hex(u.to().offset()) + " is not in memory";
+      if (u.has_operand_index() && u.operand_index() > 255) return "operand_index is out of range";
+      analysis::UserRef r;
+      r.operand = u.has_operand_index() ? static_cast<int>(u.operand_index()) : -1;
+      r.to = u.to().offset();
+      r.remove = u.remove();
+      if (!u.remove()) {
+        if (u.type() == pb::REFERENCE_TYPE_UNSPECIFIED || !pb::ReferenceType_IsValid(u.type()))
+          return "reference.type is required";
+        r.type = static_cast<analysis::UserRefType>(u.type());
+        r.primary = u.primary();
+      }
+      key = v.Key(FactKind::Reference, u.from().offset(), analysis::user_ref_sub(r.operand, r.to));
+      value = analysis::encode_user_ref(r);
+      return {};
+    }
+    case pb::AssertionBody::KIND_NOT_SET: break;
+  }
+  return "assertion body is empty";
+}
+
+// What a changed key affects, for subscribers' caches (conservative). The
+// fact store invalidates its own memos; this is only the client's side.
+void Effects(const FunctionTable &before, const FunctionTable &after, const XrefTable &xrefs, const Program &p,
+             const std::string &program, const facts::FactKey &key, std::vector<pb::InvalidatedQuery> &out,
+             std::uint64_t extent = 1) {
+  const std::uint64_t a = key.addr.offset;
+  auto add = [&](pb::QueryKind kind, std::optional<std::uint64_t> point = {},
+                 std::optional<std::pair<std::uint64_t, std::uint64_t>> range = {}) {
+    pb::InvalidatedQuery q;
+    q.set_program_id(program);
+    q.set_kind(kind);
+    if (point) *q.mutable_address() = A(*point);
+    if (range) *q.mutable_range() = Range(range->first, range->second);
+    out.push_back(std::move(q));
+  };
+  auto decompile_containing = [&](std::uint64_t addr) {
+    for (const FunctionTable *t : {&before, &after})
+      if (const Func *f = t->containing(addr)) add(pb::QUERY_KIND_DECOMPILE, f->entry);
+  };
+  auto callers = [&](std::uint64_t target) {
+    for (const StaticXref *x : xrefs.to(target, target)) {
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{x->from, x->from});
+      add(pb::QUERY_KIND_INSTRUCTION, {}, std::pair{x->from, x->from});
+      decompile_containing(x->from);
+    }
+    for (std::uint64_t entry : p.DecompilesTouching(target)) add(pb::QUERY_KIND_DECOMPILE, entry);
+  };
+  const bool local = key.sub.starts_with("local:");
+  const bool is_function = before.at(a) || after.at(a);
+
+  add(pb::QUERY_KIND_ASSERTIONS, a);
+  switch (key.kind) {
+    case FactKind::Name:
+      if (local) {
+        add(pb::QUERY_KIND_DECOMPILE, a);
+        break;
+      }
+      add(pb::QUERY_KIND_FUNCTION_LIST);
+      if (is_function) {
+        add(pb::QUERY_KIND_FUNCTION, a);
+        add(pb::QUERY_KIND_DECOMPILE, a);
+      }
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
+      callers(a);
+      add(pb::QUERY_KIND_XREFS);  // xrefs carry from_function_name / to_name
+      break;
+    case FactKind::Type:
+      if (local) {
+        add(pb::QUERY_KIND_DECOMPILE, a);
+        // A parameter's type is the prototype's, which calls are typed by.
+        if (key.sub.starts_with("local:param:")) callers(a);
+        break;
+      }
+      if (is_function) {
+        add(pb::QUERY_KIND_FUNCTION_LIST);
+        add(pb::QUERY_KIND_FUNCTION, a);
+        add(pb::QUERY_KIND_DECOMPILE, a);
+        add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});  // the signature header row
+        callers(a);  // a hashed prototype types the calls
+      } else {
+        add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
+      }
+      break;
+    case FactKind::Comment:
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
+      decompile_containing(a);
+      break;
+    case FactKind::FunctionBounds:
+      // What discovery then changed (functions, rows, references) comes
+      // from DiscoveryEffects.
+      add(pb::QUERY_KIND_PROGRAM);
+      add(pb::QUERY_KIND_FUNCTION_LIST);
+      add(pb::QUERY_KIND_FUNCTION, a);
+      add(pb::QUERY_KIND_DECOMPILE, a);
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
+      callers(a);
+      break;
+    case FactKind::FlowOverride:
+      add(pb::QUERY_KIND_INSTRUCTION, {}, std::pair{a, a});
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
+      decompile_containing(a);
+      break;
+    case FactKind::NoReturn:
+      // The function's own record and decompilation, and every caller's
+      // (their flow ends at the call now, or goes on). What discovery
+      // then changed (bodies, rows, references) comes from
+      // DiscoveryEffects.
+      add(pb::QUERY_KIND_FUNCTION_LIST);
+      add(pb::QUERY_KIND_FUNCTION, a);
+      add(pb::QUERY_KIND_DECOMPILE, a);
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
+      callers(a);
+      break;
+    case FactKind::Patch: {
+      // The bytes changed (docs/patching.md): what decodes or shows them.
+      // What discovery then changed (functions, rows, references) comes
+      // from DiscoveryEffects.
+      const std::uint64_t last = a + (facts::kMaxPatchBytes - 1) < a ? ~std::uint64_t{0} : a + (facts::kMaxPatchBytes - 1);
+      add(pb::QUERY_KIND_MEMORY);
+      add(pb::QUERY_KIND_PATCHES);
+      add(pb::QUERY_KIND_INSTRUCTION, {}, std::pair{a, last});
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, last});
+      add(pb::QUERY_KIND_XREFS, {}, std::pair{a, last});
+      for (const FunctionTable *t : {&before, &after})
+        for (const Func &f : t->funcs)
+          for (auto [first, end] : f.body)
+            if (first <= last && end >= a) add(pb::QUERY_KIND_DECOMPILE, f.entry);
+      for (std::uint64_t entry : p.DecompilesTouching(a)) add(pb::QUERY_KIND_DECOMPILE, entry);
+      break;
+    }
+    case FactKind::CodeUnit: {
+      // What the bytes are (docs/listing-edit.md): their rows, what the
+      // decompiler read there, and the functions over them. What discovery
+      // then changed comes from DiscoveryEffects.
+      const std::uint64_t last = a + (extent - 1) < a ? ~std::uint64_t{0} : a + (extent - 1);
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, last});
+      add(pb::QUERY_KIND_INSTRUCTION, {}, std::pair{a, last});
+      add(pb::QUERY_KIND_XREFS, {}, std::pair{a, last});
+      for (const FunctionTable *t : {&before, &after})
+        for (const Func &f : t->funcs)
+          for (auto [first, end] : f.body)
+            if (first <= last && end >= a) add(pb::QUERY_KIND_DECOMPILE, f.entry);
+      for (std::uint64_t entry : p.DecompilesTouching(a)) add(pb::QUERY_KIND_DECOMPILE, entry);
+      break;
+    }
+    case FactKind::Equate:
+      // How a scalar shows: its row, and the decompilation that prints it.
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
+      add(pb::QUERY_KIND_INSTRUCTION, {}, std::pair{a, a});
+      decompile_containing(a);
+      break;
+    case FactKind::Reference: {
+      // A user reference: xrefs, the rows at both ends (the operand, the
+      // target's reference count), the decompilation of the function it is
+      // in. What discovery then changed comes from DiscoveryEffects.
+      add(pb::QUERY_KIND_XREFS);
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
+      add(pb::QUERY_KIND_INSTRUCTION, {}, std::pair{a, a});
+      if (auto r = analysis::parse_user_ref(key.sub, "remove")) add(pb::QUERY_KIND_LISTING, {}, std::pair{r->to, r->to});
+      decompile_containing(a);
+      break;
+    }
+    case FactKind::CallSignature:
+      // A call's signature override: its row (the markup) and the
+      // decompilation of the function the call is in.
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
+      add(pb::QUERY_KIND_INSTRUCTION, {}, std::pair{a, a});
+      decompile_containing(a);
+      break;
+    case FactKind::Mutability: {
+      // Constant or volatile memory: every decompilation may fold or keep
+      // reads of it; the rows show it.
+      const std::uint64_t last = a + (extent - 1) < a ? ~std::uint64_t{0} : a + (extent - 1);
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, last});
+      for (std::uint64_t entry : p.DecompilesServed()) add(pb::QUERY_KIND_DECOMPILE, entry);
+      break;
+    }
+    case FactKind::TypeDef:
+      add(pb::QUERY_KIND_TYPES);
+      if (IsTypeNameSub(key.sub)) {
+        // A name now resolves to another definition wherever a type of that
+        // name is used: prototypes (decompilations, signature lines,
+        // function lists), globals' and variables' displayed types, the
+        // fields and pointers of data defined with it (listing.user_data).
+        add(pb::QUERY_KIND_FUNCTION_LIST);
+        add(pb::QUERY_KIND_LISTING);
+        add(pb::QUERY_KIND_XREFS);
+        for (std::uint64_t entry : p.DecompilesServed()) add(pb::QUERY_KIND_DECOMPILE, entry);
+      }
+      break;
+    default: break;
+  }
+}
+
+// Address ranges [first, end) where two row indexes differ: runs of spans
+// that aren't the same on both sides, each ending where both sides have a
+// span boundary again. Spans tile the same blocks on both sides.
+std::vector<std::pair<std::uint64_t, std::uint64_t>> ChangedRows(const RowIndex &before, const RowIndex &after) {
+  auto same = [](const ListingSpan &x, const ListingSpan &y) {
+    return x.start == y.start && x.end == y.end && x.code == y.code && x.data == y.data && x.block == y.block &&
+           x.rows == y.rows;
+  };
+  const auto &b = before.spans, &a = after.spans;
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> out;
+  std::size_t i = 0, j = 0;
+  while (i < b.size() && j < a.size()) {
+    if (same(b[i], a[j])) {
+      ++i, ++j;
+      continue;
+    }
+    const std::uint64_t lo = std::min(b[i].start, a[j].start);
+    std::uint64_t hb = b[i++].end, ha = a[j++].end;
+    while (hb != ha) {
+      if (hb < ha) {
+        if (i == b.size()) break;
+        hb = b[i++].end;
+      } else {
+        if (j == a.size()) break;
+        ha = a[j++].end;
+      }
+    }
+    const std::uint64_t hi = std::max(hb, ha);
+    if (!out.empty() && out.back().second == lo) out.back().second = hi;
+    else out.emplace_back(lo, hi);
+  }
+  if (i < b.size() || j < a.size()) {
+    const std::uint64_t lo = std::min(i < b.size() ? b[i].start : ~std::uint64_t{0}, j < a.size() ? a[j].start : ~std::uint64_t{0});
+    const std::uint64_t hi = std::max(b.empty() ? 0 : b.back().end, a.empty() ? 0 : a.back().end);
+    out.emplace_back(lo, hi);
+  }
+  return out;
+}
+
+// What an edit that steers discovery (FUNCTION_BOUNDS, FLOW_OVERRIDE)
+// changed, from the derived results on both sides of the commit: the
+// functions that differ (their pages and decompilations, and the callers
+// that print their names), the listing rows rebuilt (with the row windows
+// they cover on each side), the rows whose function, labels or references
+// changed, and the references themselves.
+void DiscoveryEffects(const facts::Snapshot &before, const facts::Snapshot &after, const Program &p,
+                      const std::string &program, std::vector<pb::InvalidatedQuery> &out) {
+  auto add = [&](pb::QueryKind kind, std::optional<std::uint64_t> point = {},
+                 std::optional<std::pair<std::uint64_t, std::uint64_t>> range = {}) -> pb::InvalidatedQuery & {
+    pb::InvalidatedQuery &q = out.emplace_back();
+    q.set_program_id(program);
+    q.set_kind(kind);
+    if (point) *q.mutable_address() = A(*point);
+    if (range) *q.mutable_range() = Range(range->first, range->second);
+    return q;
+  };
+  auto fb = before.get<q::Functions>(program), fa = after.get<q::Functions>(program);
+  auto xb = before.get<q::Xrefs>(program), xa = after.get<q::Xrefs>(program);
+  auto lb = before.get<q::DefaultNames>(program), la = after.get<q::DefaultNames>(program);
+  auto rb = before.get<q::Rows>(program), ra = after.get<q::Rows>(program);
+
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> rows;  // inclusive: rows showing something else
+  std::set<std::uint64_t> decompiles;
+  auto referrers = [&](std::uint64_t target) {
+    for (const XrefTable *t : {&*xb, &*xa})
+      for (const StaticXref *x : t->to(target, target)) {
+        rows.emplace_back(x->from, x->from);
+        for (const FunctionTable *ft : {&*fb, &*fa})
+          if (const Func *f = ft->containing(x->from)) decompiles.insert(f->entry);
+      }
+    for (std::uint64_t entry : p.DecompilesTouching(target)) decompiles.insert(entry);
+  };
+
+  // Functions that came, went or changed.
+  std::set<std::uint64_t> entries;
+  for (const FunctionTable *t : {&*fb, &*fa})
+    for (const Func &f : t->funcs) entries.insert(f.entry);
+  bool listed = false;
+  for (std::uint64_t e : entries) {
+    const Func *b = fb->at(e), *a = fa->at(e);
+    if (b && a && b->body == a->body && b->name == a->name && b->flags == a->flags && b->asserted == a->asserted &&
+        b->thunk_target == a->thunk_target)
+      continue;
+    listed = true;
+    add(pb::QUERY_KIND_FUNCTION, e);
+    decompiles.insert(e);
+    rows.emplace_back(e, e);
+    for (const Func *f : {b, a})
+      if (f) rows.insert(rows.end(), f->body.begin(), f->body.end());
+    referrers(e);  // callers print its name, and call it no-return or not
+  }
+  if (listed) {
+    add(pb::QUERY_KIND_FUNCTION_LIST);
+    add(pb::QUERY_KIND_PROGRAM);  // function and instruction counts
+  }
+
+  // References that came or went.
+  auto order = [](const StaticXref &x, const StaticXref &y) { return std::tie(x.from, x.to, x.kind) < std::tie(y.from, y.to, y.kind); };
+  std::vector<StaticXref> changed;
+  std::set_symmetric_difference(xb->xrefs.begin(), xb->xrefs.end(), xa->xrefs.begin(), xa->xrefs.end(),
+                                std::back_inserter(changed), order);
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> xref_points;
+  for (const StaticXref &x : changed) {
+    xref_points.emplace_back(x.from, x.from);
+    xref_points.emplace_back(x.to, x.to);
+  }
+
+  // Default labels that came, went or were renamed.
+  auto label_order = [](const Label &x, const Label &y) { return std::tie(x.address, x.name, x.size) < std::tie(y.address, y.name, y.size); };
+  std::vector<Label> relabelled;
+  std::set_symmetric_difference(lb->labels.begin(), lb->labels.end(), la->labels.begin(), la->labels.end(),
+                                std::back_inserter(relabelled), label_order);
+  for (const Label &l : relabelled) {
+    rows.emplace_back(l.address, l.address);
+    referrers(l.address);
+  }
+
+  // Merged inclusive ranges; past a limit, the whole program.
+  auto merge = [](std::vector<std::pair<std::uint64_t, std::uint64_t>> v) {
+    std::sort(v.begin(), v.end());
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> m;
+    for (const auto &r : v) {
+      if (!m.empty() && (m.back().second == ~std::uint64_t{0} || r.first <= m.back().second + 1))
+        m.back().second = std::max(m.back().second, r.second);
+      else
+        m.push_back(r);
+    }
+    return m;
+  };
+  constexpr std::size_t kMaxRanges = 1024;
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> refs = merge(std::move(xref_points));
+  if (refs.size() > kMaxRanges) {
+    add(pb::QUERY_KIND_XREFS);
+  } else {
+    for (const auto &r : refs) add(pb::QUERY_KIND_XREFS, {}, r);
+  }
+  rows.insert(rows.end(), refs.begin(), refs.end());  // xref counts and operand symbols
+
+  // Rows rebuilt: code became data or data code. Clients learn the row
+  // windows on both sides, so they can move what they cached after them.
+  const auto rebuilt = ChangedRows(*rb, *ra);
+  for (const auto &[lo, hi] : rebuilt) {
+    pb::InvalidatedQuery &q = add(pb::QUERY_KIND_LISTING, {}, std::pair{lo, hi - 1});
+    const std::int64_t first = ra->row_at(lo), previous = rb->row_at(lo);
+    q.mutable_rows()->set_first_row(first);
+    q.mutable_rows()->set_row_count(static_cast<std::uint32_t>(ra->row_at(hi) - first));
+    q.mutable_previous_rows()->set_first_row(previous);
+    q.mutable_previous_rows()->set_row_count(static_cast<std::uint32_t>(rb->row_at(hi) - previous));
+    add(pb::QUERY_KIND_INSTRUCTION, {}, std::pair{lo, hi - 1});
+  }
+  // Rows that stay but show something else.
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> shown = merge(std::move(rows));
+  if (shown.size() > kMaxRanges) {
+    // Too many to list; numbering is already described by the windows above.
+    add(pb::QUERY_KIND_LISTING, {}, std::pair{std::uint64_t{0}, ~std::uint64_t{0}});
+  } else {
+    for (const auto &r : shown) {
+      bool inside = std::any_of(rebuilt.begin(), rebuilt.end(),
+                                [&](const auto &x) { return r.first >= x.first && r.second < x.second; });
+      if (!inside) add(pb::QUERY_KIND_LISTING, {}, r);
+    }
+  }
+  for (std::uint64_t e : decompiles) add(pb::QUERY_KIND_DECOMPILE, e);
+}
+
+// Windows of GetListing's header_rows numbering that a commit changed: the
+// rows discovery rebuilt and the code units whose header lines came or went
+// (a label, a plate or pre-comment, a function entry), merged into
+// non-overlapping address ranges whose ends are row boundaries on both
+// sides, each reported with the display rows it covers before and after.
+void HeaderEffects(const facts::Snapshot &before, const facts::Snapshot &after, const std::string &program, bool steered,
+                   std::vector<pb::InvalidatedQuery> &out) {
+  auto rb = before.get<q::Rows>(program), ra = after.get<q::Rows>(program);
+  HeaderMap hb(before, program), ha(after, program);
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> ranges;  // [lo, hi)
+  const auto rebuilt = steered ? ChangedRows(*rb, *ra) : std::vector<std::pair<std::uint64_t, std::uint64_t>>{};
+  ranges = rebuilt;
+  auto in_rebuilt = [&](std::uint64_t a) {
+    return std::any_of(rebuilt.begin(), rebuilt.end(), [&](const auto &x) { return a >= x.first && a < x.second; });
+  };
+  // A code unit outside the rebuilt rows is the same row on both sides;
+  // its range ends where the next row starts.
+  auto unit = [&](std::uint64_t a) {
+    const std::int64_t r = ra->row_at(a);
+    const std::uint64_t end = r + 1 < ra->total_rows ? ra->row_address(r + 1) : ra->spans.back().end;
+    ranges.emplace_back(a, end);
+  };
+  // Code units whose header lines came, went or changed in number, bucket
+  // by bucket; a bucket whose memo is the same on both sides is skipped.
+  std::map<std::uint64_t, std::pair<std::optional<std::size_t>, std::optional<std::size_t>>> buckets;
+  for (std::size_t i = 0; i < hb.buckets().size(); ++i) buckets[hb.buckets()[i].index].first = i;
+  for (std::size_t i = 0; i < ha.buckets().size(); ++i) buckets[ha.buckets()[i].index].second = i;
+  static const HeaderBucket kEmpty;
+  for (const auto &[index, sides] : buckets) {
+    const HeaderBucket &bb = sides.first ? hb.bucket(*sides.first) : kEmpty;
+    const HeaderBucket &ba = sides.second ? ha.bucket(*sides.second) : kEmpty;
+    if (&bb == &ba) continue;
+    const auto &b = bb.entries, &x = ba.entries;
+    std::size_t i = 0, j = 0;
+    while (i < b.size() || j < x.size()) {
+      if (j == x.size() || (i < b.size() && b[i].address < x[j].address)) {
+        if (!in_rebuilt(b[i].address)) unit(b[i].address);
+        ++i;
+      } else if (i == b.size() || x[j].address < b[i].address) {
+        if (!in_rebuilt(x[j].address)) unit(x[j].address);
+        ++j;
+      } else {
+        if (b[i].lines != x[j].lines && !in_rebuilt(x[j].address)) unit(x[j].address);
+        ++i, ++j;
+      }
+    }
+  }
+  if (ranges.empty()) return;
+  std::sort(ranges.begin(), ranges.end());
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> merged;
+  for (const auto &r : ranges) {
+    if (!merged.empty() && r.first <= merged.back().second) merged.back().second = std::max(merged.back().second, r.second);
+    else merged.push_back(r);
+  }
+  for (const auto &[lo, hi] : merged) {
+    pb::InvalidatedQuery &q = out.emplace_back();
+    q.set_program_id(program);
+    q.set_kind(pb::QUERY_KIND_LISTING);
+    *q.mutable_range() = Range(lo, hi - 1);
+    const std::int64_t first = ha.display_start(ra->row_at(lo)), previous = hb.display_start(rb->row_at(lo));
+    q.mutable_header_rows()->set_first_row(first);
+    q.mutable_header_rows()->set_row_count(static_cast<std::uint32_t>(ha.display_start(ra->row_at(hi)) - first));
+    q.mutable_previous_header_rows()->set_first_row(previous);
+    q.mutable_previous_header_rows()->set_row_count(static_cast<std::uint32_t>(hb.display_start(rb->row_at(hi)) - previous));
+  }
+}
+
+// The same for edits that don't steer discovery (names, plate and
+// pre-comments): rows, functions and default labels are the previous
+// revision's, so only the changed addresses' own line counts can differ.
+// Reading just those at the new revision keeps the commit from validating
+// discovery's results (as Effects() does).
+void HeaderEffectsAt(const facts::Snapshot &before, const facts::Snapshot &after, const std::string &program,
+                     facts::SpaceId space, const std::set<std::uint64_t> &addresses, std::vector<pb::InvalidatedQuery> &out) {
+  auto rows = before.get<q::Rows>(program);
+  auto funcs = before.get<q::Functions>(program);
+  auto labels = before.get<q::DefaultNames>(program);
+  HeaderMap hb(before, program);
+  auto text = [&](facts::FactKind kind, std::uint64_t a, const char *sub) {
+    auto v = after.get<facts::AssertedFact>(FactKeyAt(kind, space, a, sub));
+    const std::string *t = std::get_if<std::string>(&*v);
+    return t ? *t : std::string();
+  };
+  for (std::uint64_t a : addresses) {
+    const std::int64_t r = rows->row_at(a);
+    if (r >= rows->total_rows || rows->row_address(r) != a) continue;  // not a code unit: no lines
+    std::uint32_t lines = 0;
+    if (funcs->at(a)) lines = 2;
+    else if (labels->find(a) || !text(FactKind::Name, a, "").empty()) lines = 1;
+    for (const char *sub : {"plate", "pre"})
+      if (std::string t = text(FactKind::Comment, a, sub); !t.empty()) lines += static_cast<std::uint32_t>(CommentLines(t).size());
+    const std::uint32_t was = hb.lines_at(r);
+    if (lines == was) continue;
+    pb::InvalidatedQuery &q = out.emplace_back();
+    q.set_program_id(program);
+    q.set_kind(pb::QUERY_KIND_LISTING);
+    const std::uint64_t end = r + 1 < rows->total_rows ? rows->row_address(r + 1) : rows->spans.back().end;
+    *q.mutable_range() = Range(a, end - 1);
+    const std::int64_t first = hb.display_start(r);
+    q.mutable_header_rows()->set_first_row(first);
+    q.mutable_header_rows()->set_row_count(lines + 1);
+    q.mutable_previous_header_rows()->set_first_row(first);
+    q.mutable_previous_header_rows()->set_row_count(was + 1);
+  }
+}
+
+// A memory-map edit's value as text: "ram 0x20000000-0x2000ffff rw-
+// uninitialized", "", or a block edit's "name rw- volatile".
+std::string MemoryEditText(const std::string &value) {
+  auto perms = [](bool r, bool w, bool x) { return std::string{r ? 'r' : '-', w ? 'w' : '-', x ? 'x' : '-'}; };
+  if (auto r = analysis::decode_region(value)) {
+    std::string s = r->name + " 0x" + Hex(r->start) + "-0x" + Hex(r->last()) + " " + perms(r->read, r->write, r->exec);
+    if (!r->initialized) s += " uninitialized";
+    else if (r->bytes) s += " from " + r->bytes->file + " @0x" + Hex(r->bytes->file_offset);
+    else s += " zero-filled";
+    if (r->is_volatile) s += " volatile";
+    return s;
+  }
+  if (auto e = analysis::decode_block_edit(value))
+    return e->name + " " + perms(e->read, e->write, e->exec) + (e->is_volatile ? " volatile" : "");
+  return {};
+}
+
+std::string ValueText(View &v, const facts::FactKey &key) {
+  const std::uint64_t a = key.addr.offset;
+  switch (key.kind) {
+    case FactKind::Name:
+      if (key.sub.starts_with("local:")) return v.Text(key);
+      return v.Symbol(a);
+    case FactKind::Type: {
+      // A hashed type as C spells it: a prototype with its function's name.
+      const std::string t = v.Text(key);
+      if (!t.starts_with("h:")) return v.TypeText(key);
+      if (key.sub.empty() && v.functions().at(a)) return v.PrototypeDisplay(t.substr(2), v.Symbol(a));
+      return v.TypeDisplay(t.substr(2));
+    }
+    case FactKind::Comment:
+    case FactKind::Note:
+    case FactKind::Match: return v.Text(key);
+    case FactKind::Patch: return HexBytes(v.Text(key));
+    case FactKind::FunctionBounds:
+      if (const Func *f = v.functions().at(a)) {
+        std::string s;
+        for (auto [first, last] : f->body) s += (s.empty() ? "" : ",") + ("0x" + Hex(first) + "-0x" + Hex(last));
+        return s;
+      }
+      return {};
+    case FactKind::FlowOverride: {
+      FactValue val = v.Value(key);
+      if (const auto *k = std::get_if<std::int64_t>(&val)) return pb::FlowOverrideKind_Name(static_cast<pb::FlowOverrideKind>(*k));
+      return {};
+    }
+    case FactKind::NoReturn: {
+      FactValue val = v.Value(key);
+      if (const auto *k = std::get_if<std::int64_t>(&val)) return *k ? "no return" : "returns";
+      return {};
+    }
+    case FactKind::MemoryRegion: return MemoryEditText(v.Text(key));
+    case FactKind::Language: {
+      const std::string t = v.Text(key);
+      if (t.empty()) return "the imported language";
+      const auto bar = t.find('|');
+      return bar == std::string::npos || bar + 1 == t.size() ? t.substr(0, bar) : t.substr(0, bar) + " (" + t.substr(bar + 1) + ")";
+    }
+    case FactKind::CodeUnit: {
+      const std::string t = v.Text(key);
+      if (t.empty()) return {};
+      try {
+        const analysis::UnitMark m = facts::decode_from_string<analysis::UnitMark>(t);
+        switch (m.kind) {
+          case analysis::UnitKind::clear: return "clear " + std::to_string(m.length) + " bytes";
+          case analysis::UnitKind::code:
+            return std::string(m.function ? "function" : "code") +
+                   (m.isa == analysis::Isa::arm ? " (ARM)" : m.isa == analysis::Isa::thumb ? " (Thumb)" : "");
+          case analysis::UnitKind::data: return m.data.item_name;
+        }
+      } catch (const facts::DecodeError &) {
+      }
+      return {};
+    }
+    case FactKind::Mutability: {
+      const std::string t = v.Text(key);
+      if (t.empty()) return {};
+      try {
+        const analysis::MutabilityMark m = facts::decode_from_string<analysis::MutabilityMark>(t);
+        static const char *kNames[] = {"", "default", "normal", "constant", "volatile"};
+        return std::string(kNames[static_cast<int>(m.kind)]) + " " + std::to_string(m.length) + " bytes";
+      } catch (const facts::DecodeError &) {
+      }
+      return {};
+    }
+    case FactKind::Equate: {
+      const auto d = analysis::parse_operand_display(v.Text(key));
+      const auto sub = analysis::parse_equate_sub(key.sub);
+      if (!d || !sub) return {};
+      if (d->equate()) return d->name;
+      return analysis::format_scalar(sub->value, 64, d->format);
+    }
+    case FactKind::CallSignature: {
+      const std::string t = v.Text(key);
+      return t.starts_with("h:") ? v.PrototypeDisplay(t.substr(2), "") : std::string();
+    }
+    case FactKind::Reference: {
+      const auto r = analysis::parse_user_ref(key.sub, v.Text(key));
+      if (!r) return {};
+      if (r->remove) return "removed";
+      static const char *kTypes[] = {"", "data", "read", "write", "call", "jump", "computed call", "computed jump"};
+      return std::string(kTypes[static_cast<int>(r->type)]) + " 0x" + Hex(r->to) + (r->primary ? " (primary)" : "");
+    }
+    default: return {};
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The backend
+// ---------------------------------------------------------------------------
+
+// A key a folder edit asserts, and its value.
+struct FolderEdit {
+  facts::FactKey key;
+  std::string value;
+};
+
+// A project's folders as of one revision (ImageBackend::TreeFrom).
+struct Folder {
+  std::string id, parent, name, path;
+  std::optional<facts::Op> op;
+};
+struct FolderTree {
+  std::map<std::string, Folder> by_id;
+  std::vector<std::string> order;  // parents first, then by path and id
+  bool has(const std::string &id) const { return by_id.contains(id); }
+  std::string path(const std::string &id) const {
+    auto it = by_id.find(id);
+    return it == by_id.end() ? "/" : it->second.path;
+  }
+  // Live children of `parent` with this name.
+  std::vector<std::string> named(const std::string &parent, const std::string &name) const {
+    std::vector<std::string> out;
+    for (const auto &[id, f] : by_id)
+      if (f.parent == parent && f.name == name) out.push_back(id);
+    return out;
+  }
+  // `id` is `ancestor` or below it.
+  bool within(std::string id, const std::string &ancestor) const {
+    for (std::size_t guard = 0; !id.empty() && guard <= by_id.size(); ++guard) {
+      if (id == ancestor) return true;
+      auto it = by_id.find(id);
+      if (it == by_id.end()) return false;
+      id = it->second.parent;
+    }
+    return false;
+  }
+  // The folder at a path ("/a/b"), the first by id among equal paths.
+  std::optional<std::string> at(const std::string &path) const {
+    if (path == "/") return std::string();
+    for (const std::string &id : order)
+      if (by_id.at(id).path == path) return id;
+    return std::nullopt;
+  }
+};
+
+
+// Files callers send in pieces (ProjectService.UploadChunk) for
+// ImportProjectArchive: in a private directory under the system's temporary
+// one, each the caller's alone, forgotten an hour after its last piece and
+// when the backend goes.
+class Uploads {
+ public:
+  static constexpr std::uint64_t kMaxBytes = 16ull << 30;
+  static constexpr std::size_t kMaxPerCaller = 16;
+  static constexpr auto kTtl = std::chrono::hours(1);
+
+  ~Uploads() {
+    std::error_code ec;
+    if (!dir_.empty()) fs::remove_all(dir_, ec);
+  }
+
+  Status Chunk(const std::string &caller, const pb::UploadChunkRequest &req, pb::UploadChunkResponse &resp) {
+    std::lock_guard lock(mu_);
+    Purge();
+    Upload *u = nullptr;
+    std::string id = req.upload_id();
+    if (id.empty()) {
+      if (req.total_size() == 0 || req.total_size() > kMaxBytes)
+        return Error(StatusCode::kInvalidArgument, "total_size must be 1 byte to 16 GiB");
+      if (req.offset() != 0) return Error(StatusCode::kInvalidArgument, "the first piece starts at offset 0");
+      std::size_t mine = 0;
+      for (const auto &[k, v] : uploads_) mine += v.caller == caller;
+      if (mine >= kMaxPerCaller)
+        return Error(StatusCode::kResourceExhausted, "too many uploads in progress; finish or let one lapse");
+      if (auto st = EnsureDir(); !st.ok()) return st;
+      std::mt19937_64 rng{std::random_device{}()};
+      char buf[33];
+      std::snprintf(buf, sizeof buf, "%016llx%016llx", static_cast<unsigned long long>(rng()),
+                    static_cast<unsigned long long>(rng()));
+      id = buf;
+      Upload n;
+      n.caller = caller;
+      n.path = dir_ / id;
+      n.total = req.total_size();
+      n.name = req.file_name().substr(0, 200);
+      std::ofstream(n.path, std::ios::binary | std::ios::trunc);
+      u = &uploads_.emplace(id, std::move(n)).first->second;
+    } else {
+      auto it = uploads_.find(id);
+      if (it == uploads_.end() || it->second.caller != caller)
+        return Error(StatusCode::kNotFound, "no upload " + id + " (uploads lapse an hour after their last piece)");
+      u = &it->second;
+    }
+    if (req.offset() != u->received)
+      return Error(StatusCode::kFailedPrecondition, "piece at offset " + std::to_string(req.offset()) +
+                                                        ", expected " + std::to_string(u->received));
+    if (req.data().size() > u->total - u->received)
+      return Error(StatusCode::kInvalidArgument, "the piece runs past total_size");
+    if (!req.data().empty()) {
+      std::ofstream out(u->path, std::ios::binary | std::ios::app);
+      out.write(req.data().data(), static_cast<std::streamsize>(req.data().size()));
+      if (!out) return Error(StatusCode::kInternal, "cannot store the upload");
+      u->received += req.data().size();
+    }
+    u->touched = std::chrono::steady_clock::now();
+    resp.set_upload_id(id);
+    resp.set_received(u->received);
+    resp.set_complete(u->received == u->total);
+    return Status::Ok();
+  }
+
+  // A complete upload of the caller's: its file.
+  Status Find(const std::string &caller, const std::string &id, fs::path &path) {
+    std::lock_guard lock(mu_);
+    Purge();
+    auto it = uploads_.find(id);
+    if (it == uploads_.end() || it->second.caller != caller)
+      return Error(StatusCode::kNotFound, "no upload " + id + " (uploads lapse an hour after their last piece)");
+    if (it->second.received != it->second.total)
+      return Error(StatusCode::kFailedPrecondition, "upload " + id + " is not complete");
+    it->second.touched = std::chrono::steady_clock::now();
+    path = it->second.path;
+    return Status::Ok();
+  }
+
+  // A private scratch directory beside the uploads (archive members).
+  Status Scratch(fs::path &out) {
+    std::lock_guard lock(mu_);
+    if (auto st = EnsureDir(); !st.ok()) return st;
+    std::string tmpl = (dir_ / "archive-XXXXXX").string();
+    if (!::mkdtemp(tmpl.data())) return Error(StatusCode::kInternal, "cannot make a scratch directory");
+    out = tmpl;
+    return Status::Ok();
+  }
+
+ private:
+  struct Upload {
+    std::string caller, name;
+    fs::path path;
+    std::uint64_t total = 0, received = 0;
+    std::chrono::steady_clock::time_point touched = std::chrono::steady_clock::now();
+  };
+  Status EnsureDir() {
+    if (!dir_.empty()) return Status::Ok();
+    std::error_code ec;
+    std::string tmpl = (fs::temp_directory_path(ec) / "revkit-uploads-XXXXXX").string();
+    if (ec || !::mkdtemp(tmpl.data())) return Error(StatusCode::kInternal, "cannot make the upload directory");
+    dir_ = tmpl;
+    return Status::Ok();
+  }
+  void Purge() {
+    const auto now = std::chrono::steady_clock::now();
+    for (auto it = uploads_.begin(); it != uploads_.end();) {
+      if (now - it->second.touched > kTtl) {
+        std::error_code ec;
+        fs::remove(it->second.path, ec);
+        it = uploads_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  std::mutex mu_;
+  fs::path dir_;
+  std::map<std::string, Upload> uploads_;
+};
+
+// A directory removed with everything in it when it goes out of scope.
+struct ScratchDir {
+  fs::path path;
+  ~ScratchDir() {
+    std::error_code ec;
+    if (!path.empty()) fs::remove_all(path, ec);
+  }
+};
+
+// A project id from a name: letters, digits, ".", "_" and "-", not
+// starting with "."; safe as a directory name under --project-dir.
+std::string ProjectIdFor(const std::string &name) {
+  std::string id;
+  for (unsigned char c : name) {
+    const bool ok = std::isalnum(c) || c == '.' || c == '_' || c == '-';
+    if (ok) id += static_cast<char>(c);
+    else if (!id.empty() && id.back() != '_') id += '_';
+  }
+  while (!id.empty() && (id.front() == '.' || id.front() == '_')) id.erase(0, 1);
+  if (id.size() > 64) id.resize(64);
+  return id.empty() ? std::string("imported") : id;
+}
+
+class ImageBackend final : public api::Backend {
+ public:
+  explicit ImageBackend(ImageBackendOptions options)
+      : core_(std::make_shared<Core>(std::move(options))), debugger_(DebugBoundsFor(core_->options)) {
+    lift::initialize(core_->options.ghidra_root);
+    LoadSymbolSettings();
+    std::lock_guard lock(core_->mu);
+    if (!core_->options.project_dir.empty()) {
+      fs::create_directories(core_->options.project_dir);
+      for (const auto &d : fs::directory_iterator(core_->options.project_dir))
+        if (d.is_directory() && fs::exists(d.path() / "data.mdb")) OpenProjectLocked(d.path().filename().string(), "", "");
+    }
+    const std::string &def = core_->options.default_project;
+    if (!def.empty() && !core_->projects.contains(def)) OpenProjectLocked(def, def, "");
+    // Machines (docs/firmware-emulation.md): the daemon's peripheral plugins
+    // and the descriptions saved with programs.
+    MachineSupport ms;
+    if (core_->options.plugins) ms.factory = plugins::peripheral_factory(*core_->options.plugins);
+    ms.load = [this](const std::string &program_id, const std::string &name) -> std::optional<std::string> {
+      MachineProgram mp;
+      if (!MachineProgramFor(program_id, mp).ok()) return std::nullopt;
+      return machines_.Load(mp, name);
+    };
+    emulator_.SetMachineSupport(ms);
+    debugger_.SetMachineSupport(ms);
+    // Function ID's databases; the users' choices beside the projects.
+    core_->fid_catalog = std::make_unique<FidCatalog>(
+        core_->options.ghidra_root,
+        core_->options.project_dir.empty() ? std::string() : core_->options.project_dir + "/.fid-users");
+  }
+
+  ~ImageBackend() override {
+    StopDiffRuns();
+    StopFid();
+    StopInfer();
+    StopParamId();
+  }
+
+  // --- Meta -------------------------------------------------------------------
+
+  Status GetServerInfo(const CallContext &, const pb::GetServerInfoRequest &,
+                       pb::GetServerInfoResponse &resp) override {
+    resp.set_api_major("v1");
+    resp.set_api_minor(kApiMinor);
+    resp.set_server_version(core_->options.server_version);
+    for (const char *f : {"image-backend", "snapshot-reads", "subscriptions", "decompile", "import-bytes",
+                          "import-path", "bulk-revert", "listing-tokens", "fact-store", "debug-info-import",
+                          "function-discovery", "listing-row-invalidation", "symbols", "define-types", "type-details",
+                          "op-ids", "sync", "presence",
+                          "listing-header-rows", "listing-flow", "function-list-offset", "raw-import", "address-spaces",
+                          "decompile-failures", "find-types", "type-names", "function-graph", "data-list", "emulator", "languages",
+                          "debugger", "diff", "diff-detail", "program-management", "function-list-filters", "find-types-tree",
+                          "firmware-emulation", "import-progress", "patch", "assemble", "export-fixups",
+                          "raw-detect", "memory-map", "script-batch", "script-provenance", "listing-edit",
+                          "token-scalars", "project-folders", "project-archive", "field-tokens", "equates",
+                          "user-references", "demangle", "search", "rebase", "set-language", "function-id", "byte-viewer", "overview",
+                          "find-next", "msvc-rtti", "pe-analysis", "hover", "filesystems", "pdb-load", "library-types", "project-types",
+                          "type-uses", "call-signature-override",
+                          "function-compare", "decompile-slices"})
+      resp.add_features(f);
+    if (debugger_.live()) resp.add_features("debugger-live");
+    resp.add_features("debugger-stack");
+    resp.add_features("debugger-values");
+    resp.add_features("debugger-watches");
+    resp.add_features("debugger-disassembly");
+    resp.add_features("debugger-copy");
+    resp.add_features("debugger-conditions");
+    resp.add_features("debugger-rewind");
+    resp.add_features("debugger-emulate-from");
+    resp.add_features("debugger-hooks");
+    resp.add_features("port-globals-callees");
+    if (core_->options.plugins) resp.add_features("plugins");
+    if (core_->options.plugins) resp.add_features("plugin-facts-invalidation");
+    if (core_->options.plugins && plugins::Host::available()) resp.add_features("peripheral-plugins");
+    if (!core_->options.project_dir.empty()) resp.add_features("persistent-projects");
+    if (!core_->options.browse_roots.empty()) resp.add_features("host-files");
+    resp.add_features("parse-c");
+    resp.add_features("auto-struct");
+    resp.add_features("auto-struct-edit");
+    resp.add_features("calling-conventions");
+    resp.add_features("no-return");
+    resp.add_features("bsim");
+    resp.add_features("bsim-search");
+    resp.add_features("program-libraries");
+    resp.add_features("type-archive");
+    if (core_->options.infer_prototypes != InferMode::off) resp.add_features("background-inference");
+    resp.set_retained_revisions(core_->options.retained_revisions);
+    resp.set_max_request_bytes(64ull << 20);
+    return Status::Ok();
+  }
+
+  // --- Projects ---------------------------------------------------------------
+
+  Status ListProjects(const CallContext &, const pb::ListProjectsRequest &, pb::ListProjectsResponse &resp) override {
+    std::lock_guard lock(core_->mu);
+    for (auto &[id, p] : core_->projects) FillProjectInfo(*p, resp.add_projects());
+    return Status::Ok();
+  }
+
+  Status OpenProject(const CallContext &, const pb::OpenProjectRequest &req, pb::OpenProjectResponse &resp) override {
+    std::lock_guard lock(core_->mu);
+    Project *p = nullptr;
+    if (req.has_project_id()) {
+      auto it = core_->projects.find(req.project_id());
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+      p = it->second.get();
+    } else if (req.has_path()) {
+      if (req.path().empty()) return Error(StatusCode::kInvalidArgument, "path is empty");
+      for (auto &[id, proj] : core_->projects)
+        if (proj->path == req.path()) p = proj.get();
+      if (!p) {
+        if (!req.create_if_missing()) return Error(StatusCode::kNotFound, "no project at " + req.path());
+        std::string name = req.name();
+        if (name.empty()) name = req.path().substr(req.path().find_last_of('/') + 1);
+        std::string id = name;
+        for (int n = 2; core_->projects.count(id); ++n) id = name + "-" + std::to_string(n);
+        try {
+          p = &OpenProjectLocked(id, name, req.path());
+        } catch (const std::exception &e) {
+          return Error(StatusCode::kInternal, std::string("cannot create project: ") + e.what());
+        }
+      }
+    } else {
+      return Error(StatusCode::kInvalidArgument, "project_id or path is required");
+    }
+    p->open = true;
+    FillProjectInfo(*p, resp.mutable_project());
+    const FolderTree tree = TreeLocked(*p, p->log().size());
+    for (const auto &[id, e] : p->programs)
+      if (!StateOf(*p, *e, p->log().size()).deleted) FillProgramInfo(*p, *e, p->log().size(), tree, resp.add_programs());
+    FillFolders(tree, resp.mutable_folders());
+    return Status::Ok();
+  }
+
+  Status CloseProject(const CallContext &, const pb::CloseProjectRequest &req, pb::CloseProjectResponse &) override {
+    Project *p = nullptr;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(req.project_id());
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+      p = it->second.get();
+      p->open = false;
+      for (auto &s : p->subscribers) s.sink->End(Error(StatusCode::kCancelled, "project closed"));
+      p->subscribers.clear();
+    }
+    if (p->persistent()) p->db->engine().flush();
+    return Status::Ok();
+  }
+
+  Status ListPrograms(const CallContext &ctx, const pb::ListProgramsRequest &req, pb::ListProgramsResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProject(ctx, req.project_id(), req.read(), 0, r); !st.ok()) return st;
+    SetSnapshot(r, resp.mutable_snapshot());
+    std::lock_guard lock(core_->mu);
+    const FolderTree tree = TreeLocked(*r.project, r.log_size);
+    for (const auto &id : *r.snapshot->get<q::Programs>(0))
+      if (auto it = r.project->programs.find(id); it != r.project->programs.end()) {
+        if (!req.include_deleted() && StateOf(*r.project, *it->second, r.log_size).deleted) continue;
+        FillProgramInfo(*r.project, *it->second, r.log_size, tree, resp.add_programs());
+      }
+    FillFolders(tree, resp.mutable_folders());
+    return Status::Ok();
+  }
+
+  // With an import_id, the import's progress is recorded for its caller
+  // (GetImportProgress; import_progress.h); REVKIT_TIMING prints each
+  // phase's time against its estimate either way.
+  Status ImportProgram(const CallContext &ctx, const pb::ImportProgramRequest &req,
+                       pb::ImportProgramResponse &resp) override {
+    std::shared_ptr<ImportProgress> progress;
+    if (!req.import_id().empty()) {
+      if (auto st = core_->imports.Start(ctx.caller, req.project_id(), req.import_id(), progress); !st.ok()) return st;
+    } else {
+      progress = std::make_shared<ImportProgress>(ctx.caller, req.project_id(), req.name());
+    }
+    Status st;
+    try {
+      st = ImportProgramImpl(req, resp, *progress, nullptr, ctx.caller);
+    } catch (const std::exception &e) {
+      progress->Fail(e.what());
+      throw;
+    }
+    if (st.ok() && !req.folder_id().empty() && PlaceInFolder(req, resp.program().program_id(), resp))
+      RefillProgram(resp.program().program_id(), resp.mutable_program());
+    if (st.ok() && req.options().import_libraries()) ImportLibraries(ctx, req, resp);
+    if (st.ok())
+      progress->Finish("Imported " + resp.program().name() + ": " + Thousands(progress->functions()) + " functions");
+    else
+      progress->Fail(st.message);
+    return st;
+  }
+
+  Status GetImportProgress(const CallContext &ctx, const pb::GetImportProgressRequest &req,
+                           pb::GetImportProgressResponse &resp) override {
+    return core_->imports.Get(ctx.caller, req, resp);
+  }
+
+  // What a raw import of a file needs, from its bytes (raw_detect.h;
+  // docs/api.md, "Raw layout detection"). The file is named as an import's
+  // is and the same project must be open; nothing is stored.
+  Status DetectRawLayout(const CallContext &ctx, const pb::DetectRawLayoutRequest &req,
+                         pb::DetectRawLayoutResponse &resp) override {
+    std::shared_ptr<DetectJob> job;
+    if (auto st = core_->detections.Start(ctx.caller, req.project_id(), req.detect_id(), job); !st.ok()) return st;
+    Status st;
+    try {
+      st = DetectRawLayoutImpl(ctx, req, resp, *job);
+    } catch (const std::exception &e) {
+      job->Fail(e.what());
+      throw;
+    }
+    if (st.ok()) {
+      resp.set_elapsed_seconds(job->elapsed_seconds());
+      job->Finish(DescribeDetection(resp));
+    } else if (st.code == StatusCode::kCancelled) {
+      job->Stopped();
+    } else {
+      job->Fail(st.message);
+    }
+    return st;
+  }
+
+  Status GetRawDetectProgress(const CallContext &ctx, const pb::GetRawDetectProgressRequest &req,
+                              pb::GetRawDetectProgressResponse &resp) override {
+    return core_->detections.Get(ctx.caller, req, resp);
+  }
+
+  Status CancelRawDetect(const CallContext &ctx, const pb::CancelRawDetectRequest &req,
+                         pb::CancelRawDetectResponse &) override {
+    return core_->detections.Cancel(ctx.caller, req);
+  }
+
+  Status DetectRawLayoutImpl(const CallContext &ctx, const pb::DetectRawLayoutRequest &req,
+                             pb::DetectRawLayoutResponse &resp, DetectJob &job) {
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(req.project_id());
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+      if (!it->second->open) return Error(StatusCode::kFailedPrecondition, "project is closed");
+    }
+    DetectHints hints;
+    if (auto st = ResolveDetectHints(req.hints(), hints); !st.ok()) return st;
+    // What to read, checked before waiting for a slot.
+    std::uint64_t size = 0;
+    if (req.has_content()) {
+      size = req.content().size();
+    } else if (req.has_path()) {
+      std::error_code ec;
+      if (!fs::is_regular_file(req.path(), ec)) return Error(StatusCode::kNotFound, "cannot read " + req.path());
+      size = fs::file_size(req.path(), ec);
+      if (ec) return Error(StatusCode::kNotFound, "cannot read " + req.path());
+      if (size > kMaxDetectBytes)
+        return Error(StatusCode::kInvalidArgument,
+                     req.path() + " is " + Megabytes(size) + ": detection reads files up to " +
+                         Megabytes(kMaxDetectBytes) + " (set the raw import options by hand)");
+    } else {
+      return Error(StatusCode::kInvalidArgument, "path or content is required");
+    }
+    DetectRegistry::Slot slot;
+    if (auto st = core_->detections.Acquire(job, ctx.cancelled, slot); !st.ok()) return st;
+    job.Enter(pb::RAW_DETECT_PHASE_READING,
+              (req.has_path() ? "Reading " + fs::path(req.path()).filename().string() : "Reading the uploaded file") +
+                  " (" + Megabytes(size) + ")");
+    std::vector<std::byte> read;
+    std::span<const std::byte> file;
+    if (req.has_content()) {
+      file = std::as_bytes(std::span<const char>(req.content().data(), req.content().size()));
+    } else {
+      std::ifstream in(req.path(), std::ios::binary);
+      if (!in) return Error(StatusCode::kNotFound, "cannot read " + req.path());
+      // The size checked above bounds what is read, whatever the file has
+      // grown to since.
+      read.resize(size);
+      in.read(reinterpret_cast<char *>(read.data()), static_cast<std::streamsize>(read.size()));
+      read.resize(static_cast<std::size_t>(std::max<std::streamsize>(0, in.gcount())));
+      file = read;
+    }
+    const unsigned threads = core_->options.analysis_threads
+                                 ? core_->options.analysis_threads
+                                 : std::min(8u, std::max(1u, std::thread::hardware_concurrency()));
+    return RunRawDetect(file, hints, threads, job, ctx.cancelled, resp);
+  }
+
+  // `pre`: the file's bytes are already here (a container's member,
+  // ImportFromFileSystem), with where they came from.
+  struct PreloadedImport {
+    std::shared_ptr<loader::Bytes> bytes;
+    std::string container_path;
+  };
+
+  Status ImportProgramImpl(const pb::ImportProgramRequest &req, pb::ImportProgramResponse &resp,
+                           ImportProgress &progress, const PreloadedImport *pre = nullptr,
+                           const std::string &caller = "anonymous") {
+    auto bytes = std::make_shared<loader::Bytes>();
+    std::string default_name = "upload";
+    // What the import is expected to cost, from what is known so far:
+    // the file's size first, the code's and the debug info's once parsed.
+    ImportFacts facts;
+    facts.raw = req.options().format() == "raw";
+    facts.persistent = !core_->options.project_dir.empty();
+    facts.prototypes = false;  // inference runs after the import, in the background
+    if (pre) {
+      facts.file_bytes = pre->bytes->size();
+    } else if (req.has_content()) {
+      facts.file_bytes = req.content().size();
+    } else if (req.has_path()) {
+      std::error_code ec;
+      facts.file_bytes = fs::file_size(req.path(), ec);
+      if (ec) facts.file_bytes = 0;
+    }
+    progress.Plan(ImportCosts::estimate(facts));
+    progress.Enter(pb::IMPORT_PHASE_READING,
+                   (pre ? "Reading " + req.name()
+                        : req.has_path() ? "Reading " + fs::path(req.path()).filename().string() : "Reading the uploaded file") +
+                       " (" + Megabytes(facts.file_bytes) + ")");
+    if (pre) {
+      bytes = pre->bytes;
+      default_name = "file";
+    } else if (req.has_content()) {
+      bytes->resize(req.content().size());
+      std::memcpy(bytes->data(), req.content().data(), req.content().size());
+    } else if (req.has_path()) {
+      std::ifstream in(req.path(), std::ios::binary);
+      if (!in) return Error(StatusCode::kNotFound, "cannot read " + req.path());
+      std::string data((std::istreambuf_iterator<char>(in)), {});
+      bytes->resize(data.size());
+      std::memcpy(bytes->data(), data.data(), data.size());
+      default_name = req.path().substr(req.path().find_last_of('/') + 1);
+    } else {
+      return Error(StatusCode::kInvalidArgument, "path or content is required");
+    }
+    const auto &o = req.options();
+    // A format other than the built-in ones names a loader plugin.
+    std::shared_ptr<const plugins::Plugin> loader_plugin;
+    const bool raw = o.format() == "raw";
+    if (raw && o.language_id().empty())
+      return Error(StatusCode::kInvalidArgument, "format \"raw\" needs options.language_id");
+    if (!raw && (o.raw_offset() || o.raw_length() || !o.raw_permissions().empty() || o.has_entry_point() ||
+                 o.regions_size()))
+      return Error(StatusCode::kInvalidArgument, "raw_* options, entry_point and regions are for format \"raw\"");
+    if (!o.format().empty() && o.format() != "elf" && o.format() != "pe" && !raw) {
+      loader_plugin = FindLoader(o.format());
+      if (!loader_plugin)
+        return Error(StatusCode::kInvalidArgument,
+                     "format \"" + o.format() + "\" is not supported (elf, pe, or a loader plugin's name)");
+    }
+
+    // Reserve the id and the program's spaces, then load without holding
+    // any lock: a big binary takes a while and other projects keep serving.
+    std::string name = req.name().empty() ? default_name : req.name();
+    ProgramSource src;
+    std::string as_string(reinterpret_cast<const char *>(bytes->data()), bytes->size());
+    src.sha256 = Sha256Hex(as_string);
+    Project *p = nullptr;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(req.project_id());
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+      p = it->second.get();
+      if (!p->open) return Error(StatusCode::kFailedPrecondition, "project is closed");
+      src.id = req.project_id() + "/" + name;
+      // Ids of programs a peer sent whose file hasn't arrived are taken too.
+      auto taken = [&](const std::string &id) {
+        return core_->program_project.count(id) ||
+               std::any_of(p->missing.begin(), p->missing.end(), [&](const auto &m) { return m.second.id == id; });
+      };
+      for (int n = 2; taken(src.id); ++n) src.id = req.project_id() + "/" + name + "-" + std::to_string(n);
+      core_->program_project[src.id] = req.project_id();
+      src.ordinal = AllocateOrdinalLocked(*p, src.id, src.sha256);
+    }
+    src.name = src.id.substr(req.project_id().size() + 1);
+    progress.SetProgram(src.id);
+    facts.persistent = p->persistent();
+    progress.Plan(ImportCosts::estimate(facts));
+    src.ram_space = static_cast<facts::SpaceId>(kFirstProgramSpace + 2 * src.ordinal);
+    src.file_space = static_cast<facts::SpaceId>(src.ram_space + 1);
+    src.language_id = o.language_id();
+    src.compiler_spec_id = o.compiler_spec_id();
+    if (o.has_image_base()) src.image_base = o.image_base();
+    if (raw) {
+      if (auto st = RawOptionsOf(o, src.raw.emplace()); !st.ok()) {
+        Unreserve(src.id, *p, src.ordinal);
+        return st;
+      }
+    }
+    src.file_size = bytes->size();
+    if (req.has_path() && !pre) src.path = fs::absolute(req.path()).string();
+    if (pre) src.container_path = pre->container_path;
+    src.imported_at = TimeUtil::GetCurrentTime().seconds();
+
+    std::vector<DebugFacts> debug;
+    std::vector<AnalysisFacts> pe_analysis;
+    analysis::ProgramInfo info;
+    progress.Enter(pb::IMPORT_PHASE_LOADING,
+                   raw ? "Loading the raw image as " + o.language_id()
+                       : "Loading " + name + ": sections and symbols");
+    // Once parsed: the code's and the debug info's size, so the estimates
+    // of what follows are this file's; then the debug info is read.
+    auto loaded = [&](const loader::Image &image) {
+      facts.parsed = true;
+      facts.code_bytes = 0;
+      for (const loader::Block &b : image.blocks)
+        if (b.perms.exec && b.initialized) facts.code_bytes += b.size;
+      facts.parallel = facts.code_bytes > kParallelCodeBytes;
+      facts.debug_bytes = 0;
+      if (core_->options.import_debug_info) {
+        for (const loader::Section &sec : image.sections)
+          if (sec.name.starts_with(".debug_") || sec.name.starts_with(".zdebug_")) facts.debug_bytes += sec.file_size;
+        facts.pdb = image.format == loader::Format::pe && !image.pdb_path.empty();
+      }
+      progress.Plan(ImportCosts::estimate(facts));
+      if (facts.debug_bytes)
+        progress.Enter(pb::IMPORT_PHASE_DEBUG_INFO, "Reading DWARF debug info (" + Megabytes(facts.debug_bytes) + ")");
+      else if (facts.pdb)
+        progress.Enter(pb::IMPORT_PHASE_DEBUG_INFO, "Looking for the PDB (" + image.pdb_path + ")");
+    };
+    try {
+      if (!loader_plugin) {
+        try {
+          src.program = LoadProgram(src, bytes, loaded);
+        } catch (const loader::LoadError &) {
+          // Not ELF or PE: a loader plugin whose magic matches, if any.
+          if (raw) throw;
+          loader_plugin = MatchLoader(*bytes);
+          if (!loader_plugin) throw;
+        }
+      }
+      if (loader_plugin) {
+        src.loader = loader_plugin->id();
+        src.program = LoadProgram(src, bytes, loaded);
+      }
+      info = src.program->Describe(src.ram_space);
+      facts.code_bytes = 0;
+      for (const analysis::Range &c : info.code) facts.code_bytes += c.last - c.first + 1;
+      facts.parallel = facts.code_bytes > kParallelCodeBytes;
+      progress.Plan(ImportCosts::estimate(facts));
+      // DWARF first, then the PDB: among import assertions on one key the
+      // later wins, and rk-debuginfo prefers the PDB too.
+      if (auto d = ReadDwarf(*src.program)) debug.push_back(std::move(*d));
+      if (auto d = ReadPdb(*src.program)) debug.push_back(std::move(*d));
+      if (core_->options.import_pe_analysis && src.program->image().format == loader::Format::pe)
+        for (AnalysisFacts &a : CollectPeAnalysis(*src.program, debug))
+          if (!a.assertions.empty()) pe_analysis.push_back(std::move(a));
+    } catch (const loader::LoadError &e) {
+      Unreserve(src.id, *p, src.ordinal);
+      return Error(StatusCode::kInvalidArgument, std::string("cannot load: ") + e.what());
+    } catch (const lift::LiftError &e) {
+      Unreserve(src.id, *p, src.ordinal);
+      return Error(StatusCode::kFailedPrecondition, e.what());
+    } catch (const std::exception &e) {
+      Unreserve(src.id, *p, src.ordinal);
+      return Error(StatusCode::kInternal, std::string("import failed: ") + e.what());
+    }
+
+    pb::Provenance prov;
+    prov.set_kind(pb::PROVENANCE_KIND_IMPORT);
+    prov.set_id(src.program->format());
+    prov.set_session(req.provenance().session());
+    prov.set_tool(req.provenance().tool());
+    std::uint64_t revision = 0;
+    {
+      std::string what = "Storing the program";
+      for (const DebugFacts &d : debug)
+        what += ", " + Thousands(d.functions) + " " + d.source + " functions and " + Thousands(d.records.size()) +
+                " types";
+      progress.Step(0, what + " in the project", 0.002 + 0.005 * static_cast<double>(facts.file_bytes) / (1 << 20));
+      std::lock_guard write(p->write_mu);
+      {
+        std::lock_guard lock(core_->mu);
+        if (!p->open) {
+          core_->program_project.erase(src.id);
+          p->ordinals.erase(src.ordinal);
+          return Error(StatusCode::kFailedPrecondition, "project closed during import");
+        }
+      }
+      // One revision: the file, the loaded image's bytes and what discovery
+      // starts from, the program's record and inputs, and its debug info as
+      // import:dwarf / import:pdb assertions.
+      auto tx = p->db->begin();
+      const std::uint64_t rev = tx.next_revision();
+      tx.write_bytes({src.file_space, 0}, as_string);
+      std::string().swap(as_string);  // a copy of the whole file
+      bytes.reset();  // the store has the file now; the image keeps what it reads
+      analysis::stage_image(tx, AnalysisKey(src.id), src.program->image(), info);
+      StageInfer(tx, src);
+      tx.set<q::ParamIdModeInput>(src.id, static_cast<std::uint8_t>(core_->options.param_id));
+      plugins::stage_program(tx, AnalysisKey(src.id), src.program->image(), src.file_space, src.file_size);
+      tx.assert_fact(ToFacts(prov), FactKeyAt(FactKind::Note, kProjectSpace, src.ordinal, "program"),
+                     facts::encode_to_string(src), 0, Meta(prov, nullptr, rev));
+      for (const DebugFacts &d : debug) StageDebugInfo(tx, src, d, req.provenance(), rev);
+      for (const AnalysisFacts &a : pe_analysis) StageAnalysisFacts(tx, src, a, req.provenance(), rev);
+      std::vector<std::string> programs = *p->db->snapshot().get<q::Programs>(0);
+      programs.push_back(src.id);
+      tx.set<q::Programs>(0, std::move(programs));
+      tx.set<q::Source>(src.id, src);
+      tx.set<q::DecompilerOptions>(src.id, DefaultDecompilerOptions());
+      auto entry = std::make_shared<ProgramEntry>(ProgramEntry{src, rev});
+      revision = Commit(*p, tx, prov, pb::CHANGE_CAUSE_IMPORT, entry);
+    }
+    if (InferFor(src)) ExpectInfer(*p, src.id);  // busy from now: its analysis comes first
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (auto st = PinLocked(*p, revision, r); !st.ok()) return st;
+      r.program = p->programs.at(src.id);
+    }
+    // The import-time passes: discovery, references and the listing,
+    // memoized (and persisted) like any other derived fact.
+    try {
+      src.program->WaitForDecoders();
+      Analyze(r, info, &progress);
+    } catch (const std::exception &e) {
+      ScheduleInfer(*p, src.id);
+      return Error(StatusCode::kInternal, std::string("analysis failed: ") + e.what());
+    }
+    if (p->persistent()) {
+      progress.Enter(pb::IMPORT_PHASE_SAVING, "Saving to the project");
+      p->db->engine().flush();
+    }
+    ScheduleParamId(*p, src.id);
+    ScheduleInfer(*p, src.id);
+    if (FidFor(src)) ScheduleFid(*p, src.id, caller);
+    SetSnapshot(r, resp.mutable_snapshot());
+    FillProgramInfo(*p, *r.program, r.log_size, TreeOf(*p, r.log_size), resp.mutable_program());
+    for (const auto &w : src.program->warnings()) resp.add_warnings(w);
+    for (const DebugFacts &d : debug)
+      resp.add_warnings("imported " + d.source + (d.file.empty() ? "" : " (" + d.file + ")") + ": " +
+                        std::to_string(d.functions) + " functions, " + std::to_string(d.variables) + " variables, " +
+                        std::to_string(d.records.size()) +
+                        " types");
+    for (const AnalysisFacts &a : pe_analysis) resp.add_warnings(AnalysisSummary(a));
+    if (o.analyze()) {
+      std::lock_guard lock(core_->mu);
+      resp.set_analysis_job_id(RunJobLocked(*p, src.id, DefaultAnalyzers()).job_id());
+    }
+    return Status::Ok();
+  }
+
+  Status ListLanguages(const CallContext &, const pb::ListLanguagesRequest &req,
+                       pb::ListLanguagesResponse &resp) override {
+    for (const lift::LanguageSummary &l : lift::list_languages()) {
+      if (l.deprecated && !req.include_deprecated()) continue;
+      pb::AvailableLanguage *a = resp.add_languages();
+      a->set_language_id(l.id);
+      a->set_processor(l.processor);
+      a->set_endianness(l.big_endian ? pb::ENDIANNESS_BIG : pb::ENDIANNESS_LITTLE);
+      a->set_address_size(static_cast<std::uint32_t>(l.size));
+      a->set_variant(l.variant);
+      a->set_description(l.description);
+      a->set_deprecated(l.deprecated);
+      for (const std::string &c : l.compilers) a->add_compiler_spec_ids(c);
+    }
+    return Status::Ok();
+  }
+  Status ListHostFiles(const CallContext &, const pb::ListHostFilesRequest &req,
+                       pb::ListHostFilesResponse &resp) override {
+    return api::ListHostFiles({.roots = core_->options.browse_roots}, req, resp);
+  }
+
+  // Soft deletion (docs/api.md, "Program management"): an assertion on the
+  // program's record that ListPrograms reads; retracting it restores the
+  // program. Nothing is removed.
+  Status DeleteProgram(const CallContext &, const pb::DeleteProgramRequest &req, pb::DeleteProgramResponse &resp) override {
+    std::uint64_t revision = 0;
+    pb::Assertion a;
+    if (auto st = AssertProgramState(req.program_id(), kProgramDeletedSub, "deleted", req.provenance(), revision, a);
+        !st.ok())
+      return st;
+    resp.mutable_snapshot()->set_revision(revision);
+    resp.mutable_snapshot()->set_head_revision(revision);
+    *resp.mutable_assertion() = std::move(a);
+    return Status::Ok();
+  }
+
+  Status RenameProgram(const CallContext &, const pb::RenameProgramRequest &req, pb::RenameProgramResponse &resp) override {
+    const std::string &name = req.name();
+    if (name.size() > 200) return Error(StatusCode::kInvalidArgument, "name is longer than 200 characters");
+    for (unsigned char c : name)
+      if (c < 0x20 || c == 0x7f || c == '/')
+        return Error(StatusCode::kInvalidArgument, "name may not contain \"/\" or control characters");
+    std::uint64_t revision = 0;
+    pb::Assertion a;
+    if (auto st = AssertProgramState(req.program_id(), kProgramNameSub, name, req.provenance(), revision, a); !st.ok())
+      return st;
+    Project *p = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), p); !st.ok()) return st;
+    std::shared_ptr<const ProgramEntry> entry;
+    {
+      std::lock_guard lock(core_->mu);
+      entry = p->programs.at(req.program_id());
+    }
+    resp.mutable_snapshot()->set_revision(revision);
+    resp.mutable_snapshot()->set_head_revision(revision);
+    FillProgramInfo(*p, *entry, p->log().size(), TreeOf(*p, p->log().size()), resp.mutable_program());
+    *resp.mutable_assertion() = std::move(a);
+    return Status::Ok();
+  }
+
+  // --- Folders (api_minor 37; docs/api.md, "Folders") ------------------------
+
+  Status CreateFolder(const CallContext &, const pb::CreateFolderRequest &req, pb::CreateFolderResponse &resp) override {
+    std::string id;
+    pb::RevisionEvent ev;
+    Project *p = nullptr;
+    auto st = EditFolders(req.project_id(), req.provenance(), ev, p,
+                          [&](Project &proj, const FolderTree &t, std::vector<FolderEdit> &edits) -> Status {
+                            if (auto st = CheckFolderName(req.name()); !st.ok()) return st;
+                            if (!req.parent_id().empty() && !t.has(req.parent_id()))
+                              return Error(StatusCode::kNotFound, "no folder " + req.parent_id());
+                            if (!t.named(req.parent_id(), req.name()).empty())
+                              return Error(StatusCode::kAlreadyExists, "\"" + req.name() + "\" already exists in " +
+                                                                           t.path(req.parent_id()));
+                            if (Depth(t, req.parent_id()) + 1 > kMaxFolderDepth)
+                              return Error(StatusCode::kFailedPrecondition, "folders nest at most " +
+                                                                                std::to_string(kMaxFolderDepth) + " deep");
+                            {
+                              std::lock_guard lock(core_->mu);
+                              do id = NewFolderId();
+                              while (proj.folder_ids.contains(id));
+                            }
+                            edits.push_back({FolderKey(id), req.parent_id() + "/" + req.name()});
+                            return Status::Ok();
+                          });
+    if (!st.ok()) return st;
+    FinishFolderEdit(*p, ev, resp.mutable_snapshot());
+    if (!ev.assertions().empty()) *resp.mutable_assertion() = ev.assertions(0);
+    const FolderTree t = TreeOf(*p, p->log().size());
+    if (t.has(id)) FillFolder(t.by_id.at(id), resp.mutable_folder());
+    return Status::Ok();
+  }
+
+  Status RenameFolder(const CallContext &, const pb::RenameFolderRequest &req, pb::RenameFolderResponse &resp) override {
+    pb::RevisionEvent ev;
+    Project *p = nullptr;
+    auto st = EditFolders(req.project_id(), req.provenance(), ev, p,
+                          [&](Project &, const FolderTree &t, std::vector<FolderEdit> &edits) -> Status {
+                            if (auto st = CheckFolderName(req.name()); !st.ok()) return st;
+                            if (!t.has(req.folder_id())) return Error(StatusCode::kNotFound, "no folder " + req.folder_id());
+                            const Folder &f = t.by_id.at(req.folder_id());
+                            for (const std::string &other : t.named(f.parent, req.name()))
+                              if (other != f.id)
+                                return Error(StatusCode::kAlreadyExists,
+                                             "\"" + req.name() + "\" already exists in " + t.path(f.parent));
+                            if (f.name == req.name()) return Status::Ok();
+                            edits.push_back({FolderKey(f.id), f.parent + "/" + req.name()});
+                            return Status::Ok();
+                          });
+    if (!st.ok()) return st;
+    FinishFolderEdit(*p, ev, resp.mutable_snapshot());
+    if (!ev.assertions().empty()) *resp.mutable_assertion() = ev.assertions(0);
+    const FolderTree t = TreeOf(*p, p->log().size());
+    if (t.has(req.folder_id())) FillFolder(t.by_id.at(req.folder_id()), resp.mutable_folder());
+    return Status::Ok();
+  }
+
+  Status DeleteFolder(const CallContext &, const pb::DeleteFolderRequest &req, pb::DeleteFolderResponse &resp) override {
+    pb::RevisionEvent ev;
+    Project *p = nullptr;
+    auto st = EditFolders(req.project_id(), req.provenance(), ev, p,
+                          [&](Project &proj, const FolderTree &t, std::vector<FolderEdit> &edits) -> Status {
+                            if (!t.has(req.folder_id())) return Error(StatusCode::kNotFound, "no folder " + req.folder_id());
+                            for (const auto &[id, f] : t.by_id)
+                              if (f.parent == req.folder_id())
+                                return Error(StatusCode::kFailedPrecondition,
+                                             t.path(req.folder_id()) + " is not empty: it has folder " + f.name);
+                            std::map<std::string, std::shared_ptr<const ProgramEntry>> programs;
+                            {
+                              std::lock_guard lock(core_->mu);
+                              programs = proj.programs;
+                            }
+                            for (const auto &[id, e] : programs) {
+                              const ProgramState ps = StateOf(proj, *e, proj.log().size());
+                              if (!ps.deleted && ps.folder == req.folder_id())
+                                return Error(StatusCode::kFailedPrecondition,
+                                             t.path(req.folder_id()) + " is not empty: it has program " + ps.name);
+                            }
+                            edits.push_back({FolderKey(req.folder_id()), ""});
+                            return Status::Ok();
+                          });
+    if (!st.ok()) return st;
+    FinishFolderEdit(*p, ev, resp.mutable_snapshot());
+    if (!ev.assertions().empty()) *resp.mutable_assertion() = ev.assertions(0);
+    return Status::Ok();
+  }
+
+  Status MoveToFolder(const CallContext &, const pb::MoveToFolderRequest &req, pb::MoveToFolderResponse &resp) override {
+    if (req.program_ids().empty() && req.folder_ids().empty())
+      return Error(StatusCode::kInvalidArgument, "nothing to move: program_ids and folder_ids are empty");
+    pb::RevisionEvent ev;
+    Project *p = nullptr;
+    auto st = EditFolders(req.project_id(), req.provenance(), ev, p,
+                          [&](Project &proj, const FolderTree &t, std::vector<FolderEdit> &edits) -> Status {
+                            const std::string &dest = req.folder_id();
+                            if (!dest.empty() && !t.has(dest)) return Error(StatusCode::kNotFound, "no folder " + dest);
+                            std::set<std::string> names;  // folder names landing in dest
+                            std::set<std::string> moving(req.folder_ids().begin(), req.folder_ids().end());
+                            for (const auto &[id, f] : t.by_id)
+                              if (f.parent == dest && !moving.contains(id)) names.insert(f.name);
+                            std::set<std::string> done;
+                            for (const std::string &id : req.folder_ids()) {
+                              if (!done.insert(id).second) continue;
+                              if (!t.has(id)) return Error(StatusCode::kNotFound, "no folder " + id);
+                              const Folder &f = t.by_id.at(id);
+                              if (t.within(dest, id))
+                                return Error(StatusCode::kFailedPrecondition,
+                                             "can't move " + f.path + " into itself or a folder below it");
+                              if (!names.insert(f.name).second)
+                                return Error(StatusCode::kAlreadyExists,
+                                             "\"" + f.name + "\" already exists in " + t.path(dest));
+                              if (Depth(t, dest) + 1 + Height(t, id) > kMaxFolderDepth)
+                                return Error(StatusCode::kFailedPrecondition,
+                                             "folders nest at most " + std::to_string(kMaxFolderDepth) + " deep");
+                              if (f.parent == dest) continue;
+                              edits.push_back({FolderKey(id), dest + "/" + f.name});
+                            }
+                            for (const std::string &id : req.program_ids()) {
+                              if (!done.insert(id).second) continue;
+                              std::shared_ptr<const ProgramEntry> e;
+                              {
+                                std::lock_guard lock(core_->mu);
+                                auto it = proj.programs.find(id);
+                                if (it != proj.programs.end()) e = it->second;
+                              }
+                              if (!e) return Error(StatusCode::kNotFound, "no program " + id + " in project " + proj.id);
+                              const ProgramState ps = StateOf(proj, *e, proj.log().size());
+                              if (ps.deleted)
+                                return Error(StatusCode::kFailedPrecondition, "program " + id + " is deleted; restore it first");
+                              if ((t.has(ps.folder) ? ps.folder : std::string()) == dest && !(dest.empty() && !ps.folder.empty()))
+                                continue;
+                              edits.push_back({ProgramKey(*e, kProgramFolderSub), dest});
+                            }
+                            return Status::Ok();
+                          });
+    if (!st.ok()) return st;
+    FinishFolderEdit(*p, ev, resp.mutable_snapshot());
+    *resp.mutable_assertions() = ev.assertions();
+    return Status::Ok();
+  }
+
+ private:
+  static Status CheckFolderName(const std::string &name) {
+    if (name.empty()) return Error(StatusCode::kInvalidArgument, "name is required");
+    if (!archive::ValidName(name) || name == "." || name == "..")
+      return Error(StatusCode::kInvalidArgument,
+                   "a folder name has 1 to 200 characters, not \"/\" or control characters, and isn't . or ..");
+    return Status::Ok();
+  }
+  // Folders above `id` (0 for the root, 1 for a top-level folder).
+  static std::size_t Depth(const FolderTree &t, const std::string &id) {
+    if (id.empty() || !t.has(id)) return 0;
+    const std::string &path = t.by_id.at(id).path;
+    return static_cast<std::size_t>(std::count(path.begin(), path.end(), '/'));
+  }
+  // Levels of folders at and below `id`.
+  static std::size_t Height(const FolderTree &t, const std::string &id) {
+    const std::size_t base = Depth(t, id);
+    std::size_t most = base;
+    for (const auto &[other, f] : t.by_id)
+      if (t.within(other, id)) most = std::max(most, Depth(t, other));
+    return most - base + 1;
+  }
+
+  // Folder edits: under the project's writer, `plan` reads the tree at
+  // head and lists the keys to assert; they commit in one revision.
+  Status EditFolders(const std::string &project_id, const pb::Provenance &prov, pb::RevisionEvent &ev, Project *&out,
+                     const std::function<Status(Project &, const FolderTree &, std::vector<FolderEdit> &)> &plan) {
+    if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    Project *pp = nullptr;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(project_id);
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + project_id);
+      pp = it->second.get();
+    }
+    Project &p = *pp;
+    out = pp;
+    std::lock_guard write(p.write_mu);
+    {
+      std::lock_guard lock(core_->mu);
+      if (!p.open) return Error(StatusCode::kFailedPrecondition, "project " + p.id + " is closed");
+    }
+    const FolderTree tree = TreeOf(p, p.log().size());
+    std::vector<FolderEdit> edits;
+    if (auto st = plan(p, tree, edits); !st.ok()) return st;
+    if (edits.empty()) return Status::Ok();
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    for (const FolderEdit &e : edits) {
+      pb::AssertionBody body;
+      body.mutable_note()->set_tag(e.key.sub);
+      body.mutable_note()->set_text(e.value);
+      tx.assert_fact(ToFacts(prov), e.key, e.value, 0, Meta(prov, &body, rev));
+    }
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    return Status::Ok();
+  }
+  void FinishFolderEdit(Project &p, const pb::RevisionEvent &, pb::Snapshot *snapshot) {
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, snapshot);
+  }
+
+ public:
+  // --- Project archives (api_minor 37; docs/backend.md, "Project archives") ---
+
+  Status ExportProject(const CallContext &ctx, const pb::ExportProjectRequest &req,
+                       const std::function<bool(const pb::ExportProjectResponse &)> &write) override {
+    Read r;
+    if (auto st = ResolveProject(ctx, req.project_id(), {}, 0, r); !st.ok()) return st;
+    Project &p = *r.project;
+    const Seq upto = r.log_size;
+    std::map<std::string, std::shared_ptr<const ProgramEntry>> programs;
+    FolderTree tree;
+    {
+      std::lock_guard lock(core_->mu);
+      // The programs as of the pinned revision (one imported since has no
+      // record in the log read).
+      for (const auto &[id, e] : p.programs)
+        if (e->first_revision <= r.revision) programs.emplace(id, e);
+      tree = TreeLocked(p, upto);
+    }
+    // What goes in, and where each program sits in the archive's tree: a
+    // whole project as it is; a folder as a top-level folder of the
+    // archive; a program with the folders above it.
+    struct Pick {
+      std::shared_ptr<const ProgramEntry> entry;
+      ProgramState state;
+      std::string folder;  // its path in the archive
+    };
+    std::map<std::string, Pick> picked;
+    std::set<std::string> folders;
+    auto add_with_parents = [&](std::string path) {
+      while (path != "/") {
+        folders.insert(path);
+        path = path.substr(0, std::max<std::size_t>(1, path.rfind('/')));
+      }
+    };
+    auto folder_of = [&](const ProgramState &st) { return tree.has(st.folder) ? st.folder : std::string(); };
+    if (req.program_ids().empty() && req.folder_ids().empty()) {
+      for (const std::string &id : tree.order) folders.insert(tree.path(id));
+      for (const auto &[id, e] : programs) {
+        ProgramState st = StateOf(p, *e, upto);
+        if (st.deleted) continue;
+        const std::string path = tree.path(folder_of(st));
+        picked.emplace(id, Pick{e, std::move(st), path});
+      }
+    } else {
+      for (const std::string &fid : req.folder_ids()) {
+        if (!tree.has(fid)) return Error(StatusCode::kNotFound, "no folder " + fid + " in project " + p.id);
+        const std::string &base = tree.by_id.at(fid).path;
+        const std::size_t cut = base.rfind('/');
+        auto relative = [&](const std::string &path) { return path.substr(cut); };
+        for (const std::string &id : tree.order)
+          if (tree.within(id, fid)) folders.insert(relative(tree.path(id)));
+        for (const auto &[id, e] : programs) {
+          ProgramState st = StateOf(p, *e, upto);
+          if (st.deleted || !tree.within(folder_of(st), fid)) continue;
+          const std::string path = relative(tree.path(folder_of(st)));
+          picked.emplace(id, Pick{e, std::move(st), path});
+        }
+      }
+      for (const std::string &id : req.program_ids()) {
+        auto it = programs.find(id);
+        if (it == programs.end()) return Error(StatusCode::kNotFound, "no program " + id + " in project " + p.id);
+        ProgramState st = StateOf(p, *it->second, upto);
+        if (st.deleted) return Error(StatusCode::kFailedPrecondition, "program " + id + " is deleted; restore it first");
+        if (picked.contains(id)) continue;
+        const std::string path = tree.path(folder_of(st));
+        add_with_parents(path);
+        picked.emplace(id, Pick{it->second, std::move(st), path});
+      }
+    }
+
+    pb::ProjectArchiveManifest m;
+    m.set_format(std::string(archive::kFormat));
+    m.set_format_version(archive::kFormatVersion);
+    m.set_op_format(archive::kOpFormat);
+    m.set_created_by(core_->options.server_version.empty() ? "revkit" : core_->options.server_version);
+    *m.mutable_created_at() = TimeUtil::GetCurrentTime();
+    m.set_project_name(p.name);
+    m.set_annotations_only(req.annotations_only());
+    std::vector<std::string> sorted_folders(folders.begin(), folders.end());  // a path sorts after its parent
+    for (const std::string &f : sorted_folders) m.add_folders(f);
+    std::map<facts::SpaceId, int> by_space;
+    std::map<std::uint64_t, int> by_ordinal;
+    std::vector<const Pick *> order;
+    for (const auto &[id, pick] : picked) {
+      const int i = static_cast<int>(order.size());
+      order.push_back(&pick);
+      const ProgramSource &src = pick.entry->source;
+      pb::ArchiveProgram *ap = m.add_programs();
+      ap->set_key("p" + std::to_string(i));
+      ap->set_name(ArchiveName(pick.state.name));
+      ap->set_program_id(id);
+      ap->set_sha256(src.sha256);
+      ap->set_size(src.file_size);
+      ap->set_format(pick.entry->program().format());
+      ap->set_language_id(pick.entry->program().language().language);
+      ap->set_folder(pick.folder);
+      ap->set_has_binary(!req.annotations_only());
+      ap->set_ordinal(src.ordinal);
+      by_space[src.ram_space] = i;
+      by_ordinal[src.ordinal] = i;
+    }
+    // The log: every op on the picked programs' keys and records (not
+    // their places in folders, which the manifest says), and the diff
+    // sessions between two of them, in log order.
+    std::string log = archive::LogHeader();
+    std::uint64_t count = 0;
+    std::unordered_set<facts::OpId, facts::OpIdHash> included;
+    std::set<std::uint64_t> sessions_at;  // records of sessions going in
+    std::set<std::string> sessions;
+    std::vector<std::map<std::string, std::pair<std::uint64_t, std::uint64_t>>> regions(order.size());  // sha -> (offset, length)
+    for (Seq s = 1; s <= upto; ++s) {
+      auto op = p.log().op(s);
+      if (!op) continue;
+      const facts::FactKey &k = op->key;
+      int owner = -1;
+      // Project-wide types and type archive settings (docs/types.md#project-types):
+      // the project's, so they go with any of its programs.
+      if (IsProjectTypeKey(k)) {
+        // kept, owner -1
+      } else if (k.addr.space == kProjectSpace) {
+        if (k.kind != FactKind::Note) continue;
+        if (k.sub == "program" || k.sub == kProgramNameSub || k.sub == kProgramDeletedSub) {
+          auto it = by_ordinal.find(k.addr.offset);
+          if (it == by_ordinal.end()) continue;
+          owner = it->second;
+        } else if (k.sub == kDiffSessionSub) {
+          if (op->kind == facts::OpKind::Assert && !sessions_at.contains(k.addr.offset)) {
+            const auto *text = std::get_if<std::string>(&op->value);
+            if (!text) continue;
+            DiffSessionRecord rec;
+            try {
+              rec = facts::decode_from_string<DiffSessionRecord>(*text);
+            } catch (const std::exception &) {
+              continue;
+            }
+            if (!picked.contains(rec.program_a) || !picked.contains(rec.program_b)) continue;
+            sessions_at.insert(k.addr.offset);
+            sessions.insert(rec.id);
+          }
+          if (!sessions_at.contains(k.addr.offset)) continue;
+        } else {
+          continue;  // folders and programs' places in them
+        }
+      } else {
+        auto it = by_space.find(k.addr.space);
+        if (it == by_space.end()) continue;
+        owner = it->second;
+        if (k.kind == FactKind::Match && !sessions.contains(k.sub.substr(0, k.sub.find('/')))) continue;
+      }
+      facts::Op out = *op;
+      if (out.kind == facts::OpKind::Retract && !included.contains(out.target_id)) continue;
+      if (out.depends_on_id && !included.contains(out.depends_on_id)) out.depends_on_id = {};
+      if (out.supersedes && !included.contains(out.supersedes)) out.supersedes = {};
+      out.seq = out.target = out.depends_on = 0;
+      included.insert(out.id);
+      archive::AppendLogOp(log, out);
+      ++count;
+      if (owner >= 0) {
+        pb::ArchiveProgram *ap = m.mutable_programs(owner);
+        ap->set_op_count(ap->op_count() + 1);
+        if (k.kind == FactKind::MemoryRegion && out.kind == facts::OpKind::Assert)
+          if (const auto *text = std::get_if<std::string>(&out.value); text && !text->empty())
+            if (auto rg = analysis::decode_region(*text); rg && rg->bytes && rg->bytes->length)
+              regions[static_cast<std::size_t>(owner)].emplace(rg->bytes->sha256,
+                                                                std::pair{rg->bytes->offset, rg->bytes->length});
+      }
+    }
+    // Memory-map regions' bytes from other files, where the store has them.
+    std::vector<std::vector<std::string>> region_bytes(order.size());
+    for (std::size_t i = 0; i < order.size(); ++i) {
+      const ProgramSource &src = order[i]->entry->source;
+      for (const auto &[sha, at] : regions[i]) {
+        auto bytes = ReadStoredBytes(*r.snapshot, src.file_space, at.first, at.second);
+        if (!bytes || Sha256Hex(*bytes) != sha) continue;
+        pb::ArchiveFile *f = m.mutable_programs(static_cast<int>(i))->add_regions();
+        f->set_path("programs/p" + std::to_string(i) + "/regions/" + sha + ".bin");
+        f->set_size(at.second);
+        f->set_sha256(sha);
+        f->set_offset(at.first);
+        region_bytes[i].push_back(std::move(*bytes));
+      }
+    }
+    m.mutable_log()->set_path(std::string(archive::kLogPath));
+    m.mutable_log()->set_size(log.size());
+    m.mutable_log()->set_sha256(Sha256Hex(log));
+    m.mutable_log()->set_count(count);
+    archive::Limits limits;
+    if (auto e = archive::ValidateManifest(m, limits))
+      return Error(StatusCode::kFailedPrecondition, "this project can't be archived: " + e->message);
+
+    pb::ExportProjectResponse first;
+    std::string base = ProjectIdFor(p.name);
+    if (picked.size() == 1 && req.folder_ids().empty() && !req.program_ids().empty())
+      base += "-" + ProjectIdFor(order[0]->state.name);
+    first.mutable_summary()->set_file_name(base + (req.annotations_only() ? "-annotations" : "") +
+                                           std::string(archive::kFileExtension));
+    *first.mutable_summary()->mutable_manifest() = m;
+
+    // The bytes: to the client in 1 MiB messages, or to a file on the host.
+    std::ofstream file;
+    std::string host_tmp;
+    std::string pending;
+    bool client_gone = false;
+    auto flush = [&](bool all) {
+      while (pending.size() >= (1u << 20) || (all && !pending.empty())) {
+        const std::size_t n = std::min<std::size_t>(pending.size(), 1u << 20);
+        pb::ExportProjectResponse msg;
+        msg.set_data(pending.substr(0, n));
+        pending.erase(0, n);
+        if (!write(msg)) return false;
+      }
+      return true;
+    };
+    archive::Writer::Sink sink;
+    if (!req.host_path().empty()) {
+      host_tmp = req.host_path() + ".tmp-" + std::to_string(::getpid());
+      file.open(host_tmp, std::ios::binary | std::ios::trunc);
+      if (!file) return Error(StatusCode::kInvalidArgument, "cannot write " + req.host_path());
+      sink = [&](std::string_view b) {
+        file.write(b.data(), static_cast<std::streamsize>(b.size()));
+        return static_cast<bool>(file);
+      };
+    } else {
+      if (!write(first)) return Error(StatusCode::kCancelled, "the client went away");
+      sink = [&](std::string_view b) {
+        pending.append(b);
+        if (!flush(false)) client_gone = true;
+        return !client_gone && !ctx.cancelled();
+      };
+    }
+    archive::Writer w(sink);
+    bool ok = w.add_file(archive::kManifestPath, archive::ManifestJson(m)) && w.add_file(archive::kLogPath, log);
+    std::string().swap(log);
+    for (std::size_t i = 0; ok && i < order.size(); ++i) {
+      const ProgramSource &src = order[i]->entry->source;
+      if (!req.annotations_only()) {
+        ok = w.begin_file("programs/p" + std::to_string(i) + "/program.bin", src.file_size);
+        for (std::uint64_t off = 0; ok && off < src.file_size; off += (1u << 20)) {
+          const std::uint64_t n = std::min<std::uint64_t>(1u << 20, src.file_size - off);
+          auto piece = ReadStoredBytes(*r.snapshot, src.file_space, off, n);
+          if (!piece) return Error(StatusCode::kInternal, "program " + src.id + "'s bytes are missing from the store");
+          ok = w.write(*piece);
+        }
+        ok = ok && w.end_file();
+      }
+      const auto &files = m.programs(static_cast<int>(i)).regions();
+      for (int j = 0; ok && j < files.size(); ++j) ok = w.add_file(files[j].path(), region_bytes[i][static_cast<std::size_t>(j)]);
+    }
+    ok = ok && w.finish();
+    if (!req.host_path().empty()) {
+      file.close();
+      std::error_code ec;
+      if (!ok || !file) {
+        fs::remove(host_tmp, ec);
+        return Error(StatusCode::kInternal, "cannot write " + req.host_path());
+      }
+      fs::rename(host_tmp, req.host_path(), ec);
+      if (ec) {
+        fs::remove(host_tmp, ec);
+        return Error(StatusCode::kInternal, "cannot write " + req.host_path() + ": " + ec.message());
+      }
+      first.mutable_summary()->set_size(w.compressed_bytes());
+      write(first);
+      return Status::Ok();
+    }
+    if (!ok || !flush(true) || client_gone) return Error(StatusCode::kCancelled, "the export stopped: the client went away");
+    return Status::Ok();
+  }
+
+  Status UploadChunk(const CallContext &ctx, const pb::UploadChunkRequest &req, pb::UploadChunkResponse &resp) override {
+    return uploads_.Chunk(ctx.caller, req, resp);
+  }
+
+  Status ImportProjectArchive(const CallContext &ctx, const pb::ImportProjectArchiveRequest &req,
+                              pb::ImportProjectArchiveResponse &resp) override {
+    resp.Clear();
+    // The archive, read and checked in full before anything is touched;
+    // its members land in a scratch directory under names of our own.
+    ArchiveFile in;
+    if (auto st = OpenArchiveSource(ctx, req.archive(), in, "archive"); !st.ok()) return st;
+    ScratchDir scratch;
+    if (auto st = uploads_.Scratch(scratch.path); !st.ok()) return st;
+    MemberFiles members(scratch.path);
+    const archive::Limits limits;
+    pb::ProjectArchiveManifest m;
+    if (auto e = archive::ReadArchive(in.source, limits, m, members))
+      return Error(e->unsupported ? StatusCode::kFailedPrecondition : StatusCode::kInvalidArgument, e->message);
+    if (!members.ok) return Error(StatusCode::kInternal, "cannot store the archive's files");
+    std::vector<facts::Op> ops;
+    std::vector<int> owner;
+    if (auto e = archive::DecodeLog(members.log, limits, ops)) return Error(StatusCode::kInvalidArgument, e->message);
+    std::string().swap(members.log);
+    if (auto e = archive::ValidateLog(m, ops, limits, owner)) return Error(StatusCode::kInvalidArgument, e->message);
+    *resp.mutable_manifest() = m;
+
+    Project *target = nullptr;
+    if (!req.project_id().empty()) {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(req.project_id());
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+      if (!it->second->open) return Error(StatusCode::kFailedPrecondition, "project " + req.project_id() + " is closed");
+      target = it->second.get();
+    } else if (!req.folder_id().empty()) {
+      return Error(StatusCode::kInvalidArgument, "folder_id names a folder of an existing project (project_id)");
+    }
+    if (target && !req.folder_id().empty() && !TreeOf(*target, target->log().size()).has(req.folder_id()))
+      return Error(StatusCode::kNotFound, "no folder " + req.folder_id() + " in project " + target->id);
+    if (!req.new_project_name().empty() && !archive::ValidName(req.new_project_name()))
+      return Error(StatusCode::kInvalidArgument, "new_project_name has 1 to 200 characters, not \"/\" or control characters");
+
+    // Each program's bytes: in the archive, or found by sha256.
+    std::vector<Binary> bins(static_cast<std::size_t>(m.programs_size()));
+    for (int i = 0; i < m.programs_size(); ++i)
+      if (m.programs(i).has_binary()) bins[static_cast<std::size_t>(i)] = {"archive", members.program_path(i), {}};
+    if (auto st = FindBinaries(ctx, req, m, target, bins); !st.ok()) return st;
+    std::vector<std::string> missing;
+    for (int i = 0; i < m.programs_size(); ++i) {
+      const pb::ArchiveProgram &ap = m.programs(i);
+      auto *out = resp.add_programs();
+      out->set_key(ap.key());
+      out->set_name(ap.name());
+      out->set_sha256(ap.sha256());
+      out->set_binary_source(bins[static_cast<std::size_t>(i)].where);
+      if (bins[static_cast<std::size_t>(i)].where.empty()) {
+        missing.push_back(ap.name() + " (sha256 " + ap.sha256().substr(0, 12) + "...)");
+        out->set_skipped(req.skip_missing());
+      }
+    }
+    if (req.inspect_only()) return Status::Ok();
+    if (!missing.empty() && !req.skip_missing()) {
+      std::string list;
+      for (const std::string &x : missing) list += (list.empty() ? "" : ", ") + x;
+      return Error(StatusCode::kFailedPrecondition,
+                   std::to_string(missing.size()) + " program" + (missing.size() == 1 ? "'s binary was" : "s' binaries were") +
+                       " not found: " + list + "; supply them (binaries, search_dir) or set skip_missing");
+    }
+
+    // The project, and where each program goes in it.
+    pb::Provenance prov = req.provenance();
+    if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED) prov.set_kind(pb::PROVENANCE_KIND_USER);
+    if (prov.id().empty()) prov.set_id(ctx.caller.substr(ctx.caller.find(':') + 1));
+    std::vector<archive::ProgramPlan> plans(static_cast<std::size_t>(m.programs_size()));
+    Project *pp = target;
+    {
+      std::lock_guard lock(core_->mu);
+      if (!pp) {
+        const std::string name = !req.new_project_name().empty() ? req.new_project_name()
+                                 : archive::ValidName(m.project_name()) ? m.project_name()
+                                                                        : std::string("imported");
+        const std::string base = ProjectIdFor(name);
+        std::string id = base;
+        auto taken = [&](const std::string &x) {
+          return core_->projects.contains(x) ||
+                 (!core_->options.project_dir.empty() && fs::exists(fs::path(core_->options.project_dir) / x));
+        };
+        for (int n = 2; taken(id); ++n) id = base + "-" + std::to_string(n);
+        try {
+          pp = &OpenProjectLocked(id, name, "");
+        } catch (const std::exception &e) {
+          return Error(StatusCode::kInternal, std::string("cannot create project: ") + e.what());
+        }
+      }
+      if (!pp->open) return Error(StatusCode::kFailedPrecondition, "project " + pp->id + " is closed");
+      std::set<std::string> planned;
+      for (int i = 0; i < m.programs_size(); ++i) {
+        if (bins[static_cast<std::size_t>(i)].where.empty()) continue;
+        const pb::ArchiveProgram &ap = m.programs(i);
+        auto taken = [&](const std::string &id) {
+          return core_->program_project.contains(id) || planned.contains(id) ||
+                 std::any_of(pp->missing.begin(), pp->missing.end(), [&](const auto &x) { return x.second.id == id; });
+        };
+        std::string id = pp->id + "/" + ap.name();
+        for (int n = 2; taken(id); ++n) id = pp->id + "/" + ap.name() + "-" + std::to_string(n);
+        planned.insert(id);
+        archive::ProgramPlan &plan = plans[static_cast<std::size_t>(i)];
+        plan.include = true;
+        plan.id = id;
+        plan.name = ap.name();
+        try {
+          plan.ordinal = AllocateOrdinalLocked(*pp, id, ap.sha256());
+        } catch (const std::exception &e) {
+          for (const auto &x : plans)
+            if (x.include && x.ordinal != plan.ordinal) pp->ordinals.erase(x.ordinal);
+          return Error(StatusCode::kResourceExhausted, e.what());
+        }
+      }
+    }
+    Project &p = *pp;
+    auto release = [&] {
+      std::lock_guard lock(core_->mu);
+      for (const auto &x : plans)
+        if (x.include) p.ordinals.erase(x.ordinal);
+    };
+
+    // The ops, as a new peer's: one revision.
+    std::mt19937_64 rng{std::random_device{}()};
+    archive::Rewritten rw = archive::RewriteLog(m, ops, owner, plans, [&] { return static_cast<facts::ReplicaId>(rng()); });
+    std::vector<facts::Op>().swap(ops);
+    pb::Provenance import_prov;
+    import_prov.set_kind(pb::PROVENANCE_KIND_IMPORT);
+    import_prov.set_id("archive");
+    import_prov.set_session(prov.session());
+    import_prov.set_tool(prov.tool().empty() ? "project-archive" : prov.tool());
+    import_prov.set_on_behalf_of(prov.on_behalf_of().empty() ? ctx.caller : prov.on_behalf_of());
+    {
+      std::lock_guard write(p.write_mu);
+      auto tx = p.db->begin();
+      const std::uint64_t rev = tx.next_revision();
+      facts::MergeResult mr = tx.merge(rw.ops, [&](facts::Op &op) {
+        pb::Assertion meta = MetaOf(op);
+        meta.set_revision(rev);
+        op.meta = Deterministic(meta);
+      });
+      if (mr.staged != rw.ops.size()) {
+        release();
+        return Error(StatusCode::kInternal, "the archive's ops did not merge: " +
+                                                (mr.errors.empty() ? std::string("some wait for ops it lacks") : mr.errors[0]));
+      }
+      // Memory-map regions' bytes, where the archive has them.
+      for (int i = 0; i < m.programs_size(); ++i) {
+        const archive::ProgramPlan &plan = plans[static_cast<std::size_t>(i)];
+        if (!plan.include) continue;
+        for (int j = 0; j < m.programs(i).regions_size(); ++j) {
+          std::string bytes;
+          if (!ReadWholeFile(members.region_path(i, j), bytes)) continue;
+          tx.write_bytes({archive::FileSpace(plan.ordinal), m.programs(i).regions(j).offset()}, bytes);
+        }
+      }
+      Commit(p, tx, import_prov, pb::CHANGE_CAUSE_IMPORT, nullptr);
+    }
+
+    // The programs: loaded from their records and bytes as a peer's are,
+    // then analysed.
+    for (int i = 0; i < m.programs_size(); ++i) {
+      const archive::ProgramPlan &plan = plans[static_cast<std::size_t>(i)];
+      if (!plan.include) continue;
+      std::optional<ProgramSource> src;
+      const FactValue v = p.log().effective(FactKeyAt(FactKind::Note, kProjectSpace, plan.ordinal, "program"));
+      if (const auto *text = std::get_if<std::string>(&v)) {
+        try {
+          src = facts::decode_from_string<ProgramSource>(*text);
+        } catch (const std::exception &) {
+        }
+      }
+      std::string bytes;
+      if (!src || !bins[static_cast<std::size_t>(i)].read(bytes) || Sha256Hex(bytes) != src->sha256) {
+        resp.add_warnings("program " + m.programs(i).name() + ": its record or bytes could not be read; not loaded");
+        continue;
+      }
+      {
+        std::lock_guard lock(core_->mu);
+        if (p.missing.contains(src->sha256)) {
+          resp.add_warnings("program " + m.programs(i).name() + ": a program with the same bytes is still arriving from a peer; not loaded");
+          continue;
+        }
+        p.missing.emplace(src->sha256, *src);
+        p.incoming[src->sha256] = std::move(bytes);
+      }
+      LoadRemoteProgram(p, src->sha256, "project-archive");
+      std::lock_guard lock(core_->mu);
+      if (!p.programs.contains(plan.id)) {
+        p.missing.erase(src->sha256);
+        resp.add_warnings("program " + m.programs(i).name() + " could not be loaded (see the daemon's log)");
+      }
+    }
+
+    // The folders, under folder_id (reusing folders of the same name),
+    // each program in its own, and a new name for one that would sit
+    // beside a program of the same name already there: one revision, the
+    // caller's, so it can be undone.
+    {
+      std::lock_guard write(p.write_mu);
+      const Seq head = p.log().size();
+      const FolderTree tree = TreeOf(p, head);
+      std::map<std::string, std::string> at{{"/", req.folder_id()}};
+      std::map<std::pair<std::string, std::string>, std::string> created;  // (parent, name) -> id
+      std::vector<FolderEdit> edits;
+      for (const std::string &path : m.folders()) {
+        const std::size_t slash = path.rfind('/');
+        const std::string parent = at.at(path.substr(0, std::max<std::size_t>(1, slash)));
+        const std::string name = path.substr(slash + 1);
+        std::string id;
+        if (auto same = tree.named(parent, name); !same.empty()) id = *std::min_element(same.begin(), same.end());
+        else if (auto c = created.find({parent, name}); c != created.end()) id = c->second;
+        if (id.empty() && Depth(tree, parent) + static_cast<std::size_t>(std::count(path.begin(), path.end(), '/')) >
+                              kMaxFolderDepth) {
+          resp.add_warnings("folder " + path + " is too deep; its programs go in its parent");
+          at[path] = parent;
+          continue;
+        }
+        if (id.empty()) {
+          std::lock_guard lock(core_->mu);
+          do id = NewFolderId();
+          while (p.folder_ids.contains(id));
+          created[{parent, name}] = id;
+          edits.push_back({FolderKey(id), parent + "/" + name});
+        }
+        at[path] = id;
+      }
+      std::map<std::string, std::shared_ptr<const ProgramEntry>> programs;
+      {
+        std::lock_guard lock(core_->mu);
+        programs = p.programs;
+      }
+      std::set<std::string> ours;
+      for (const auto &plan : plans)
+        if (plan.include) ours.insert(plan.id);
+      std::map<std::string, std::set<std::string>> names;  // folder id -> names of programs already there
+      for (const auto &[id, e] : programs) {
+        if (ours.contains(id)) continue;
+        const ProgramState st = StateOf(p, *e, head);
+        if (!st.deleted) names[tree.has(st.folder) ? st.folder : std::string()].insert(st.name);
+      }
+      for (int i = 0; i < m.programs_size(); ++i) {
+        const archive::ProgramPlan &plan = plans[static_cast<std::size_t>(i)];
+        auto e = programs.find(plan.id);
+        if (!plan.include || e == programs.end()) continue;
+        const std::string folder = at.at(m.programs(i).folder());
+        if (!folder.empty()) edits.push_back({ProgramKey(*e->second, kProgramFolderSub), folder});
+        const ProgramState st = StateOf(p, *e->second, head);
+        auto &here = names[folder];
+        if (here.contains(st.name)) {
+          std::string name;
+          for (int n = 2;; ++n) {
+            const std::string suffix = " (" + std::to_string(n) + ")";
+            name = st.name.substr(0, 200 - suffix.size()) + suffix;
+            if (!here.contains(name)) break;
+          }
+          edits.push_back({ProgramKey(*e->second, kProgramNameSub), name});
+          resp.add_warnings("program " + st.name + " is named " + name + " here: " + t_path(tree, folder) +
+                            " already has a program of that name");
+          here.insert(name);
+        } else {
+          here.insert(st.name);
+        }
+      }
+      if (!edits.empty()) {
+        auto tx = p.db->begin();
+        const std::uint64_t rev = tx.next_revision();
+        for (const FolderEdit &e : edits) {
+          pb::AssertionBody body;
+          body.mutable_note()->set_tag(e.key.sub);
+          body.mutable_note()->set_text(e.value);
+          tx.assert_fact(ToFacts(prov), e.key, e.value, 0, Meta(prov, &body, rev));
+        }
+        Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+      }
+    }
+
+    // What came of it.
+    const Seq head = p.log().size();
+    const FolderTree tree = TreeOf(p, head);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    FillProjectInfo(p, resp.mutable_project());
+    for (int i = 0; i < m.programs_size(); ++i) {
+      const archive::ProgramPlan &plan = plans[static_cast<std::size_t>(i)];
+      auto e = p.programs.find(plan.id);
+      if (plan.include && e != p.programs.end())
+        FillProgramInfo(p, *e->second, head, tree, resp.mutable_programs(i)->mutable_program());
+    }
+    return Status::Ok();
+  }
+
+ private:
+  static std::string t_path(const FolderTree &t, const std::string &id) { return t.path(id); }
+
+  // A display name as an archive's manifest takes it: control characters
+  // and "/" (an imported file's name may hold them) become "_".
+  static std::string ArchiveName(std::string name) {
+    for (char &c : name)
+      if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f || c == '/') c = '_';
+    if (name.size() > 200) name.resize(200);
+    return name.empty() ? std::string("program") : name;
+  }
+
+  // A program's bytes for an archive import: where they come from and how
+  // to read them.
+  struct Binary {
+    std::string where;  // ImportedArchiveProgram.binary_source; "" not found
+    fs::path path;      // a file holding exactly them
+    std::function<bool(std::string &)> reader;
+    bool read(std::string &out) const {
+      if (reader) return reader(out);
+      return !path.empty() && ReadWholeFile(path, out);
+    }
+  };
+
+  static bool ReadWholeFile(const fs::path &path, std::string &out) {
+    std::error_code ec;
+    const auto size = fs::file_size(path, ec);
+    if (ec || size > (std::uint64_t{4} << 30)) return false;
+    std::ifstream f(path, std::ios::binary);
+    out.resize(static_cast<std::size_t>(size));
+    f.read(out.data(), static_cast<std::streamsize>(size));
+    return static_cast<bool>(f) || f.gcount() == static_cast<std::streamsize>(size);
+  }
+
+  static std::optional<std::string> ReadStoredBytes(const facts::Snapshot &snap, facts::SpaceId space,
+                                                    std::uint64_t offset, std::uint64_t length) {
+    std::string out;
+    out.reserve(static_cast<std::size_t>(length));
+    for (std::uint64_t at = offset; at < offset + length;) {
+      auto page = snap.get<facts::MemoryPage>(facts::PageKey{space, at / facts::kPageSize});
+      const std::uint64_t in = at % facts::kPageSize, take = std::min(facts::kPageSize - in, offset + length - at);
+      if (page->size() < in + take) return std::nullopt;
+      out.append(*page, static_cast<std::size_t>(in), static_cast<std::size_t>(take));
+      at += take;
+    }
+    return out;
+  }
+
+  // An archive (or a binary) a request names: a host path, its bytes or
+  // the caller's upload, as a stream.
+  struct ArchiveFile {
+    std::shared_ptr<std::ifstream> file;
+    std::string_view bytes;
+    std::size_t at = 0;
+    fs::path path;  // a host path or an upload's file
+    archive::Source source;
+  };
+  Status OpenArchiveSource(const CallContext &ctx, const pb::ArchiveSource &src, ArchiveFile &out, const char *what) {
+    switch (src.source_case()) {
+      case pb::ArchiveSource::kPath:
+        out.path = src.path();
+        break;
+      case pb::ArchiveSource::kUploadId:
+        if (auto st = uploads_.Find(ctx.caller, src.upload_id(), out.path); !st.ok()) return st;
+        break;
+      case pb::ArchiveSource::kContent:
+        out.bytes = src.content();
+        out.source = [&out](char *buf, std::size_t n) {
+          const std::size_t take = std::min(n, out.bytes.size() - out.at);
+          std::memcpy(buf, out.bytes.data() + out.at, take);
+          out.at += take;
+          return take;
+        };
+        return Status::Ok();
+      default:
+        return Error(StatusCode::kInvalidArgument, std::string(what) + " is required: path, content or upload_id");
+    }
+    out.file = std::make_shared<std::ifstream>(out.path, std::ios::binary);
+    if (!*out.file) return Error(StatusCode::kNotFound, std::string("cannot read the ") + what + " " + out.path.string());
+    auto f = out.file;
+    out.source = [f](char *buf, std::size_t n) {
+      f->read(buf, static_cast<std::streamsize>(n));
+      return static_cast<std::size_t>(f->gcount());
+    };
+    return Status::Ok();
+  }
+
+  // Archive members into files of the scratch directory, named by slot.
+  struct MemberFiles final : archive::MemberSink {
+    explicit MemberFiles(fs::path d) : dir(std::move(d)) {}
+    fs::path dir;
+    std::string log;
+    bool ok = true;
+    std::ofstream out;
+    bool to_log = false;
+    fs::path program_path(int i) const { return dir / ("p" + std::to_string(i) + ".bin"); }
+    fs::path region_path(int i, int j) const {
+      return dir / ("p" + std::to_string(i) + "-r" + std::to_string(j) + ".bin");
+    }
+    void begin(const archive::Member &m) override {
+      to_log = m.kind == archive::Member::kLog;
+      if (to_log) {
+        log.clear();
+        log.reserve(static_cast<std::size_t>(std::min<std::uint64_t>(m.size, 1ull << 30)));
+        return;
+      }
+      out.open(m.kind == archive::Member::kProgram ? program_path(m.program) : region_path(m.program, m.region),
+               std::ios::binary | std::ios::trunc);
+      ok = ok && static_cast<bool>(out);
+    }
+    void data(std::string_view b) override {
+      if (to_log) log.append(b);
+      else if (out.is_open()) out.write(b.data(), static_cast<std::streamsize>(b.size()));
+    }
+    void end(bool) override {
+      if (!to_log) {
+        ok = ok && static_cast<bool>(out);
+        out.close();
+      }
+    }
+  };
+
+  // Annotations-only archives: each missing program's bytes by sha256,
+  // from the request's files, the target project's programs, then the
+  // search directory.
+  Status FindBinaries(const CallContext &ctx, const pb::ImportProjectArchiveRequest &req,
+                      const pb::ProjectArchiveManifest &m, Project *target, std::vector<Binary> &bins) {
+    std::map<std::string, std::vector<std::size_t>> wanted;  // sha -> programs
+    std::set<std::uint64_t> sizes;
+    for (int i = 0; i < m.programs_size(); ++i)
+      if (bins[static_cast<std::size_t>(i)].where.empty()) {
+        wanted[m.programs(i).sha256()].push_back(static_cast<std::size_t>(i));
+        sizes.insert(m.programs(i).size());
+      }
+    if (wanted.empty()) return Status::Ok();
+    auto found = [&](const std::string &sha, const Binary &b) {
+      auto it = wanted.find(sha);
+      if (it == wanted.end()) return;
+      for (std::size_t i : it->second) bins[i] = b;
+      sizes.erase(m.programs(static_cast<int>(it->second[0])).size());
+      wanted.erase(it);
+    };
+    for (int i = 0; i < req.binaries_size() && !wanted.empty(); ++i) {
+      const pb::ArchiveSource &b = req.binaries(i);
+      if (b.has_content()) {
+        auto bytes = std::make_shared<std::string>(b.content());
+        found(Sha256Hex(*bytes), Binary{"upload", {}, [bytes](std::string &out) {
+                                          out = *bytes;
+                                          return true;
+                                        }});
+        continue;
+      }
+      ArchiveFile f;
+      if (auto st = OpenArchiveSource(ctx, b, f, "binary"); !st.ok()) return st;
+      std::error_code ec;
+      const auto size = fs::file_size(f.path, ec);
+      if (ec || !sizes.contains(size)) continue;
+      std::string sha;
+      if (!HashFile(f.path, sha)) continue;
+      found(sha, Binary{b.has_upload_id() ? "upload" : "path:" + f.path.string(), f.path, {}});
+    }
+    if (target && !wanted.empty()) {
+      std::map<std::string, std::shared_ptr<const ProgramEntry>> programs;
+      facts::Snapshot snap = target->db->snapshot();
+      {
+        std::lock_guard lock(core_->mu);
+        programs = target->programs;
+      }
+      for (const auto &[id, e] : programs) {
+        if (!wanted.contains(e->source.sha256)) continue;
+        const ProgramSource src = e->source;
+        found(src.sha256, Binary{"project:" + id, {}, [snap, src](std::string &out) {
+                                   auto bytes = ReadStoredBytes(snap, src.file_space, 0, src.file_size);
+                                   if (!bytes) return false;
+                                   out = std::move(*bytes);
+                                   return true;
+                                 }});
+      }
+    }
+    if (!req.search_dir().empty() && !wanted.empty()) {
+      std::error_code ec;
+      const fs::path root = fs::canonical(req.search_dir(), ec);
+      if (ec || !fs::is_directory(root)) return Error(StatusCode::kNotFound, "no directory " + req.search_dir());
+      std::size_t visited = 0;
+      for (auto it = fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec);
+           !ec && it != fs::recursive_directory_iterator() && !wanted.empty(); it.increment(ec)) {
+        if (++visited > 200000 || ctx.cancelled()) break;
+        if (it.depth() > 16) {
+          it.disable_recursion_pending();
+          continue;
+        }
+        std::error_code e2;
+        if (it->is_symlink(e2) || !it->is_regular_file(e2)) continue;
+        const auto size = it->file_size(e2);
+        if (e2 || !sizes.contains(size)) continue;
+        std::string sha;
+        if (!HashFile(it->path(), sha)) continue;
+        found(sha, Binary{"search:" + it->path().string(), it->path(), {}});
+      }
+    }
+    return Status::Ok();
+  }
+
+  static bool HashFile(const fs::path &path, std::string &hex) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
+    std::string buf(1 << 20, '\0');
+    while (f) {
+      f.read(buf.data(), static_cast<std::streamsize>(buf.size()));
+      if (f.gcount() > 0) EVP_DigestUpdate(ctx, buf.data(), static_cast<std::size_t>(f.gcount()));
+    }
+    unsigned char md[EVP_MAX_MD_SIZE];
+    unsigned int len = 0;
+    EVP_DigestFinal_ex(ctx, md, &len);
+    EVP_MD_CTX_free(ctx);
+    hex.clear();
+    char b[3];
+    for (unsigned i = 0; i < len; ++i) {
+      std::snprintf(b, sizeof b, "%02x", md[i]);
+      hex += b;
+    }
+    return true;
+  }
+
+ public:
+  // --- The memory map (docs/memory-map.md) ----------------------------------
+  //
+  // Each edit is one MEMORY_REGION assertion; analysis.memory lays them over
+  // the loader's blocks, and every query that reads memory follows it.
+
+  // The region a request describes, checked: a name, perms and flags.
+  static Status RegionFromRequest(const pb::MemoryRegion &m, analysis::RegionSpec &r) {
+    if (m.name().empty()) return Error(StatusCode::kInvalidArgument, "region.name is required");
+    if (m.name().size() > 200) return Error(StatusCode::kInvalidArgument, "region.name is longer than 200 characters");
+    for (unsigned char c : m.name())
+      if (c < 0x20 || c == 0x7f) return Error(StatusCode::kInvalidArgument, "region.name may not contain control characters");
+    r.name = m.name();
+    r.start = m.start();
+    r.size = m.size();
+    r.read = m.read();
+    r.write = m.write();
+    r.exec = m.execute();
+    r.initialized = m.initialized();
+    r.is_volatile = m.is_volatile();
+    return Status::Ok();
+  }
+
+  // A region's start as a key (address spaces: MemoryRegion.space names a
+  // memory space the program has, whose offsets are bytes there).
+  static Status KeyRegion(const Program &p, const pb::MemoryRegion &m, analysis::RegionSpec &r) {
+    pb::Address a;
+    a.set_space(m.space());
+    a.set_offset(m.start());
+    const std::optional<std::uint64_t> key = KeyOf(p, a);
+    if (!key) return Error(StatusCode::kInvalidArgument, "no memory space \"" + m.space() + "\"");
+    r.start = *key;
+    return Status::Ok();
+  }
+
+  static pb::AssertionBody MemoryBody(const std::string &region_id, std::optional<std::uint64_t> block_start,
+                                      const analysis::RegionSpec *r, const analysis::BlockEdit *e,
+                                      const analysis::MemoryBlock *block) {
+    pb::AssertionBody body;
+    auto *m = body.mutable_memory_region();
+    m->set_region_id(region_id);
+    if (block_start) *m->mutable_block_start() = A(*block_start);
+    if (r) {
+      m->set_name(r->name);
+      m->set_start(r->start);
+      m->set_size(r->size);
+      m->set_read(r->read);
+      m->set_write(r->write);
+      m->set_execute(r->exec);
+      m->set_initialized(r->initialized);
+      m->set_is_volatile(r->is_volatile);
+      if (r->bytes) {
+        m->set_file(r->bytes->file);
+        m->set_file_offset(r->bytes->file_offset);
+        m->set_length(r->bytes->length);
+      }
+    } else if (e && block) {
+      m->set_name(e->name.empty() ? block->name : e->name);
+      m->set_start(block->range.first);
+      m->set_size(block->range.last - block->range.first + 1);
+      m->set_read(e->read);
+      m->set_write(e->write);
+      m->set_execute(e->exec);
+      m->set_initialized(block->initialized);
+      m->set_is_volatile(e->is_volatile);
+    } else {
+      m->set_removed(true);
+    }
+    return body;
+  }
+
+  static std::string NewRegionId() {
+    static std::mutex mu;
+    static std::random_device rd;
+    std::lock_guard lock(mu);
+    char buf[24];
+    std::snprintf(buf, sizeof buf, "r%08x%08x", std::uniform_int_distribution<std::uint32_t>()(rd),
+                  std::uniform_int_distribution<std::uint32_t>()(rd));
+    return buf;
+  }
+
+  // Where a region's bytes go in the program's file space: above the file,
+  // in a 4 GiB slot named by their hash (probing past slots that hold
+  // other bytes), so equal bytes share one copy.
+  static std::uint64_t RegionBytesOffset(const facts::AssertionLog &log, facts::SpaceId ram_space,
+                                         const std::string &sha256) {
+    std::map<std::uint64_t, std::string> used;
+    for (Seq s = 1; s <= log.size(); ++s) {
+      auto op = log.op(s);
+      if (!op || op->kind != facts::OpKind::Assert || op->key.kind != FactKind::MemoryRegion ||
+          op->key.addr.space != ram_space)
+        continue;
+      const auto *text = std::get_if<std::string>(&op->value);
+      if (!text) continue;
+      if (auto r = analysis::decode_region(*text); r && r->bytes) used.emplace(r->bytes->offset, r->bytes->sha256);
+    }
+    std::uint64_t slot = std::stoull(sha256.substr(0, 7), nullptr, 16);
+    for (;; slot = (slot + 1) & 0xfffffff) {
+      const std::uint64_t offset = (std::uint64_t{1} << 62) + (slot << 32);
+      auto it = used.find(offset);
+      if (it == used.end() || it->second == sha256) return offset;
+    }
+  }
+
+  // Appends one memory-map assertion for a program (under nothing; takes
+  // the project's writer). `make` sees the map at head and returns the
+  // value to assert (or an error), the body and the key's sub.
+  using MemoryEditFn = std::function<Status(View &, const analysis::MemoryMapInfo &, std::string &sub, std::string &value,
+                                            pb::AssertionBody &body, std::vector<std::pair<facts::Address, std::string>> &bytes)>;
+  Status MemoryEdit(const std::string &program_id, const pb::Provenance &prov, bool validate_only, const MemoryEditFn &make,
+                    pb::Snapshot *snapshot, pb::Assertion *assertion, std::uint64_t *committed = nullptr) {
+    if (program_id.empty()) return Error(StatusCode::kInvalidArgument, "program_id is required");
+    if (!validate_only && prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(program_id, pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, program_id, 0); !st.ok()) return st;
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (auto st = PinLocked(p, p.head, r); !st.ok()) return st;
+      r.program = p.programs.at(program_id);
+    }
+    View v(r);
+    auto map = r.snapshot->get<analysis::MemoryMap>(AnalysisKey(program_id));
+    std::string sub, value;
+    pb::AssertionBody body;
+    std::vector<std::pair<facts::Address, std::string>> bytes;
+    if (auto st = make(v, *map, sub, value, body, bytes); !st.ok()) return st;
+    if (validate_only) {
+      SetSnapshot(r, snapshot);
+      return Status::Ok();
+    }
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    for (const auto &[at, data] : bytes) tx.write_bytes(at, data);
+    tx.assert_fact(ToFacts(prov), v.Key(FactKind::MemoryRegion, 0, sub), value, 0, Meta(prov, &body, rev));
+    pb::RevisionEvent ev;
+    const std::uint64_t revision = Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    if (ev.assertions().empty()) return Error(StatusCode::kInternal, "the assertion was not recorded");
+    *assertion = ev.assertions(0);
+    snapshot->set_revision(revision);
+    snapshot->set_head_revision(revision);
+    if (committed) *committed = revision;
+    return Status::Ok();
+  }
+
+  // The block for a region (or image block) at a revision, for responses.
+  void FillRegionAt(const std::string &program_id, std::uint64_t revision, const std::string &region_id,
+                    std::optional<std::uint64_t> block_start, pb::MemoryBlock *out) {
+    Project *pp = nullptr;
+    if (!FindProgramProject(program_id, pp).ok()) return;
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (!PinLocked(*pp, revision, r).ok()) return;
+      r.program = pp->programs.at(program_id);
+    }
+    View v(r);
+    auto map = r.snapshot->get<analysis::MemoryMap>(AnalysisKey(program_id));
+    for (const auto *list : {&map->blocks, &map->rejected})
+      for (const analysis::MemoryBlock &b : *list)
+        if ((!region_id.empty() && b.origin == analysis::BlockOrigin::user && b.id == region_id) ||
+            (region_id.empty() && block_start && b.origin == analysis::BlockOrigin::image && b.range.first == *block_start))
+          return FillMemoryBlock(v, b, out);
+  }
+
+  // After an edit: discovery, references and the listing at the new
+  // revision, as an import computes them, so the next views are quick.
+  void WarmAfterMemoryEdit(const std::string &program_id, std::uint64_t revision) {
+    Project *pp = nullptr;
+    if (!FindProgramProject(program_id, pp).ok()) return;
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (!PinLocked(*pp, revision, r).ok()) return;
+    }
+    try {
+      r.snapshot->get<q::Xrefs>(program_id);
+      r.snapshot->get<q::Rows>(program_id);
+    } catch (const std::exception &) {
+      // A read reports it.
+    }
+  }
+
+  Status AddMemoryRegion(const CallContext &, const pb::AddMemoryRegionRequest &req,
+                         pb::AddMemoryRegionResponse &resp) override {
+    analysis::RegionSpec r;
+    if (auto st = RegionFromRequest(req.region(), r); !st.ok()) return st;
+    std::shared_ptr<loader::Bytes> data;
+    if (req.has_path() || req.has_content()) {
+      std::string all;
+      std::string file_name = req.file_name();
+      if (req.has_path()) {
+        std::error_code ec;
+        const auto size = fs::file_size(req.path(), ec);
+        if (ec) return Error(StatusCode::kNotFound, "cannot read " + req.path());
+        if (size > (std::uint64_t{4} << 30)) return Error(StatusCode::kInvalidArgument, "file too large (4 GiB at most)");
+        std::ifstream in(req.path(), std::ios::binary);
+        if (!in) return Error(StatusCode::kNotFound, "cannot read " + req.path());
+        all.assign(std::istreambuf_iterator<char>(in), {});
+        if (file_name.empty()) file_name = fs::path(req.path()).filename().string();
+      } else {
+        all = req.content();
+        if (file_name.empty()) file_name = "upload";
+      }
+      if (req.file_offset() > all.size())
+        return Error(StatusCode::kInvalidArgument, "file_offset 0x" + Hex(req.file_offset()) + " is past the end of the file (" +
+                                                       std::to_string(all.size()) + " bytes)");
+      const std::uint64_t length = req.length() ? req.length() : all.size() - req.file_offset();
+      if (length > all.size() - req.file_offset())
+        return Error(StatusCode::kInvalidArgument, "file_offset + length is past the end of the file (" +
+                                                       std::to_string(all.size()) + " bytes)");
+      if (length == 0) return Error(StatusCode::kInvalidArgument, "no bytes to load from " + file_name);
+      if (r.size == 0) r.size = length;
+      if (r.size < length)
+        return Error(StatusCode::kInvalidArgument, "region " + r.name + " is smaller than its " + std::to_string(length) +
+                                                       " bytes from " + file_name);
+      data = std::make_shared<loader::Bytes>(static_cast<std::size_t>(length));
+      std::memcpy(data->data(), all.data() + req.file_offset(), static_cast<std::size_t>(length));
+      analysis::RegionBytes b;
+      b.length = length;
+      b.sha256 = Sha256Hex(all.substr(static_cast<std::size_t>(req.file_offset()), static_cast<std::size_t>(length)));
+      b.file = file_name;
+      b.file_offset = req.file_offset();
+      r.bytes = std::move(b);
+      r.initialized = true;
+    } else if (req.file_offset() || req.length() || !req.file_name().empty()) {
+      return Error(StatusCode::kInvalidArgument, "file_name, file_offset and length are for bytes from a file (path or content)");
+    }
+    const std::string id = NewRegionId();
+    std::uint64_t revision = 0;
+    pb::Assertion a;
+    auto st = MemoryEdit(
+        req.program_id(), req.provenance(), req.validate_only(),
+        [&](View &v, const analysis::MemoryMapInfo &map, std::string &sub, std::string &value, pb::AssertionBody &body,
+            std::vector<std::pair<facts::Address, std::string>> &bytes) {
+          if (auto st = KeyRegion(v.loaded_program(), req.region(), r); !st.ok()) return st;
+          if (std::string why = analysis::check_region(map, r); !why.empty())
+            return Error(StatusCode::kInvalidArgument, why);
+          if (r.bytes) {
+            const ProgramSource &src = v.read().program->source;
+            r.bytes->space = src.file_space;
+            r.bytes->offset = RegionBytesOffset(v.log(), src.ram_space, r.bytes->sha256);
+            bytes.emplace_back(facts::Address{r.bytes->space, r.bytes->offset},
+                               std::string(reinterpret_cast<const char *>(data->data()), data->size()));
+          }
+          sub = analysis::region_sub(id);
+          value = analysis::encode_region(r);
+          body = MemoryBody(id, std::nullopt, &r, nullptr, nullptr);
+          return Status::Ok();
+        },
+        resp.mutable_snapshot(), &a, &revision);
+    if (!st.ok()) return st;
+    if (req.validate_only()) {
+      analysis::MemoryBlock b;
+      b.name = r.name;
+      b.range = {r.start, r.last()};
+      b.read = r.read;
+      b.write = r.write;
+      b.exec = r.exec;
+      b.initialized = r.initialized;
+      b.is_volatile = r.is_volatile;
+      b.origin = analysis::BlockOrigin::user;
+      b.id = id;
+      b.bytes = r.bytes;
+      auto *m = resp.mutable_block();
+      m->set_name(b.name);
+      *m->mutable_range() = Range(b.range.first, b.range.last);
+      m->set_read(b.read);
+      m->set_write(b.write);
+      m->set_execute(b.exec);
+      m->set_initialized(b.initialized);
+      m->set_is_volatile(b.is_volatile);
+      m->mutable_source()->set_kind(r.bytes ? pb::MEMORY_BLOCK_SOURCE_KIND_FILE
+                                            : r.initialized ? pb::MEMORY_BLOCK_SOURCE_KIND_ZERO
+                                                            : pb::MEMORY_BLOCK_SOURCE_KIND_NONE);
+      return Status::Ok();
+    }
+    if (data) RememberRegionBytes(r.bytes->sha256, data);
+    resp.set_region_id(id);
+    *resp.mutable_assertion() = std::move(a);
+    WarmAfterMemoryEdit(req.program_id(), revision);
+    FillRegionAt(req.program_id(), revision, id, std::nullopt, resp.mutable_block());
+    return Status::Ok();
+  }
+
+  Status UpdateMemoryRegion(const CallContext &, const pb::UpdateMemoryRegionRequest &req,
+                            pb::UpdateMemoryRegionResponse &resp) override {
+    if (req.region_id().empty() == !req.has_block_start())
+      return Error(StatusCode::kInvalidArgument, "name a region (region_id) or an image block (block_start)");
+    std::uint64_t revision = 0;
+    pb::Assertion a;
+    std::optional<std::uint64_t> block_key;
+    auto st = MemoryEdit(
+        req.program_id(), req.provenance(), req.validate_only(),
+        [&](View &v, const analysis::MemoryMapInfo &map, std::string &sub, std::string &value, pb::AssertionBody &body,
+            std::vector<std::pair<facts::Address, std::string>> &) {
+          const pb::MemoryRegion &m = req.region();
+          if (!req.region_id().empty()) {
+            const analysis::MemoryBlock *was = map.region(req.region_id());
+            if (!was) return Error(StatusCode::kNotFound, "no region " + req.region_id());
+            analysis::RegionSpec r;
+            if (auto st = RegionFromRequest(m, r); !st.ok()) return st;
+            if (auto st = KeyRegion(v.loaded_program(), m, r); !st.ok()) return st;
+            r.bytes = was->bytes;
+            if (r.bytes && r.size < r.bytes->length)
+              return Error(StatusCode::kInvalidArgument, "region " + r.name + " is smaller than its " +
+                                                             std::to_string(r.bytes->length) + " bytes from " + r.bytes->file);
+            if (std::string why = analysis::check_region(map, r, req.region_id()); !why.empty())
+              return Error(StatusCode::kInvalidArgument, why);
+            sub = analysis::region_sub(req.region_id());
+            value = analysis::encode_region(r);
+            body = MemoryBody(req.region_id(), std::nullopt, &r, nullptr, nullptr);
+            return Status::Ok();
+          }
+          const std::optional<std::uint64_t> key = KeyOf(v.loaded_program(), req.block_start());
+          if (!key) return Error(StatusCode::kInvalidArgument, "no memory space \"" + req.block_start().space() + "\"");
+          const std::uint64_t start = *key;
+          block_key = start;
+          const analysis::MemoryBlock *block = nullptr;
+          for (const analysis::MemoryBlock &b : map.blocks)
+            if (b.origin == analysis::BlockOrigin::image && b.range.first == start) block = &b;
+          if (!block) return Error(StatusCode::kNotFound, "no image block starts at 0x" + Hex(start));
+          const std::uint64_t size = block->range.last - block->range.first + 1;
+          analysis::RegionSpec at;
+          if (auto st = KeyRegion(v.loaded_program(), m, at); !st.ok()) return st;
+          if (at.start != start || (m.size() != 0 && m.size() != size) || m.initialized() != block->initialized)
+            return Error(StatusCode::kInvalidArgument, "block " + block->name +
+                                                           ": only the name, permissions and volatile flag of the image's own "
+                                                           "blocks can change, not their addresses or contents");
+          for (unsigned char c : m.name())
+            if (c < 0x20 || c == 0x7f) return Error(StatusCode::kInvalidArgument, "region.name may not contain control characters");
+          if (m.name().size() > 200) return Error(StatusCode::kInvalidArgument, "region.name is longer than 200 characters");
+          analysis::BlockEdit e{m.name().empty() ? block->name : m.name(), m.read(), m.write(), m.execute(), m.is_volatile()};
+          sub = analysis::block_sub(start);
+          value = analysis::encode_block_edit(e);
+          body = MemoryBody({}, start, nullptr, &e, block);
+          return Status::Ok();
+        },
+        resp.mutable_snapshot(), &a, &revision);
+    if (!st.ok() || req.validate_only()) return st;
+    *resp.mutable_assertion() = std::move(a);
+    WarmAfterMemoryEdit(req.program_id(), revision);
+    FillRegionAt(req.program_id(), revision, req.region_id(),
+                 block_key,
+                 resp.mutable_block());
+    return Status::Ok();
+  }
+
+  Status RemoveMemoryRegion(const CallContext &, const pb::RemoveMemoryRegionRequest &req,
+                            pb::RemoveMemoryRegionResponse &resp) override {
+    if (req.region_id().empty() == !req.has_block_start())
+      return Error(StatusCode::kInvalidArgument, "name a region (region_id) or an image block (block_start)");
+    std::uint64_t revision = 0;
+    pb::Assertion a;
+    auto st = MemoryEdit(
+        req.program_id(), req.provenance(), false,
+        [&](View &v, const analysis::MemoryMapInfo &map, std::string &sub, std::string &value, pb::AssertionBody &body,
+            std::vector<std::pair<facts::Address, std::string>> &) {
+          value.clear();
+          if (!req.region_id().empty()) {
+            if (!map.region(req.region_id())) return Error(StatusCode::kNotFound, "no region " + req.region_id());
+            sub = analysis::region_sub(req.region_id());
+            body = MemoryBody(req.region_id(), std::nullopt, nullptr, nullptr, nullptr);
+            return Status::Ok();
+          }
+          const std::optional<std::uint64_t> key = KeyOf(v.loaded_program(), req.block_start());
+          if (!key) return Error(StatusCode::kInvalidArgument, "no memory space \"" + req.block_start().space() + "\"");
+          const std::uint64_t start = *key;
+          const analysis::MemoryBlock *block = nullptr;
+          for (const analysis::MemoryBlock &b : map.blocks)
+            if (b.origin == analysis::BlockOrigin::image && b.range.first == start) block = &b;
+          if (!block) return Error(StatusCode::kNotFound, "no image block starts at 0x" + Hex(start));
+          if (!block->edited)
+            return Error(StatusCode::kFailedPrecondition, "block " + block->name +
+                                                              " is the image's own and has no edits to revert; it can't be removed");
+          sub = analysis::block_sub(start);
+          body = MemoryBody({}, start, nullptr, nullptr, nullptr);
+          return Status::Ok();
+        },
+        resp.mutable_snapshot(), &a, &revision);
+    if (!st.ok()) return st;
+    *resp.mutable_assertion() = std::move(a);
+    WarmAfterMemoryEdit(req.program_id(), revision);
+    return Status::Ok();
+  }
+
+  // Bits in an offset of the program's default memory space (its keys), as
+  // a rebase wraps them: the space's address size, and a word-addressed
+  // space's offsets count bytes.
+  static unsigned DefaultSpaceBits(const Program &program) {
+    for (const lift::SpaceDef &d : program.spaces())
+      if (d.is_default && d.address_size > 0) {
+        unsigned bits = d.address_size * 8;
+        for (std::uint32_t w = d.wordsize; w > 1; w >>= 1) ++bits;
+        return std::min(64u, bits);
+      }
+    return std::min(64u, program.image().bits);
+  }
+
+  // ProjectService.SetImageBase (docs/memory-map.md, "Rebase: setting the
+  // image base"): one REBASE assertion; the fact store moves the keys and
+  // OnRebase the program, in its commit.
+  Status SetImageBase(const CallContext &, const pb::SetImageBaseRequest &req, pb::SetImageBaseResponse &resp) override {
+    if (req.program_id().empty()) return Error(StatusCode::kInvalidArgument, "program_id is required");
+    const pb::Provenance &prov = req.provenance();
+    if (!req.validate_only() && prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), 0); !st.ok()) return st;
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (auto st = PinLocked(p, p.head, r); !st.ok()) return st;
+      r.program = p.programs.at(req.program_id());
+    }
+    View v(r);
+    const ProgramSource &src = r.program->source;
+    if (!src.loader.empty())
+      return Error(StatusCode::kFailedPrecondition,
+                   "a program loaded by a loader plugin (" + src.loader + ") can't be rebased: its plugin lays it out");
+    const unsigned bits = DefaultSpaceBits(*src.program);
+    const facts::Shift now = v.Shift();
+    const std::uint64_t base = src.program->image().image_base;
+    const std::uint64_t import_base = now.inverse().apply(base);
+    const std::uint64_t mask = bits >= 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << bits) - 1;
+    if (req.image_base() > mask)
+      return Error(StatusCode::kInvalidArgument, "0x" + Hex(req.image_base()) + " is outside the " + std::to_string(bits) +
+                                                     "-bit address space");
+    const facts::Shift to{(req.image_base() - import_base) & mask, bits};
+    // Every block of the default space must fit where it goes, unwrapped.
+    auto map = r.snapshot->get<analysis::MemoryMap>(AnalysisKey(req.program_id()));
+    const std::uint64_t move = req.image_base() - base;
+    for (const analysis::MemoryBlock &b : map->blocks) {
+      if (!to.moves(b.range.first)) continue;
+      const std::uint64_t first = b.range.first + move, last = b.range.last + move;
+      if ((first & mask) != first || (last & mask) != last || last < first)
+        return Error(StatusCode::kInvalidArgument, "block " + b.name + " [0x" + Hex(b.range.first) + ", 0x" +
+                                                       Hex(b.range.last) + "] would wrap the " + std::to_string(bits) +
+                                                       "-bit address space at base 0x" + Hex(req.image_base()));
+    }
+    resp.set_image_base(req.image_base());
+    resp.set_previous_image_base(base);
+    resp.set_import_image_base(import_base);
+    if (req.validate_only() || req.image_base() == base) {
+      SetSnapshot(r, resp.mutable_snapshot());
+      return Status::Ok();
+    }
+    pb::AssertionBody body;
+    body.mutable_image_base()->set_image_base(req.image_base());
+    body.mutable_image_base()->set_previous_image_base(base);
+    body.mutable_image_base()->set_import_image_base(import_base);
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    tx.assert_fact(ToFacts(prov), RebaseKey(src.ram_space), to.identity() ? std::string() : to.str(), 0,
+                   Meta(prov, &body, rev));
+    pb::RevisionEvent ev;
+    std::uint64_t revision = 0;
+    try {
+      revision = Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    } catch (const std::exception &e) {
+      return Error(StatusCode::kInternal, std::string("rebase failed: ") + e.what());
+    }
+    for (const pb::Assertion &a : ev.assertions())
+      if (a.key().kind() == pb::FACT_KIND_REBASE) *resp.mutable_assertion() = a;
+    resp.mutable_snapshot()->set_revision(revision);
+    resp.mutable_snapshot()->set_head_revision(revision);
+    WarmAfterMemoryEdit(req.program_id(), revision);
+    return Status::Ok();
+  }
+
+  // --- Changing a program's language (docs/api.md, "Changing a program's
+  // language") ------------------------------------------------------------
+
+  // The memory a language lays out: its processor spaces other than the
+  // register space, as (name, address size, word size, default). Two
+  // languages with the same layout key their facts the same way, so a
+  // program can move from one to the other in place.
+  static std::vector<std::tuple<std::string, std::uint32_t, std::uint32_t, bool>> MemoryLayout(const std::string &language) {
+    lift::Lifter l(std::make_shared<const loader::Image>(), language);
+    std::vector<std::tuple<std::string, std::uint32_t, std::uint32_t, bool>> out;
+    for (const lift::SpaceDef &d : l.spaces())
+      if (d.kind == lift::SpaceDef::Kind::processor && !d.is_register)
+        out.emplace_back(d.name, d.address_size, d.wordsize, d.is_default);
+    std::sort(out.begin(), out.end());
+    return out;
+  }
+
+  // ProjectService.SetProgramLanguage: one LANGUAGE assertion; the fact
+  // store calls OnLanguage in its commit, which reloads the program in it.
+  Status SetProgramLanguage(const CallContext &, const pb::SetProgramLanguageRequest &req,
+                            pb::SetProgramLanguageResponse &resp) override {
+    if (req.program_id().empty()) return Error(StatusCode::kInvalidArgument, "program_id is required");
+    const pb::Provenance &prov = req.provenance();
+    if (!req.validate_only() && prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), 0); !st.ok()) return st;
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (auto st = PinLocked(p, p.head, r); !st.ok()) return st;
+      r.program = p.programs.at(req.program_id());
+    }
+    const ProgramSource &src = r.program->source;
+    if (!src.loader.empty())
+      return Error(StatusCode::kFailedPrecondition, "a program loaded by a loader plugin (" + src.loader +
+                                                        ") can't change its language: its plugin chooses it");
+    const loader::LanguageSpec now = src.program->language();
+    std::string language = req.language_id(), compiler = req.compiler_spec_id();
+    // "proc:endian:size:variant:compiler" in language_id: the compiler too.
+    if (std::count(language.begin(), language.end(), ':') >= 4 && compiler.empty()) {
+      compiler = language.substr(language.rfind(':') + 1);
+      language = language.substr(0, language.rfind(':'));
+    }
+    if (!language.empty()) {
+      const std::vector<lift::LanguageSummary> all = lift::list_languages();
+      auto it = std::find_if(all.begin(), all.end(), [&](const lift::LanguageSummary &l) { return l.id == language; });
+      if (it == all.end()) return Error(StatusCode::kInvalidArgument, "no language " + language + " in the install");
+      if (compiler.empty()) {
+        if (it->compilers.empty()) return Error(StatusCode::kInvalidArgument, language + " has no compiler spec");
+        compiler = it->compilers.front();
+      } else if (std::find(it->compilers.begin(), it->compilers.end(), compiler) == it->compilers.end()) {
+        return Error(StatusCode::kInvalidArgument, language + " has no compiler spec " + compiler);
+      }
+      try {
+        if (MemoryLayout(language) != MemoryLayout(now.language))
+          return Error(StatusCode::kFailedPrecondition,
+                       language + " lays memory out differently from " + now.language +
+                           " (other address spaces or sizes), so the program's facts can't move to it in place: "
+                           "import the file again in that language instead");
+      } catch (const std::exception &e) {
+        return Error(StatusCode::kInvalidArgument, "can't read " + language + ": " + e.what());
+      }
+    }
+    resp.set_language_id(language);
+    resp.set_compiler_spec_id(compiler);
+    resp.set_previous_language_id(now.language);
+    resp.set_previous_compiler_spec_id(now.compiler);
+    const std::string value = language.empty() ? std::string() : language + "|" + compiler;
+    const auto [live_language, live_compiler] = LanguageOf(*r.snapshot->get<facts::AssertedFact>(LanguageKey(src.ram_space)));
+    const bool same = language.empty() ? live_language.empty() : (language == now.language && compiler == now.compiler);
+    if (req.validate_only() || same) {
+      SetSnapshot(r, resp.mutable_snapshot());
+      return Status::Ok();
+    }
+    pb::AssertionBody body;
+    auto *b = body.mutable_language();
+    b->set_language_id(language);
+    b->set_compiler_spec_id(compiler);
+    b->set_previous_language_id(now.language);
+    b->set_previous_compiler_spec_id(now.compiler);
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    tx.assert_fact(ToFacts(prov), LanguageKey(src.ram_space), value, 0, Meta(prov, &body, rev));
+    pb::RevisionEvent ev;
+    std::uint64_t revision = 0;
+    try {
+      revision = Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    } catch (const std::exception &e) {
+      return Error(StatusCode::kInternal, std::string("changing the language failed: ") + e.what());
+    }
+    for (const pb::Assertion &a : ev.assertions())
+      if (a.key().kind() == pb::FACT_KIND_LANGUAGE) *resp.mutable_assertion() = a;
+    resp.mutable_snapshot()->set_revision(revision);
+    resp.mutable_snapshot()->set_head_revision(revision);
+    WarmAfterMemoryEdit(req.program_id(), revision);
+    return Status::Ok();
+  }
+
+  // ProjectService.CompareLanguages: every language of the program's
+  // processor swept over samples of its executable bytes (detect::Sweeper,
+  // as auto-detection sweeps a raw file), and the variant detection picks.
+  Status CompareLanguages(const CallContext &ctx, const pb::CompareLanguagesRequest &req,
+                          pb::CompareLanguagesResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    const Program &prog = v.program();
+    const loader::Image &image = prog.image();
+    const auto start = std::chrono::steady_clock::now();
+    // The executable bytes, block by block, up to 16 MiB.
+    std::vector<std::byte> code;
+    for (const loader::Block &blk : image.blocks) {
+      if (!blk.perms.exec || !blk.initialized || blk.size == 0) continue;
+      const std::uint64_t n = std::min<std::uint64_t>(blk.size, (std::uint64_t{16} << 20) - code.size());
+      if (n == 0) break;
+      const std::size_t at = code.size();
+      code.resize(at + n);
+      image.memory.read(blk.start, std::span<std::byte>(code.data() + at, n));
+    }
+    if (code.empty()) return Error(StatusCode::kFailedPrecondition, "the program has no executable bytes to decode");
+    const std::vector<detect::Segment> segs = detect::segments(code);
+    const auto windows = detect::sample_windows(code, segs, 24, 4096);
+    std::uint64_t swept = 0;
+    for (const auto &[off, size] : windows) swept += size;
+    resp.set_bytes(swept);
+    resp.set_samples(static_cast<std::uint32_t>(windows.size()));
+    const std::string current = prog.language().language;
+    const std::string processor = current.substr(0, current.find(':'));
+    std::set<std::string> wanted(req.language_ids().begin(), req.language_ids().end());
+    std::map<std::string, std::string> descriptions;
+    for (const lift::LanguageSummary &l : lift::list_languages()) descriptions[l.id] = l.description;
+    const auto layout = MemoryLayout(current);
+    std::map<std::string, bool> compatible;
+    auto is_compatible = [&](const std::string &l) {
+      auto it = compatible.find(l);
+      if (it != compatible.end()) return it->second;
+      bool ok = false;
+      try {
+        ok = MemoryLayout(l) == layout;
+      } catch (const std::exception &) {
+      }
+      return compatible[l] = ok;
+    };
+    // "ARM:LE:32": a language's processor, byte order and size.
+    auto order_of = [](const std::string &l) {
+      std::size_t n = 0, at = 0;
+      for (; at < l.size(); ++at)
+        if (l[at] == ':' && ++n == 3) break;
+      return l.substr(0, at);
+    };
+    auto same_order = [&](const std::string &l) { return order_of(l) == order_of(current); };
+    // Each group (a processor, byte order and size, in one mode), every
+    // language of it.
+    struct Swept {
+      const detect::Candidate *group;
+      std::string language;
+      detect::Features f;
+    };
+    std::vector<detect::Candidate> groups = detect::candidates();
+    std::vector<Swept> all;
+    for (const detect::Candidate &g : groups) {
+      if (g.language.substr(0, g.language.find(':')) != processor) continue;
+      for (const std::string &l : g.languages) {
+        // By default, the variants in the program's byte order and size
+        // (the question is which variant, not which order).
+        if (!wanted.empty() ? !wanted.contains(l) : (!same_order(l) || !is_compatible(l))) continue;
+        detect::Candidate c = g;
+        c.language = l;
+        detect::Sweeper sw(c);
+        if (!sw.ok()) continue;
+        all.push_back({&g, l, sw.sweep(code, windows, false, code.size())});
+      }
+    }
+    if (all.empty()) return Error(StatusCode::kFailedPrecondition, "no language of " + processor + " could be swept");
+    // The pick: what auto-detection (detect::detect, the import dialog's)
+    // makes of this code among the processor's languages, in the mode
+    // whose sweep of that language control flow reached most.
+    std::string picked, why;
+    try {
+      detect::Options dopt;
+      dopt.threads = 2;
+      dopt.processors = {processor};
+      const detect::Report report = detect::detect(code, dopt);
+      if (!report.suggestions.empty()) {
+        const detect::Suggestion &top = report.suggestions.front();
+        picked = top.language;
+        if (std::count(picked.begin(), picked.end(), ':') >= 4) picked = picked.substr(0, picked.rfind(':'));
+        for (const detect::Evidence &e : top.evidence)
+          if (e.about == "variant" || (why.empty() && e.about == "processor")) why = e.text;
+      }
+    } catch (const std::exception &) {
+    }
+    const Swept *best = nullptr;
+    for (const Swept &s : all)
+      if (s.language == picked && (!best || s.f.reached > best->f.reached)) best = &s;
+    // Detection read another byte order or size than the program's (a
+    // small sample can mislead it): the variant chooser, in the program's
+    // order, in the mode its own language reaches most.
+    if (!best || !same_order(best->language)) {
+      best = nullptr;
+      const Swept *mode = nullptr;
+      for (const Swept &s : all)
+        if (s.language == current && (!mode || s.f.reached > mode->f.reached)) mode = &s;
+      if (mode) {
+        std::vector<std::string> pool;
+        for (const Swept &s : all)
+          if (s.group == mode->group) pool.push_back(s.language);
+        try {
+          const detect::Variant v = detect::choose_variant(*mode->group, pool, code, windows, {}, {}, false, 1);
+          for (const Swept &s : all)
+            if (s.group == mode->group && s.language == v.language) best = &s;
+          why = v.evidence.empty() ? std::string() : v.evidence.front().text;
+        } catch (const std::exception &) {
+        }
+      }
+    }
+    for (const Swept &s : all) {
+      pb::LanguageFit *fit = resp.add_fits();
+      fit->set_language_id(s.language);
+      fit->set_mode(s.group->mode);
+      fit->set_description(descriptions[s.language]);
+      fit->set_current(s.language == current);
+      fit->set_compatible(is_compatible(s.language));
+      fit->set_decoded(s.f.bytes ? static_cast<double>(s.f.valid_bytes) / static_cast<double>(s.f.bytes) : 0.0);
+      fit->set_instructions(s.f.instructions);
+      fit->set_invalid(s.f.invalid);
+      fit->set_unimplemented(s.f.unimplemented);
+      fit->set_reached(s.f.reached);
+      fit->set_reached_invalid(s.f.reached_invalid);
+      const bool recommended = best && &s == best;
+      fit->set_recommended(recommended);
+      if (recommended) fit->set_note(why.empty() ? "what auto-detection picks for this code" : why);
+    }
+    resp.set_elapsed_seconds(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+    return Status::Ok();
+  }
+
+  // --- PDBs (feature "pdb-load"; docs/pdb.md) ----------------------------
+
+  SymbolSettings CurrentSymbolSettings() {
+    std::lock_guard lock(core_->symbols_mu);
+    SymbolSettings s;
+    s.path = core_->options.symbol_path;
+    s.downloads = core_->options.symbol_downloads;
+    s.default_cache = core_->options.symbol_cache;
+    if (s.default_cache.empty() && !core_->options.project_dir.empty())
+      s.default_cache = (fs::path(core_->options.project_dir) / ".revkit" / "symbols").string();
+    return s;
+  }
+
+  static void ToProto(const SymbolSettings &s, pb::SymbolSettings &out) {
+    out.set_symbol_path(s.path);
+    out.set_downloads(s.downloads);
+    out.set_cache_dir(s.default_cache);
+  }
+
+  Status GetSymbolSettings(const CallContext &, const pb::GetSymbolSettingsRequest &,
+                           pb::GetSymbolSettingsResponse &resp) override {
+    ToProto(CurrentSymbolSettings(), *resp.mutable_settings());
+    return Status::Ok();
+  }
+
+  Status SetSymbolSettings(const CallContext &, const pb::SetSymbolSettingsRequest &req,
+                           pb::SetSymbolSettingsResponse &resp) override {
+    const pb::SymbolSettings &in = req.settings();
+    if (in.symbol_path().size() > 8192) return Error(StatusCode::kInvalidArgument, "symbol_path is longer than 8 KiB");
+    std::string error;
+    ParseSymbolPath(in.symbol_path(), &error);
+    if (!error.empty()) return Error(StatusCode::kInvalidArgument, "symbol_path: " + error);
+    {
+      std::lock_guard lock(core_->symbols_mu);
+      core_->options.symbol_path = in.symbol_path();
+      core_->options.symbol_downloads = in.downloads();
+      core_->options.symbol_cache = in.cache_dir();
+    }
+    SaveSymbolSettings();
+    ToProto(CurrentSymbolSettings(), *resp.mutable_settings());
+    return Status::Ok();
+  }
+
+  fs::path SymbolSettingsFile() const {
+    return core_->options.project_dir.empty() ? fs::path()
+                                              : fs::path(core_->options.project_dir) / ".revkit" / "symbols.json";
+  }
+  void SaveSymbolSettings() {
+    const fs::path f = SymbolSettingsFile();
+    if (f.empty()) return;
+    pb::SymbolSettings s;
+    {
+      std::lock_guard lock(core_->symbols_mu);
+      s.set_symbol_path(core_->options.symbol_path);
+      s.set_downloads(core_->options.symbol_downloads);
+      s.set_cache_dir(core_->options.symbol_cache);
+    }
+    std::string json;
+    if (!google::protobuf::util::MessageToJsonString(s, &json).ok()) return;
+    std::error_code ec;
+    fs::create_directories(f.parent_path(), ec);
+    std::ofstream(f, std::ios::trunc) << json << "\n";
+  }
+  // The last SetSymbolSettings, unless the daemon was given settings.
+  void LoadSymbolSettings() {
+    if (!core_->options.symbol_path.empty() || core_->options.symbol_downloads || !core_->options.symbol_cache.empty())
+      return;
+    const fs::path f = SymbolSettingsFile();
+    std::error_code ec;
+    if (f.empty() || !fs::is_regular_file(f, ec)) return;
+    std::ifstream in(f);
+    std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    pb::SymbolSettings s;
+    if (!google::protobuf::util::JsonStringToMessage(json, &s).ok()) return;
+    std::lock_guard lock(core_->symbols_mu);
+    core_->options.symbol_path = s.symbol_path();
+    core_->options.symbol_downloads = s.downloads();
+    core_->options.symbol_cache = s.cache_dir();
+  }
+
+  Status LoadPdb(const CallContext &ctx, const pb::LoadPdbRequest &req, pb::LoadPdbResponse &resp) override {
+    if (req.program_id().empty()) return Error(StatusCode::kInvalidArgument, "program_id is required");
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::shared_ptr<const ProgramEntry> entry;
+    {
+      std::lock_guard lock(core_->mu);
+      entry = p.programs.at(req.program_id());
+    }
+    const ProgramSource &src = entry->source;
+    const loader::Image &image = src.program->image();
+    if (image.format != loader::Format::pe) return Error(StatusCode::kFailedPrecondition, "the program isn't a PE");
+    // The PDB's bytes.
+    fs::path file;
+    switch (req.source_case()) {
+      case pb::LoadPdbRequest::kPath:
+        file = req.path();
+        resp.set_source("file");
+        break;
+      case pb::LoadPdbRequest::kUploadId:
+        if (auto st = uploads_.Find(ctx.caller, req.upload_id(), file); !st.ok()) return st;
+        resp.set_source("upload");
+        break;
+      case pb::LoadPdbRequest::kSymbolPath: {
+        if (!image.codeview || !image.codeview->rsds)
+          return Error(StatusCode::kFailedPrecondition, "the program has no CodeView record naming its PDB");
+        std::vector<std::string> log;
+        std::optional<FoundPdb> found =
+            FindPdb(CurrentSymbolSettings(), image.codeview->pdb_path, image.codeview->guid, image.codeview->age, log);
+        for (const std::string &l : log) resp.add_search_log(l);
+        if (!found) {
+          std::string why = "no matching PDB on the symbol path";
+          for (const std::string &l : log) why += "\n  " + l;
+          return Error(StatusCode::kNotFound, why);
+        }
+        file = found->file;
+        resp.set_source(found->source);
+        break;
+      }
+      default: return Error(StatusCode::kInvalidArgument, "path, upload_id or symbol_path is required");
+    }
+    std::error_code ec;
+    if (!fs::is_regular_file(file, ec)) return Error(StatusCode::kNotFound, "no file " + file.string());
+    if (fs::file_size(file, ec) > (std::uint64_t{4} << 30)) return Error(StatusCode::kInvalidArgument, "the PDB is larger than 4 GiB");
+    std::ifstream in(file, std::ios::binary);
+    std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    debuginfo::PdbIdentity id;
+    try {
+      id = debuginfo::read_pdb_identity(bytes);
+    } catch (const debuginfo::PdbError &e) {
+      return Error(StatusCode::kInvalidArgument, file.string() + " isn't a PDB: " + e.what());
+    }
+    bool exact = false;
+    std::string program_id_text = "no CodeView record";
+    if (image.codeview) {
+      const loader::CodeViewRecord &cv = *image.codeview;
+      exact = cv.rsds ? id.matches(cv.guid, cv.age) : id.signature == cv.signature && id.age == cv.age;
+      program_id_text = cv.rsds ? debuginfo::guid_string(cv.guid) + " age " + std::to_string(cv.age)
+                                : "signature " + std::to_string(cv.signature) + " age " + std::to_string(cv.age);
+    }
+    const std::string pdb_id_text = debuginfo::guid_string(id.guid) + " age " + std::to_string(id.age);
+    if (!exact && !req.force())
+      return Error(StatusCode::kFailedPrecondition, "the PDB is another build's (" + pdb_id_text + "; the program's: " +
+                                                        program_id_text + "): load it with force to use it anyway");
+    resp.set_exact(exact);
+    resp.set_pdb_file(file.string());
+    if (!exact)
+      resp.add_warnings("another build's PDB (" + pdb_id_text + "; the program's: " + program_id_text +
+                        "): its addresses may not match the program");
+    DebugFacts facts;
+    try {
+      facts = ReadPdbBytes(*src.program, bytes, file.string());
+    } catch (const debuginfo::PdbError &e) {
+      return Error(StatusCode::kInvalidArgument, file.string() + ": " + e.what());
+    }
+    for (const std::string &d : facts.diagnostics)
+      if (resp.warnings_size() < 32) resp.add_warnings(d);
+    resp.set_functions(static_cast<std::uint32_t>(facts.functions));
+    resp.set_variables(static_cast<std::uint32_t>(facts.variables));
+    resp.set_types(static_cast<std::uint32_t>(facts.records.size()));
+    std::uint64_t revision = 0;
+    {
+      std::lock_guard write(p.write_mu);
+      if (auto st = CheckWritable(p, req.program_id(), 0); !st.ok()) return st;
+      auto tx = p.db->begin();
+      const std::uint64_t rev = tx.next_revision();
+      pb::Provenance prov = req.provenance();
+      StageDebugInfo(tx, src, facts, prov, rev);
+      // Which file was loaded, on the program (a note the UI and blame show).
+      pb::Provenance by;
+      by.set_kind(pb::PROVENANCE_KIND_IMPORT);
+      by.set_id("pdb");
+      by.set_session(prov.session());
+      by.set_tool(prov.tool());
+      tx.assert_fact(ToFacts(by), FactKeyAt(FactKind::Note, src.ram_space, image.image_base, "revkit:pdb"),
+                     file.filename().string() + (exact ? "" : " (forced: another build's)"), 0, Meta(by, nullptr, rev));
+      const Seq first = p.log().next_seq();
+      try {
+        revision = Commit(p, tx, prov, pb::CHANGE_CAUSE_IMPORT, nullptr);
+      } catch (const std::exception &e) {
+        return Error(StatusCode::kInternal, std::string("loading the PDB failed: ") + e.what());
+      }
+      for (Seq s = first; s < p.log().next_seq(); ++s) resp.add_assertion_seqs(s);
+    }
+    resp.mutable_snapshot()->set_revision(revision);
+    resp.mutable_snapshot()->set_head_revision(revision);
+    return Status::Ok();
+  }
+
+  Status GetProgramSummary(const CallContext &ctx, const pb::GetProgramSummaryRequest &req,
+                           pb::GetProgramSummaryResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const Program &p = v.program();
+    const loader::Image &image = p.image();
+    SetSnapshot(r, resp.mutable_snapshot());
+    auto *s = resp.mutable_summary();
+    FillProgramInfo(*r.project, *r.program, r.log_size, TreeOf(*r.project, r.log_size), s->mutable_info());
+    auto *lang = s->mutable_language();
+    lang->set_language_id(p.language().language);
+    lang->set_compiler_spec_id(p.language().compiler);
+    lang->set_processor(p.language().language.substr(0, p.language().language.find(':')));
+    lang->set_endianness(image.endian == loader::Endian::little ? pb::ENDIANNESS_LITTLE : pb::ENDIANNESS_BIG);
+    lang->set_pointer_size(image.bits / 8);
+    lang->set_default_space(p.code_space());
+    *s->mutable_image_base() = A(image.image_base);
+    // Where it was imported (api_minor 42): the base moved by SetImageBase.
+    *s->mutable_import_image_base() = A(v.Shift().inverse().apply(image.image_base));
+    if (image.entry) {
+      auto *e = s->add_entry_points();
+      *e->mutable_address() = A(*image.entry);
+      e->set_kind("entry");
+      e->set_name(v.Symbol(*image.entry));
+    }
+    for (const auto &x : image.exports) {
+      if (!x.forwarder.empty()) continue;
+      auto *e = s->add_entry_points();
+      *e->mutable_address() = A(x.address);
+      e->set_kind("export");
+      e->set_name(v.Symbol(x.address));
+    }
+    FillMemory(v, s->mutable_memory());
+    s->set_function_count(static_cast<std::uint32_t>(v.functions().funcs.size()));
+    s->set_instruction_count(v.code().instructions);
+    s->set_file_size(r.program->source.file_size);
+    // The language's spaces as SLEIGH defines them, with how addresses
+    // fold other memory spaces into the default space's (keys), and the
+    // decompiler's stack.
+    const std::uint32_t ptr = image.bits / 8;
+    bool stack = false;
+    for (const lift::SpaceDef &d : r.program->program().spaces()) {
+      if (d.name.empty()) continue;
+      auto *info = s->add_spaces();
+      info->set_name(d.name);
+      info->set_kind(d.kind == lift::SpaceDef::Kind::constant ? pb::ADDRESS_SPACE_KIND_CONSTANT
+                     : d.kind == lift::SpaceDef::Kind::unique ? pb::ADDRESS_SPACE_KIND_UNIQUE
+                     : d.is_register                          ? pb::ADDRESS_SPACE_KIND_REGISTER
+                     : d.kind == lift::SpaceDef::Kind::processor ? pb::ADDRESS_SPACE_KIND_RAM
+                                                              : pb::ADDRESS_SPACE_KIND_OTHER);
+      info->set_size(d.address_size);
+      info->set_word_size(d.wordsize);
+      info->set_is_default(d.is_default);
+      if (const loader::AddressSpace *a = loader::find_space(image, d.name)) {
+        info->set_key_base(a->base);
+        info->set_alias(a->alias_of_default);
+      }
+      stack = stack || d.name == "stack";
+    }
+    if (!stack) {
+      auto *info = s->add_spaces();
+      info->set_name("stack");
+      info->set_kind(pb::ADDRESS_SPACE_KIND_STACK);
+      info->set_size(ptr);
+      info->set_word_size(1);
+    }
+    return Status::Ok();
+  }
+
+  // --- Assertions -------------------------------------------------------------
+
+  Status AppendAssertions(const CallContext &ctx, const pb::AppendAssertionsRequest &req,
+                          pb::AppendAssertionsResponse &resp) override {
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    if (req.assertions().empty()) return Error(StatusCode::kInvalidArgument, "no assertions");
+    // Project-scope types (docs/types.md#project-types): only type bodies.
+    if (req.project_scope())
+      for (int i = 0; i < req.assertions_size(); ++i) {
+        const pb::AssertionBody &b = req.assertions(i).body();
+        if (!b.has_define_type() && !b.has_bind_type_name() && !b.has_type_category())
+          return Error(StatusCode::kInvalidArgument,
+                       "assertions[" + std::to_string(i) +
+                           "]: project_scope takes only define_type, bind_type_name and type_category bodies");
+      }
+
+    // Validated against head, before taking the writer: storage keys of
+    // locals come from decompiling, which can take a while.
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    std::map<std::uint64_t, std::optional<std::set<std::string>>> locals;
+    for (const auto &in : req.assertions()) {
+      const pb::Target *t = in.body().has_rename()   ? &in.body().rename().target()
+                            : in.body().has_retype() ? &in.body().retype().target()
+                                                     : nullptr;
+      if (!t || !t->has_local() || locals.contains(t->local().function().offset())) continue;
+      const std::uint64_t entry = t->local().function().offset();
+      if (!v.functions().at(entry)) continue;  // KeyFor reports it
+      facts::Ref<DecompileOutput> out;
+      try {
+        out = r.snapshot->get<q::Decompile>({v.id(), entry});
+      } catch (const DecompileStoppedError &) {
+        locals[entry] = std::nullopt;  // no decompilation to check the locals against
+        continue;
+      }
+      std::set<std::string> keys;
+      for (const auto &var : out->function.variables())
+        if (var.kind() != pb::VARIABLE_KIND_GLOBAL) keys.insert(var.storage_key());
+      locals[entry] = out->function.lines_size() > 0 && out->function.variables_size() > 0
+                          ? std::optional(std::move(keys))
+                          : std::nullopt;
+    }
+    auto local_keys = [&](std::uint64_t entry) -> std::optional<std::set<std::string>> {
+      auto it = locals.find(entry);
+      return it == locals.end() ? std::nullopt : it->second;
+    };
+    struct Staged {
+      facts::FactKey key;
+      FactValue value;
+      Seq depends_on;
+    };
+    // Types the request defines, interned as one batch (define_type.h).
+    DefinedTypes defined;
+    std::set<std::string> batch_types;
+    if (std::any_of(req.assertions().begin(), req.assertions().end(),
+                    [](const auto &in) { return in.body().has_define_type(); })) {
+      auto closure = [&](const std::string &hash) {
+        auto c = r.snapshot->get<q::Types>({v.id(), hash});
+        return std::vector<std::pair<std::string, std::string>>(c->begin(), c->end());
+      };
+      if (auto err = DefineTypes(req.assertions(), v.program().image().bits / 8, closure, defined); !err.empty())
+        return Error(StatusCode::kInvalidArgument, err);
+      for (const auto &h : defined.hash)
+        if (!h.empty()) batch_types.insert(h);
+    }
+    // Listing edits (docs/listing-edit.md), keyed below.
+    std::map<int, ListingEditKey> listing_edits;
+    // Operand displays, keyed below.
+    struct DisplayKey {
+      facts::FactKey key;
+      std::string value;
+      pb::AssertionBody stored;
+    };
+    std::map<int, DisplayKey> displays;
+    std::vector<DisplayKey> display_extras;
+
+    // bind_type_name bodies as stored: an assertion_index replaced by its hash.
+    std::map<int, pb::AssertionBody> bound;
+    auto stored_body = [&](int i) -> const pb::AssertionBody & {
+      if (auto it = bound.find(i); it != bound.end()) return it->second;
+      if (auto it = listing_edits.find(i); it != listing_edits.end()) return it->second.stored;
+      if (auto it = displays.find(i); it != displays.end()) return it->second.stored;
+      return req.assertions(i).body().has_define_type() ? defined.stored[static_cast<std::size_t>(i)]
+                                                        : req.assertions(i).body();
+    };
+    // BindTypeName: TYPE_DEF "name:<kind> <name>" = h:<hash> of a named type
+    // the program has or this request defines.
+    auto bind_key = [&](int i, Staged &s) -> std::string {
+      const pb::TypeNodeRef &ref = req.assertions(i).body().bind_type_name().type();
+      std::string hash, record;
+      if (ref.kind_case() == pb::TypeNodeRef::kAssertionIndex) {
+        const std::size_t j = ref.assertion_index();
+        if (j >= static_cast<std::size_t>(req.assertions_size()) || !req.assertions(static_cast<int>(j)).body().has_define_type())
+          return "bind_type_name.type.assertion_index " + std::to_string(j) + " is not a define_type";
+        hash = defined.hash[j];
+        record = defined.record[j];
+      } else if (ref.kind_case() == pb::TypeNodeRef::kHash) {
+        hash = ref.hash();
+        if (batch_types.contains(hash)) {
+          for (std::size_t j = 0; j < defined.hash.size(); ++j)
+            if (defined.hash[j] == hash) record = defined.record[j];
+        } else {
+          record = v.Text(TypeDefKey(v.space(), hash));
+          if (record.empty()) record = v.Text(TypeDefKey(kProjectSpace, hash));
+          if (record.empty())
+            if (const std::string *lib = r.snapshot->get<q::Library>(v.id())->record(hash)) record = *lib;
+          if (record.empty()) return "unknown type hash " + hash + " (not defined in this program)";
+        }
+      } else {
+        return "bind_type_name.type is required";
+      }
+      std::string named;
+      try {
+        named = NamedTypeKey(DecodeTypeRecord(record).type);
+      } catch (const facts::DecodeError &) {
+      }
+      if (named.empty()) return "bind_type_name: the type is not a named struct, union, enum or typedef";
+      s.key = TypeDefKey(v.space(), TypeNameSub(named));
+      s.value = "h:" + hash;
+      pb::AssertionBody b;
+      b.mutable_bind_type_name()->mutable_type()->set_hash(hash);
+      bound[i] = std::move(b);
+      return {};
+    };
+    // A retype by C declaration: parsed against the program's types into a
+    // hashed type, defined with it (its records follow the request's
+    // assertions); text that doesn't parse is kept as text, as before.
+    std::map<int, pb::AssertionBody> parsed_retypes;
+    std::map<std::string, ParsedRetype::Def> retype_types;
+    for (int i = 0; i < req.assertions_size(); ++i) {
+      const auto &body = req.assertions(i).body();
+      if (body.has_call_signature() && body.call_signature().signature().has_c_declaration()) {
+        // A call's signature override: a function prototype, which must
+        // parse (it is stored by hash only).
+        auto names = r.snapshot->get<q::TypeNames>(v.id());
+        ParseCContext c{v.program(), *names, [&](const std::string &hash) { return TypeClosureOf(r, v, hash); },
+                        core_->options.browse_roots};
+        const std::string &decl = body.call_signature().signature().c_declaration();
+        std::optional<ParsedRetype> parsed = decl.empty() ? std::nullopt : ParseRetype(c, decl, true);
+        if (!parsed)
+          return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) +
+                                                         "]: call_signature.signature: not a function prototype C can parse: " +
+                                                         decl.substr(0, 200));
+        pb::AssertionBody hashed = body;
+        hashed.mutable_call_signature()->mutable_signature()->set_type_hash(parsed->hash);
+        parsed_retypes[i] = std::move(hashed);
+        for (auto &[hash, def] : parsed->types) {
+          batch_types.insert(hash);
+          if (v.Asserted(TypeDefKey(v.space(), hash)) || r.snapshot->get<q::Library>(v.id())->record(hash)) continue;
+          retype_types.emplace(hash, std::move(def));
+        }
+        continue;
+      }
+      if (!body.has_retype() || !body.retype().type().has_c_declaration() ||
+          body.retype().type().c_declaration().empty())
+        continue;
+      const pb::Target &t = body.retype().target();
+      const bool function = t.has_address() && IsDefaultSpace(t.address()) && v.functions().at(t.address().offset());
+      auto names = r.snapshot->get<q::TypeNames>(v.id());
+      ParseCContext c{v.program(), *names, [&](const std::string &hash) { return TypeClosureOf(r, v, hash); },
+                      core_->options.browse_roots};
+      std::optional<ParsedRetype> parsed = ParseRetype(c, body.retype().type().c_declaration(), function);
+      if (!parsed) continue;
+      pb::AssertionBody hashed = body;
+      hashed.mutable_retype()->mutable_type()->set_type_hash(parsed->hash);
+      parsed_retypes[i] = std::move(hashed);
+      for (auto &[hash, def] : parsed->types) {
+        batch_types.insert(hash);
+        if (v.Asserted(TypeDefKey(v.space(), hash)) || v.Asserted(TypeDefKey(kProjectSpace, hash)) ||
+            r.snapshot->get<q::Library>(v.id())->record(hash))
+          continue;
+        retype_types.emplace(hash, std::move(def));
+      }
+    }
+    // Listing edits: Clear, Disassemble here and Define data at an address
+    // (a definition's type resolved, laid out, and defined with it when the
+    // program lacks it), and mutability ranges. A type by hash may be one
+    // this request defines (a structure made from a selection, applied
+    // where it was made: AutoStructure).
+    auto batch_closure = [&](const std::string &hash) -> TypeClosure {
+      std::map<std::string, std::string> out;
+      std::vector<std::string> stack{hash};
+      while (!stack.empty()) {
+        const std::string h = stack.back();
+        stack.pop_back();
+        if (out.contains(h)) continue;
+        std::string record;
+        for (std::size_t j = 0; j < defined.hash.size() && record.empty(); ++j)
+          if (defined.hash[j] == h) record = defined.record[j];
+        if (record.empty()) {
+          for (auto &kv : TypeClosureOf(r, v, h)) out.insert(std::move(kv));
+          continue;
+        }
+        out.emplace(h, record);
+        try {
+          for (const std::string &ref : DecodeTypeRecord(record).refs) stack.push_back(ref);
+        } catch (const facts::DecodeError &) {
+        }
+      }
+      return TypeClosure(out.begin(), out.end());
+    };
+    for (int i = 0; i < req.assertions_size(); ++i) {
+      const auto &body = req.assertions(i).body();
+      if (!body.has_listing_edit() && !body.has_mutability()) continue;
+      ListingEditKey k;
+      std::string err;
+      if (body.has_listing_edit()) {
+        auto names = r.snapshot->get<q::TypeNames>(v.id());
+        ParseCContext c{v.program(), *names, batch_closure, core_->options.browse_roots};
+        SnapshotPatches patches(*r.snapshot, r.program->source.ram_space);
+        EditBytes read = [&](std::uint64_t a, std::size_t n) {
+          return v.program().read(a, static_cast<std::uint32_t>(n), &patches);
+        };
+        err = ResolveListingEdit(c, body.listing_edit(), read, k);
+      } else {
+        err = ResolveMutability(v.program(), body.mutability(), k);
+      }
+      if (!err.empty()) return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: " + err);
+      for (auto &[hash, def] : k.types) {
+        if (std::find(defined.hash.begin(), defined.hash.end(), hash) != defined.hash.end()) continue;
+        batch_types.insert(hash);
+        if (v.Asserted(TypeDefKey(v.space(), hash)) || v.Asserted(TypeDefKey(kProjectSpace, hash)) ||
+            r.snapshot->get<q::Library>(v.id())->record(hash))
+          continue;
+        retype_types.emplace(hash, def);
+      }
+      k.types.clear();
+      listing_edits.emplace(i, std::move(k));
+    }
+    // Operand displays (docs/api.md, "Equates and user references"): each
+    // placed on the operand holding its value, and with apply_to, on every
+    // other operand holding it in the function or program (those follow
+    // the request's assertions).
+    {
+      SnapshotPatches patches(*r.snapshot, r.program->source.ram_space);
+      const Program &prog = v.program();
+      const CodeMap &code = v.code();
+      // Equate names and their values: the program's (as of head) unless
+      // this request sets the key again, then the request's.
+      std::map<std::string, std::pair<std::uint64_t, std::uint64_t>> names;  // name -> (value, address)
+      std::set<facts::FactKey> rewritten;
+      std::vector<std::pair<int, DisplayKey *>> mine;
+      auto scalars_of = [&](const lift::Instruction &insn) {
+        std::vector<const lift::Token *> out;
+        for (const lift::Token &t : insn.tokens)
+          if (t.kind == lift::Token::Kind::scalar && t.operand >= 0) out.push_back(&t);
+        return out;
+      };
+      for (int i = 0; i < req.assertions_size(); ++i) {
+        const auto &body = req.assertions(i).body();
+        if (!body.has_operand_display()) continue;
+        const pb::OperandDisplay &d = body.operand_display();
+        auto fail = [&](const std::string &e) {
+          return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: " + e);
+        };
+        if (!IsDefaultSpace(d.address())) return fail("only the default space is supported");
+        const std::uint64_t at = d.address().offset();
+        if (!prog.block_containing(at)) return fail("address 0x" + Hex(at) + " is not in memory");
+        auto insn = prog.instruction(at, code.thumb_at(at), &patches);
+        if (!insn) return fail("no instruction at 0x" + Hex(at));
+        // What it shows.
+        analysis::OperandDisplay disp;
+        std::uint64_t enum_size = 0;
+        std::vector<std::int64_t> enum_values;
+        switch (d.display_case()) {
+          case pb::OperandDisplay::kFormat:
+            if (!pb::ScalarFormat_IsValid(d.format())) return fail("unknown format");
+            disp.format = static_cast<analysis::ScalarFormat>(d.format());
+            break;
+          case pb::OperandDisplay::kEquate: {
+            const pb::EquateName &e = d.equate();
+            if (!e.enum_type_hash().empty()) {
+              if (e.member().empty()) return fail("equate.member is required with enum_type_hash");
+              TypeClosure closure = batch_closure(e.enum_type_hash());
+              std::optional<types::EnumType> en;
+              for (const auto &[h, rec] : closure)
+                if (h == e.enum_type_hash()) try {
+                    TypeRecord tr = DecodeTypeRecord(rec);
+                    if (const auto *x = tr.type.as<types::EnumType>()) en = *x;
+                  } catch (const facts::DecodeError &) {
+                  }
+              if (!en) return fail("type " + e.enum_type_hash() + " is not an enum of this program");
+              bool found = false;
+              for (const types::Enumerator &m : en->values)
+                if (m.name == e.member()) {
+                  found = true;
+                  enum_values.push_back(m.value);
+                }
+              if (!found) return fail("enum " + en->name + " has no member " + e.member());
+              enum_size = en->size;
+              disp.enum_type = e.enum_type_hash();
+              disp.member = e.member();
+              disp.name = e.member();
+            } else {
+              const std::string &n = e.name();
+              if (n.empty()) return fail("equate.name is required");
+              if (n.size() > 256) return fail("equate.name is longer than 256 bytes");
+              if (std::any_of(n.begin(), n.end(), [](unsigned char c) { return std::isspace(c) || c < 0x20 || c == 0x7f; }))
+                return fail("equate.name contains whitespace or control characters");
+              disp.name = n;
+            }
+            break;
+          }
+          case pb::OperandDisplay::DISPLAY_NOT_SET: break;
+        }
+        // Where: the operand holding the value.
+        int operand = -1;
+        std::uint64_t value = d.value();
+        unsigned bits = 0;
+        const auto scalars = scalars_of(insn->insn);
+        for (const lift::Token *t : scalars) {
+          if (d.has_operand_index() && t->operand != static_cast<int>(d.operand_index())) continue;
+          if (!analysis::scalar_matches(t->value, d.value(), t->bits)) continue;
+          operand = t->operand;
+          value = t->value;
+          bits = t->bits;
+          break;
+        }
+        std::uint64_t hash = 0;
+        if (operand < 0) {
+          if (d.has_operand_index())
+            return fail("operand " + std::to_string(d.operand_index()) + " of the instruction at 0x" + Hex(at) +
+                        " holds no scalar 0x" + Hex(d.value()));
+          if (d.constant_hash() == 0)
+            return fail("no operand of the instruction at 0x" + Hex(at) + " holds 0x" + Hex(d.value()) +
+                        " (a decompiler constant needs constant_hash)");
+          hash = d.constant_hash();
+        }
+        if (disp.format == analysis::ScalarFormat::flt && bits != 32 && bits != 64)
+          return fail("a float display needs a 32- or 64-bit scalar");
+        if (!disp.enum_type.empty() &&
+            std::none_of(enum_values.begin(), enum_values.end(), [&](std::int64_t m) {
+              return analysis::scalar_matches(value, static_cast<std::uint64_t>(m), bits) ||
+                     analysis::scalar_matches(static_cast<std::uint64_t>(m), value, static_cast<unsigned>(enum_size * 8));
+            }))
+          return fail("member " + disp.member + " isn't 0x" + Hex(value));
+        auto make = [&](std::uint64_t a, int op, std::uint64_t h, std::uint64_t val) {
+          DisplayKey k;
+          k.key = v.Key(FactKind::Equate, a, analysis::equate_sub(op, h, val));
+          k.value = analysis::encode_operand_display(disp);
+          k.stored = body;
+          pb::OperandDisplay &sd = *k.stored.mutable_operand_display();
+          *sd.mutable_address() = A(a);
+          if (op >= 0) sd.set_operand_index(static_cast<std::uint32_t>(op));
+          else sd.clear_operand_index();
+          sd.set_value(val);
+          sd.set_constant_hash(h);
+          sd.clear_apply_to();
+          if (disp.equate()) sd.mutable_equate()->set_name(disp.name);
+          rewritten.insert(k.key);
+          return k;
+        };
+        displays[i] = make(at, operand, hash, value);
+        // The other operands holding the value.
+        if (d.apply_to() != pb::EQUATE_SCOPE_UNSPECIFIED && operand >= 0) {
+          std::vector<std::pair<std::uint64_t, std::uint64_t>> ranges;
+          if (d.apply_to() == pb::EQUATE_SCOPE_FUNCTION) {
+            const Func *f = v.functions().containing(at);
+            if (!f) return fail("no function contains 0x" + Hex(at));
+            ranges = f->body;
+          } else {
+            ranges.emplace_back(0, ~std::uint64_t{0});
+          }
+          constexpr std::size_t kMaxApplied = 100000;
+          for (auto [lo, hi] : ranges) {
+            auto it = std::upper_bound(code.spans.begin(), code.spans.end(), lo,
+                                       [](std::uint64_t a, const ListingSpan &sp) { return a < sp.start; });
+            if (it != code.spans.begin()) --it;
+            for (; it != code.spans.end() && it->start <= hi; ++it) {
+              if (!it->code || it->end <= lo) continue;
+              for (std::uint32_t row : it->rows) {
+                if (row & ListingSpan::kUndefined) continue;
+                const std::uint64_t a = it->start + (row & ListingSpan::kOffsetMask);
+                if (a < lo) continue;
+                if (a > hi) break;
+                if (display_extras.size() >= kMaxApplied) return fail("more than 100000 operands hold the value");
+                auto other = prog.instruction(a, it->thumb, &patches);
+                if (!other) continue;
+                std::set<int> done;
+                for (const lift::Token *t : scalars_of(other->insn)) {
+                  if (a == at && t->operand == operand) continue;
+                  if (done.contains(t->operand) || !analysis::scalar_matches(t->value, value, t->bits)) continue;
+                  if (disp.format == analysis::ScalarFormat::flt && t->bits != 32 && t->bits != 64) continue;
+                  done.insert(t->operand);
+                  display_extras.push_back(make(a, t->operand, 0, t->value));
+                }
+              }
+            }
+          }
+        }
+        // (An enum member's name is the enum's, not the program's: two
+        // enums may share one.)
+        if (disp.equate() && disp.enum_type.empty()) mine.emplace_back(i, &displays[i]);
+      }
+      // One name, one value.
+      if (!mine.empty()) {
+        auto value_of = [](const facts::FactKey &k) {
+          auto sub = analysis::parse_equate_sub(k.sub);
+          return sub ? sub->value : 0;
+        };
+        for (const facts::FactKey &k : v.AllKeys(FactKind::Equate)) {
+          if (rewritten.contains(k)) continue;
+          auto disp = analysis::parse_operand_display(v.Text(k));
+          if (disp && disp->equate() && disp->enum_type.empty()) names.try_emplace(disp->name, value_of(k), k.addr.offset);
+        }
+        for (const auto &[i, dk] : mine) {
+          auto disp = analysis::parse_operand_display(dk->value);
+          auto [it, inserted] = names.try_emplace(disp->name, value_of(dk->key), dk->key.addr.offset);
+          if (!inserted && it->second.first != value_of(dk->key))
+            return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: equate " + disp->name +
+                                                           " already has the value 0x" + Hex(it->second.first) +
+                                                           " (at 0x" + Hex(it->second.second) + ")");
+        }
+      }
+    }
+    std::vector<Staged> staged;
+    for (int i = 0; i < req.assertions_size(); ++i) {
+      const auto &in = req.assertions(i);
+      Staged s{{}, {}, in.depends_on_seq()};
+      const pb::AssertionBody &key_body =
+          parsed_retypes.contains(i) ? parsed_retypes.at(i) : in.body();
+      if (in.body().has_define_type()) {
+        s.key = TypeDefKey(v.space(), defined.hash[static_cast<std::size_t>(i)]);
+        s.value = defined.record[static_cast<std::size_t>(i)];
+      } else if (auto le = listing_edits.find(i); le != listing_edits.end()) {
+        s.key = v.Key(in.body().has_listing_edit() ? FactKind::CodeUnit : FactKind::Mutability, le->second.address,
+                      le->second.sub);
+        s.value = le->second.value;
+      } else if (auto dk = displays.find(i); dk != displays.end()) {
+        s.key = dk->second.key;
+        s.value = dk->second.value;
+      } else if (in.body().has_bind_type_name()) {
+        if (auto err = bind_key(i, s); !err.empty())
+          return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: " + err);
+      } else if (auto err = KeyFor(v, key_body, local_keys, batch_types, s.key, s.value); !err.empty()) {
+        return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: " + err);
+      }
+      // A project-scope request's types are the project's.
+      if (req.project_scope() && s.key.kind == FactKind::TypeDef) s.key.addr = {kProjectSpace, archive::kProjectTypesAddress};
+      if (s.depends_on) {
+        auto dep = r.project->log().op(s.depends_on);
+        if (!dep || dep->kind != facts::OpKind::Assert)
+          return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: depends_on_seq is not an assertion");
+      }
+      staged.push_back(std::move(s));
+    }
+    std::vector<const pb::AssertionBody *> extra_bodies;
+    for (auto &[hash, def] : retype_types) {
+      staged.push_back({TypeDefKey(v.space(), hash), def.record, 0});
+      extra_bodies.push_back(&def.body);
+    }
+    for (DisplayKey &dk : display_extras) {
+      staged.push_back({dk.key, dk.value, 0});
+      extra_bodies.push_back(&dk.stored);
+    }
+    // A primary user reference: an operand has one, so the operand's other
+    // primary user references stop being primary in the same revision
+    // (Ghidra's ReferenceManager.setPrimary).
+    std::vector<pb::AssertionBody> demoted;
+    {
+      std::set<facts::FactKey> keyed;
+      for (std::size_t i = 0; i < static_cast<std::size_t>(req.assertions_size()); ++i) keyed.insert(staged[i].key);
+      for (int i = 0; i < req.assertions_size(); ++i) {
+        const pb::AssertionBody &body = req.assertions(i).body();
+        if (!body.has_reference() || !body.reference().primary() || body.reference().remove()) continue;
+        const pb::UserReference &u = body.reference();
+        const int operand = u.has_operand_index() ? static_cast<int>(u.operand_index()) : -1;
+        for (const facts::FactKey &k : v.KeysAt(FactKind::Reference, u.from().offset())) {
+          if (keyed.contains(k)) continue;
+          auto r = analysis::parse_user_ref(k.sub, v.Text(k));
+          if (!r || r->remove || !r->primary || r->operand != operand) continue;
+          r->primary = false;
+          keyed.insert(k);
+          staged.push_back({k, analysis::encode_user_ref(*r), 0});
+          pb::AssertionBody b;
+          pb::UserReference &d = *b.mutable_reference();
+          *d.mutable_from() = u.from();
+          if (operand >= 0) d.set_operand_index(static_cast<std::uint32_t>(operand));
+          *d.mutable_to() = A(r->to);
+          d.set_type(static_cast<pb::ReferenceType>(r->type));
+          demoted.push_back(std::move(b));
+        }
+      }
+      for (const pb::AssertionBody &b : demoted) extra_bodies.push_back(&b);
+    }
+    auto body_of = [&](std::size_t i) -> const pb::AssertionBody * {
+      if (i < static_cast<std::size_t>(req.assertions_size())) return &stored_body(static_cast<int>(i));
+      return extra_bodies[i - static_cast<std::size_t>(req.assertions_size())];
+    };
+
+    Project &p = *r.project;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), req.expected_head_revision()); !st.ok()) return st;
+    if (req.validate_only()) {
+      std::lock_guard lock(core_->mu);
+      SetHeadSnapshot(p, resp.mutable_snapshot());
+      for (int i = 0; i < req.assertions_size(); ++i) {
+        pb::Assertion a;
+        a.set_op(pb::ASSERTION_OP_ASSERT);
+        *a.mutable_key() = ToPbKey(*p.spaces, staged[static_cast<std::size_t>(i)].key);
+        *a.mutable_body() = stored_body(i);
+        *a.mutable_provenance() = req.provenance();
+        *resp.add_assertions() = std::move(a);
+      }
+      return Status::Ok();
+    }
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    const facts::Provenance who = ToFacts(req.provenance());
+    for (std::size_t i = 0; i < staged.size(); ++i) {
+      try {
+        tx.assert_fact(who, staged[i].key, std::move(staged[i].value), staged[i].depends_on,
+                       Meta(req.provenance(), body_of(i), rev));
+      } catch (const std::invalid_argument &e) {
+        return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: " + e.what());
+      }
+    }
+    pb::RevisionEvent ev;
+    Commit(p, tx, req.provenance(), pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    *resp.mutable_assertions() = ev.assertions();
+    *resp.mutable_changed_keys() = ev.changed_keys();
+    return Status::Ok();
+  }
+
+  Status RetractAssertions(const CallContext &, const pb::RetractAssertionsRequest &req,
+                           pb::RetractAssertionsResponse &resp) override {
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    if (req.seqs().empty()) return Error(StatusCode::kInvalidArgument, "no seqs");
+    // By program, or (api_minor 37) by project: the project's own records
+    // (folders) or any of its programs' ops.
+    const bool by_project = req.program_id().empty();
+    if (by_project && req.project_id().empty())
+      return Error(StatusCode::kInvalidArgument, "program_id or project_id is required");
+    Project *pp = nullptr;
+    if (by_project) {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(req.project_id());
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+      pp = it->second.get();
+    } else if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) {
+      return st;
+    }
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    if (by_project) {
+      std::lock_guard lock(core_->mu);
+      if (!p.open) return Error(StatusCode::kFailedPrecondition, "project " + p.id + " is closed");
+      if (req.expected_head_revision() && req.expected_head_revision() != p.head)
+        return Error(StatusCode::kAborted, "head is " + std::to_string(p.head) + ", expected " +
+                                               std::to_string(req.expected_head_revision()));
+    } else if (auto st = CheckWritable(p, req.program_id(), req.expected_head_revision()); !st.ok()) {
+      return st;
+    }
+    const Seq size = p.log().size();
+    const auto spaces = Spaces(p);
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    std::set<Seq> seen;
+    for (std::uint64_t seq : req.seqs()) {
+      auto target = p.log().op(seq);
+      if (seq == 0 || !target) return Error(StatusCode::kNotFound, "no assertion with seq " + std::to_string(seq));
+      // A project-wide type or archive setting belongs to every program.
+      if (!IsProjectTypeKey(target->key) &&
+          (by_project ? ProgramOf(*spaces, target->key).empty() && !IsFolderKey(target->key)
+                      : ProgramOf(*spaces, target->key) != req.program_id()))
+        return Error(StatusCode::kInvalidArgument, "seq " + std::to_string(seq) + " belongs to another program");
+      if (p.log().status(seq, size) == facts::OpStatus::Retracted || !seen.insert(seq).second)
+        return Error(StatusCode::kFailedPrecondition, "seq " + std::to_string(seq) + " is already retracted");
+      tx.retract(ToFacts(req.provenance()), seq, Meta(req.provenance(), nullptr, rev));
+    }
+    pb::RevisionEvent ev;
+    Commit(p, tx, req.provenance(), pb::CHANGE_CAUSE_RETRACTION, nullptr, &ev);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    *resp.mutable_retractions() = ev.assertions();
+    *resp.mutable_changed_keys() = ev.changed_keys();
+    return Status::Ok();
+  }
+
+  Status GetHistory(const CallContext &ctx, const pb::GetHistoryRequest &req, pb::GetHistoryResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.key().program_id(), req.read(), req.page().page_token(), r); !st.ok())
+      return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    auto ops = r.project->log().history(v.Stored(FromPbKey(v, req.key())), r.log_size);
+    Paginate(ops.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) { *resp.add_entries() = ToPbAssertion(*r.project, *r.spaces, ops[i], r.log_size); });
+    return Status::Ok();
+  }
+
+  Status Blame(const CallContext &ctx, const pb::BlameRequest &req, pb::BlameResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.key().program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    *resp.mutable_key() = req.key();
+    const facts::FactKey key = FromPbKey(v, req.key());
+    facts::Blame blame = r.project->log().blame(v.Stored(key), r.log_size);
+    std::vector<pb::Assertion> candidates;
+    for (const facts::BlameEntry &e : blame.candidates) {
+      pb::Assertion a = ToPbAssertion(*r.project, *r.spaces, e.op, r.log_size);
+      a.set_status(ToPb(e.status));
+      candidates.push_back(std::move(a));
+    }
+    auto order = [](pb::AssertionStatus s) {
+      switch (s) {
+        case pb::ASSERTION_STATUS_EFFECTIVE: return 0;
+        case pb::ASSERTION_STATUS_SHADOWED: return 1;
+        case pb::ASSERTION_STATUS_DEPENDENCY_DEAD: return 2;
+        default: return 3;
+      }
+    };
+    // Recency is the ops' global order, so every daemon lists them alike.
+    auto recency = [](const pb::Assertion &a) { return std::tuple(a.stamp(), a.id().replica(), a.id().counter()); };
+    std::stable_sort(candidates.begin(), candidates.end(), [&](const pb::Assertion &x, const pb::Assertion &y) {
+      if (order(x.status()) != order(y.status())) return order(x.status()) < order(y.status());
+      int rx = Rank(x.provenance().kind()), ry = Rank(y.provenance().kind());
+      return rx != ry ? rx > ry : recency(x) > recency(y);
+    });
+    for (auto &a : candidates) *resp.add_candidates() = std::move(a);
+    for (Seq s : blame.concurrent) resp.add_concurrent_seqs(s);
+    resp.set_value_text(ValueText(v, key));
+    if (blame.winner) {
+      *resp.mutable_origin() = v.Origin(*blame.winner);
+    } else if (!resp.value_text().empty()) {
+      if (key.kind == FactKind::Name && !key.sub.starts_with("local:")) {
+        *resp.mutable_origin() = v.NameOrigin(key.addr.offset);
+      } else {
+        static const std::map<FactKind, const char *> rules = {{FactKind::Name, "decompiler.ghidra.naming"},
+                                                               {FactKind::FunctionBounds, "analysis.functions"}};
+        auto it = rules.find(key.kind);
+        *resp.mutable_origin() = Derived(it == rules.end() ? "default" : it->second, r.revision);
+      }
+    }
+    return Status::Ok();
+  }
+
+  Status ListAssertions(const CallContext &ctx, const pb::ListAssertionsRequest &req,
+                        pb::ListAssertionsResponse &resp) override {
+    const auto &f = req.filter();
+    if (f.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED && !f.provenance().id().empty())
+      return Error(StatusCode::kInvalidArgument, "provenance filter with an id needs a kind");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), req.page().page_token(), r); !st.ok()) return st;
+    SetSnapshot(r, resp.mutable_snapshot());
+    std::set<int> kinds(f.kinds().begin(), f.kinds().end());
+    const facts::SpaceId space = r.program->source.ram_space;
+    std::vector<pb::Assertion> matches;
+    for (Seq s = 1; s <= r.log_size; ++s) {
+      auto op = r.project->log().op(s);
+      if (!op || op->key.addr.space != space) continue;
+      if (!kinds.empty() && !kinds.count(static_cast<int>(op->key.kind))) continue;
+      pb::Assertion a = ToPbAssertion(*r.project, *r.spaces, *op, r.log_size);
+      if (f.has_range() && !InRange(f.range(), a.key().address())) continue;
+      if (!f.include_inactive() && (a.op() != pb::ASSERTION_OP_ASSERT || (a.status() != pb::ASSERTION_STATUS_EFFECTIVE &&
+                                                                          a.status() != pb::ASSERTION_STATUS_SHADOWED)))
+        continue;
+      if (!MatchesProvenance(f.provenance(), a.provenance())) continue;
+      if (f.min_revision() && a.revision() < f.min_revision()) continue;
+      if (f.max_revision() && a.revision() > f.max_revision()) continue;
+      matches.push_back(std::move(a));
+    }
+    Paginate(matches.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) { *resp.add_assertions() = std::move(matches[i]); });
+    return Status::Ok();
+  }
+
+  // Follows the fact store's revert (FactDb::Transaction::revert): every op
+  // of the matching author is retracted, assertions and retractions, live
+  // or not, newest first. So assertions they retracted come back, and the
+  // result reads as if they had never acted, even if someone later undoes
+  // a retraction of their work.
+  Status RevertByProvenance(const CallContext &, const pb::RevertByProvenanceRequest &req,
+                            pb::RevertByProvenanceResponse &resp) override {
+    const auto &f = req.filter();
+    if (f.kind() == pb::PROVENANCE_KIND_UNSPECIFIED && f.session().empty())
+      return Error(StatusCode::kInvalidArgument, "filter needs a kind or a session");
+    if (f.kind() == pb::PROVENANCE_KIND_UNSPECIFIED && !f.id().empty())
+      return Error(StatusCode::kInvalidArgument, "provenance filter with an id needs a kind");
+    if (!req.dry_run() && req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), 0); !st.ok()) return st;
+    facts::SpaceId space = 0;
+    {
+      std::lock_guard lock(core_->mu);
+      space = p.programs.at(req.program_id())->source.ram_space;
+    }
+    std::vector<Seq> targets;
+    for (Seq s = 1; s <= p.log().size(); ++s) {
+      auto op = p.log().op(s);
+      if (!op || op->key.addr.space != space) continue;
+      pb::Assertion m = MetaOf(*op);
+      if (m.revision() < req.since_revision() || !MatchesProvenance(f, m.provenance())) continue;
+      targets.push_back(s);
+    }
+    for (Seq s : targets) resp.add_retracted_seqs(s);
+    if (req.dry_run() || targets.empty()) {
+      std::lock_guard lock(core_->mu);
+      SetHeadSnapshot(p, resp.mutable_snapshot());
+      return Status::Ok();
+    }
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    for (auto it = targets.rbegin(); it != targets.rend(); ++it)
+      tx.retract(ToFacts(req.provenance()), *it, Meta(req.provenance(), nullptr, rev));
+    pb::RevisionEvent ev;
+    Commit(p, tx, req.provenance(), pb::CHANGE_CAUSE_RETRACTION, nullptr, &ev);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    *resp.mutable_retractions() = ev.assertions();
+    *resp.mutable_changed_keys() = ev.changed_keys();
+    return Status::Ok();
+  }
+
+  // --- Queries ----------------------------------------------------------------
+
+  Status GetMemoryMap(const CallContext &ctx, const pb::GetMemoryMapRequest &req, pb::GetMemoryMapResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    FillMemory(v, resp.mutable_blocks(), resp.mutable_rejected());
+    return Status::Ok();
+  }
+
+  Status ReadMemory(const CallContext &ctx, const pb::ReadMemoryRequest &req, pb::ReadMemoryResponse &resp) override {
+    if (req.length() > (1u << 20)) return Error(StatusCode::kInvalidArgument, "length exceeds 1 MiB");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    const std::optional<std::uint64_t> key = KeyOf(r.program->program(), req.address());
+    if (!key) return Error(StatusCode::kInvalidArgument, "no memory space \"" + req.address().space() + "\"");
+    SetSnapshot(r, resp.mutable_snapshot());
+    *resp.mutable_address() = A(*key);
+    SnapshotPatches patches(*r.snapshot, r.program->source.ram_space);
+    resp.set_data(EffectiveProgram(*r.snapshot, r.program->id())->read(*key, req.length(), &patches));
+    return Status::Ok();
+  }
+
+  Status ListFunctions(const CallContext &ctx, const pb::ListFunctionsRequest &req, pb::ListFunctionsResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), req.page().page_token(), r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    if (req.page().page_token().empty()) r.page_offset = static_cast<std::size_t>(req.offset());
+    std::string needle = Lower(req.name_contains());
+    std::vector<std::pair<std::string, const Func *>> matches;
+    const bool by_name = req.sort() == pb::FUNCTION_SORT_NAME;
+    const bool named_filter = req.named() != pb::FUNCTION_NAME_FILTER_UNSPECIFIED;
+    for (const Func &f : v.functions().funcs) {
+      if (req.has_range() && !InRange(req.range(), A(f.entry))) continue;
+      const bool thunk = (f.flags & analysis::kFunctionThunk) != 0;
+      if ((req.thunks() == pb::FUNCTION_THUNK_FILTER_ONLY && !thunk) ||
+          (req.thunks() == pb::FUNCTION_THUNK_FILTER_EXCLUDE && thunk))
+        continue;
+      if (req.decompile_failed() && !DecompileFailed(v, f)) continue;
+      // Names are only needed to filter or sort by them; a page in address
+      // order reads just its own (500k functions page in milliseconds).
+      if (needle.empty() && !by_name && !named_filter) {
+        matches.emplace_back(std::string(), &f);
+        continue;
+      }
+      std::string name = v.Symbol(f.entry);
+      if (!needle.empty() && !v.NameMatches(f.entry, name, needle)) continue;
+      if (named_filter && name.starts_with("FUN_") != (req.named() == pb::FUNCTION_NAME_FILTER_UNNAMED)) continue;
+      matches.emplace_back(std::move(name), &f);
+    }
+    // Ties keep address order, also when descending.
+    auto by = [&](auto key) {
+      std::vector<std::pair<decltype(key(*matches[0].second)), std::size_t>> keyed;
+      keyed.reserve(matches.size());
+      for (std::size_t i = 0; i < matches.size(); ++i) keyed.emplace_back(key(*matches[i].second), i);
+      std::stable_sort(keyed.begin(), keyed.end(), [&](const auto &x, const auto &y) {
+        return req.descending() ? y.first < x.first : x.first < y.first;
+      });
+      std::vector<std::pair<std::string, const Func *>> sorted;
+      sorted.reserve(matches.size());
+      for (const auto &[k, i] : keyed) sorted.push_back(std::move(matches[i]));
+      matches = std::move(sorted);
+    };
+    if (matches.empty()) {
+    } else if (by_name) {
+      std::stable_sort(matches.begin(), matches.end(), [&](auto &x, auto &y) {
+        return req.descending() ? y.first < x.first : x.first < y.first;
+      });
+    } else if (req.sort() == pb::FUNCTION_SORT_SIZE) {
+      by([](const Func &f) { return BodySize(f); });
+    } else if (req.sort() == pb::FUNCTION_SORT_XREFS) {
+      by([&](const Func &f) { return v.xrefs().to(f.entry, f.entry).size(); });
+    } else if (req.descending()) {
+      std::reverse(matches.begin(), matches.end());
+    }
+    Paginate(matches.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) { FillFunction(v, *matches[i].second, resp.add_functions()); });
+    return Status::Ok();
+  }
+
+  Status ListSymbols(const CallContext &ctx, const pb::ListSymbolsRequest &req, pb::ListSymbolsResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), req.page().page_token(), r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    // Every named address: functions, default labels, and every address that
+    // has ever had a (non-local) name asserted; names are then read at this
+    // revision, so ones that don't apply here drop out.
+    std::map<std::uint64_t, pb::SymbolKind> addrs;
+    for (const Func &f : v.functions().funcs) addrs.emplace(f.entry, pb::SYMBOL_KIND_FUNCTION);
+    for (const Label &l : v.defaults().labels) addrs.emplace(l.address, pb::SYMBOL_KIND_LABEL);
+    for (const facts::FactKey &k : v.LogKeys())
+      if (k.kind == FactKind::Name && k.sub.empty() && k.addr.space == v.space()) addrs.emplace(k.addr.offset, pb::SYMBOL_KIND_LABEL);
+    std::set<int> kinds(req.kinds().begin(), req.kinds().end());
+    const std::string needle = Lower(req.name_contains());
+    std::vector<std::pair<std::uint64_t, std::string>> matches;
+    for (const auto &[addr, kind] : addrs) {
+      if (!kinds.empty() && !kinds.count(kind)) continue;
+      if (req.has_range() && !InRange(req.range(), A(addr))) continue;
+      std::string name = v.Symbol(addr);
+      if (name.empty()) continue;
+      // The mangled name a demangled one came from finds it too
+      // (docs/demangle.md).
+      if (!req.name_equals().empty() ? name != req.name_equals() && v.MangledName(addr) != req.name_equals()
+                                     : !needle.empty() && !v.NameMatches(addr, name, needle))
+        continue;
+      matches.emplace_back(addr, std::move(name));
+    }
+    Paginate(matches.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) {
+               auto *out = resp.add_symbols();
+               *out->mutable_address() = A(matches[i].first);
+               out->set_name(matches[i].second);
+               out->set_kind(addrs.at(matches[i].first));
+               *out->mutable_origin() = v.NameOrigin(matches[i].first);
+               if (auto d = v.Demangled(matches[i].first)) *out->mutable_demangled() = std::move(*d);
+             });
+    return Status::Ok();
+  }
+
+  Status GetFunction(const CallContext &ctx, const pb::GetFunctionRequest &req, pb::GetFunctionResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    std::uint64_t a = req.address().offset();
+    const Func *f = !IsDefaultSpace(req.address()) ? nullptr
+                    : req.containing()             ? v.functions().containing(a)
+                                                   : v.functions().at(a);
+    if (!f)
+      return Error(StatusCode::kNotFound,
+                   std::string("no function ") + (req.containing() ? "containing" : "at") + " 0x" + Hex(a));
+    SetSnapshot(r, resp.mutable_snapshot());
+    FillFunction(v, *f, resp.mutable_function());
+    return Status::Ok();
+  }
+
+  Status GetListing(const CallContext &ctx, const pb::GetListingRequest &req, pb::GetListingResponse &resp) override {
+    constexpr std::int64_t kMaxRows = 2000;
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const RowIndex &rows = v.rows();
+    // With header rows, rows are numbered as displayed: each code unit's
+    // header lines, then the code unit (HeaderIndex).
+    const bool headers = req.header_rows();
+    if (headers) r.program->header_rows_read->store(true, std::memory_order_relaxed);
+    HeaderMap h = headers ? HeaderMap(v.snapshot(), v.id()) : HeaderMap();
+    SetSnapshot(r, resp.mutable_snapshot());
+    const std::int64_t total = rows.total_rows + h.total_lines();
+    std::int64_t first = 0, count = 0;
+    std::optional<std::uint64_t> end_addr;
+    if (req.has_rows()) {
+      if (req.rows().first_row() < 0) return Error(StatusCode::kInvalidArgument, "first_row is negative");
+      first = std::min(req.rows().first_row(), total);
+      count = req.rows().row_count() == 0 ? 100 : req.rows().row_count();
+      resp.set_truncated(count > kMaxRows);
+      count = std::min(count, kMaxRows);
+    } else if (req.has_addresses()) {
+      const auto &w = req.addresses();
+      const std::optional<std::uint64_t> start = KeyOf(v.program(), w.start());
+      if (!start) return Error(StatusCode::kInvalidArgument, "no memory space \"" + w.start().space() + "\"");
+      first = h.display_row(rows.row_at(*start));
+      first -= std::min<std::int64_t>(first, w.rows_before());
+      count = w.max_rows() == 0 ? 200 : std::min<std::int64_t>(w.max_rows(), kMaxRows);
+      if (w.has_end()) end_addr = KeyOf(v.program(), w.end()).value_or(w.end().offset());
+    } else {
+      return Error(StatusCode::kInvalidArgument, "window (rows or addresses) is required");
+    }
+    resp.set_first_row(first);
+    resp.set_total_rows(total);
+    std::int64_t i = first;
+    std::shared_ptr<const std::vector<StaticRow>> page;
+    std::int64_t page_index = -1;
+    auto base_row = [&](std::int64_t b) -> const StaticRow & {
+      if (b / RowIndex::kPageRows != page_index) {
+        page_index = b / RowIndex::kPageRows;
+        page = v.page(page_index);
+      }
+      return (*page)[static_cast<std::size_t>(b % RowIndex::kPageRows)];
+    };
+    std::int64_t lines_row = -1;  // the base row `lines` is for
+    std::vector<HeaderLine> lines;
+    for (; i < total && i - first < count; ++i) {
+      const HeaderMap::Position at = h.at(i);
+      const StaticRow &row = base_row(at.row);
+      if (end_addr && row.address > *end_addr) break;
+      if (at.header < 0) {
+        FillRow(v, row, i, req.omit_bytes(), resp.add_rows());
+        continue;
+      }
+      if (lines_row != at.row) {
+        lines = HeaderLines(v, row.address);
+        // Keep the numbering listing.headers gave even if they disagree.
+        lines.resize(h.lines_at(at.row), HeaderLine{pb::LISTING_HEADER_KIND_UNSPECIFIED, {}, 0, {}});
+        lines_row = at.row;
+      }
+      FillHeaderRow(v, row, lines[static_cast<std::size_t>(at.header)], i, resp.add_rows());
+    }
+    if (end_addr && i < total && i - first >= count && rows.row_address(h.at(i).row) <= *end_addr) resp.set_truncated(true);
+    return Status::Ok();
+  }
+
+  Status GetInstruction(const CallContext &ctx, const pb::GetInstructionRequest &req, pb::GetInstructionResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const Program &p = v.program();
+    std::optional<Program::Decoded> d;
+    SnapshotPatches patches(v.snapshot(), v.space());
+    if (IsDefaultSpace(req.address()))
+      d = p.instruction(req.address().offset(), v.code().thumb_at(req.address().offset()), &patches);
+    if (!d) return Error(StatusCode::kNotFound, "no instruction at 0x" + Hex(req.address().offset()));
+    SetSnapshot(r, resp.mutable_snapshot());
+    FillInstruction(v, *d, patches, true, resp.mutable_instruction());
+    return Status::Ok();
+  }
+
+  // One decoded instruction as GetInstruction (and ListInstructions)
+  // describe it: bytes as patched, tokens, operands with their references,
+  // flow after any override, and (with `pcode`) its raw p-code.
+  void FillInstruction(View &v, const Program::Decoded &decoded, SnapshotPatches &patches, bool pcode,
+                       pb::InstructionDetail *out) {
+    const Program &p = v.program();
+    const Program::Decoded *d = &decoded;
+    const lift::Instruction &i = d->insn;
+    *out->mutable_address() = A(i.address);
+    out->set_length(i.length);
+    out->set_bytes(p.read(i.address, i.length, &patches));
+    out->set_mnemonic(i.mnemonic);
+    RenderTokens(v, i.address, i.tokens, out->mutable_tokens());
+    int operands = 0;
+    for (const auto &t : i.tokens) operands = std::max(operands, t.operand + 1);
+    const auto refs = v.xrefs().from(i.address, i.address);
+    for (int k = 0; k < operands; ++k) {
+      auto *op = out->add_operands();
+      op->set_index(static_cast<std::uint32_t>(k));
+      RenderTokens(v, i.address, i.tokens, op->mutable_tokens(), k);
+      std::set<std::uint64_t> seen;
+      for (const StaticXref *x : refs)
+        if (x->operand == k && seen.insert(x->to).second) *op->add_references() = A(x->to);
+      for (const auto &t : op->tokens())
+        if (t.has_target() && seen.insert(t.target().offset()).second) *op->add_references() = t.target();
+    }
+    std::vector<std::uint64_t> targets;
+    pb::FlowKind flow = FlowOf(i, p.code_space(), targets);
+    const facts::FactKey override_key = v.Key(FactKind::FlowOverride, i.address);
+    if (auto w = v.Winner(override_key)) {
+      const auto kind = static_cast<pb::FlowOverrideKind>(std::get<std::int64_t>(v.Value(override_key)));
+      out->set_flow_override(kind);
+      *out->mutable_flow_override_origin() = v.Origin(*w);
+      switch (kind) {
+        case pb::FLOW_OVERRIDE_KIND_BRANCH: flow = pb::FLOW_KIND_UNCONDITIONAL_BRANCH; break;
+        case pb::FLOW_OVERRIDE_KIND_CALL:
+        case pb::FLOW_OVERRIDE_KIND_CALL_RETURN: flow = pb::FLOW_KIND_CALL; break;
+        case pb::FLOW_OVERRIDE_KIND_RETURN: flow = pb::FLOW_KIND_RETURN; break;
+        default: break;
+      }
+    }
+    out->set_flow(flow);
+    for (auto t : targets) *out->add_flow_targets() = A(t);
+    if (flow != pb::FLOW_KIND_RETURN && flow != pb::FLOW_KIND_UNCONDITIONAL_BRANCH && flow != pb::FLOW_KIND_INDIRECT_BRANCH &&
+        flow != pb::FLOW_KIND_TERMINATOR)
+      *out->mutable_fall_through() = A(i.address + i.length + i.delay_slot);
+    auto set_varnode = [&](const lift::Varnode &vn, pb::Varnode *o) {
+      // LOAD/STORE's first input names an address space; it is reported as
+      // a constant, as Ghidra prints it.
+      o->set_space(vn.referenced_space.empty() ? vn.space : "const");
+      o->set_offset(vn.offset);
+      o->set_size(vn.size);
+      if (vn.space == "register")
+        if (auto it = d->registers.find({vn.offset, vn.size}); it != d->registers.end()) o->set_register_name(it->second);
+    };
+    for (std::size_t k = 0; pcode && k < i.pcode.size(); ++k) {
+      const lift::PcodeOp &pd = i.pcode[k];
+      auto *op = out->add_pcode();
+      pb::PcodeOpcode code = pb::PCODE_OPCODE_UNSPECIFIED;
+      pb::PcodeOpcode_Parse("PCODE_OPCODE_" + pd.opcode, &code);
+      op->set_opcode(code);
+      op->set_mnemonic(pd.opcode);
+      if (pd.output) set_varnode(*pd.output, op->mutable_output());
+      for (const auto &in : pd.inputs) set_varnode(in, op->add_inputs());
+      op->set_index(static_cast<std::uint32_t>(k));
+    }
+    if (const Func *f = v.functions().containing(i.address)) *out->mutable_function() = A(f->entry);
+    auto *origin = out->mutable_origin();
+    origin->set_rule("disasm.sleigh");
+    origin->set_confidence(1);
+    origin->set_computed_at_revision(v.revision());
+  }
+
+  // Basic blocks from the listing's instruction rows in the function's body
+  // (their flow after overrides, branch targets and jump-table cases): a
+  // block starts at the entry, at a jump target and after a block-ending
+  // instruction, and ends at a branch, jump, return or computed jump or
+  // before the next start. Calls don't end blocks, except calls to no-return
+  // functions and tail calls (CALL_RETURN), which leave the function.
+  // A function's instructions as listing rows, in address order (at most
+  // 50,000: `truncated`). False when the call was cancelled.
+  // `delay` (if given) says which rows are in a delay slot.
+  bool FunctionRows(const CallContext &ctx, View &v, const Func &f, bool omit_bytes, std::vector<pb::ListingRow> &insns,
+                    bool &truncated, std::vector<bool> *delay = nullptr) {
+    constexpr std::size_t kMaxInstructions = 50000;
+    const RowIndex &index = v.rows();
+    std::shared_ptr<const std::vector<StaticRow>> page;
+    std::int64_t page_no = -1;
+    for (const auto &[first, last] : f.body) {
+      for (std::int64_t row = index.row_at(first); row < index.total_rows && !truncated; ++row) {
+        if (row / RowIndex::kPageRows != page_no) {
+          page_no = row / RowIndex::kPageRows;
+          page = v.page(page_no);
+        }
+        const std::size_t k = static_cast<std::size_t>(row - page_no * RowIndex::kPageRows);
+        if (k >= page->size()) break;
+        const StaticRow &sr = (*page)[k];
+        if (sr.address > last) break;
+        if (sr.address < first || sr.kind != pb::LISTING_ROW_KIND_INSTRUCTION) continue;
+        if (!insns.empty() && insns.back().address().offset() >= sr.address) continue;  // overlapping ranges
+        if (insns.size() == kMaxInstructions) {
+          truncated = true;
+          break;
+        }
+        FillRow(v, sr, 0, omit_bytes, &insns.emplace_back());
+        if (delay) {
+          const ListingSpan &span = index.span_of_row(row);
+          const auto at = static_cast<std::size_t>(row - span.first_row);
+          delay->push_back(span.code && at < span.rows.size() && (span.rows[at] & ListingSpan::kDelaySlot) != 0);
+        }
+      }
+      if (ctx.cancelled()) return false;
+    }
+    return true;
+  }
+
+  // The instruction row at an address, if there is one.
+  std::optional<pb::ListingRow> InstructionRow(View &v, std::uint64_t address) {
+    const RowIndex &index = v.rows();
+    const std::int64_t row = index.row_at(address);
+    if (row < 0 || row >= index.total_rows) return std::nullopt;
+    for (std::int64_t r = row; r < index.total_rows && r < row + 64; ++r) {
+      auto page = v.page(r / RowIndex::kPageRows);
+      const std::size_t k = static_cast<std::size_t>(r % RowIndex::kPageRows);
+      if (k >= page->size()) return std::nullopt;
+      const StaticRow &sr = (*page)[k];
+      if (sr.address != address) return std::nullopt;
+      if (sr.kind != pb::LISTING_ROW_KIND_INSTRUCTION) continue;  // its header rows
+      pb::ListingRow out;
+      FillRow(v, sr, 0, true, &out);
+      return out;
+    }
+    return std::nullopt;
+  }
+
+  Status GetFunctionGraph(const CallContext &ctx, const pb::GetFunctionGraphRequest &req,
+                          pb::GetFunctionGraphResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const std::uint64_t at = req.function().offset();
+    const Func *f = v.functions().at(at);
+    if (!f && req.containing()) f = v.functions().containing(at);
+    if (!f) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(at));
+    FillFunction(v, *f, resp.mutable_function());
+
+    std::vector<pb::ListingRow> insns;
+    // Instructions in a branch's delay slot (MIPS, SPARC, ...): they run
+    // before the branch takes effect, so they end its block with it.
+    std::vector<bool> delay;
+    bool truncated = false;
+    if (!FunctionRows(ctx, v, *f, req.omit_bytes(), insns, truncated, &delay)) return Error(StatusCode::kCancelled, "cancelled");
+    resp.set_truncated(truncated);
+    if (insns.empty()) return Status::Ok();
+
+    std::map<std::uint64_t, std::size_t> by_addr;
+    std::vector<std::uint64_t> ends(insns.size());  // address + length (the rows move into blocks)
+    for (std::size_t i = 0; i < insns.size(); ++i) {
+      by_addr.emplace(insns[i].address().offset(), i);
+      ends[i] = insns[i].address().offset() + insns[i].length();
+    }
+    auto next_of = [&](std::size_t i) -> std::optional<std::size_t> {
+      const std::uint64_t n = ends[i];
+      auto it = by_addr.find(n);
+      return it == by_addr.end() ? std::nullopt : std::optional(it->second);
+    };
+    auto no_return_call = [&](const pb::ListingRow &row) {
+      if (row.flow() != pb::FLOW_KIND_CALL && row.flow() != pb::FLOW_KIND_INDIRECT_CALL) return false;
+      if (row.flow_override() == pb::FLOW_OVERRIDE_KIND_CALL_RETURN) return true;
+      for (const auto &t : row.flow_targets())
+        if (const Func *callee = v.functions().at(t.offset()); callee && (callee->flags & analysis::kFunctionNoReturn))
+          return true;
+      return false;
+    };
+    auto ends_block = [&](const pb::ListingRow &row) {
+      switch (row.flow()) {
+        case pb::FLOW_KIND_UNCONDITIONAL_BRANCH:
+        case pb::FLOW_KIND_CONDITIONAL_BRANCH:
+        case pb::FLOW_KIND_RETURN:
+        case pb::FLOW_KIND_INDIRECT_BRANCH:
+        case pb::FLOW_KIND_TERMINATOR: return true;
+        default: return no_return_call(row);
+      }
+    };
+    // The last of an instruction's delay slots (itself without any).
+    auto with_delay = [&](std::size_t i) {
+      while (i + 1 < insns.size() && delay[i + 1] && next_of(i) == i + 1) ++i;
+      return i;
+    };
+    std::vector<bool> leader(insns.size(), false);
+    leader[0] = true;
+    if (auto it = by_addr.find(f->entry); it != by_addr.end()) leader[it->second] = true;
+    for (std::size_t i = 0; i < insns.size(); ++i) {
+      const pb::ListingRow &row = insns[i];
+      if (row.flow() == pb::FLOW_KIND_UNCONDITIONAL_BRANCH || row.flow() == pb::FLOW_KIND_CONDITIONAL_BRANCH ||
+          row.flow() == pb::FLOW_KIND_INDIRECT_BRANCH)
+        for (const auto &t : row.flow_targets())
+          if (auto it = by_addr.find(t.offset()); it != by_addr.end()) leader[it->second] = true;
+      if (delay[i]) {
+        // Flows on from its branch's block: a block starts after it only if
+        // the code doesn't continue straight on (the branch's ending was
+        // marked at the slot, below).
+        auto n = next_of(i);
+        if (i + 1 < insns.size() && (!n || *n != i + 1)) leader[i + 1] = true;
+        continue;
+      }
+      const std::size_t last = with_delay(i);
+      auto n = next_of(last);
+      if (last + 1 < insns.size() && (!n || *n != last + 1 || ends_block(row))) leader[last + 1] = true;
+    }
+    std::vector<std::size_t> block_of(insns.size());
+    std::vector<std::size_t> starts;
+    for (std::size_t i = 0; i < insns.size(); ++i) {
+      if (leader[i]) starts.push_back(i);
+      block_of[i] = starts.size() - 1;
+    }
+    for (std::size_t b = 0; b < starts.size(); ++b) {
+      const std::size_t lo = starts[b], hi = b + 1 < starts.size() ? starts[b + 1] : insns.size();
+      pb::BasicBlock *block = resp.add_blocks();
+      *block->mutable_range() = Range(insns[lo].address().offset(),
+                                      insns[hi - 1].address().offset() + std::max<std::uint32_t>(insns[hi - 1].length(), 1) - 1);
+      for (std::size_t i = lo; i < hi; ++i) {
+        insns[i].set_row(static_cast<std::int64_t>(i - lo));
+        *block->add_rows() = std::move(insns[i]);
+      }
+      if (insns[lo].address().offset() == f->entry) resp.set_entry_block(static_cast<std::uint32_t>(b));
+    }
+    std::set<std::tuple<std::uint32_t, std::uint32_t, int>> seen;
+    for (std::size_t b = 0; b < starts.size(); ++b) {
+      pb::BasicBlock *block = resp.mutable_blocks(static_cast<int>(b));
+      // The instruction that decides where control goes: the last one, or
+      // the branch whose delay slots end the block. Fallthrough continues
+      // after the slots.
+      const std::size_t i = starts[b] + static_cast<std::size_t>(block->rows_size()) - 1;
+      std::size_t k = static_cast<std::size_t>(block->rows_size()) - 1;
+      while (k > 0 && delay[starts[b] + k]) --k;
+      const pb::ListingRow &last = block->rows(static_cast<int>(k));
+      bool leaves = false;
+      auto edge = [&](std::optional<std::size_t> to, pb::FlowEdgeKind kind) {
+        if (!to) {
+          leaves = true;
+          return;
+        }
+        const auto key = std::tuple{static_cast<std::uint32_t>(b), static_cast<std::uint32_t>(block_of[*to]), static_cast<int>(kind)};
+        if (!seen.insert(key).second) return;
+        pb::FlowEdge *e = resp.add_edges();
+        e->set_from_block(std::get<0>(key));
+        e->set_to_block(std::get<1>(key));
+        e->set_kind(kind);
+      };
+      auto target = [&](const pb::Address &t) -> std::optional<std::size_t> {
+        auto it = by_addr.find(t.offset());
+        return it == by_addr.end() ? std::nullopt : std::optional(it->second);
+      };
+      switch (last.flow()) {
+        case pb::FLOW_KIND_UNCONDITIONAL_BRANCH:
+          if (last.flow_targets().empty()) leaves = true;
+          for (const auto &t : last.flow_targets()) edge(target(t), pb::FLOW_EDGE_KIND_UNCONDITIONAL);
+          break;
+        case pb::FLOW_KIND_CONDITIONAL_BRANCH:
+          for (const auto &t : last.flow_targets()) edge(target(t), pb::FLOW_EDGE_KIND_CONDITIONAL_TRUE);
+          edge(next_of(i), pb::FLOW_EDGE_KIND_CONDITIONAL_FALSE);
+          break;
+        case pb::FLOW_KIND_INDIRECT_BRANCH:
+          if (last.flow_targets().empty()) leaves = true;
+          for (const auto &t : last.flow_targets()) edge(target(t), pb::FLOW_EDGE_KIND_SWITCH);
+          break;
+        case pb::FLOW_KIND_RETURN:
+        case pb::FLOW_KIND_TERMINATOR: leaves = true; break;
+        default:
+          if (no_return_call(last)) leaves = true;
+          else edge(next_of(i), pb::FLOW_EDGE_KIND_FALL_THROUGH);
+          break;
+      }
+      block->set_exit(leaves);
+    }
+    return Status::Ok();
+  }
+
+  // Data analysis's items (strings, pointers, accessed undefinedN) and the
+  // globals whose type is asserted, in address order.
+  // MSVC RTTI's classes (docs/pe.md): msvc.classes, with the names the
+  // program gives the vftables and their functions now, and the class
+  // structs' hashes.
+  // QueryService.ListCallingConventions (api_minor 58): the compiler spec's
+  // prototype models and aliases (lift::prototype_models), the default
+  // (lift::read_abi's default_model), and the C spelling of each that
+  // revkit::cparse turns into the convention QueryLookup commits.
+  Status ListCallingConventions(const CallContext &ctx, const pb::ListCallingConventionsRequest &req,
+                                pb::ListCallingConventionsResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    const auto &lang = v.program().language();
+    std::string def;
+    try {
+      def = lift::read_abi(lang.language, lang.compiler).default_model;
+    } catch (const std::exception &) {
+      /* no specs: no default */
+    }
+    auto spelling = [](const std::string &name) -> std::string {
+      static const std::set<std::string> keywords{"__cdecl", "__stdcall", "__fastcall", "__thiscall", "__vectorcall", "__pascal", "__regcall"};
+      if (keywords.contains(name)) return name;
+      if (name == "MSABI") return "__attribute__((ms_abi))";
+      return "";
+    };
+    std::vector<std::string> names(lift::prototype_models(lang.language, lang.compiler).begin(),
+                                   lift::prototype_models(lang.language, lang.compiler).end());
+    std::stable_partition(names.begin(), names.end(), [&](const std::string &n) { return n == def; });
+    for (const std::string &n : names) {
+      auto *c = resp.add_conventions();
+      c->set_name(n);
+      c->set_is_default(n == def);
+      c->set_c_spelling(spelling(n));
+    }
+    resp.set_default_name(def);
+    return Status::Ok();
+  }
+
+  Status GetClassHierarchy(const CallContext &ctx, const pb::GetClassHierarchyRequest &req,
+                           pb::GetClassHierarchyResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    pb::GetClassHierarchyResponse all;
+    if (!all.ParseFromString(*r.snapshot->get<q::RttiClasses>(req.program_id())))
+      return Error(StatusCode::kInternal, "msvc.classes: unreadable");
+    auto names = r.snapshot->get<q::TypeNames>(req.program_id());
+    const std::string needle = Lower(req.name_contains());
+    for (pb::RttiClass &c : *all.mutable_classes()) {
+      if (!needle.empty() && Lower(c.name()).find(needle) == std::string::npos) continue;
+      if (const std::string *h = names->bound(c.type_name())) {
+        c.set_type_hash(*h);
+      } else {
+        for (const NamedTypes::Entry &e : names->types)
+          if (e.key == c.type_name() && !e.library) {
+            c.set_type_hash(e.hash);
+            break;
+          }
+      }
+      for (pb::RttiVftable &t : *c.mutable_vftables()) {
+        t.set_name(v.Symbol(t.address().offset()));
+        for (pb::RttiVirtualFunction &f : *t.mutable_functions()) f.set_name(v.Symbol(f.entry().offset()));
+      }
+      *resp.add_classes() = std::move(c);
+    }
+    return Status::Ok();
+  }
+
+  Status ListData(const CallContext &ctx, const pb::ListDataRequest &req, pb::ListDataResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), req.page().page_token(), r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    if (req.page().page_token().empty()) r.page_offset = static_cast<std::size_t>(req.offset());
+    std::set<int> cats(req.categories().begin(), req.categories().end());
+    auto want = [&](pb::DataCategory c) { return cats.empty() || cats.contains(c); };
+    const std::string needle = Lower(req.text_contains());
+    std::uint64_t lo = 0, hi = UINT64_MAX;
+    if (req.has_range()) {
+      lo = req.range().first().offset();
+      hi = req.range().last().offset();
+    }
+    struct Item {
+      std::uint64_t address;
+      const analysis::DataItem *item;  // null: an asserted type
+    };
+    std::vector<Item> items;
+    if (want(pb::DATA_CATEGORY_STRING) || want(pb::DATA_CATEGORY_POINTER) || want(pb::DATA_CATEGORY_UNDEFINED) ||
+        want(pb::DATA_CATEGORY_DEFINED))
+      for (const analysis::DataItem &d : v.rows().data) {
+        if (d.address < lo || d.address > hi) continue;
+        pb::DataCategory c = DataCategoryOf(d);
+        if (c == pb::DATA_CATEGORY_UNSPECIFIED || !want(c)) continue;
+        items.push_back({d.address, &d});
+      }
+    if (want(pb::DATA_CATEGORY_TYPED)) {
+      auto buckets = r.snapshot->get<facts::AssertedBuckets>({FactKind::Type, v.space()});
+      for (std::uint64_t b : *buckets) {
+        auto keys = r.snapshot->get<facts::AssertedKeys>(facts::BucketKey{FactKind::Type, v.space(), b});
+        for (const auto &[addr, sub] : *keys) {
+          if (!sub.empty() || addr < lo || addr > hi || v.functions().at(addr)) continue;
+          items.push_back({addr, nullptr});
+        }
+      }
+    }
+    std::stable_sort(items.begin(), items.end(), [](const Item &a, const Item &b) { return a.address < b.address; });
+    std::vector<pb::DefinedData> out;
+    for (const Item &it : items) {
+      pb::DefinedData d;
+      *d.mutable_address() = A(it.address);
+      d.set_label(v.Symbol(it.address));
+      if (it.item) {
+        const analysis::DataItem &x = *it.item;
+        d.set_length(x.length);
+        d.set_category(DataCategoryOf(x));
+        if (x.origin == analysis::kDataUser) {
+          // A user's definition: its type, its text or target, and who made it.
+          d.set_data_type(x.spec.item_name);
+          if (x.kind == analysis::DataKind::pointer) {
+            *d.mutable_target() = A(x.value);
+            std::string name = v.Symbol(x.value);
+            d.set_value(name.empty() ? Hex(x.value) : name);
+          } else if (x.kind != analysis::DataKind::defined) {
+            d.set_value(x.text);
+          }
+          const facts::FactKey key = v.Key(FactKind::CodeUnit, x.address, std::string(analysis::kUnitData));
+          if (auto w = v.Winner(key)) *d.mutable_origin() = v.Origin(*w);
+          if (!needle.empty() && Lower(d.value()).find(needle) == std::string::npos &&
+              Lower(d.label()).find(needle) == std::string::npos && Lower(d.data_type()).find(needle) == std::string::npos)
+            continue;
+          out.push_back(std::move(d));
+          continue;
+        }
+        switch (x.kind) {
+          case analysis::DataKind::string: d.set_data_type("string"); d.set_value(x.text); break;
+          case analysis::DataKind::unicode: d.set_data_type("unicode"); d.set_value(x.text); break;
+          case analysis::DataKind::unicode32: d.set_data_type("unicode32"); d.set_value(x.text); break;
+          case analysis::DataKind::pointer: {
+            d.set_data_type("pointer");
+            *d.mutable_target() = A(x.value);
+            std::string name = v.Symbol(x.value);
+            d.set_value(name.empty() ? Hex(x.value) : name);
+            break;
+          }
+          default: d.set_data_type(x.length == 1 ? "undefined" : "undefined" + std::to_string(x.length)); break;
+        }
+        *d.mutable_origin() = Derived("analysis.data", r.revision);
+      } else {
+        const facts::FactKey key = v.Key(FactKind::Type, it.address);
+        const std::string t = v.Text(key);
+        d.set_category(pb::DATA_CATEGORY_TYPED);
+        d.set_data_type(t.starts_with("h:") ? v.TypeDisplay(t.substr(2)) : v.TypeText(key));
+        if (auto w = v.Winner(key)) *d.mutable_origin() = v.Origin(*w);
+      }
+      if (!needle.empty() && Lower(d.value()).find(needle) == std::string::npos &&
+          Lower(d.label()).find(needle) == std::string::npos && Lower(d.data_type()).find(needle) == std::string::npos)
+        continue;
+      out.push_back(std::move(d));
+    }
+    Paginate(out.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) {
+               pb::DefinedData *d = resp.add_data();
+               *d = std::move(out[i]);
+               d->set_xref_to_count(v.xrefs().count_to(d->address().offset()));
+             });
+    return Status::Ok();
+  }
+
+  Status GetXrefs(const CallContext &ctx, const pb::GetXrefsRequest &req, pb::GetXrefsResponse &resp) override {
+    std::uint64_t lo, hi;
+    if (req.has_address()) {
+      lo = hi = req.address().offset();
+    } else if (req.has_range()) {
+      lo = req.range().first().offset();
+      hi = req.range().last().offset();
+      if (lo > hi) return Error(StatusCode::kInvalidArgument, "range.first > range.last");
+    } else {
+      return Error(StatusCode::kInvalidArgument, "address or range is required");
+    }
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), req.page().page_token(), r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    auto dir = req.direction() == pb::XREF_DIRECTION_UNSPECIFIED ? pb::XREF_DIRECTION_TO : req.direction();
+    std::set<int> kinds(req.kinds().begin(), req.kinds().end());
+    std::vector<std::pair<const StaticXref *, pb::XrefDirection>> found;
+    if (dir == pb::XREF_DIRECTION_TO || dir == pb::XREF_DIRECTION_BOTH)
+      for (const StaticXref *x : v.xrefs().to(lo, hi)) found.emplace_back(x, pb::XREF_DIRECTION_TO);
+    if (dir == pb::XREF_DIRECTION_FROM || dir == pb::XREF_DIRECTION_BOTH)
+      for (const StaticXref *x : v.xrefs().from(lo, hi)) found.emplace_back(x, pb::XREF_DIRECTION_FROM);
+    std::erase_if(found, [&](auto &e) { return !kinds.empty() && !kinds.count(e.first->kind); });
+    std::stable_sort(found.begin(), found.end(), [](const auto &a, const auto &b) {
+      return std::tuple(a.second, a.first->from, a.first->to) < std::tuple(b.second, b.first->from, b.first->to);
+    });
+    Paginate(found.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) {
+               const StaticXref &x = *found[i].first;
+               auto *xr = resp.add_xrefs();
+               *xr->mutable_from_address() = A(x.from);
+               *xr->mutable_to_address() = A(x.to);
+               xr->set_kind(x.kind);
+               if (const int operand = v.program().XrefOperand(x); operand >= 0)
+                 xr->set_operand_index(static_cast<std::uint32_t>(operand));
+               if (const Func *f = v.functions().containing(x.from)) {
+                 *xr->mutable_from_function() = A(f->entry);
+                 xr->set_from_function_name(v.Symbol(f->entry));
+               }
+               xr->set_to_name(v.Symbol(x.to));
+               xr->set_direction(found[i].second);
+               *xr->mutable_origin() = Derived("xrefs.static", r.revision);
+               if (x.user) {
+                 // The user's reference: its assertion (api_minor 39).
+                 xr->set_primary(x.primary);
+                 if (auto w = v.Winner(v.Key(FactKind::Reference, x.from, analysis::user_ref_sub(x.operand, x.to))))
+                   *xr->mutable_origin() = v.Origin(*w);
+               }
+             });
+    return Status::Ok();
+  }
+
+  Status Decompile(const CallContext &ctx, const pb::DecompileRequest &req, pb::DecompileResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const Func *f = IsDefaultSpace(req.function()) ? v.functions().at(req.function().offset()) : nullptr;
+    if (!f) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(req.function().offset()));
+    const lift::DecompileLimits limits = LimitsFor(ctx, req.options().timeout_ms());
+    facts::Ref<DecompileOutput> out;
+    std::shared_ptr<const DecompileOutput> escalated;
+    try {
+      DecompileLimitsScope scope(limits);
+      out = r.snapshot->get<q::Decompile>({v.id(), f->entry});
+      // A failure is the memoized result for its bundle; a timeout's one
+      // escalation replaces it for that bundle.
+      if (out->failure) {
+        const decompd::Failure &failed = *out->failure;
+        escalated = v.program().Escalated(failed.bundle_hash);
+        if (req.options().escalate()) {
+          if (failed.kind != decompd::FailureKind::timeout || escalated)
+            return Error(StatusCode::kFailedPrecondition,
+                         escalated ? "this decompilation was already retried with a longer deadline"
+                                   : std::string("only a timeout can be retried with a longer deadline; this was ") +
+                                         decompd::failure_kind_name(failed.kind));
+          double timeout = req.options().timeout_ms() != 0 ? req.options().timeout_ms() / 1000.0
+                                                            : failed.deadline_seconds * 4;
+          if (timeout <= 0) timeout = 4 * std::max(30.0, core_->options.decompile_timeout_seconds);
+          if (ctx.deadline != CallContext::Clock::time_point::max())
+            timeout = std::min(timeout, std::chrono::duration<double>(ctx.deadline - CallContext::Clock::now()).count());
+          auto again = std::make_shared<DecompileOutput>(v.program().decompiler().Escalate(*out, timeout));
+          if (again->failure && again->failure->kind != decompd::FailureKind::timeout) again->failure->escalated = true;
+          v.program().SetEscalated(failed.bundle_hash, again);
+          escalated = again;
+        }
+      }
+    } catch (const DecompileStoppedError &e) {
+      return Error(StatusCode::kCancelled, e.what());
+    }
+    const DecompileOutput &use = escalated ? *escalated : *out;
+    v.program().NoteDecompile(f->entry, use.touched);
+    v.program().NoteDecompileFailure(f->entry, use.failure.has_value());
+    if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+    SetSnapshot(r, resp.mutable_snapshot());
+    Overlay(v, *f, use, req.options().include_text(), resp.mutable_function(), req.options().include_dataflow());
+    if (use.failure) FillFailure(use, escalated != nullptr, req.options().include_bundle(), resp.mutable_failure());
+    return Status::Ok();
+  }
+
+  // QueryService.SliceDecompiled (api_minor 57, feature "decompile-slices"):
+  // the function's decompilation as Decompile serves it, with its data-flow
+  // graph, walked from the token, varnode or variable asked for.
+  Status SliceDecompiled(const CallContext &ctx, const pb::SliceDecompiledRequest &req,
+                         pb::SliceDecompiledResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const Func *f = IsDefaultSpace(req.function()) ? v.functions().at(req.function().offset()) : nullptr;
+    if (!f) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(req.function().offset()));
+    facts::Ref<DecompileOutput> out;
+    try {
+      DecompileLimitsScope scope(LimitsFor(ctx, 0));
+      out = r.snapshot->get<q::Decompile>({v.id(), f->entry});
+    } catch (const DecompileStoppedError &e) {
+      return Error(StatusCode::kCancelled, e.what());
+    }
+    // A timeout escalated since (Decompile, escalate) is the output served.
+    std::shared_ptr<const DecompileOutput> escalated =
+        out->failure ? v.program().Escalated(out->failure->bundle_hash) : nullptr;
+    const DecompileOutput &use = escalated ? *escalated : *out;
+    if (use.failure) return Error(StatusCode::kFailedPrecondition, "the decompiler failed on this function: nothing to slice");
+    pb::DecompiledFunction fn;
+    Overlay(v, *f, use, false, &fn, true);
+    if (auto st = SliceFunction(fn, req, resp); !st.ok()) return st;
+    SetSnapshot(r, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+  static void FillFailure(const DecompileOutput &use, bool escalated, bool include_bundle, pb::DecompileFailure *pf) {
+    const decompd::Failure &fl = *use.failure;
+    pf->set_kind(static_cast<pb::DecompileFailureKind>(static_cast<int>(fl.kind)));
+    pf->set_bundle_hash(fl.bundle_hash);
+    pf->set_decompiler_build(fl.decompiler_build);
+    pf->set_deadline_ms(static_cast<std::uint32_t>(std::min(4e9, fl.deadline_seconds * 1000)));
+    pf->set_stderr_tail(fl.stderr_tail);
+    pf->set_detail(fl.detail);
+    pf->set_escalated(fl.escalated || escalated);
+    pf->set_can_escalate(fl.kind == decompd::FailureKind::timeout && !escalated);
+    if (include_bundle) pf->set_bundle(use.failure_bundle);
+  }
+
+  // A decompilation's bounds for a request: its timeout or the server's, no
+  // later than the call's deadline, stopped if the client goes away.
+  lift::DecompileLimits LimitsFor(const CallContext &ctx, std::uint32_t timeout_ms) const {
+    lift::DecompileLimits limits;
+    limits.timeout_seconds = timeout_ms != 0 ? timeout_ms / 1000.0 : core_->options.decompile_timeout_seconds;
+    if (ctx.deadline != CallContext::Clock::time_point::max()) {
+      const double left = std::chrono::duration<double>(ctx.deadline - CallContext::Clock::now()).count();
+      limits.timeout_seconds = limits.timeout_seconds > 0 ? std::min(limits.timeout_seconds, left) : left;
+      limits.timeout_seconds = std::max(limits.timeout_seconds, 1e-3);
+    }
+    limits.max_varnodes = core_->options.decompile_max_varnodes;
+    limits.cancelled = ctx.cancelled;
+    return limits;
+  }
+
+  // QueryService.DecompileMany (api_minor 29, feature "script-batch"): the
+  // request's functions at one pinned revision, `parallelism` at a time on
+  // threads of this call, each result written as it completes. Functions
+  // this daemon decompiled before (probably memoized) go first, so a rerun
+  // answers at once and the decompiler workers start on the rest.
+  Status DecompileMany(const CallContext &ctx, const pb::DecompileManyRequest &req,
+                       const std::function<bool(const pb::DecompileManyResponse &)> &write) override {
+    if (req.options().escalate() || req.options().include_bundle())
+      return Error(StatusCode::kInvalidArgument,
+                   "DecompileMany takes neither escalate nor include_bundle: retry one function with Decompile");
+    if (req.all() == !req.functions().empty())
+      return Error(StatusCode::kInvalidArgument, req.all() ? "functions and all are exclusive" : "functions or all is required");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    const auto t0 = std::chrono::steady_clock::now();
+    auto ms_since = [](std::chrono::steady_clock::time_point t) {
+      return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count();
+    };
+    pb::Snapshot snap;
+    {
+      pb::DecompileManyResponse tmp;
+      SetSnapshot(r, tmp.mutable_snapshot());
+      snap = tmp.snapshot();
+    }
+    struct Item {
+      std::uint32_t index;
+      std::uint64_t entry;
+      bool served;
+    };
+    std::vector<Item> work;
+    std::vector<std::pair<std::uint32_t, pb::Address>> missing;
+    {
+      View v(r);
+      const auto served = v.program().DecompilesServed();
+      const std::set<std::uint64_t> before(served.begin(), served.end());
+      if (req.all()) {
+        for (const Func &f : v.functions().funcs)
+          work.push_back({static_cast<std::uint32_t>(work.size()), f.entry, before.contains(f.entry)});
+      } else {
+        for (int i = 0; i < req.functions_size(); ++i) {
+          const pb::Address &a = req.functions(i);
+          if (IsDefaultSpace(a) && v.functions().at(a.offset()))
+            work.push_back({static_cast<std::uint32_t>(i), a.offset(), before.contains(a.offset())});
+          else
+            missing.emplace_back(static_cast<std::uint32_t>(i), a);
+        }
+      }
+      std::stable_partition(work.begin(), work.end(), [](const Item &w) { return w.served; });
+    }
+    const auto total = static_cast<std::uint32_t>(work.size() + missing.size());
+    std::atomic<bool> stop{false}, gone{false};
+    for (const auto &[index, a] : missing) {
+      pb::DecompileManyResponse m;
+      *m.mutable_snapshot() = snap;
+      m.set_index(index);
+      m.set_total(total);
+      *m.mutable_entry() = a;
+      m.set_error("no function at 0x" + Hex(a.offset()));
+      m.set_elapsed_ms(ms_since(t0));
+      if (!write(m)) return Error(StatusCode::kCancelled, "the client went away");
+    }
+    const unsigned workers =
+        core_->options.decompile_workers != 0 ? core_->options.decompile_workers : std::max(1u, core_->options.decompilers_per_program);
+    const unsigned threads = static_cast<unsigned>(
+        std::clamp<std::size_t>(req.parallelism() != 0 ? req.parallelism() : workers + 1, 1, std::min<std::size_t>(64, std::max<std::size_t>(1, work.size()))));
+    std::atomic<std::size_t> next{0};
+    std::mutex error_mu;
+    std::optional<Status> failed;
+    auto run = [&] {
+      try {
+        View v(r);
+        DecompileLimitsScope scope(LimitsFor(ctx, req.options().timeout_ms()));
+        while (!stop.load()) {
+          const std::size_t k = next.fetch_add(1);
+          if (k >= work.size()) break;
+          if (ctx.cancelled()) {
+            stop = true;
+            break;
+          }
+          const Item &w = work[k];
+          const auto t1 = std::chrono::steady_clock::now();
+          pb::DecompileManyResponse m;
+          *m.mutable_snapshot() = snap;
+          m.set_index(w.index);
+          m.set_total(total);
+          *m.mutable_entry() = A(w.entry);
+          m.set_served_before(w.served);
+          const Func *f = v.functions().at(w.entry);
+          try {
+            facts::Ref<DecompileOutput> out = r.snapshot->get<q::Decompile>({v.id(), f->entry});
+            std::shared_ptr<const DecompileOutput> escalated;
+            if (out->failure) escalated = v.program().Escalated(out->failure->bundle_hash);
+            const DecompileOutput &use = escalated ? *escalated : *out;
+            v.program().NoteDecompile(f->entry, use.touched);
+            v.program().NoteDecompileFailure(f->entry, use.failure.has_value());
+            Overlay(v, *f, use, req.options().include_text(), m.mutable_function(), req.options().include_dataflow());
+            if (use.failure) FillFailure(use, escalated != nullptr, false, m.mutable_failure());
+          } catch (const DecompileStoppedError &e) {
+            if (ctx.cancelled()) {
+              stop = true;
+              break;
+            }
+            m.clear_function();
+            m.set_error(e.what());
+          }
+          m.set_function_ms(ms_since(t1));
+          m.set_elapsed_ms(ms_since(t0));
+          if (!write(m)) gone = stop = true;
+        }
+      } catch (const std::exception &e) {
+        std::lock_guard lock(error_mu);
+        if (!failed) failed = Error(StatusCode::kInternal, std::string("DecompileMany: ") + e.what());
+        stop = true;
+      }
+    };
+    std::vector<std::thread> pool;
+    for (unsigned t = 1; t < threads; ++t) pool.emplace_back(run);
+    run();
+    for (auto &t : pool) t.join();
+    if (failed) return *failed;
+    if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+    if (gone.load()) return Error(StatusCode::kCancelled, "the client went away");
+    return Status::Ok();
+  }
+
+  // QueryService.ListInstructions (api_minor 29): the listing's instructions
+  // in a range or a function's body, decoded in full, in batches.
+  Status ListInstructions(const CallContext &ctx, const pb::ListInstructionsRequest &req,
+                          const std::function<bool(const pb::ListInstructionsResponse &)> &write) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> ranges;
+    if (req.has_range()) {
+      if (!IsDefaultSpace(req.range().first()) || !IsDefaultSpace(req.range().last()))
+        return Error(StatusCode::kInvalidArgument, "range must be in the default space");
+      if (req.range().first().offset() > req.range().last().offset())
+        return Error(StatusCode::kInvalidArgument, "range.first > range.last");
+      ranges.emplace_back(req.range().first().offset(), req.range().last().offset());
+    } else if (req.has_function()) {
+      const Func *f = IsDefaultSpace(req.function()) ? v.functions().at(req.function().offset()) : nullptr;
+      if (!f) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(req.function().offset()));
+      ranges = f->body;
+    } else {
+      return Error(StatusCode::kInvalidArgument, "range or function is required");
+    }
+    constexpr int kBatch = 256;
+    const Program &p = v.program();
+    const CodeMap &code = v.code();
+    SnapshotPatches patches(v.snapshot(), v.space());
+    pb::ListInstructionsResponse batch;
+    SetSnapshot(r, batch.mutable_snapshot());
+    const pb::Snapshot snap = batch.snapshot();
+    std::uint64_t count = 0;
+    bool truncated = false;
+    auto flush = [&]() {
+      if (!write(batch)) return false;
+      batch.Clear();
+      *batch.mutable_snapshot() = snap;
+      return true;
+    };
+    for (auto [lo, hi] : ranges) {
+      auto it = std::upper_bound(code.spans.begin(), code.spans.end(), lo,
+                                 [](std::uint64_t a, const ListingSpan &s) { return a < s.start; });
+      if (it != code.spans.begin()) --it;
+      for (; it != code.spans.end() && it->start <= hi && !truncated; ++it) {
+        if (!it->code || it->end <= lo) continue;
+        for (std::uint32_t row : it->rows) {
+          if (row & ListingSpan::kUndefined) continue;
+          const std::uint64_t a = it->start + (row & ListingSpan::kOffsetMask);
+          if (a < lo) continue;
+          if (a > hi) break;
+          if (req.limit() != 0 && count == req.limit()) {
+            truncated = true;
+            break;
+          }
+          auto d = p.instruction(a, it->thumb, &patches);
+          if (!d) continue;
+          FillInstruction(v, *d, patches, !req.omit_pcode(), batch.add_instructions());
+          ++count;
+          if (batch.instructions_size() >= kBatch) {
+            if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+            if (!flush()) return Error(StatusCode::kCancelled, "the client went away");
+          }
+        }
+      }
+      if (truncated) break;
+    }
+    batch.set_truncated(truncated);
+    if (!write(batch)) return Error(StatusCode::kCancelled, "the client went away");
+    return Status::Ok();
+  }
+
+  // QueryService.FindBytes (api_minor 29): a masked pattern over the
+  // initialized blocks of the memory map, as patched, in address order.
+  Status FindBytes(const CallContext &ctx, const pb::FindBytesRequest &req, pb::FindBytesResponse &resp) override {
+    const std::string &pattern = req.pattern();
+    if (pattern.empty() || pattern.size() > 256) return Error(StatusCode::kInvalidArgument, "pattern must be 1 to 256 bytes");
+    if (!req.mask().empty() && req.mask().size() != pattern.size())
+      return Error(StatusCode::kInvalidArgument, "mask must be as long as pattern");
+    if (req.max_results() > 100000) return Error(StatusCode::kInvalidArgument, "max_results is at most 100000");
+    std::uint64_t lo = 0, hi = UINT64_MAX;
+    if (req.has_range()) {
+      lo = req.range().first().offset();
+      hi = req.range().last().offset();
+      if (lo > hi) return Error(StatusCode::kInvalidArgument, "range.first > range.last");
+    }
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const std::size_t n = pattern.size();
+    std::string want = pattern, mask = req.mask().empty() ? std::string(n, '\xff') : req.mask();
+    for (std::size_t i = 0; i < n; ++i) want[i] = static_cast<char>(want[i] & mask[i]);
+    // The first byte every match fixes completely: memchr skips to it.
+    std::size_t anchor = n;
+    for (std::size_t i = 0; i < n && anchor == n; ++i)
+      if (static_cast<unsigned char>(mask[i]) == 0xff) anchor = i;
+    const std::uint32_t max = req.max_results() ? req.max_results() : 1000;
+    const std::uint64_t align = req.alignment() > 1 ? req.alignment() : 1;
+    const Program &p = v.program();
+    SnapshotPatches patches(v.snapshot(), v.space());
+    auto map = v.snapshot().get<analysis::MemoryMap>(AnalysisKey(v.id()));
+    std::uint64_t searched = 0;
+    std::uint32_t found = 0;
+    constexpr std::uint64_t kChunk = 1u << 20;
+    for (const analysis::MemoryBlock &b : map->blocks) {
+      if (!b.initialized || (req.executable_only() && !b.exec)) continue;
+      const std::uint64_t first = std::max(lo, b.range.first), last = std::min(hi, b.range.last);
+      if (first > last) continue;
+      // Matches start in [first, last]; their bytes may run to the block's end.
+      for (std::uint64_t at = first; at <= last;) {
+        if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+        const std::uint64_t starts = std::min<std::uint64_t>(kChunk, last - at + 1);
+        const std::uint64_t want_len = std::min<std::uint64_t>(starts + n - 1, b.range.last - at + 1);
+        const std::string data = p.read(at, static_cast<std::uint32_t>(want_len), &patches);
+        searched += std::min<std::uint64_t>(data.size(), starts);
+        const auto *bytes = reinterpret_cast<const unsigned char *>(data.data());
+        std::size_t i = 0;
+        while (i < starts && i + n <= data.size()) {
+          if (anchor != n) {
+            const void *hit = std::memchr(bytes + i + anchor, static_cast<unsigned char>(want[anchor]),
+                                          std::min<std::size_t>(starts - i, data.size() - n + 1 - i));
+            if (!hit) break;
+            i = static_cast<const unsigned char *>(hit) - bytes - anchor;
+          }
+          bool match = (at + i) % align == 0;
+          for (std::size_t j = 0; match && j < n; ++j)
+            match = (bytes[i + j] & static_cast<unsigned char>(mask[j])) == static_cast<unsigned char>(want[j]);
+          if (match) {
+            if (found++ == max) {
+              resp.set_truncated(true);
+              resp.set_bytes_searched(searched);
+              return Status::Ok();
+            }
+            *resp.add_addresses() = A(at + i);
+          }
+          ++i;
+        }
+        if (data.size() < want_len) break;  // uninitialized from here
+        if (last - at < starts) break;
+        at += starts;
+      }
+    }
+    resp.set_bytes_searched(searched);
+    return Status::Ok();
+  }
+
+  // --- Search (api_minor 41, feature "search"; docs/api.md "Search") --------
+
+  using Span = std::pair<std::uint64_t, std::uint64_t>;  // inclusive
+
+  // Two sorted lists of disjoint ranges, intersected.
+  static std::vector<Span> Intersect(const std::vector<Span> &a, const std::vector<Span> &b) {
+    std::vector<Span> out;
+    std::size_t i = 0, j = 0;
+    while (i < a.size() && j < b.size()) {
+      const std::uint64_t f = std::max(a[i].first, b[j].first), l = std::min(a[i].second, b[j].second);
+      if (f <= l) out.push_back({f, l});
+      if (a[i].second < b[j].second) ++i;
+      else ++j;
+    }
+    return out;
+  }
+
+  // A scope's ranges, sorted and merged; empty: everywhere.
+  static Status ScopeRanges(const Program &p, const pb::SearchScope &s, std::vector<Span> &out) {
+    out.clear();
+    for (const pb::AddressRange &r : s.ranges()) {
+      auto f = KeyOf(p, r.first()), l = KeyOf(p, r.last());
+      if (!f || !l) return Error(StatusCode::kInvalidArgument, "no memory space \"" + (f ? r.last() : r.first()).space() + "\"");
+      if (*f > *l) return Error(StatusCode::kInvalidArgument, "a scope range's first is after its last");
+      out.push_back({*f, *l});
+    }
+    std::sort(out.begin(), out.end());
+    std::vector<Span> merged;
+    for (const Span &x : out)
+      if (!merged.empty() && (merged.back().second == UINT64_MAX || x.first <= merged.back().second + 1))
+        merged.back().second = std::max(merged.back().second, x.second);
+      else
+        merged.push_back(x);
+    out = std::move(merged);
+    return Status::Ok();
+  }
+
+  // The windows a search goes through, in order: from the start to the end
+  // (backward: to the beginning), then, wrapping, the rest.
+  struct Leg {
+    std::uint64_t lo, hi;
+    bool wrapped;
+  };
+  static Status SearchLegs(const Program &p, const pb::SearchStart &s, std::vector<Leg> &out) {
+    out.clear();
+    if (!s.has_from()) {
+      out.push_back({0, UINT64_MAX, false});
+      return Status::Ok();
+    }
+    auto from = KeyOf(p, s.from());
+    if (!from) return Error(StatusCode::kInvalidArgument, "no memory space \"" + s.from().space() + "\"");
+    const std::uint64_t f = *from;
+    if (!s.backward()) {
+      if (f < UINT64_MAX) out.push_back({f + 1, UINT64_MAX, false});
+      if (s.wrap()) out.push_back({0, f, true});
+    } else {
+      if (f > 0) out.push_back({0, f - 1, false});
+      if (s.wrap()) out.push_back({f, UINT64_MAX, true});
+    }
+    return Status::Ok();
+  }
+
+  // Ranges of `scope` (everything when empty) inside [lo, hi].
+  static std::vector<Span> Clip(const std::vector<Span> &scope, std::uint64_t lo, std::uint64_t hi) {
+    if (scope.empty()) return {{lo, hi}};
+    return Intersect(scope, {{lo, hi}});
+  }
+
+  // Listing rows (as searches read them) by row number or address, through
+  // a one-page cache.
+  struct RowLookup {
+    explicit RowLookup(View &view) : v(view) {}
+    View &v;
+    facts::Ref<std::vector<SearchRow>> page;
+    std::int64_t index = -1;
+    const SearchRow *Row(std::int64_t row) {
+      if (row < 0 || row >= v.rows().total_rows) return nullptr;
+      if (row / RowIndex::kPageRows != index) {
+        index = row / RowIndex::kPageRows;
+        page = v.snapshot().get<q::SearchPage>({v.id(), index});
+      }
+      const std::size_t i = static_cast<std::size_t>(row % RowIndex::kPageRows);
+      return i < page->size() ? &(*page)[i] : nullptr;
+    }
+    // The row holding addr, or null.
+    const SearchRow *At(std::uint64_t addr) {
+      const SearchRow *r = Row(v.rows().row_at(addr));
+      if (!r || r->address > addr || addr - r->address >= std::max<std::uint32_t>(1, r->length)) return nullptr;
+      return r;
+    }
+  };
+
+  // Addresses in [lo, hi] with a label (a function, a default or loader
+  // name, an asserted name) or a comment, ascending.
+  static std::vector<std::uint64_t> MarkedAddresses(View &v, std::uint64_t lo, std::uint64_t hi) {
+    std::vector<std::uint64_t> out;
+    const auto &labels = v.defaults().labels;
+    for (auto it = std::lower_bound(labels.begin(), labels.end(), lo, [](const Label &l, std::uint64_t a) { return l.address < a; });
+         it != labels.end() && it->address <= hi; ++it)
+      out.push_back(it->address);
+    const auto &funcs = v.functions().funcs;
+    for (auto it = std::lower_bound(funcs.begin(), funcs.end(), lo, [](const Func &f, std::uint64_t a) { return f.entry < a; });
+         it != funcs.end() && it->entry <= hi; ++it)
+      out.push_back(it->entry);
+    for (FactKind kind : {FactKind::Name, FactKind::Comment}) {
+      auto buckets = v.snapshot().get<facts::AssertedBuckets>({kind, v.space()});
+      for (std::uint64_t b : *buckets) {
+        if ((b << facts::kBucketShift) > hi || (((b + 1) << facts::kBucketShift) - 1) < lo) continue;
+        auto keys = v.snapshot().get<facts::AssertedKeys>(facts::BucketKey{kind, v.space(), b});
+        for (const auto &[off, sub] : *keys)
+          if (off >= lo && off <= hi) out.push_back(off);
+      }
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+  }
+
+  // A piece of the listing a row search goes through: rows [r0, r1] whose
+  // code units start in [lo, hi]; or (`marked`) a long run of undefined
+  // bytes (a .bss), where only the addresses with a label or comment in
+  // [lo, hi] are looked at. `rows` is the progress it stands for.
+  struct Segment {
+    bool marked = false;
+    std::uint64_t lo = 0, hi = 0;
+    std::int64_t r0 = 0, r1 = -1;
+    bool wrapped = false;
+    std::uint64_t rows = 0;
+  };
+
+  // A row search's segments, in the order it visits them: runs of rows big
+  // enough that handing them between threads costs little next to reading
+  // them, small enough that an incremental search stopping early wastes
+  // little.
+  static constexpr std::int64_t kSegmentRows = 2048;
+  static std::vector<Segment> PlanSegments(View &v, const std::vector<Leg> &legs, const std::vector<Span> &scope, bool backward) {
+    std::vector<Segment> out;
+    const RowIndex &rows = v.rows();
+    for (const Leg &leg : legs) {
+      auto ranges = Clip(scope, leg.lo, leg.hi);
+      if (backward) std::reverse(ranges.begin(), ranges.end());
+      for (const auto &[lo, hi] : ranges) {
+        std::vector<const ListingSpan *> hit;
+        for (const ListingSpan &s : rows.spans)
+          if (s.end > s.start && s.end - 1 >= lo && s.start <= hi) hit.push_back(&s);
+        if (backward) std::reverse(hit.begin(), hit.end());
+        // Rows gathered for the next segment: [a, b].
+        std::int64_t a = 0, b = -1;
+        auto flush = [&] {
+          if (b < a) return;
+          for (std::int64_t k = 0; k * kSegmentRows <= b - a; ++k) {
+            const std::int64_t x = backward ? std::max(a, b - (k + 1) * kSegmentRows + 1) : a + k * kSegmentRows;
+            const std::int64_t y = backward ? b - k * kSegmentRows : std::min(b, a + (k + 1) * kSegmentRows - 1);
+            out.push_back({false, lo, hi, x, y, leg.wrapped, static_cast<std::uint64_t>(y - x + 1)});
+          }
+          a = 0;
+          b = -1;
+        };
+        for (const ListingSpan *s : hit) {
+          const std::uint64_t first = std::max(lo, s->start), last = std::min(hi, s->end - 1);
+          const std::int64_t span_first = s->first_row, span_last = s->first_row + s->row_count() - 1;
+          const std::int64_t r0 = std::clamp(rows.row_at(first), span_first, span_last);
+          const std::int64_t r1 = std::clamp(rows.row_at(last), span_first, span_last);
+          if (!s->code && !s->data && r1 - r0 + 1 > RowIndex::kPageRows) {
+            flush();
+            out.push_back({true, first, last, 0, -1, leg.wrapped, static_cast<std::uint64_t>(r1 - r0 + 1)});
+            continue;
+          }
+          if (b < a) {
+            a = r0;
+            b = r1;
+          } else {
+            a = std::min(a, r0);
+            b = std::max(b, r1);
+          }
+          if (b - a + 1 >= kSegmentRows) flush();
+        }
+        flush();
+      }
+    }
+    return out;
+  }
+
+  // Runs `work` over a row search's segments on a few threads (each with
+  // its own View: a page not in memory costs decoding its rows, and a large
+  // program's listing doesn't all stay in memory), and gives the results
+  // to `take` in the segments' order, so matches stay in address order.
+  // `take` returns false to stop. Workers stay at most a window ahead of
+  // `take`, so a search that stops early does little extra work.
+  template <class M>
+  static void RunSegments(const CallContext &ctx, const Read &r, const std::vector<Segment> &segs,
+                          const std::function<void(View &, RowLookup &, const Segment &, std::vector<M> &)> &work,
+                          const std::function<bool(const Segment &, std::vector<M> &)> &take) {
+    constexpr std::size_t kWindow = 16;
+    const unsigned threads = static_cast<unsigned>(
+        std::min<std::size_t>(segs.size(), std::clamp(std::thread::hardware_concurrency(), 1u, 8u)));
+    std::mutex mu;
+    std::condition_variable cv;
+    std::vector<std::vector<M>> results(segs.size());
+    std::vector<char> ready(segs.size(), 0);
+    std::size_t next = 0, cursor = 0;
+    bool stop = false;
+    std::exception_ptr error;
+    auto worker = [&] {
+      try {
+        View v(r);
+        RowLookup rl(v);
+        for (;;) {
+          std::size_t k;
+          {
+            std::unique_lock lock(mu);
+            cv.wait(lock, [&] { return stop || next >= segs.size() || next < cursor + kWindow; });
+            if (stop || next >= segs.size()) return;
+            k = next++;
+          }
+          std::vector<M> out;
+          if (!ctx.cancelled()) work(v, rl, segs[k], out);
+          {
+            std::lock_guard lock(mu);
+            results[k] = std::move(out);
+            ready[k] = 1;
+          }
+          cv.notify_all();
+        }
+      } catch (...) {
+        std::lock_guard lock(mu);
+        if (!error) error = std::current_exception();
+        stop = true;
+        cv.notify_all();
+      }
+    };
+    std::vector<std::thread> pool;
+    for (unsigned t = 0; t < threads; ++t) pool.emplace_back(worker);
+    for (std::size_t k = 0; k < segs.size(); ++k) {
+      std::vector<M> got;
+      {
+        std::unique_lock lock(mu);
+        cv.wait(lock, [&] { return ready[k] || error; });
+        if (error) break;
+        got = std::move(results[k]);
+        cursor = k + 1;
+      }
+      cv.notify_all();
+      if (ctx.cancelled() || !take(segs[k], got)) break;
+    }
+    {
+      std::lock_guard lock(mu);
+      stop = true;
+    }
+    cv.notify_all();
+    for (auto &t : pool) t.join();
+    if (error) std::rethrow_exception(error);
+  }
+
+  // The code units of a segment in the search's direction: each row's
+  // (`row` set), or a marked segment's labeled and commented addresses
+  // (`row` null; only with `marked_too`). `unit` returns false to stop.
+  static void SegmentUnits(View &v, RowLookup &rl, const Segment &sg, bool backward, bool marked_too,
+                           const std::function<bool(std::uint64_t, const SearchRow *)> &unit) {
+    if (sg.marked) {
+      if (!marked_too) return;
+      auto marked = MarkedAddresses(v, sg.lo, sg.hi);
+      if (backward) std::reverse(marked.begin(), marked.end());
+      for (std::uint64_t a : marked)
+        if (!unit(a, nullptr)) return;
+      return;
+    }
+    for (std::int64_t k = 0; k <= sg.r1 - sg.r0; ++k) {
+      const SearchRow *row = rl.Row(backward ? sg.r1 - k : sg.r0 + k);
+      if (!row || row->address < sg.lo || row->address > sg.hi) continue;
+      if (!unit(row->address, row)) return;
+    }
+  }
+
+  // The code unit holding addr as searches read it: an instruction decoded
+  // alone (a memory search's matches are scattered, and decoding the page
+  // around each costs 256 instructions), data from its page, undefined
+  // bytes from the row index.
+  static std::optional<SearchRow> UnitAt(View &v, RowLookup &rl, SnapshotPatches &patches, std::uint64_t addr) {
+    const RowIndex &rows = v.rows();
+    const std::int64_t row = rows.row_at(addr);
+    if (row < 0 || row >= rows.total_rows) return std::nullopt;
+    const ListingSpan &s = rows.span_of_row(row);
+    const std::int64_t k = row - s.first_row;
+    const std::uint64_t start = rows.row_address(row);
+    const std::uint64_t next = k + 1 < s.row_count() ? rows.row_address(row + 1) : s.end;
+    if (addr < start || addr >= next) return std::nullopt;
+    if (s.data) {
+      const SearchRow *r = rl.At(addr);
+      return r ? std::optional<SearchRow>(*r) : std::nullopt;
+    }
+    SearchRow out;
+    out.address = start;
+    out.length = static_cast<std::uint32_t>(next - start);
+    out.kind = pb::LISTING_ROW_KIND_UNDEFINED;
+    if (s.code && !(s.rows[static_cast<std::size_t>(k)] & ListingSpan::kUndefined))
+      if (auto d = v.program().instruction(start, s.thumb, &patches)) {
+        StaticRow r;
+        r.address = start;
+        r.length = out.length;
+        r.kind = pb::LISTING_ROW_KIND_INSTRUCTION;
+        r.tokens = std::move(d->insn.tokens);
+        return SearchRow::From(r);
+      }
+    return out;
+  }
+
+  // A match's symbol ("" if none), and its containing function.
+  static void MatchContext(View &v, std::uint64_t addr, std::string *label, pb::Address *function, std::string *function_name) {
+    *label = v.Symbol(addr);
+    if (const Func *f = v.functions().containing(addr)) {
+      *function = A(f->entry);
+      *function_name = v.Symbol(f->entry);
+    } else if (v.functions().at(addr)) {
+      *function = A(addr);
+      *function_name = *label;
+    }
+  }
+
+  // Throttles a search's progress: true when a batch is due.
+  struct Throttle {
+    std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+    bool due(int pending) {
+      const auto now = std::chrono::steady_clock::now();
+      if (pending < 256 && now - last < std::chrono::milliseconds(100)) return false;
+      last = now;
+      return true;
+    }
+  };
+
+  static double MsSince(std::chrono::steady_clock::time_point t) {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count();
+  }
+
+  Status SearchMemory(const CallContext &ctx, const pb::SearchMemoryRequest &req,
+                      const std::function<bool(const pb::SearchMemoryResponse &)> &write) override {
+    const auto t0 = std::chrono::steady_clock::now();
+    if (req.max_results() > 100000) return Error(StatusCode::kInvalidArgument, "max_results is at most 100000");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const Program &p = v.program();
+    search::Compiled compiled;
+    if (auto e = search::CompileMemoryQuery(req, p.image().endian == loader::Endian::big, compiled); !e.empty())
+      return Error(StatusCode::kInvalidArgument, e);
+    std::string err;
+    auto matcher = search::MakeByteMatcher(compiled, err);
+    if (!matcher) return Error(StatusCode::kInvalidArgument, err);
+    std::vector<Span> scope;
+    if (auto st = ScopeRanges(p, req.scope(), scope); !st.ok()) return st;
+    std::vector<Leg> legs;
+    if (auto st = SearchLegs(p, req.start(), legs); !st.ok()) return st;
+    const pb::SearchScope &sc = req.scope();
+    // Where matches may start: initialized (executable) blocks, in the
+    // scope's ranges, in the code units asked for. A match may run on to
+    // the end of its block.
+    std::vector<Span> units;
+    const bool by_unit = (sc.instructions() || sc.defined_data() || sc.undefined()) &&
+                         !(sc.instructions() && sc.defined_data() && sc.undefined());
+    if (by_unit) {
+      for (const ListingSpan &s : v.rows().spans) {
+        if (s.end <= s.start || !(s.code ? sc.instructions() : s.data ? sc.defined_data() : sc.undefined())) continue;
+        if (!units.empty() && units.back().second + 1 == s.start) units.back().second = s.end - 1;
+        else units.push_back({s.start, s.end - 1});
+      }
+      std::sort(units.begin(), units.end());
+    }
+    struct Piece {
+      std::uint64_t first, last, block_last;
+    };
+    std::vector<Piece> pieces;
+    auto map = v.snapshot().get<analysis::MemoryMap>(AnalysisKey(v.id()));
+    for (const analysis::MemoryBlock &b : map->blocks) {
+      if (!b.initialized || (sc.executable_only() && !b.exec)) continue;
+      std::vector<Span> here{{b.range.first, b.range.last}};
+      if (!scope.empty()) here = Intersect(here, scope);
+      if (by_unit) here = Intersect(here, units);
+      for (const auto &[f, l] : here) pieces.push_back({f, l, b.range.last});
+    }
+    std::sort(pieces.begin(), pieces.end(), [](const Piece &a, const Piece &b) { return a.first < b.first; });
+    const bool backward = req.start().backward();
+    const std::uint32_t max = req.max_results() ? req.max_results() : 1000;
+    const std::uint64_t align = req.alignment() > 1 ? req.alignment() : 1;
+    std::uint64_t total = 0;
+    for (const Leg &leg : legs)
+      for (const Piece &pc : pieces)
+        if (std::max(pc.first, leg.lo) <= std::min(pc.last, leg.hi)) total += std::min(pc.last, leg.hi) - std::max(pc.first, leg.lo) + 1;
+    SnapshotPatches patches(v.snapshot(), v.space());
+    RowLookup rl(v);
+    pb::SearchMemoryResponse batch;
+    SetSnapshot(r, batch.mutable_snapshot());
+    batch.set_pattern(compiled.Display());
+    batch.set_bytes_total(total);
+    std::uint64_t searched = 0;
+    std::uint32_t found = 0;
+    bool truncated = false, gone = false;
+    Throttle throttle;
+    auto flush = [&] {
+      batch.set_bytes_searched(searched);
+      if (!write(batch)) return false;
+      batch.clear_matches();
+      batch.clear_pattern();
+      return true;
+    };
+    auto on_match = [&](std::uint64_t addr, const char *bytes, std::size_t len, bool wrapped) {
+      if (addr % align) return true;
+      if (found == max) {
+        truncated = true;
+        return false;
+      }
+      ++found;
+      auto *m = batch.add_matches();
+      *m->mutable_address() = A(addr);
+      m->set_bytes(bytes, len);
+      if (wrapped) m->set_wrapped(true);
+      if (req.details()) {
+        MatchContext(v, addr, m->mutable_label(), m->mutable_function(), m->mutable_function_name());
+        if (std::optional<SearchRow> row = UnitAt(v, rl, patches, addr)) {
+          *m->mutable_code_unit() = A(row->address);
+          m->set_preview(UnitText(v, *row));
+          if (m->label().empty() && row->address != addr)
+            if (std::string at = v.Symbol(row->address); !at.empty()) m->set_label(at + "+0x" + Hex(addr - row->address));
+        }
+      }
+      return true;
+    };
+    constexpr std::uint64_t kChunk = 1u << 20;
+    const std::size_t reach = matcher->reach();
+    bool stop = false;
+    std::vector<std::pair<std::size_t, std::size_t>> hits;
+    for (const Leg &leg : legs) {
+      std::vector<Piece> ps;
+      for (const Piece &pc : pieces) {
+        const std::uint64_t f = std::max(pc.first, leg.lo), l = std::min(pc.last, leg.hi);
+        if (f <= l) ps.push_back({f, l, pc.block_last});
+      }
+      if (backward) std::reverse(ps.begin(), ps.end());
+      for (const Piece &pc : ps) {
+        // Chunks [cf, cl] of the piece, in the search's direction.
+        std::uint64_t cf = pc.first, cl = pc.first;
+        bool first_chunk = true;
+        while (!stop) {
+          if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+          if (!backward) {
+            if (!first_chunk) {
+              if (cl == pc.last) break;
+              cf = cl + 1;
+            }
+            cl = pc.last - cf + 1 > kChunk ? cf + kChunk - 1 : pc.last;
+          } else {
+            if (!first_chunk) {
+              if (cf == pc.first) break;
+              cl = cf - 1;
+            } else {
+              cl = pc.last;
+            }
+            cf = cl - pc.first + 1 > kChunk ? cl - kChunk + 1 : pc.first;
+          }
+          first_chunk = false;
+          const std::uint64_t starts = cl - cf + 1;
+          const std::uint64_t want = std::min<std::uint64_t>(starts + reach, pc.block_last - cf + 1);
+          const std::string data = p.read(cf, static_cast<std::uint32_t>(want), &patches);
+          const auto *bytes = reinterpret_cast<const unsigned char *>(data.data());
+          const std::size_t n = std::min<std::uint64_t>(data.size(), starts);
+          searched += starts;
+          if (!backward) {
+            stop = !matcher->Scan(bytes, data.size(), n, [&](std::size_t off, std::size_t len) {
+              return on_match(cf + off, data.data() + off, len, leg.wrapped);
+            });
+          } else {
+            hits.clear();
+            matcher->Scan(bytes, data.size(), n, [&](std::size_t off, std::size_t len) {
+              hits.emplace_back(off, len);
+              return true;
+            });
+            for (auto it = hits.rbegin(); it != hits.rend() && !stop; ++it)
+              stop = !on_match(cf + it->first, data.data() + it->first, it->second, leg.wrapped);
+          }
+          if (throttle.due(batch.matches_size()) && !flush()) {
+            gone = true;
+            stop = true;
+          }
+        }
+        if (stop) break;
+      }
+      if (stop) break;
+    }
+    if (gone) return Error(StatusCode::kCancelled, "the client went away");
+    if (!truncated) searched = total;
+    batch.set_done(true);
+    batch.set_truncated(truncated);
+    batch.set_elapsed_ms(MsSince(t0));
+    if (!flush()) return Error(StatusCode::kCancelled, "the client went away");
+    return Status::Ok();
+  }
+
+  Status SearchText(const CallContext &ctx, const pb::SearchTextRequest &req,
+                    const std::function<bool(const pb::SearchTextResponse &)> &write) override {
+    const auto t0 = std::chrono::steady_clock::now();
+    if (req.max_results() > 100000) return Error(StatusCode::kInvalidArgument, "max_results is at most 100000");
+    std::string err;
+    auto matcher = search::TextMatcher::Make(req.query(), req.regex(), req.case_sensitive(), req.whole_word(), err);
+    if (!matcher) return Error(StatusCode::kInvalidArgument, err);
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const Program &p = v.program();
+    std::vector<Span> scope;
+    if (auto st = ScopeRanges(p, req.scope(), scope); !st.ok()) return st;
+    std::vector<Leg> legs;
+    if (auto st = SearchLegs(p, req.start(), legs); !st.ok()) return st;
+    const TextFields fields(req.fields());
+    const bool backward = req.start().backward();
+    const bool marked = fields.comments || fields.labels || fields.functions;
+    const std::uint32_t max = req.max_results() ? req.max_results() : 1000;
+    const std::vector<Segment> segs = PlanSegments(v, legs, scope, backward);
+    std::uint64_t total = 0, done_rows = 0;
+    for (const Segment &sg : segs) total += sg.rows;
+    pb::SearchTextResponse batch;
+    SetSnapshot(r, batch.mutable_snapshot());
+    batch.set_rows_total(total);
+    std::uint32_t found = 0;
+    bool truncated = false, gone = false;
+    Throttle throttle;
+    auto flush = [&] {
+      batch.set_rows_searched(std::min(done_rows, total));
+      if (!write(batch)) return false;
+      batch.clear_matches();
+      return true;
+    };
+    RunSegments<pb::TextMatch>(
+        ctx, r, segs,
+        [&](View &wv, RowLookup &rl, const Segment &sg, std::vector<pb::TextMatch> &out) {
+          std::vector<SearchLine> lines;
+          SegmentUnits(wv, rl, sg, backward, marked, [&](std::uint64_t addr, const SearchRow *row) {
+            UnitLines(wv, addr, row, fields, lines);
+            if (backward) std::reverse(lines.begin(), lines.end());
+            for (const SearchLine &line : lines) {
+              std::size_t start = 0, len = 0;
+              if (!matcher->Find(line.text, start, len)) continue;
+              pb::TextMatch &m = out.emplace_back();
+              *m.mutable_address() = A(addr);
+              pb::TextField field = line.field;
+              if (line.split != std::string::npos && start >= line.split)
+                field = field == pb::TEXT_FIELD_MNEMONICS ? pb::TEXT_FIELD_OPERANDS : pb::TEXT_FIELD_DATA_VALUES;
+              m.set_field(field);
+              m.set_text(line.text);
+              m.set_match_start(static_cast<std::uint32_t>(start));
+              m.set_match_length(static_cast<std::uint32_t>(len));
+              if (line.comment != pb::COMMENT_KIND_UNSPECIFIED) m.set_comment_kind(line.comment);
+              MatchContext(wv, addr, m.mutable_label(), m.mutable_function(), m.mutable_function_name());
+              if (sg.wrapped) m.set_wrapped(true);
+            }
+            return out.size() <= max;
+          });
+        },
+        [&](const Segment &sg, std::vector<pb::TextMatch> &got) {
+          done_rows += sg.rows;
+          for (pb::TextMatch &m : got) {
+            if (found == max) return !(truncated = true);
+            ++found;
+            *batch.add_matches() = std::move(m);
+          }
+          if (throttle.due(batch.matches_size()) && !flush()) return !(gone = true);
+          return true;
+        });
+    if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+    if (gone) return Error(StatusCode::kCancelled, "the client went away");
+    if (!truncated) done_rows = total;
+    batch.set_done(true);
+    batch.set_truncated(truncated);
+    batch.set_elapsed_ms(MsSince(t0));
+    if (!flush()) return Error(StatusCode::kCancelled, "the client went away");
+    return Status::Ok();
+  }
+
+  Status SearchScalars(const CallContext &ctx, const pb::SearchScalarsRequest &req,
+                       const std::function<bool(const pb::SearchScalarsResponse &)> &write) override {
+    const auto t0 = std::chrono::steady_clock::now();
+    if (req.max_results() > 100000) return Error(StatusCode::kInvalidArgument, "max_results is at most 100000");
+    const std::int64_t lo_v = req.has_min() ? req.min() : INT64_MIN, hi_v = req.has_max() ? req.max() : INT64_MAX;
+    if (lo_v > hi_v) return Error(StatusCode::kInvalidArgument, "min is greater than max");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const Program &p = v.program();
+    const bool big = p.image().endian == loader::Endian::big;
+    std::vector<Span> scope;
+    if (auto st = ScopeRanges(p, req.scope(), scope); !st.ok()) return st;
+    std::vector<Leg> legs;
+    if (auto st = SearchLegs(p, req.start(), legs); !st.ok()) return st;
+    const pb::SearchScope &sc = req.scope();
+    const bool both = !sc.instructions() && !sc.defined_data();
+    const bool want_insn = both || sc.instructions(), want_data = both || sc.defined_data();
+    const bool backward = req.start().backward();
+    const std::uint32_t max = req.max_results() ? req.max_results() : 1000;
+    auto in_range = [&](std::int64_t s, std::uint64_t u) {
+      return (s >= lo_v && s <= hi_v) ||
+             (u <= static_cast<std::uint64_t>(INT64_MAX) && static_cast<std::int64_t>(u) >= lo_v && static_cast<std::int64_t>(u) <= hi_v);
+    };
+    const std::vector<Segment> segs = PlanSegments(v, legs, scope, backward);
+    std::uint64_t total = 0, done_rows = 0;
+    for (const Segment &sg : segs) total += sg.rows;
+    pb::SearchScalarsResponse batch;
+    SetSnapshot(r, batch.mutable_snapshot());
+    batch.set_rows_total(total);
+    std::uint32_t found = 0;
+    bool truncated = false, gone = false;
+    Throttle throttle;
+    auto flush = [&] {
+      batch.set_rows_searched(std::min(done_rows, total));
+      if (!write(batch)) return false;
+      batch.clear_matches();
+      return true;
+    };
+    struct Hit {
+      std::int64_t s;
+      std::uint64_t u;
+      unsigned bits;
+      int operand;
+    };
+    RunSegments<pb::ScalarMatch>(
+        ctx, r, segs,
+        [&](View &wv, RowLookup &rl, const Segment &sg, std::vector<pb::ScalarMatch> &out) {
+          std::vector<Hit> hits;
+          SegmentUnits(wv, rl, sg, backward, false, [&](std::uint64_t addr, const SearchRow *row) {
+            hits.clear();
+            bool data = false;
+            if (row->kind == pb::LISTING_ROW_KIND_INSTRUCTION && want_insn) {
+              for (const SearchRow::Number &t : row->numbers) {
+                if (t.address) continue;
+                Hit h{0, 0, t.bits, t.operand};
+                ScalarReadings(t.value, t.bits, h.s, h.u);
+                if (in_range(h.s, h.u)) hits.push_back(h);
+              }
+            } else if (row->kind == pb::LISTING_ROW_KIND_DATA && want_data && !row->data_target) {
+              bool is_signed = false;
+              const std::uint32_t n = row->length;
+              if (ScalarDataType(row->data_type, is_signed) && (n == 1 || n == 2 || n == 4 || n == 8) && row->bytes.size() == n) {
+                std::uint64_t raw = 0;
+                for (std::uint32_t k = 0; k < n; ++k)
+                  raw |= std::uint64_t{static_cast<unsigned char>(row->bytes[big ? k : n - 1 - k])} << (8 * (n - 1 - k));
+                Hit h{0, 0, 8 * n, -1};
+                ScalarReadings(raw, 8 * n, h.s, h.u);
+                if (in_range(h.s, h.u)) hits.push_back(h);
+                data = true;
+              }
+            }
+            if (hits.empty()) return true;
+            if (backward) std::reverse(hits.begin(), hits.end());
+            const std::string text = UnitText(wv, *row);
+            for (const Hit &h : hits) {
+              pb::ScalarMatch &m = out.emplace_back();
+              *m.mutable_address() = A(addr);
+              m.set_value(h.s);
+              m.set_unsigned_value(h.u);
+              m.set_bits(h.bits);
+              m.set_operand_index(h.operand);
+              m.set_data(data);
+              m.set_text(text);
+              MatchContext(wv, addr, m.mutable_label(), m.mutable_function(), m.mutable_function_name());
+              if (sg.wrapped) m.set_wrapped(true);
+            }
+            return out.size() <= max;
+          });
+        },
+        [&](const Segment &sg, std::vector<pb::ScalarMatch> &got) {
+          done_rows += sg.rows;
+          for (pb::ScalarMatch &m : got) {
+            if (found == max) return !(truncated = true);
+            ++found;
+            *batch.add_matches() = std::move(m);
+          }
+          if (throttle.due(batch.matches_size()) && !flush()) return !(gone = true);
+          return true;
+        });
+    if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+    if (gone) return Error(StatusCode::kCancelled, "the client went away");
+    if (!truncated) done_rows = total;
+    batch.set_done(true);
+    batch.set_truncated(truncated);
+    batch.set_elapsed_ms(MsSince(t0));
+    if (!flush()) return Error(StatusCode::kCancelled, "the client went away");
+    return Status::Ok();
+  }
+
+  // Which functions a search over decompilations reads (SearchDecompiled,
+  // FindTypeUses): `functions`, those whose entry is in `ranges` (and the
+  // one a range starts in), or with `all` every one; into `many` at a
+  // revision pinned now, so the functions chosen and decompiled agree.
+  // `none`: nothing chosen.
+  Status PlanDecompileMany(const CallContext &ctx, const std::string &program_id, const pb::ReadOptions &read,
+                           const google::protobuf::RepeatedPtrField<pb::Address> &functions,
+                           const google::protobuf::RepeatedPtrField<pb::AddressRange> &ranges_in, bool all,
+                           pb::DecompileManyRequest &many, pb::Snapshot &snap, bool &none) {
+    none = false;
+    Read r;
+    if (auto st = ResolveProgram(ctx, program_id, read, {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, &snap);
+    many.mutable_read()->set_revision(r.revision);
+    if (all) {
+      many.set_all(true);
+      return Status::Ok();
+    }
+    std::set<std::uint64_t> chosen;
+    for (const pb::Address &a : functions) chosen.insert(KeyOf(v.program(), a).value_or(a.offset()));
+    std::vector<Span> ranges;
+    pb::SearchScope s;
+    *s.mutable_ranges() = ranges_in;
+    if (auto st = ScopeRanges(v.program(), s, ranges); !st.ok()) return st;
+    for (const Span &x : ranges) {
+      const auto &funcs = v.functions().funcs;
+      for (auto it = std::lower_bound(funcs.begin(), funcs.end(), x.first, [](const Func &f, std::uint64_t a) { return f.entry < a; });
+           it != funcs.end() && it->entry <= x.second; ++it)
+        chosen.insert(it->entry);
+      // A selection inside a function searches that function.
+      if (const Func *f = v.functions().containing(x.first)) chosen.insert(f->entry);
+    }
+    for (std::uint64_t e : chosen) *many.add_functions() = A(e);
+    none = many.functions().empty();
+    return Status::Ok();
+  }
+
+  // Over DecompileMany: each function's lines are searched as its result
+  // arrives (from any of the call's threads), so the memo serves functions
+  // decompiled before and the workers the rest.
+  Status SearchDecompiled(const CallContext &ctx, const pb::SearchDecompiledRequest &req,
+                          const std::function<bool(const pb::SearchDecompiledResponse &)> &write) override {
+    const auto t0 = std::chrono::steady_clock::now();
+    if (req.max_results() > 100000) return Error(StatusCode::kInvalidArgument, "max_results is at most 100000");
+    if (!req.all() && req.functions().empty() && req.ranges().empty())
+      return Error(StatusCode::kInvalidArgument, "functions, ranges or all is required");
+    std::string err;
+    auto matcher = search::TextMatcher::Make(req.query(), req.regex(), req.case_sensitive(), req.whole_word(), err);
+    if (!matcher) return Error(StatusCode::kInvalidArgument, err);
+    pb::DecompileManyRequest many;
+    many.set_program_id(req.program_id());
+    many.set_parallelism(req.parallelism());
+    many.mutable_options()->set_timeout_ms(req.timeout_ms());
+    pb::Snapshot snap;
+    bool none = false;
+    if (auto st = PlanDecompileMany(ctx, req.program_id(), req.read(), req.functions(), req.ranges(), req.all(), many, snap, none);
+        !st.ok())
+      return st;
+    if (none) {
+      pb::SearchDecompiledResponse last;
+      *last.mutable_snapshot() = snap;
+      last.set_done(true);
+      last.set_elapsed_ms(MsSince(t0));
+      if (!write(last)) return Error(StatusCode::kCancelled, "the client went away");
+      return Status::Ok();
+    }
+    const std::uint32_t max = req.max_results() ? req.max_results() : 1000;
+    std::mutex mu;
+    pb::SearchDecompiledResponse batch;
+    *batch.mutable_snapshot() = snap;
+    std::uint32_t found = 0, done = 0, failed = 0, total = 0;
+    bool truncated = false, gone = false;
+    Throttle throttle;
+    auto flush = [&] {
+      batch.set_functions_done(done);
+      batch.set_functions_total(total);
+      batch.set_functions_failed(failed);
+      batch.set_elapsed_ms(MsSince(t0));
+      if (!write(batch)) return false;
+      batch.clear_matches();
+      return true;
+    };
+    Status st = DecompileMany(ctx, many, [&](const pb::DecompileManyResponse &m) {
+      // Search outside the lock; only the batch is shared.
+      std::vector<pb::DecompiledMatch> local;
+      if (m.has_function()) {
+        const pb::DecompiledFunction &fn = m.function();
+        std::string text;
+        for (int li = 0; li < fn.lines_size(); ++li) {
+          const pb::CodeLine &line = fn.lines(li);
+          text.clear();
+          for (const pb::CodeToken &t : line.tokens()) text += t.text();
+          std::size_t start = 0, len = 0;
+          if (!matcher->Find(text, start, len)) continue;
+          pb::DecompiledMatch d;
+          *d.mutable_function() = m.entry();
+          d.set_function_name(fn.name());
+          d.set_line(static_cast<std::uint32_t>(li));
+          d.set_text(text);
+          d.set_match_start(static_cast<std::uint32_t>(start));
+          d.set_match_length(static_cast<std::uint32_t>(len));
+          if (line.has_address()) *d.mutable_address() = line.address();
+          local.push_back(std::move(d));
+        }
+      }
+      std::lock_guard lock(mu);
+      if (truncated || gone) return false;
+      total = m.total();
+      ++done;
+      if (!m.has_function() || m.has_failure()) ++failed;
+      for (auto &d : local) {
+        if (found == max) {
+          truncated = true;
+          break;
+        }
+        ++found;
+        *batch.add_matches() = std::move(d);
+      }
+      if (truncated) return false;
+      if (throttle.due(batch.matches_size()) && !flush()) gone = true;
+      return !gone;
+    });
+    if (!truncated && !st.ok()) return st;
+    if (gone) return Error(StatusCode::kCancelled, "the client went away");
+    batch.set_done(true);
+    batch.set_truncated(truncated);
+    if (!flush()) return Error(StatusCode::kCancelled, "the client went away");
+    return Status::Ok();
+  }
+  // ---- Find uses of a type or field (api_minor 53, feature "type-uses";
+  // docs/api.md "Find uses of a type or field") ----
+
+  // How the C statement around a field token (tokens[i], whitespace
+  // dropped) accesses the field: the token's member chain (`p->a.b[2]`)
+  // assigned, updated, read, or its address taken.
+  static pb::FieldAccess FieldAccessAt(const std::vector<const pb::CodeToken *> &t, std::size_t i) {
+    auto text = [&](std::size_t k) { return k < t.size() ? t[k]->text() : std::string(); };
+    auto is_member_op = [&](std::size_t k) { return text(k) == "." || text(k) == "->"; };
+    // The chain's end: further members and subscripts.
+    std::size_t end = i;
+    for (;;) {
+      if (is_member_op(end + 1) && end + 2 < t.size() && t[end + 2]->kind() == pb::CODE_TOKEN_KIND_FIELD) {
+        end += 2;
+      } else if (text(end + 1) == "[") {
+        int depth = 0;
+        std::size_t k = end + 1;
+        for (; k < t.size(); ++k) {
+          if (text(k) == "[") ++depth;
+          else if (text(k) == "]" && --depth == 0) break;
+        }
+        if (k >= t.size()) break;
+        end = k;
+      } else {
+        break;
+      }
+    }
+    // Its start: back over members, subscripts and a parenthesized base.
+    std::size_t start = i;
+    while (start >= 2 && is_member_op(start - 1)) {
+      std::size_t k = start - 2;
+      auto match_back = [&](const char *open, const char *close) {
+        int depth = 0;
+        for (std::size_t j = k + 1; j-- > 0;) {
+          if (text(j) == close) ++depth;
+          else if (text(j) == open && --depth == 0) return j;
+        }
+        return std::string::npos;
+      };
+      while (text(k) == "]") {
+        std::size_t o = match_back("[", "]");
+        if (o == std::string::npos || o == 0) return pb::FIELD_ACCESS_READ;
+        k = o - 1;
+      }
+      if (text(k) == ")") {
+        std::size_t o = match_back("(", ")");
+        if (o == std::string::npos) return pb::FIELD_ACCESS_READ;
+        start = o;
+        break;
+      }
+      start = k;
+      if (t[k]->kind() != pb::CODE_TOKEN_KIND_FIELD) break;
+    }
+    const std::string after = text(end + 1);
+    if (after == "=") return pb::FIELD_ACCESS_WRITE;
+    static const std::set<std::string> kUpdate{"+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "++", "--"};
+    if (kUpdate.contains(after)) return pb::FIELD_ACCESS_READ_WRITE;
+    if (start > 0) {
+      const std::string before = text(start - 1);
+      if (before == "++" || before == "--") return pb::FIELD_ACCESS_READ_WRITE;
+      if (before == "&") {
+        // Unary: nothing that ends an operand before it.
+        const pb::CodeToken *p = start >= 2 ? t[start - 2] : nullptr;
+        const bool operand_before =
+            p != nullptr && (p->text() == ")" || p->text() == "]" || p->kind() == pb::CODE_TOKEN_KIND_CONSTANT ||
+                             p->kind() == pb::CODE_TOKEN_KIND_LOCAL_VARIABLE || p->kind() == pb::CODE_TOKEN_KIND_PARAMETER ||
+                             p->kind() == pb::CODE_TOKEN_KIND_GLOBAL_VARIABLE || p->kind() == pb::CODE_TOKEN_KIND_FIELD ||
+                             p->kind() == pb::CODE_TOKEN_KIND_STRING);
+        if (!operand_before) return pb::FIELD_ACCESS_ADDRESS;
+      }
+    }
+    return pb::FIELD_ACCESS_READ;
+  }
+
+  // The uses of a type (or one field) in one decompiled function.
+  static void TypeUsesIn(const pb::DecompiledFunction &fn, const pb::Address &entry, const pb::FindTypeUsesRequest &req,
+                         std::vector<pb::TypeUse> &out) {
+    const bool one_field = req.has_field_offset();
+    std::string text;
+    std::vector<const pb::CodeToken *> solid;
+    std::vector<std::size_t> starts;  // each solid token's byte offset in `text`
+    for (int li = 0; li < fn.lines_size(); ++li) {
+      const pb::CodeLine &line = fn.lines(li);
+      bool any = false;
+      for (const pb::CodeToken &t : line.tokens())
+        if ((t.kind() == pb::CODE_TOKEN_KIND_FIELD && t.parent_type_hash() == req.type_hash()) ||
+            (!one_field && t.kind() == pb::CODE_TOKEN_KIND_TYPE && t.type_hash() == req.type_hash()))
+          any = true;
+      if (!any) continue;
+      text.clear();
+      solid.clear();
+      starts.clear();
+      for (const pb::CodeToken &t : line.tokens()) {
+        std::string_view trimmed = t.text();
+        while (!trimmed.empty() && trimmed.front() == ' ') trimmed.remove_prefix(1);
+        if (!trimmed.empty() && t.kind() != pb::CODE_TOKEN_KIND_WHITESPACE) {
+          solid.push_back(&t);
+          starts.push_back(text.size() + (t.text().size() - trimmed.size()));
+        }
+        text += t.text();
+      }
+      for (std::size_t k = 0; k < solid.size(); ++k) {
+        const pb::CodeToken &t = *solid[k];
+        pb::TypeUse u;
+        if (t.kind() == pb::CODE_TOKEN_KIND_FIELD && t.parent_type_hash() == req.type_hash()) {
+          if (one_field && (!t.has_field_offset() || t.field_offset() != req.field_offset())) continue;
+          if (one_field && !req.field_name().empty() && t.text() != req.field_name()) continue;
+          u.set_kind(pb::TYPE_USE_KIND_FIELD);
+          u.set_access(FieldAccessAt(solid, k));
+          u.set_field_name(t.text());
+          if (t.has_field_offset()) u.set_field_offset(t.field_offset());
+        } else if (!one_field && t.kind() == pb::CODE_TOKEN_KIND_TYPE && t.type_hash() == req.type_hash()) {
+          u.set_kind(pb::TYPE_USE_KIND_TYPE);
+        } else {
+          continue;
+        }
+        *u.mutable_function() = entry;
+        u.set_function_name(fn.name());
+        if (t.has_address()) *u.mutable_address() = t.address();
+        else if (line.has_address()) *u.mutable_address() = line.address();
+        u.set_line(static_cast<std::uint32_t>(li));
+        u.set_text(text);
+        std::string_view trimmed = t.text();
+        while (!trimmed.empty() && trimmed.front() == ' ') trimmed.remove_prefix(1);
+        while (!trimmed.empty() && trimmed.back() == ' ') trimmed.remove_suffix(1);
+        u.set_match_start(static_cast<std::uint32_t>(starts[k]));
+        u.set_match_length(static_cast<std::uint32_t>(trimmed.size()));
+        out.push_back(std::move(u));
+      }
+    }
+  }
+
+  Status FindTypeUses(const CallContext &ctx, const pb::FindTypeUsesRequest &req,
+                      const std::function<bool(const pb::FindTypeUsesResponse &)> &write) override {
+    const auto t0 = std::chrono::steady_clock::now();
+    if (req.max_results() > 100000) return Error(StatusCode::kInvalidArgument, "max_results is at most 100000");
+    if (req.type_hash().empty()) return Error(StatusCode::kInvalidArgument, "type_hash is required");
+    if (!req.field_name().empty() && !req.has_field_offset())
+      return Error(StatusCode::kInvalidArgument, "field_name needs field_offset");
+    {
+      Read r;
+      if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+      View v(r);
+      auto ids = r.snapshot->get<q::AggregateIds>(v.id());
+      if (std::none_of(ids->begin(), ids->end(), [&](const auto &e) { return e.second == req.type_hash(); }))
+        return Error(StatusCode::kNotFound, "no struct or union " + req.type_hash() + " in this program");
+    }
+    pb::DecompileManyRequest many;
+    many.set_program_id(req.program_id());
+    many.set_parallelism(req.parallelism());
+    many.mutable_options()->set_timeout_ms(req.timeout_ms());
+    pb::Snapshot snap;
+    bool none = false;
+    const bool all = req.all() || (req.functions().empty() && req.ranges().empty());
+    if (auto st = PlanDecompileMany(ctx, req.program_id(), req.read(), req.functions(), req.ranges(), all, many, snap, none);
+        !st.ok())
+      return st;
+    pb::FindTypeUsesResponse batch;
+    *batch.mutable_snapshot() = snap;
+    if (none) {
+      batch.set_done(true);
+      batch.set_elapsed_ms(MsSince(t0));
+      if (!write(batch)) return Error(StatusCode::kCancelled, "the client went away");
+      return Status::Ok();
+    }
+    const std::uint32_t max = req.max_results() ? req.max_results() : 1000;
+    std::mutex mu;
+    std::uint32_t found = 0, done = 0, failed = 0, total = 0;
+    bool truncated = false, gone = false;
+    Throttle throttle;
+    auto flush = [&] {
+      batch.set_functions_done(done);
+      batch.set_functions_total(total);
+      batch.set_functions_failed(failed);
+      batch.set_elapsed_ms(MsSince(t0));
+      if (!write(batch)) return false;
+      batch.clear_uses();
+      return true;
+    };
+    Status st = DecompileMany(ctx, many, [&](const pb::DecompileManyResponse &m) {
+      std::vector<pb::TypeUse> local;
+      if (m.has_function() && !m.has_failure()) TypeUsesIn(m.function(), m.entry(), req, local);
+      std::lock_guard lock(mu);
+      if (truncated || gone) return false;
+      total = m.total();
+      ++done;
+      if (!m.has_function() || m.has_failure()) ++failed;
+      for (auto &u : local) {
+        if (found == max) {
+          truncated = true;
+          break;
+        }
+        ++found;
+        *batch.add_uses() = std::move(u);
+      }
+      if (truncated) return false;
+      if (throttle.due(batch.uses_size()) && !flush()) gone = true;
+      return !gone;
+    });
+    if (!truncated && !st.ok()) return st;
+    if (gone) return Error(StatusCode::kCancelled, "the client went away");
+    batch.set_done(true);
+    batch.set_truncated(truncated);
+    if (!flush()) return Error(StatusCode::kCancelled, "the client went away");
+    return Status::Ok();
+  }
+
+  // ---- The byte viewer, the overview bars and next/previous (api_minor 44;
+  // docs/api.md, "Byte viewer, overview and navigation") ----
+
+  // What a listing span's bytes are: a run of instructions, one data item,
+  // or undefined bytes (uninitialized where its block has none).
+  static pb::ByteKind SpanKind(const ListingSpan &s, const analysis::MemoryMapInfo &map) {
+    if (s.code) return pb::BYTE_KIND_CODE;
+    if (s.data) return pb::BYTE_KIND_DATA;
+    const analysis::MemoryBlock *b = map.block(s.start);
+    return b && !b->initialized ? pb::BYTE_KIND_UNINITIALIZED : pb::BYTE_KIND_UNDEFINED;
+  }
+
+  // `n` bytes from `lo`: the program's (as patched, when `patches` is set),
+  // zeros where there are none (uninitialized blocks, gaps between blocks).
+  static std::string ReadFilled(const Program &p, const analysis::MemoryMapInfo &map, std::uint64_t lo, std::uint64_t n,
+                                PatchedBytes *patches) {
+    std::string out;
+    out.reserve(n);
+    std::uint64_t at = lo;
+    while (out.size() < n) {
+      const std::uint64_t left = n - out.size();
+      const analysis::MemoryBlock *b = map.block(at);
+      if (!b) {
+        std::uint64_t gap = left;
+        for (const analysis::MemoryBlock &x : map.blocks)
+          if (x.range.first > at) {
+            gap = std::min(gap, x.range.first - at);
+            break;
+          }
+        out.append(gap, '\0');
+        at += gap;
+        continue;
+      }
+      const std::uint64_t len = std::min(left - 1, b->range.last - at) + 1;
+      if (b->initialized) {
+        const std::string d = p.read(at, static_cast<std::uint32_t>(len), patches);
+        out += d;
+        if (d.size() < len) out.append(len - d.size(), '\0');
+      } else {
+        out.append(len, '\0');
+      }
+      at += len;
+    }
+    return out;
+  }
+
+  // QueryService.GetByteView (api_minor 44, feature "byte-viewer").
+  Status GetByteView(const CallContext &ctx, const pb::GetByteViewRequest &req, pb::GetByteViewResponse &resp) override {
+    if (req.length() > 65536) return Error(StatusCode::kInvalidArgument, "length is at most 65536");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const std::optional<std::uint64_t> key = KeyOf(v.program(), req.address());
+    if (!key) return Error(StatusCode::kInvalidArgument, "no memory space \"" + req.address().space() + "\"");
+    SetSnapshot(r, resp.mutable_snapshot());
+    const std::uint64_t lo = *key;
+    const std::uint64_t n = std::min<std::uint64_t>(req.length(), UINT64_MAX - lo);
+    *resp.mutable_address() = A(lo);
+    if (n == 0) return Status::Ok();
+    const std::uint64_t hi = lo + n;  // exclusive
+    const Program &p = v.program();
+    auto map = v.snapshot().get<analysis::MemoryMap>(AnalysisKey(v.id()));
+    SnapshotPatches patches(v.snapshot(), v.space());
+    const std::string data = ReadFilled(p, *map, lo, n, &patches);
+    const std::string original = ReadFilled(p, *map, lo, n, nullptr);
+    resp.set_data(data);
+    for (std::uint64_t i = 0; i < n;) {
+      if (data[i] == original[i]) {
+        ++i;
+        continue;
+      }
+      std::uint64_t j = i;
+      while (j < n && data[j] != original[j]) ++j;
+      auto *pt = resp.add_patched();
+      *pt->mutable_start() = A(lo + i);
+      pt->set_original(original.substr(i, j - i));
+      i = j;
+    }
+    // Runs: one per instruction or data item; undefined and uninitialized
+    // bytes (and addresses outside every block) coalesced.
+    std::uint64_t covered = lo;
+    auto push = [&](std::uint64_t start, std::uint64_t len, pb::ByteKind k) {
+      if (len == 0) return;
+      const bool merge = k == pb::BYTE_KIND_UNDEFINED || k == pb::BYTE_KIND_UNINITIALIZED;
+      if (merge && resp.runs_size() > 0) {
+        pb::ByteRun &last = *resp.mutable_runs(resp.runs_size() - 1);
+        if (last.kind() == k && last.start().offset() + last.length() == start) {
+          last.set_length(static_cast<std::uint32_t>(last.length() + len));
+          return;
+        }
+      }
+      auto *run = resp.add_runs();
+      *run->mutable_start() = A(start);
+      run->set_length(static_cast<std::uint32_t>(std::min<std::uint64_t>(len, UINT32_MAX)));
+      run->set_kind(k);
+    };
+    auto add = [&](std::uint64_t start, std::uint64_t len, pb::ByteKind k) {
+      if (start > covered) push(covered, start - covered, pb::BYTE_KIND_UNINITIALIZED);
+      push(start, len, k);
+      covered = std::max(covered, start + len);
+    };
+    const RowIndex &rows = v.rows();
+    auto it = std::upper_bound(rows.spans.begin(), rows.spans.end(), lo,
+                               [](std::uint64_t a, const ListingSpan &sp) { return a < sp.start; });
+    if (it != rows.spans.begin()) --it;
+    for (; it != rows.spans.end() && it->start < hi; ++it) {
+      const ListingSpan &sp = *it;
+      if (sp.end <= lo) continue;
+      if (sp.code) {
+        for (std::size_t i = 0; i < sp.rows.size(); ++i) {
+          const std::uint64_t off = sp.rows[i] & ListingSpan::kOffsetMask;
+          const std::uint64_t next = i + 1 < sp.rows.size() ? (sp.rows[i + 1] & ListingSpan::kOffsetMask) : sp.end - sp.start;
+          const std::uint64_t a = sp.start + off;
+          if (a >= hi) break;
+          if (a + (next - off) <= lo) continue;
+          add(a, next - off, (sp.rows[i] & ListingSpan::kUndefined) ? pb::BYTE_KIND_UNDEFINED : pb::BYTE_KIND_CODE);
+        }
+      } else if (sp.data) {
+        add(sp.start, sp.end - sp.start, pb::BYTE_KIND_DATA);
+      } else {
+        const std::uint64_t a = std::max(sp.start, lo), b = std::min(sp.end, hi);
+        add(a, b - a, SpanKind(sp, *map));
+      }
+    }
+    if (covered < hi) push(covered, hi - covered, pb::BYTE_KIND_UNINITIALIZED);
+    return Status::Ok();
+  }
+
+  // QueryService.GetOverview (api_minor 44, feature "overview").
+  Status GetOverview(const CallContext &ctx, const pb::GetOverviewRequest &req, pb::GetOverviewResponse &resp) override {
+    if (req.buckets() > 8192) return Error(StatusCode::kInvalidArgument, "buckets is at most 8192");
+    const std::uint64_t want = req.buckets() ? req.buckets() : 512;
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    auto map = v.snapshot().get<analysis::MemoryMap>(AnalysisKey(v.id()));
+    long double total = 0;
+    for (const analysis::MemoryBlock &b : map->blocks) total += static_cast<long double>(b.range.last - b.range.first) + 1;
+    resp.set_total_bytes(static_cast<std::uint64_t>(std::min<long double>(total, 18446744073709551615.0L)));
+    if (map->blocks.empty()) return Status::Ok();
+    enum { kCode, kData, kUndefined, kExternal, kUninit, kKinds };
+    struct Bucket {
+      std::uint64_t start = 0, len = 0;
+      std::int64_t n[kKinds] = {};
+      const analysis::MemoryBlock *block = nullptr;
+    };
+    std::vector<Bucket> bs;
+    for (const analysis::MemoryBlock &b : map->blocks) {
+      const std::uint64_t last = b.range.last - b.range.first;  // size - 1
+      const long double size = static_cast<long double>(last) + 1;
+      const std::uint64_t k = std::max<std::uint64_t>(1, static_cast<std::uint64_t>(std::llround(size * want / total)));
+      const std::uint64_t per = last / k + 1;  // ceil(size / k), without overflow
+      for (std::uint64_t off = 0;;) {
+        Bucket x;
+        x.start = b.range.first + off;
+        x.len = std::min(per - 1, last - off) + 1;
+        x.block = &b;
+        bs.push_back(x);
+        if (last - off < per) break;
+        off += per;
+      }
+    }
+    // Adds `delta` bytes of `kind` for [a, b) (b exclusive, a < b), across buckets.
+    auto count = [&](std::uint64_t a, std::uint64_t b, int kind, int sign) {
+      auto it = std::upper_bound(bs.begin(), bs.end(), a, [](std::uint64_t x, const Bucket &y) { return x < y.start; });
+      if (it != bs.begin()) --it;
+      for (; it != bs.end() && it->start < b; ++it) {
+        const std::uint64_t s = std::max(a, it->start), e = std::min(b, it->start + it->len);
+        if (e > s) it->n[kind] += sign * static_cast<std::int64_t>(e - s);
+      }
+    };
+    auto kind_of = [&](const ListingSpan &sp) {
+      switch (SpanKind(sp, *map)) {
+        case pb::BYTE_KIND_CODE: return int(kCode);
+        case pb::BYTE_KIND_DATA: return int(kData);
+        case pb::BYTE_KIND_UNINITIALIZED: return int(kUninit);
+        default: return int(kUndefined);
+      }
+    };
+    const RowIndex &rows = v.rows();
+    for (const ListingSpan &sp : rows.spans)
+      if (sp.end > sp.start) count(sp.start, sp.end, kind_of(sp), 1);
+    // Imports: their slots, PLT sections and the stubs that jump through them.
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> ext;  // [first, end)
+    auto info = v.snapshot().get<analysis::Program>(AnalysisKey(v.id()));
+    for (const analysis::ImportSlot &slot : info->imports) ext.emplace_back(slot.address, slot.address + std::max<std::uint8_t>(1, info->pointer_size));
+    for (const analysis::Range &pr : info->plt) ext.emplace_back(pr.first, pr.last + 1);
+    for (const Func &f : v.functions().funcs)
+      if ((f.flags & analysis::kFunctionThunk) && f.thunk_target == 0)
+        for (auto [first, last] : f.body) ext.emplace_back(first, last + 1);
+    std::sort(ext.begin(), ext.end());
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> merged;
+    for (auto e : ext) {
+      if (e.second <= e.first) continue;
+      if (!merged.empty() && e.first <= merged.back().second) merged.back().second = std::max(merged.back().second, e.second);
+      else merged.push_back(e);
+    }
+    for (auto [a, b] : merged) {
+      auto it = std::upper_bound(rows.spans.begin(), rows.spans.end(), a,
+                                 [](std::uint64_t x, const ListingSpan &sp) { return x < sp.start; });
+      if (it != rows.spans.begin()) --it;
+      for (; it != rows.spans.end() && it->start < b; ++it) {
+        const std::uint64_t s = std::max(a, it->start), e = std::min(b, it->end);
+        if (e > s) count(s, e, kind_of(*it), -1);
+      }
+      count(a, b, kExternal, 1);
+    }
+    // Entropy over a sample of each slice: about 8 MiB in all.
+    const std::uint64_t budget = std::clamp<std::uint64_t>((8u << 20) / bs.size(), 512, 65536);
+    const Program &p = v.program();
+    SnapshotPatches patches(v.snapshot(), v.space());
+    for (std::size_t i = 0; i < bs.size(); ++i) {
+      if ((i & 63) == 0 && ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+      Bucket &x = bs[i];
+      std::int64_t known = 0;
+      for (std::int64_t c : x.n) known += c;
+      const std::int64_t rest = std::max<std::int64_t>(0, static_cast<std::int64_t>(x.len) - known);
+      x.n[x.block->initialized ? kUndefined : kUninit] += rest;
+      auto *out = resp.add_buckets();
+      *out->mutable_start() = A(x.start);
+      out->set_length(x.len);
+      out->set_block(x.block->name);
+      out->set_code(std::max<std::int64_t>(0, x.n[kCode]));
+      out->set_data(std::max<std::int64_t>(0, x.n[kData]));
+      out->set_undefined(std::max<std::int64_t>(0, x.n[kUndefined]));
+      out->set_external(std::max<std::int64_t>(0, x.n[kExternal]));
+      out->set_uninitialized(std::max<std::int64_t>(0, x.n[kUninit]));
+      static constexpr pb::ByteKind kKindOf[kKinds] = {pb::BYTE_KIND_CODE, pb::BYTE_KIND_DATA, pb::BYTE_KIND_UNDEFINED,
+                                                       pb::BYTE_KIND_EXTERNAL, pb::BYTE_KIND_UNINITIALIZED};
+      int best = kUndefined;
+      for (int k : {kCode, kExternal, kData, kUndefined, kUninit})
+        if (x.n[k] > x.n[best]) best = k;
+      out->set_kind(kKindOf[best]);
+      if (!x.block->initialized) continue;
+      std::uint32_t hist[256] = {};
+      std::uint64_t seen = 0;
+      auto sample = [&](std::uint64_t at, std::uint64_t len) {
+        const std::string d = p.read(at, static_cast<std::uint32_t>(len), &patches);
+        for (unsigned char c : d) ++hist[c];
+        seen += d.size();
+      };
+      if (x.len <= budget) {
+        sample(x.start, x.len);
+      } else {
+        const std::uint64_t chunk = budget / 8, step = x.len / 8;
+        for (std::uint64_t c = 0; c < 8; ++c) sample(x.start + c * step, chunk);
+      }
+      double h = 0;
+      for (std::uint32_t c : hist)
+        if (c) {
+          const double q = static_cast<double>(c) / static_cast<double>(seen);
+          h -= q * std::log2(q);
+        }
+      out->set_entropy(static_cast<float>(h));
+    }
+    return Status::Ok();
+  }
+
+  // QueryService.FindNext (api_minor 44, feature "find-next").
+  Status FindNext(const CallContext &ctx, const pb::FindNextRequest &req, pb::FindNextResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const std::optional<std::uint64_t> key = KeyOf(v.program(), req.from());
+    if (!key) return Error(StatusCode::kInvalidArgument, "no memory space \"" + req.from().space() + "\"");
+    SetSnapshot(r, resp.mutable_snapshot());
+    const std::uint64_t from = *key;
+    const bool back = req.backward();
+    std::optional<std::uint64_t> found;
+    // The first (last) address of `addrs` after (before) `from` that `ok` accepts.
+    auto step = [&](const std::set<std::uint64_t> &addrs, const std::function<bool(std::uint64_t)> &ok) {
+      if (!back) {
+        for (auto it = addrs.upper_bound(from); it != addrs.end(); ++it)
+          if (ok(*it)) return std::optional<std::uint64_t>(*it);
+      } else {
+        for (auto it = std::make_reverse_iterator(addrs.lower_bound(from)); it != addrs.rend(); ++it)
+          if (ok(*it)) return std::optional<std::uint64_t>(*it);
+      }
+      return std::optional<std::uint64_t>();
+    };
+    switch (req.kind()) {
+      case pb::NAVIGATION_KIND_INSTRUCTION:
+      case pb::NAVIGATION_KIND_DATA:
+      case pb::NAVIGATION_KIND_UNDEFINED: {
+        const RowIndex &rows = v.rows();
+        const auto &sp = rows.spans;
+        const int want = req.kind() == pb::NAVIGATION_KIND_INSTRUCTION ? 0 : req.kind() == pb::NAVIGATION_KIND_DATA ? 1 : 2;
+        auto kind = [&](std::size_t i) { return sp[i].code ? 0 : sp[i].data ? 1 : 2; };
+        // Spans i and i + 1 are one run: in one block with at most a few
+        // bytes the listing shows no row for between them (a byte no flow
+        // reached between two functions' code).
+        auto joined = [&](std::size_t i) { return sp[i].block == sp[i + 1].block && sp[i + 1].start - sp[i].end <= 16; };
+        if (sp.empty()) break;
+        auto it = std::upper_bound(sp.begin(), sp.end(), from, [](std::uint64_t a, const ListingSpan &s) { return a < s.start; });
+        std::int64_t i = static_cast<std::int64_t>(it - sp.begin()) - 1;  // the last span starting at or before `from`
+        const bool inside = i >= 0 && from < sp[i].end;
+        const std::int64_t n = static_cast<std::int64_t>(sp.size());
+        if (!back) {
+          if (inside && kind(i) == want)
+            while (i + 1 < n && joined(i) && kind(i + 1) == want) ++i;
+          for (++i; i < n; ++i)
+            if (kind(i) == want) {
+              found = sp[i].start + (sp[i].code && !sp[i].rows.empty() ? (sp[i].rows.front() & ListingSpan::kOffsetMask) : 0);
+              break;
+            }
+        } else {
+          if (inside) {
+            if (kind(i) == want)
+              while (i > 0 && joined(i - 1) && kind(i - 1) == want) --i;
+            --i;
+          }
+          for (; i >= 0; --i)
+            if (kind(i) == want) {
+              const ListingSpan &s = sp[i];
+              found = s.code && !s.rows.empty() ? s.start + (s.rows.back() & ListingSpan::kOffsetMask) : s.data ? s.start : s.end - 1;
+              break;
+            }
+        }
+        break;
+      }
+      case pb::NAVIGATION_KIND_LABEL: {
+        std::set<std::uint64_t> addrs;
+        for (const Func &f : v.functions().funcs) addrs.insert(f.entry);
+        for (const Label &l : v.defaults().labels) addrs.insert(l.address);
+        for (const facts::FactKey &k : v.log().keys())
+          if (k.kind == FactKind::Name && k.sub.empty() && k.addr.space == v.space()) addrs.insert(k.addr.offset);
+        found = step(addrs, [&](std::uint64_t a) { return !v.Symbol(a).empty(); });
+        break;
+      }
+      case pb::NAVIGATION_KIND_FUNCTION: {
+        const auto &fs = v.functions().funcs;
+        if (!back) {
+          auto it = std::upper_bound(fs.begin(), fs.end(), from, [](std::uint64_t a, const Func &f) { return a < f.entry; });
+          if (it != fs.end()) found = it->entry;
+        } else {
+          auto it = std::lower_bound(fs.begin(), fs.end(), from, [](const Func &f, std::uint64_t a) { return f.entry < a; });
+          if (it != fs.begin()) found = std::prev(it)->entry;
+        }
+        break;
+      }
+      case pb::NAVIGATION_KIND_NOTE: {
+        std::set<std::uint64_t> addrs;
+        for (const facts::FactKey &k : v.log().keys())
+          if (k.kind == FactKind::Note && k.addr.space == v.space() && !v.Text(k).empty()) addrs.insert(k.addr.offset);
+        found = step(addrs, [](std::uint64_t) { return true; });
+        break;
+      }
+      case pb::NAVIGATION_KIND_DIFFERENT_BYTE: {
+        const Program &p = v.program();
+        SnapshotPatches patches(v.snapshot(), v.space());
+        auto map = v.snapshot().get<analysis::MemoryMap>(AnalysisKey(v.id()));
+        const std::string here = p.read(from, 1, &patches);
+        // The first byte of `d` (read at `at`) that differs, scanning forward or backward.
+        auto differs = [&](unsigned char c) { return here.empty() || c != static_cast<unsigned char>(here[0]); };
+        constexpr std::uint64_t kChunk = 1u << 20;
+        if (!back) {
+          for (const analysis::MemoryBlock &b : map->blocks) {
+            if (!b.initialized || b.range.last <= from) continue;
+            for (std::uint64_t at = std::max(b.range.first, from + 1);;) {
+              if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+              const std::uint64_t len = std::min(kChunk - 1, b.range.last - at) + 1;
+              const std::string d = p.read(at, static_cast<std::uint32_t>(len), &patches);
+              for (std::size_t j = 0; j < d.size() && !found; ++j)
+                if (differs(static_cast<unsigned char>(d[j]))) found = at + j;
+              if (found || d.size() < len || b.range.last - at < kChunk) break;
+              at += len;
+            }
+            if (found) break;
+          }
+        } else if (from > 0) {
+          for (auto bi = map->blocks.rbegin(); bi != map->blocks.rend() && !found; ++bi) {
+            const analysis::MemoryBlock &b = *bi;
+            if (!b.initialized || b.range.first >= from) continue;
+            for (std::uint64_t top = std::min(b.range.last, from - 1);;) {
+              if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+              const std::uint64_t len = std::min(kChunk - 1, top - b.range.first) + 1;
+              const std::uint64_t at = top - len + 1;
+              const std::string d = p.read(at, static_cast<std::uint32_t>(len), &patches);
+              for (std::size_t j = d.size(); j-- > 0 && !found;)
+                if (differs(static_cast<unsigned char>(d[j]))) found = at + j;
+              if (found || at == b.range.first) break;
+              top = at - 1;
+            }
+          }
+        }
+        break;
+      }
+      default:
+        return Error(StatusCode::kInvalidArgument, "kind is required");
+    }
+    if (found) {
+      resp.set_found(true);
+      *resp.mutable_address() = A(*found);
+    }
+    return Status::Ok();
+  }
+
+  // Describes `hashes` (each known to the program) into `out`, interning
+  // their closures together.
+  void DescribeTypes(View &v, const Read &r, const std::vector<std::string> &hashes,
+                     google::protobuf::RepeatedPtrField<pb::TypeDefinition> *out, const NamedTypes *names = nullptr,
+                     const std::map<std::string, std::string> *categories = nullptr) {
+    std::map<std::string, std::string> records;
+    for (const std::string &h : hashes) {
+      auto closure = r.snapshot->get<q::Types>({v.id(), h});
+      records.insert(closure->begin(), closure->end());
+    }
+    types::TypeStore store;
+    auto ids = InternRecords(records, store);
+    for (const std::string &h : hashes) {
+      auto it = ids.find(h);
+      if (it == ids.end()) continue;
+      auto *t = out->Add();
+      t->set_hash(h);
+      DescribeType(store, it->second, *t);
+      if (auto w = v.Winner(TypeDefKey(v.space(), h))) {
+        *t->mutable_origin() = v.Origin(*w);
+      } else if (auto pw = v.Winner(TypeDefKey(kProjectSpace, h))) {
+        // The project's (docs/types.md#project-types).
+        *t->mutable_origin() = v.Origin(*pw);
+        t->set_project(true);
+      } else if (auto lib = r.snapshot->get<q::Library>(v.id()); lib->record(h))
+        *t->mutable_origin() = Derived("library:" + lib->archive_of(h), r.revision);
+      if (names) {
+        auto rec = records.find(h);
+        std::string named;
+        try {
+          named = NamedTypeKey(DecodeTypeRecord(rec->second).type);
+        } catch (const facts::DecodeError &) {
+        }
+        if (const std::string *b = named.empty() ? nullptr : names->bound(named)) {
+          t->set_bound(*b == h);
+          t->set_superseded(*b != h);
+        }
+        if (categories && !named.empty())
+          if (auto c = categories->find(named); c != categories->end()) t->set_category(c->second);
+      }
+    }
+  }
+
+  Status GetTypes(const CallContext &ctx, const pb::GetTypesRequest &req, pb::GetTypesResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    std::vector<std::string> wanted;
+    std::set<std::string> done;
+    for (const auto &h : req.hashes()) {
+      auto closure = r.snapshot->get<q::Types>({v.id(), h});
+      if (closure->empty()) {
+        resp.add_missing(h);
+        continue;
+      }
+      if (done.insert(h).second) wanted.push_back(h);
+      if (req.include_dependencies())
+        for (const auto &[dep, rec] : *closure)
+          if (done.insert(dep).second) wanted.push_back(dep);
+    }
+    auto names = r.snapshot->get<q::TypeNames>(v.id());
+    DescribeTypes(v, r, wanted, resp.mutable_types(), &*names);
+    return Status::Ok();
+  }
+
+  // The program's named types (types.names), the effective definition of
+  // each name: the bound one where a BindTypeName binds the name, else every
+  // definition of it (debug info may define one name differently in
+  // different units).
+  // TypeService.ParseC (api_minor 25): reads the program's named types at
+  // the request's revision and asserts nothing (parse_c.h).
+  Status ParseC(const CallContext &ctx, const pb::ParseCRequest &req, pb::ParseCResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    auto names = r.snapshot->get<q::TypeNames>(v.id());
+    auto cats = r.snapshot->get<q::TypeCategories>(v.id());
+    const std::map<std::string, std::string> categories(cats->begin(), cats->end());
+    ParseCContext c{v.program(), *names, [&](const std::string &hash) { return TypeClosureOf(r, v, hash); },
+                    core_->options.browse_roots, &categories};
+    return backend::ParseC(c, req, resp);
+  }
+
+  // TypeService.CopyTypes (api_minor 52, feature "project-types";
+  // docs/types.md#project-types): a program's named types moved to the
+  // project, or the project's copied into a program, with every record
+  // they reach, in one revision.
+  Status CopyTypes(const CallContext &ctx, const pb::CopyTypesRequest &req, pb::CopyTypesResponse &resp) override {
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    if (req.mode() == pb::COPY_TYPES_MODE_UNSPECIFIED) return Error(StatusCode::kInvalidArgument, "mode is required");
+    if (req.keys().empty()) return Error(StatusCode::kInvalidArgument, "no keys");
+    const bool to_project = req.mode() == pb::COPY_TYPES_MODE_MOVE_TO_PROJECT;
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    auto names = r.snapshot->get<q::TypeNames>(v.id());
+    auto cats = r.snapshot->get<q::TypeCategories>(v.id());
+    const std::map<std::string, std::string> categories(cats->begin(), cats->end());
+    const facts::SpaceId from = to_project ? v.space() : kProjectSpace;
+    const facts::SpaceId to = to_project ? kProjectSpace : v.space();
+    auto key_in = [](facts::SpaceId space, const std::string &sub) { return TypeDefKey(space, sub); };
+    struct Plan {
+      std::string key, hash;
+      std::vector<std::string> own;  // a move: the program's definitions of the name
+    };
+    std::vector<Plan> plans;
+    std::set<std::string> seen;
+    for (const std::string &key : req.keys()) {
+      if (!IsNamedTypeKey(key))
+        return Error(StatusCode::kInvalidArgument, "\"" + key.substr(0, 64) + "\" isn't a named type key (\"struct cJSON\")");
+      if (!seen.insert(key).second) continue;
+      Plan plan{key, {}, {}};
+      // The source scope's definition: its binding of the name, else its
+      // one definition.
+      const std::string bound = v.Text(key_in(from, TypeNameSub(key)));
+      std::vector<std::string> defs;
+      for (const NamedTypes::Entry &e : names->types)
+        if (e.key == key && !e.library && e.project == !to_project) defs.push_back(e.hash);
+      if (bound.starts_with("h:")) plan.hash = bound.substr(2);
+      else if (defs.size() == 1) plan.hash = defs.front();
+      else if (defs.empty())
+        return Error(StatusCode::kNotFound, std::string(to_project ? "the program" : "the project") + " has no " + key);
+      else
+        return Error(StatusCode::kFailedPrecondition,
+                     key + " has " + std::to_string(defs.size()) + " definitions and no binding: bind one first");
+      if (to_project) plan.own = defs;
+      plans.push_back(std::move(plan));
+    }
+    // What each definition reaches, as stored (records keep their hashes).
+    std::map<std::string, std::string> records;
+    for (const Plan &plan : plans) {
+      auto closure = r.snapshot->get<q::Types>({v.id(), plan.hash});
+      if (std::none_of(closure->begin(), closure->end(), [&](const auto &kv) { return kv.first == plan.hash; }))
+        return Error(StatusCode::kNotFound, "the type " + plan.hash + " (" + plan.key + ") can't be read");
+      for (const auto &[h, rec] : *closure)
+        if (!v.Asserted(key_in(to, h))) records.emplace(h, rec);
+    }
+    // Library records stay the library's (every program sees them anyway).
+    auto lib = r.snapshot->get<q::Library>(v.id());
+    std::erase_if(records, [&](const auto &kv) { return lib->record(kv.first) != nullptr; });
+
+    Project &p = *r.project;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), req.expected_head_revision()); !st.ok()) return st;
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    const pb::Provenance &prov = req.provenance();
+    const facts::Provenance who = ToFacts(prov);
+    std::uint32_t asserted = 0, retracted = 0;
+    for (const auto &[h, rec] : records) {
+      tx.assert_fact(who, key_in(to, h), rec, 0, Meta(prov, nullptr, rev));
+      ++asserted;
+    }
+    for (const Plan &plan : plans) {
+      // The name, bound in the destination.
+      if (v.Text(key_in(to, TypeNameSub(plan.key))) != "h:" + plan.hash) {
+        pb::AssertionBody body;
+        body.mutable_bind_type_name()->mutable_type()->set_hash(plan.hash);
+        tx.assert_fact(who, key_in(to, TypeNameSub(plan.key)), "h:" + plan.hash, 0, Meta(prov, &body, rev));
+        ++asserted;
+      }
+      // Its category, filed there too.
+      if (auto c = categories.find(plan.key); c != categories.end() && v.Text(key_in(to, TypeCategorySub(plan.key))) != c->second) {
+        pb::AssertionBody body;
+        body.mutable_type_category()->set_named_key(plan.key);
+        body.mutable_type_category()->set_path(c->second);
+        tx.assert_fact(who, key_in(to, TypeCategorySub(plan.key)), c->second, 0, Meta(prov, &body, rev));
+        ++asserted;
+      }
+      if (to_project) {
+        // The program's own binding, definitions and filing of the name
+        // retracted: the project's is the program's now.
+        std::vector<facts::FactKey> mine{key_in(from, TypeNameSub(plan.key)), key_in(from, TypeCategorySub(plan.key))};
+        for (const std::string &h : plan.own) mine.push_back(key_in(from, h));
+        for (const facts::FactKey &k : mine) {
+          if (!v.Asserted(k)) continue;
+          for (const facts::BlameEntry &c : v.log().blame(v.Stored(k), r.log_size).candidates)
+            if (c.op.kind == facts::OpKind::Assert && c.status != facts::OpStatus::Retracted) {
+              tx.retract(who, c.op.seq, Meta(prov, nullptr, rev));
+              ++retracted;
+            }
+        }
+      }
+      auto *t = resp.add_types();
+      t->set_key(plan.key);
+      t->set_hash(plan.hash);
+    }
+    resp.set_records(static_cast<std::uint32_t>(records.size()));
+    resp.set_asserted(asserted);
+    resp.set_retracted(retracted);
+    if (asserted == 0 && retracted == 0) {
+      std::lock_guard lock(core_->mu);
+      SetHeadSnapshot(p, resp.mutable_snapshot());
+      return Status::Ok();
+    }
+    pb::RevisionEvent ev;
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    for (std::uint64_t seq : ev.assertion_seqs()) resp.add_seqs(seq);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+  // TypeService.ListTypeArchives (api_minor 52): the library archives that
+  // apply to the program and the project's settings of them.
+  Status ListTypeArchives(const CallContext &ctx, const pb::ListTypeArchivesRequest &req,
+                          pb::ListTypeArchivesResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    auto settings = r.snapshot->get<q::TypeArchiveSettings>(0);
+    std::map<std::string, const q::TypeArchiveSetting *> by_name;
+    for (const q::TypeArchiveSetting &s : *settings) by_name.emplace(s.name, &s);
+    auto ref = r.snapshot->get<q::LibraryPrototypes>(v.id());
+    const std::vector<std::string> defaults = inputs::default_library_archives(v.program().image());
+    auto origin_of = [&](const std::string &name, pb::TypeArchiveInfo &a) {
+      const facts::FactKey k =
+          FactKeyAt(FactKind::Note, kProjectSpace, archive::kTypeArchiveAddress, std::string(archive::kTypeArchiveSubPrefix) + name);
+      if (auto w = v.Winner(k)) *a.mutable_origin_fact() = v.Origin(*w);
+      else *a.mutable_origin_fact() = Derived("library.default", r.revision);
+    };
+    auto counts = [&](const std::string &name, pb::TypeArchiveInfo &a) {
+      if (!ref->lib) return;
+      std::uint32_t fns = 0, tys = 0;
+      for (const auto &[n, f] : ref->lib->functions) fns += f.archive == name;
+      for (const auto &n : ref->lib->named) tys += n.where.file == name + ".h";
+      a.set_functions(fns);
+      a.set_types(tys);
+      for (const std::string &d : ref->lib->diagnostics)
+        if (d.starts_with(name + ".h:") && a.diagnostics_size() < 8) a.add_diagnostics(d);
+    };
+    auto sidecar_info = [&](const std::string &json, pb::TypeArchiveInfo &a) {
+      if (json.empty()) return;
+      if (auto sc = ReadTypeArchiveSidecar(json, nullptr)) {
+        a.set_data_model(sc->data_model().description());
+        a.set_origin(sc->provenance().origin());
+      }
+    };
+    for (const std::string &name : inputs::shipped_library_archives()) {
+      if (auto it = by_name.find(name); it != by_name.end() && it->second->attached) continue;
+      pb::TypeArchiveInfo &a = *resp.add_archives();
+      a.set_name(name);
+      a.set_kind(pb::TYPE_ARCHIVE_KIND_SHIPPED);
+      auto it = by_name.find(name);
+      a.set_enabled(it == by_name.end() || it->second->enabled);
+      a.set_applies(std::find(defaults.begin(), defaults.end(), name) != defaults.end());
+      if (a.applies() && a.enabled()) counts(name, a);
+      if (auto dir = runtime::typeinfo_dir()) {
+        std::ifstream in(*dir / (name + ".json"), std::ios::binary);
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        sidecar_info(ss.str(), a);
+      }
+      origin_of(name, a);
+    }
+    {
+      pb::TypeArchiveInfo &a = *resp.add_archives();
+      a.set_name("ghidra");
+      a.set_kind(pb::TYPE_ARCHIVE_KIND_GHIDRA);
+      auto it = by_name.find("ghidra");
+      a.set_enabled(it == by_name.end() || it->second->enabled);
+      const loader::Image &image = v.program().image();
+      const bool pe = image.format == loader::Format::pe;
+      a.set_origin(pe ? (image.bits == 64 ? "windows_vs12_64.gdt" : "windows_vs12_32.gdt")
+                      : (image.bits == 64 ? "generic_clib_64.gdt" : "generic_clib.gdt"));
+      a.set_applies(lift::ghidra_root().has_value());
+      origin_of("ghidra", a);
+    }
+    for (const q::TypeArchiveSetting &s : *settings) {
+      if (!s.attached) continue;
+      pb::TypeArchiveInfo &a = *resp.add_archives();
+      a.set_name(s.name);
+      a.set_kind(pb::TYPE_ARCHIVE_KIND_ATTACHED);
+      a.set_enabled(s.enabled);
+      a.set_applies(true);
+      if (s.enabled) counts(s.name, a);
+      sidecar_info(s.sidecar, a);
+      origin_of(s.name, a);
+    }
+    return Status::Ok();
+  }
+
+  // TypeService.ExportTypeArchive (api_minor 35): reads the program's named
+  // types as their uses see them (types.resolved), their categories and
+  // their bindings' provenance, and asserts nothing (type_archive.h).
+  Status ExportTypeArchive(const CallContext &ctx, const pb::ExportTypeArchiveRequest &req,
+                           pb::ExportTypeArchiveResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    auto names = r.snapshot->get<q::TypeNames>(v.id());
+    auto cats = r.snapshot->get<q::TypeCategories>(v.id());
+    const std::map<std::string, std::string> categories(cats->begin(), cats->end());
+    TypeArchiveContext c{v.program(),
+                         StateOf(*r.project, *r.program, r.log_size).name,
+                         *names,
+                         categories,
+                         [&](const std::string &hash) {
+                           auto closure = r.snapshot->get<q::ResolvedTypes>({v.id(), hash});
+                           return TypeClosure(closure->begin(), closure->end());
+                         },
+                         [&](const std::string &key) -> std::optional<pb::Provenance> {
+                           if (auto w = v.Winner(TypeDefKey(v.space(), TypeNameSub(key))))
+                             return MetaOf(*w).provenance();
+                           return std::nullopt;
+                         }};
+    return backend::ExportTypeArchive(c, req, resp);
+  }
+
+  // TypeService.AutoStructure (api_minor 32): reads decompilations (the
+  // variable's function and the callees it follows the pointer into), the
+  // pointer accesses they hold, the program's named types and data, and
+  // asserts nothing (auto_struct.h).
+  Status AutoStructure(const CallContext &ctx, const pb::AutoStructureRequest &req,
+                       pb::AutoStructureResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    auto names = r.snapshot->get<q::TypeNames>(v.id());
+    facts::Ref<analysis::DataList> data;
+    AutoStructContext c{
+        v.program(),
+        *names,
+        [&](const std::string &hash) { return TypeClosureOf(r, v, hash); },
+        [&](std::uint64_t entry) { return r.snapshot->get<q::Decompile>({v.id(), entry}); },
+        [&](std::uint64_t entry, const std::string &key) {
+          return *r.snapshot->get<q::PointerAccesses>({{v.id(), entry}, key});
+        },
+        [&](std::uint64_t entry) -> std::optional<std::uint64_t> {
+          const Func *f = v.functions().at(entry);
+          if (f == nullptr) return std::nullopt;
+          if (f->flags & analysis::kFunctionThunk) {
+            if (f->thunk_target != 0 && v.functions().at(f->thunk_target)) return f->thunk_target;
+            return std::nullopt;
+          }
+          return entry;
+        },
+        [&](std::uint64_t entry, const std::string &key) -> std::string {
+          const facts::FactKey k = v.Key(FactKind::Type, entry, "local:" + key);
+          if (!v.Winner(k)) return {};
+          const std::string t = v.Text(k);
+          return t.starts_with("h:") ? t.substr(2) : std::string();
+        },
+        [&]() -> const analysis::DataList & {
+          if (!data) data = r.snapshot->get<analysis::Data>(AnalysisKey(v.id()));
+          return *data;
+        },
+        [&] { return ctx.cancelled(); }};
+    try {
+      DecompileLimitsScope scope(LimitsFor(ctx, 0));
+      return backend::AutoStructure(c, req, resp);
+    } catch (const DecompileStoppedError &e) {
+      return Error(StatusCode::kCancelled, e.what());
+    }
+  }
+
+  // A type hash's records and every one they reach (types.closure).
+  static TypeClosure TypeClosureOf(Read &r, View &v, const std::string &hash) {
+    auto c = r.snapshot->get<q::Types>({v.id(), hash});
+    return TypeClosure(c->begin(), c->end());
+  }
+
+  Status FindTypes(const CallContext &ctx, const pb::FindTypesRequest &req, pb::FindTypesResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), req.page().page_token(), r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    auto names = r.snapshot->get<q::TypeNames>(v.id());
+    const std::string needle = Lower(req.name_contains());
+    const std::string prefix = Lower(req.name_prefix());
+    std::set<int> kinds(req.kinds().begin(), req.kinds().end());
+    std::set<int> sources(req.sources().begin(), req.sources().end());
+    auto kind_of = [](const std::string &key) {
+      if (key.starts_with("struct ") || key.starts_with("class ")) return pb::TYPE_KIND_STRUCT;
+      if (key.starts_with("union ")) return pb::TYPE_KIND_UNION;
+      if (key.starts_with("enum ")) return pb::TYPE_KIND_ENUM;
+      return pb::TYPE_KIND_TYPEDEF;
+    };
+    // Categories (SetTypeCategory): the filter, and the tree's folders.
+    auto cats = r.snapshot->get<q::TypeCategories>(v.id());
+    const std::map<std::string, std::string> category_of(cats->begin(), cats->end());
+    std::optional<std::string> want_category;
+    if (!req.category().empty()) {
+      std::string err;
+      want_category = NormalizeTypeCategory(req.category(), &err);
+      if (!want_category) return Error(StatusCode::kInvalidArgument, "category: " + err);
+    }
+    auto in_category = [&](const std::string &c) {
+      if (!want_category) return true;
+      if (want_category->empty()) return !req.category_exact() || c.empty();
+      if (req.category_exact()) return c == *want_category;
+      return c == *want_category || c.starts_with(*want_category + "/");
+    };
+    std::map<std::string, std::uint32_t> folders;
+    struct Match {
+      std::string lower, key, hash;
+    };
+    std::vector<Match> matches;
+    for (const NamedTypes::Entry &e : names->types) {
+      const std::string name = e.key.substr(e.key.find(' ') + 1);
+      std::string lower = Lower(name);
+      if (!needle.empty() && lower.find(needle) == std::string::npos) continue;
+      if (!prefix.empty() && !lower.starts_with(prefix)) continue;
+      if (!kinds.empty() && !kinds.contains(kind_of(e.key))) continue;
+      if (!sources.empty() && !sources.contains(e.library   ? pb::TYPE_SOURCE_LIBRARY
+                                                : e.project ? pb::TYPE_SOURCE_PROJECT
+                                                            : pb::TYPE_SOURCE_PROGRAM))
+        continue;
+      const std::string *b = names->bound(e.key);
+      if (b && *b != e.hash && !req.include_superseded()) continue;
+      auto c = category_of.find(e.key);
+      const std::string &category = c == category_of.end() ? std::string() : c->second;
+      if (req.include_categories()) {
+        ++folders[category.empty() ? std::string("/") : category];
+        for (std::size_t at = category.rfind('/'); at != std::string::npos && at > 0; at = category.rfind('/', at - 1))
+          folders.emplace(category.substr(0, at), 0);
+      }
+      if (!in_category(category)) continue;
+      if (req.has_enum_value()) {
+        // Set Equate's suggestions: enums with a member of the value, at
+        // the enum's width (api_minor 39, feature "equates").
+        if (kind_of(e.key) != pb::TYPE_KIND_ENUM) continue;
+        bool has = false;
+        for (const auto &[h, rec] : TypeClosureOf(r, v, e.hash)) {
+          if (h != e.hash) continue;
+          try {
+            TypeRecord tr = DecodeTypeRecord(rec);
+            if (const auto *en = tr.type.as<types::EnumType>())
+              for (const types::Enumerator &m : en->values)
+                if (analysis::scalar_matches(static_cast<std::uint64_t>(m.value), static_cast<std::uint64_t>(req.enum_value()),
+                                             en->size * 8) ||
+                    analysis::scalar_matches(static_cast<std::uint64_t>(req.enum_value()), static_cast<std::uint64_t>(m.value),
+                                             en->size * 8))
+                  has = true;
+          } catch (const facts::DecodeError &) {
+          }
+        }
+        if (!has) continue;
+      }
+      matches.push_back({std::move(lower), e.key, e.hash});
+    }
+    for (const auto &[path, n] : folders) {
+      auto *f = resp.add_categories();
+      f->set_path(path);
+      f->set_types(n);
+    }
+    std::sort(matches.begin(), matches.end(), [](const Match &a, const Match &b) {
+      return std::tie(a.lower, a.key, a.hash) < std::tie(b.lower, b.key, b.hash);
+    });
+    std::vector<std::string> page;
+    Paginate(matches.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) { page.push_back(matches[i].hash); });
+    DescribeTypes(v, r, page, resp.mutable_types(), &*names, &category_of);
+    if (req.summary_only())
+      for (pb::TypeDefinition &t : *resp.mutable_types()) {
+        t.clear_detail();
+        t.clear_c_definition();
+      }
+    return Status::Ok();
+  }
+
+  // --- Analysis ---------------------------------------------------------------
+
+  Status ListAnalyzers(const CallContext &, const pb::ListAnalyzersRequest &, pb::ListAnalyzersResponse &resp) override {
+    for (auto [id, desc] :
+         {std::pair{"analysis.functions",
+                    "Function discovery: recursive descent from symbols, exports, the entry point, unwind tables, "
+                    "init/fini code, PLT stubs and asserted entries, with thunks, no-return functions and jump tables"},
+          std::pair{"listing.code", "Listing rows from the code discovery reached; the rest is data"},
+          std::pair{"xrefs.static", "Call, jump, jump-table and data references from analysed function bodies"},
+          std::pair{"import.debuginfo", "Names, prototypes and types from DWARF and PDB debug info (at import)"}}) {
+      auto *a = resp.add_analyzers();
+      a->set_id(id);
+      a->set_description(desc);
+      a->set_enabled_by_default(true);
+    }
+    {
+      auto *a = resp.add_analyzers();
+      a->set_id(std::string(kInferAnalyzer));
+      a->set_description(
+          "Prototype inference (revkit::infer) in the background after import: parameters, their types and "
+          "the return type across the call graph, for functions nothing else gives a prototype");
+      a->set_enabled_by_default(core_->options.infer_prototypes != InferMode::off);
+    }
+    {
+      auto *a = resp.add_analyzers();
+      a->set_id(kFidAnalyzer);
+      a->set_description(
+          "Function ID (docs/fid.md): names statically linked library functions by hash, as Ghidra's Function ID "
+          "does, from Ghidra's .fidbf databases and revkit's .rkfid (ListFidDatabases), in the background after import");
+      a->set_enabled_by_default(core_->options.function_id);
+    }
+    // Analyzer plugins: their facts are served by GetPluginFacts, computed
+    // on demand.
+    if (const auto &host = core_->options.plugins)
+      for (const auto &p : host->plugins())
+        if (p->manifest().kind == plugins::Kind::analyzer) {
+          auto *a = resp.add_analyzers();
+          a->set_id("plugin:" + p->id());
+          a->set_description(p->manifest().description);
+          a->set_enabled_by_default(false);
+        }
+    return Status::Ok();
+  }
+
+  Status StartAnalysis(const CallContext &ctx, const pb::StartAnalysisRequest &req, pb::StartAnalysisResponse &resp) override {
+    std::lock_guard lock(core_->mu);
+    auto pit = core_->program_project.find(req.program_id());
+    if (pit == core_->program_project.end()) return Error(StatusCode::kNotFound, "no program " + req.program_id());
+    Project &p = *core_->projects.at(pit->second);
+    if (!p.open) return Error(StatusCode::kFailedPrecondition, "project " + p.id + " is closed");
+    if (!p.programs.contains(req.program_id()))
+      return Error(StatusCode::kNotFound, "program " + req.program_id() + " is still importing");
+    std::vector<std::string> analyzers(req.analyzers().begin(), req.analyzers().end());
+    if (analyzers.empty()) analyzers = DefaultAnalyzers();
+    // Function ID again: queued in the background; its job follows on the
+    // subscription (none when no attached database is for the language).
+    if (std::erase(analyzers, std::string(kFidAnalyzer)) > 0) {
+      ScheduleFid(p, req.program_id(), ctx.caller);
+      if (analyzers.empty()) {
+        pb::AnalysisJob &job = *resp.mutable_job();
+        job.set_program_id(req.program_id());
+        job.add_analyzers(kFidAnalyzer);
+        job.set_state(pb::ANALYSIS_STATE_QUEUED);
+        job.set_phase("queued");
+        job.set_progress(-1);
+        return Status::Ok();
+      }
+    }
+    // Inference again (after a cancel): queued in the background, where the
+    // program has it staged; its job follows on the subscription.
+    if (std::erase(analyzers, std::string(kInferAnalyzer)) > 0) {
+      if (!p.db->snapshot().get<infer::ImageInput>(AnalysisKey(req.program_id()))->image)
+        return Error(StatusCode::kFailedPrecondition,
+                     "prototype inference is off for " + req.program_id() + " (rk-daemon --infer-prototypes)");
+      ScheduleInfer(p, req.program_id());
+      if (analyzers.empty()) {
+        pb::AnalysisJob &job = *resp.mutable_job();
+        job.set_program_id(req.program_id());
+        job.add_analyzers(std::string(kInferAnalyzer));
+        job.set_state(pb::ANALYSIS_STATE_QUEUED);
+        job.set_phase("queued");
+        job.set_progress(-1);
+        return Status::Ok();
+      }
+    }
+    *resp.mutable_job() = RunJobLocked(p, req.program_id(), analyzers);
+    return Status::Ok();
+  }
+
+  Status CancelAnalysis(const CallContext &, const pb::CancelAnalysisRequest &req, pb::CancelAnalysisResponse &resp) override {
+    std::lock_guard lock(core_->mu);
+    for (auto &[id, p] : core_->projects)
+      if (auto it = p->running_jobs.find(req.job_id()); it != p->running_jobs.end()) {
+        // Inference stops before its next function's observation; the job
+        // then ends CANCELLED (what it computed stays memoized, nothing is
+        // published). StartAnalysis with "infer.prototypes" runs it again.
+        {
+          std::lock_guard w(core_->infer.mu);
+          if (core_->infer.running_job == req.job_id()) core_->infer.cancel.store(true);
+        }
+        {
+          std::lock_guard w(core_->fid.mu);
+          if (core_->fid.running_job == req.job_id()) core_->fid.cancel.store(true);
+        }
+        it->second.set_phase("cancelling");
+        *resp.mutable_job() = it->second;
+        return Status::Ok();
+      }
+    for (auto &[id, p] : core_->projects)
+      for (auto &job : p->jobs)
+        if (job.job_id() == req.job_id()) {
+          *resp.mutable_job() = job;  // jobs finish synchronously; nothing to cancel
+          return Status::Ok();
+        }
+    return Error(StatusCode::kNotFound, "no job " + req.job_id());
+  }
+
+  Status GetAnalysisStatus(const CallContext &, const pb::GetAnalysisStatusRequest &req,
+                           pb::GetAnalysisStatusResponse &resp) override {
+    std::lock_guard lock(core_->mu);
+    auto pit = core_->program_project.find(req.program_id());
+    if (pit == core_->program_project.end()) return Error(StatusCode::kNotFound, "no program " + req.program_id());
+    auto proj = core_->projects.find(pit->second);
+    if (proj == core_->projects.end()) return Error(StatusCode::kNotFound, "no program " + req.program_id());
+    for (auto it = proj->second->running_jobs.rbegin(); it != proj->second->running_jobs.rend(); ++it)
+      if (it->second.program_id() == req.program_id()) *resp.add_jobs() = it->second;
+    for (auto it = proj->second->jobs.rbegin(); it != proj->second->jobs.rend(); ++it)
+      if (it->program_id() == req.program_id()) *resp.add_jobs() = *it;
+    // Ghidra's Decompiler Parameter ID runs after import and edits, and
+    // inference after import.
+    resp.set_idle(!ParamIdBusy(req.program_id()) && !InferBusy(req.program_id()) && !FidBusy(req.program_id()));
+    resp.set_head_revision(proj->second->head);
+    return Status::Ok();
+  }
+
+  // --- Plugins ------------------------------------------------------------------
+
+  Status ListPlugins(const CallContext &, const pb::ListPluginsRequest &, pb::ListPluginsResponse &resp) override {
+    resp.set_interface_version(plugins::abi::kInterfaceVersion);
+    const auto &host = core_->options.plugins;
+    if (!host) return Status::Ok();
+    for (const auto &p : host->plugins()) {
+      pb::Plugin *out = resp.add_plugins();
+      FillPluginManifest(p->manifest(), out);
+      out->set_loaded(true);
+      for (plugins::Capability c : p->granted()) out->add_capabilities(std::string(plugins::to_string(c)));
+      out->set_module_fingerprint(p->fingerprint());
+      out->set_fuel(p->limits().fuel);
+      out->set_memory_bytes(p->limits().memory_bytes);
+    }
+    for (const plugins::Rejected &r : host->rejected()) {
+      pb::Plugin *out = resp.add_plugins();
+      out->set_name(r.name.empty() ? r.path.stem().string() : r.name);
+      out->set_version(r.version);
+      out->set_loaded(false);
+      out->set_error(r.error);
+    }
+    return Status::Ok();
+  }
+
+  Status RunCommand(const CallContext &ctx, const pb::RunCommandRequest &req, pb::RunCommandResponse &resp) override {
+    const auto &host = core_->options.plugins;
+    auto plugin = host ? host->find(req.plugin()) : nullptr;
+    if (!plugin) return Error(StatusCode::kNotFound, "no plugin " + req.plugin());
+    if (plugin->manifest().kind != plugins::Kind::command)
+      return Error(StatusCode::kInvalidArgument, plugin->id() + " is not a command");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+
+    // The plugin reads facts at head and proposes edits; nothing it does
+    // touches the store until they go through AppendAssertions.
+    plugins::StoreFacts<const facts::Snapshot> facts(*r.snapshot, AnalysisKey(req.program_id()));
+    std::map<std::string, std::string> args(req.args().begin(), req.args().end());
+    std::vector<plugins::Edit> edits;
+    plugins::CallResult result;
+    try {
+      result = plugins::run_command(*plugin, req.program_id(), args, facts, edits);
+    } catch (const std::invalid_argument &e) {
+      return Error(StatusCode::kInvalidArgument, e.what());
+    }
+    for (const auto &line : result.log) resp.add_log(line);
+    resp.set_fuel_consumed(result.fuel_consumed);
+    if (!result.ok()) return PluginFailure(*plugin, result);
+
+    pb::AppendAssertionsRequest append;
+    append.set_program_id(req.program_id());
+    append.set_validate_only(req.dry_run());
+    append.set_expected_head_revision(req.expected_head_revision());
+    pb::Provenance &prov = *append.mutable_provenance();
+    prov = req.provenance();
+    if (prov.kind() == pb::PROVENANCE_KIND_AGENT) {
+      prov.set_tool("plugin:" + plugin->id());  // the agent acted, through this plugin
+    } else {
+      prov.set_kind(pb::PROVENANCE_KIND_PLUGIN);
+      prov.set_id(plugin->manifest().name);
+      prov.set_version(plugin->manifest().version);
+      if (prov.tool().empty()) prov.set_tool("plugin:" + plugin->id());
+    }
+    for (const plugins::Edit &e : edits) {
+      pb::AssertionBody &body = *append.add_assertions()->mutable_body();
+      switch (e.op) {
+        case plugins::abi::EditOp::rename:
+          *body.mutable_rename()->mutable_target()->mutable_address() = A(e.address);
+          body.mutable_rename()->set_name(e.text);
+          break;
+        case plugins::abi::EditOp::comment: {
+          pb::CommentKind kind = pb::COMMENT_KIND_EOL;
+          for (int k = pb::COMMENT_KIND_EOL; k <= pb::COMMENT_KIND_DECOMPILER; ++k)
+            if (e.sub == CommentSub(static_cast<pb::CommentKind>(k))) kind = static_cast<pb::CommentKind>(k);
+          *body.mutable_comment()->mutable_address() = A(e.address);
+          body.mutable_comment()->set_kind(kind);
+          body.mutable_comment()->set_text(e.text);
+          break;
+        }
+        case plugins::abi::EditOp::function:
+          *body.mutable_function_bounds()->mutable_entry() = A(e.address);
+          break;
+        case plugins::abi::EditOp::note:
+          *body.mutable_note()->mutable_address() = A(e.address);
+          body.mutable_note()->set_tag(e.sub);
+          body.mutable_note()->set_text(e.text);
+          break;
+      }
+    }
+    if (edits.empty()) {
+      SetSnapshot(r, resp.mutable_snapshot());
+      return Status::Ok();
+    }
+    // The normal assertion path: validation, precedence, one revision, events.
+    pb::AppendAssertionsResponse appended;
+    if (auto st = AppendAssertions(ctx, append, appended); !st.ok())
+      return Error(st.code, plugin->id() + ": " + st.message);
+    *resp.mutable_snapshot() = appended.snapshot();
+    *resp.mutable_assertions() = appended.assertions();
+    return Status::Ok();
+  }
+
+  Status GetPluginFacts(const CallContext &ctx, const pb::GetPluginFactsRequest &req,
+                        pb::GetPluginFactsResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    SetSnapshot(r, resp.mutable_snapshot());
+    const auto &host = core_->options.plugins;
+    std::vector<std::shared_ptr<const plugins::Plugin>> analyzers;
+    if (req.plugins().empty()) {
+      if (host)
+        for (const auto &p : host->plugins())
+          if (p->manifest().kind == plugins::Kind::analyzer) analyzers.push_back(p);
+    } else {
+      for (const std::string &name : req.plugins()) {
+        auto p = host ? host->find(name) : nullptr;
+        if (!p) return Error(StatusCode::kNotFound, "no plugin " + name);
+        if (p->manifest().kind != plugins::Kind::analyzer)
+          return Error(StatusCode::kInvalidArgument, p->id() + " is not an analyzer");
+        analyzers.push_back(p);
+      }
+    }
+    std::uint64_t first = 0, last = UINT64_MAX;
+    if (req.has_range()) {
+      first = req.range().first().offset();
+      last = req.range().last().offset();
+    }
+    std::vector<plugins::AnalyzeKey> keys;
+    std::vector<const plugins::Plugin *> owner;
+    for (const auto &p : analyzers)
+      for (auto &k : plugins::analyze_keys(*r.snapshot, *p, AnalysisKey(req.program_id()), first, last)) {
+        keys.push_back(std::move(k));
+        owner.push_back(p.get());
+      }
+    // Memoized, so only what changed since the last read runs; on the
+    // shared pool, each key's failure kept to itself.
+    std::vector<facts::Ref<plugins::AnalyzeOutput>> out(keys.size());
+    std::vector<std::string> thrown(keys.size());
+    auto one = [&](std::size_t i) {
+      if (ctx.cancelled()) {
+        thrown[i] = "cancelled";
+        return;
+      }
+      try {
+        out[i] = r.snapshot->get<plugins::Analyze>(keys[i]);
+      } catch (const std::exception &e) {
+        thrown[i] = e.what();
+      }
+    };
+    if (keys.size() > 1) core_->pool->parallel_for(keys.size(), one);
+    else if (!keys.empty()) one(0);
+    if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+
+    struct Row {
+      std::uint64_t address;
+      const plugins::Plugin *plugin;
+      const plugins::DerivedItem *item;
+    };
+    std::vector<Row> rows;
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+      const bool fn = keys[i].scope == plugins::abi::Scope::function;
+      if (!out[i] || out[i]->failure != plugins::Failure::none) {
+        pb::PluginRunError *err = resp.add_errors();
+        err->set_plugin(owner[i]->id());
+        if (fn) *err->mutable_scope() = A(keys[i].address);
+        err->set_failure(out[i] ? std::string(plugins::to_string(out[i]->failure)) : "error");
+        err->set_message(out[i] ? out[i]->error : thrown[i]);
+        continue;
+      }
+      for (const plugins::DerivedItem &item : out[i]->facts)
+        if (item.address >= first && item.address <= last) rows.push_back({item.address, owner[i], &item});
+    }
+    std::stable_sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+      return std::tie(a.address, a.plugin->manifest().name) < std::tie(b.address, b.plugin->manifest().name);
+    });
+    for (const Row &row : rows) {
+      pb::PluginFact *f = resp.add_facts();
+      *f->mutable_address() = A(row.address);
+      f->set_kind(static_cast<pb::PluginFactKind>(row.item->kind));
+      f->set_text(row.item->text);
+      f->set_sub(row.item->sub);
+      pb::Derivation *d = f->mutable_origin()->mutable_derived();
+      d->set_rule("plugin:" + row.plugin->id());
+      d->set_confidence(1);
+      d->set_computed_at_revision(r.revision);
+    }
+    return Status::Ok();
+  }
+
+  static void FillPluginManifest(const plugins::Manifest &m, pb::Plugin *out) {
+    out->set_name(m.name);
+    out->set_version(m.version);
+    out->set_kind(m.kind == plugins::Kind::analyzer   ? pb::PLUGIN_KIND_ANALYZER
+                  : m.kind == plugins::Kind::loader   ? pb::PLUGIN_KIND_LOADER
+                  : m.kind == plugins::Kind::command  ? pb::PLUGIN_KIND_COMMAND
+                                                      : pb::PLUGIN_KIND_PERIPHERAL);
+    if (m.kind == plugins::Kind::peripheral) {
+      for (const std::string &o : m.outputs) out->add_peripheral_outputs(o);
+      out->set_peripheral_inputs(m.inputs);
+      out->set_peripheral_size(m.region_size);
+    }
+    out->set_interface_version(m.interface_version);
+    out->set_description(m.description);
+    out->set_function_scope(m.function_scope);
+    for (const plugins::CommandArg &a : m.args) {
+      pb::PluginArg *arg = out->add_args();
+      arg->set_name(a.name);
+      arg->set_description(a.description);
+      arg->set_required(a.required);
+    }
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string magic;
+    for (unsigned char c : m.magic) magic += {kHex[c >> 4], kHex[c & 15]};
+    out->set_magic(magic);
+    out->set_magic_offset(m.magic_offset);
+  }
+
+  // Budgets exhausted are RESOURCE_EXHAUSTED; anything else the plugin got
+  // wrong is FAILED_PRECONDITION. Neither is the daemon's fault.
+  static Status PluginFailure(const plugins::Plugin &p, const plugins::CallResult &r) {
+    const bool budget = r.failure == plugins::Failure::out_of_fuel || r.failure == plugins::Failure::out_of_memory ||
+                        r.failure == plugins::Failure::timeout;
+    return Error(budget ? StatusCode::kResourceExhausted : StatusCode::kFailedPrecondition,
+                 "plugin " + p.id() + " failed (" + std::string(plugins::to_string(r.failure)) + "): " + r.error);
+  }
+
+  // ImportOptions' raw fields as loader::RawOptions (base and language are
+  // the program source's own).
+  static Status RawOptionsOf(const pb::ImportOptions &o, loader::RawOptions &out) {
+    auto perms = [](const std::string &p, loader::Perms &to) {
+      if (p.empty()) return true;
+      if (p.size() != 3 || (p[0] != 'r' && p[0] != '-') || (p[1] != 'w' && p[1] != '-') || (p[2] != 'x' && p[2] != '-'))
+        return false;
+      to = {p[0] == 'r', p[1] == 'w', p[2] == 'x'};
+      return true;
+    };
+    out.offset = o.raw_offset();
+    if (o.raw_length() != 0) out.length = o.raw_length();
+    if (!perms(o.raw_permissions(), out.perms))
+      return Error(StatusCode::kInvalidArgument, "raw_permissions must look like \"rwx\" or \"r-x\"");
+    if (o.has_entry_point()) out.entry = o.entry_point();
+    out.space = o.raw_space();
+    if (auto c = loader::raw_container_from_string(o.raw_format())) out.container = *c;
+    else return Error(StatusCode::kInvalidArgument, "raw_format must be binary, ihex, srec or empty");
+    for (int i = 0; i < o.regions_size(); ++i) {
+      const pb::MemoryRegion &r = o.regions(i);
+      if (r.name().empty() || r.size() == 0)
+        return Error(StatusCode::kInvalidArgument, "regions[" + std::to_string(i) + "] needs a name and a size");
+      loader::RawRegion region;
+      region.name = r.name();
+      region.start = r.start();
+      region.size = r.size();
+      region.perms = {r.read(), r.write(), r.execute()};
+      region.initialized = r.initialized();
+      region.is_volatile = r.is_volatile();
+      region.space = r.space();
+      out.regions.push_back(std::move(region));
+    }
+    return Status::Ok();
+  }
+
+  // A loader plugin by name ("rkraw-loader" or "plugin:rkraw-loader").
+  std::shared_ptr<const plugins::Plugin> FindLoader(std::string name) const {
+    if (name.starts_with("plugin:")) name = name.substr(7);
+    name = name.substr(0, name.find('@'));
+    const auto &host = core_->options.plugins;
+    auto p = host ? host->find(name) : nullptr;
+    return p && p->manifest().kind == plugins::Kind::loader ? p : nullptr;
+  }
+
+  // The first loader plugin (by name) whose magic the file starts with.
+  std::shared_ptr<const plugins::Plugin> MatchLoader(const loader::Bytes &bytes) const {
+    const auto &host = core_->options.plugins;
+    if (!host) return nullptr;
+    std::string_view file(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+    for (const auto &p : host->plugins())
+      if (plugins::loader_matches(*p, file)) return p;
+    return nullptr;
+  }
+
+  // --- Subscriptions ------------------------------------------------------------
+
+  Status Subscribe(const CallContext &, const pb::SubscribeRequest &req, std::shared_ptr<EventSink> sink,
+                   std::unique_ptr<api::Subscription> &out) override {
+    out.reset();  // a reused handle unsubscribes first: its destructor takes the lock
+    std::lock_guard lock(core_->mu);
+    auto it = core_->projects.find(req.project_id());
+    if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+    Project &p = *it->second;
+    if (!p.open) return Error(StatusCode::kFailedPrecondition, "project is closed");
+    for (const auto &id : req.program_ids())
+      if (!p.programs.contains(id)) return Error(StatusCode::kNotFound, "no program " + id + " in project");
+    Subscriber s{core_->next_subscriber++, std::move(sink), {req.program_ids().begin(), req.program_ids().end()},
+                 req.include_assertions()};
+    s.presence = req.include_presence();
+    // Hello and replay happen under the lock, so no commit can slip between
+    // them and registration: the client sees every revision exactly once.
+    std::uint64_t head = p.head;
+    std::uint64_t from = req.from_revision();
+    std::uint64_t oldest_event = p.events.empty() ? head + 1 : p.events.begin()->first;
+    bool resync = from != 0 && (from > head || from + 1 < oldest_event);
+    pb::SubscribeResponse hello;
+    hello.mutable_hello()->set_head_revision(head);
+    hello.mutable_hello()->set_resync_required(resync);
+    s.sink->Send(std::move(hello));
+    if (from != 0 && !resync)
+      for (auto e = p.events.upper_bound(from); e != p.events.end(); ++e) {
+        pb::SubscribeResponse ev;
+        *ev.mutable_revision() = FilterEvent(e->second, s.programs, s.include_assertions);
+        s.sink->Send(std::move(ev));
+      }
+    if (s.presence)
+      for (pb::Presence &e : p.presence.Live(std::chrono::system_clock::now()))
+        if (WantsPresence(s, e)) {
+          pb::SubscribeResponse ev;
+          *ev.mutable_presence() = std::move(e);
+          s.sink->Send(std::move(ev));
+        }
+    out = std::make_unique<ImageSubscription>(core_, p.id, s.id);
+    p.subscribers.push_back(std::move(s));
+    return Status::Ok();
+  }
+
+ private:
+  static std::vector<std::string> DefaultAnalyzers() { return {"analysis.functions", "listing.code", "xrefs.static"}; }
+
+  // Discovery, every function's references and the listing, computed in
+  // parallel where the work splits: the flows from every seed first (call
+  // targets found from them are decoded as discovery reaches them), then
+  // each function's references. Each thread needs SLEIGH engines, and
+  // building one takes tens of milliseconds (one at a time), so small
+  // programs are analysed on the calling thread.
+  //
+  // With `progress` (an import), reports each step, discovery's through
+  // analysis::DiscoveryProgress.
+  void Analyze(const Read &r, const analysis::ProgramInfo &info, ImportProgress *progress = nullptr) {
+    std::uint64_t code_bytes = 0;
+    for (const analysis::Range &c : info.code) code_bytes += c.last - c.first + 1;
+    facts::ThreadPool *pool = code_bytes > kParallelCodeBytes ? core_->pool.get() : nullptr;
+    const std::string &id = r.program->id();
+    std::vector<analysis::Location> seeds;
+    seeds.reserve(info.seeds.size());
+    for (const analysis::Seed &s : info.seeds) seeds.push_back({AnalysisKey(id), s.address});
+    PhaseTimer timer("import " + id);
+    std::shared_ptr<analysis::DiscoveryProgress> discovery;
+    std::optional<analysis::WatchDiscovery> watch;
+    if (progress) {
+      discovery = std::make_shared<analysis::DiscoveryProgress>();
+      watch.emplace(AnalysisKey(id), discovery);
+      progress->Enter(pb::IMPORT_PHASE_FUNCTIONS, "Disassembling and finding functions");
+      progress->Track(discovery, code_bytes, info.search, 0.93);
+      discovery->stage.store(analysis::DiscoveryProgress::Stage::flows, std::memory_order_relaxed);
+    }
+    r.snapshot->get_all<analysis::Flow>(seeds, pool);
+    timer.mark("flows");
+    // Discovery asks whether every entry is a thunk, one at a time; each
+    // answer decodes a few instructions.
+    r.snapshot->get_all<analysis::Thunk>(seeds, pool);
+    timer.mark("thunks");
+    View v(r);
+    std::vector<q::AddressKey> functions;
+    for (const Func &f : v.functions().funcs) functions.emplace_back(id, f.entry);
+    timer.mark("discovery");
+    if (progress) {
+      progress->SetFunctions(functions.size());
+      progress->Step(0.93, "Following references: " + Thousands(functions.size()) + " functions",
+                     0.07 * progress->Estimate());
+    }
+    r.snapshot->get_all<q::FunctionXrefs>(functions, pool);
+    v.xrefs();
+    timer.mark("references");
+    if (progress) progress->Enter(pb::IMPORT_PHASE_DATA, "Finding strings and pointers");
+    // Then, side by side: the listing's rows (and the default names they
+    // split data at), and what every decompilation needs first: the
+    // program's decompiler inputs, an instance built with them and the
+    // SLEIGH engine its stack analysis walks with (Program::walk_lifter).
+    auto tail = [&](std::size_t i) {
+      if (i == 0) {
+        // Data analysis first (the rows and the decompiler's inputs both
+        // read it), then the rows.
+        if (progress) {
+          r.snapshot->get<analysis::Data>(AnalysisKey(id));
+          progress->Step(0.3, "Building the listing and decompiler inputs", 0.7 * progress->Estimate());
+        }
+        r.snapshot->get<q::Rows>(id);
+        return;
+      }
+      // Only a head start: a decompilation reports any failure here.
+      try {
+        if (i == 1) {
+          auto image = r.snapshot->get<q::InputsImage>(id);
+          EffectiveProgram(*r.snapshot, id)->decompiler().Warm(*image);
+        } else if (i == 3) {
+          auto engine = EffectiveProgram(*r.snapshot, id)->walk_lifter();
+        } else if (i == 4) {
+          // Discovery's SLEIGH engines (one per analysis thread, ~35 MB
+          // each) until something decodes again: torn down beside the
+          // rest, on the threads it leaves idle (one after another they
+          // took 0.13 s of a cmake import).
+          analysis::release_idle_decoders(pool);
+        } else {
+          r.snapshot->get<q::InputsProgram>(id);
+        }
+      } catch (const std::exception &) {
+      }
+    };
+    if (pool) pool->parallel_for(5, tail);
+    else tail(0), tail(1), tail(2), tail(3), tail(4);
+    timer.mark("rows, decompiler inputs");
+    // Any the tasks above built (none, usually).
+    analysis::release_idle_decoders(pool);
+    // Prototypes (revkit::infer) come after, in the background
+    // (ScheduleInfer): minutes on a large program.
+  }
+  static constexpr std::uint64_t kParallelCodeBytes = 1 << 20;
+
+  // `loaded`: called once the image is parsed, before its debug info is
+  // read (an import's progress), which also builds discovery's engines
+  // meanwhile (Program::Options::discovery_pool).
+  // --- Rebase (docs/memory-map.md, "Rebase: setting the image base") ---------
+
+  // The program's source loaded at `import_base` moved by `shift`: what an
+  // import at the new base would record. The image's base (and a raw
+  // image's regions in its default space and its entry) move; with no
+  // shift, the source as imported.
+  static ProgramSource RebasedSource(const ProgramSource &imported, std::uint64_t import_base, const facts::Shift &shift) {
+    ProgramSource out = imported;
+    out.program = nullptr;
+    if (shift.identity()) return out;
+    out.image_base = shift.apply(import_base);
+    if (out.raw) {
+      for (loader::RawRegion &r : out.raw->regions)
+        if (r.space.empty()) r.start = shift.apply(r.start);
+      if (out.raw->entry) out.raw->entry = shift.apply(*out.raw->entry);
+    }
+    return out;
+  }
+
+  // The import record of a program (its ProgramSource as imported).
+  std::optional<ProgramSource> ImportRecord(Project &p, std::uint32_t ordinal) {
+    FactValue v = p.log().effective(FactKeyAt(FactKind::Note, kProjectSpace, ordinal, "program"));
+    const auto *t = std::get_if<std::string>(&v);
+    if (!t) return std::nullopt;
+    try {
+      return facts::decode_from_string<ProgramSource>(*t);
+    } catch (const facts::DecodeError &) {
+      return std::nullopt;
+    }
+  }
+
+  // The fact store's on_rebase: inside the commit that moves a program
+  // (SetImageBase, its undo or redo, a revert, a peer's op), the program
+  // loads at its new base and its inputs and bytes are staged as an import
+  // stages them; Commit() publishes the entry with the revision.
+  void OnRebase(Project &p, facts::FactDbTransaction &tx, facts::SpaceId space, const facts::Shift &before,
+                const facts::Shift &after) {
+    std::shared_ptr<const ProgramEntry> entry;
+    {
+      std::lock_guard lock(core_->mu);
+      auto id = p.spaces->find(space);
+      if (id == p.spaces->end()) return;  // not loaded yet: it loads at its base (LoadRemoteProgram)
+      auto it = p.programs.find(id->second);
+      if (it == p.programs.end()) return;
+      entry = it->second;
+    }
+    if (auto pending = p.rebased.find(entry->id()); pending != p.rebased.end()) entry = pending->second;
+    const ProgramSource &cur = entry->source;
+    const std::uint64_t import_base = before.inverse().apply(cur.program->image().image_base);
+    std::optional<ProgramSource> record = ImportRecord(p, cur.ordinal);
+    ProgramSource src = RebasedSource(record ? *record : cur, import_base, after);
+    if (!record) src.image_base = after.apply(import_base);
+    // In the language it is in now (a SetProgramLanguage stays).
+    src.language_id = cur.language_id;
+    src.compiler_spec_id = cur.compiler_spec_id;
+    src.program = LoadProgram(src, cur.program->file());
+    analysis::stage_image(tx, AnalysisKey(src.id), src.program->image(), src.program->Describe(src.ram_space));
+    StageInfer(tx, src);
+    plugins::stage_program(tx, AnalysisKey(src.id), src.program->image(), src.file_space, src.file_size);
+    tx.set<q::Source>(src.id, src);
+    // Published prototypes name functions where they were: published again
+    // by their background passes at the new addresses (Commit schedules them).
+    facts::Snapshot head = p.db->snapshot();
+    for (std::uint64_t e : std::exchange(p.infer_published[src.id], {}))
+      if (*head.get<q::InferPublished>({src.id, e})) tx.set<q::InferPublished>({src.id, e}, std::nullopt);
+    for (std::uint64_t e : std::exchange(p.param_id_published[src.id], {}))
+      if (*head.get<q::ParamIdPublished>({src.id, e})) tx.set<q::ParamIdPublished>({src.id, e}, std::nullopt);
+    auto moved = std::make_shared<ProgramEntry>(*entry);
+    moved->source = std::move(src);
+    p.rebased[moved->id()] = std::move(moved);
+  }
+
+  // The fact store's on_language (docs/api.md, "Changing a program's
+  // language"): inside the commit that changes the program's language
+  // (SetProgramLanguage, its undo or redo, a revert, a peer's op), the
+  // program loads in that language at its current base, and its inputs
+  // and bytes are staged as a rebase stages them.
+  void OnLanguage(Project &p, facts::FactDbTransaction &tx, facts::SpaceId space, const std::string &,
+                  const std::string &after) {
+    std::shared_ptr<const ProgramEntry> entry;
+    {
+      std::lock_guard lock(core_->mu);
+      auto id = p.spaces->find(space);
+      if (id == p.spaces->end()) return;  // not loaded yet: it loads in its language (LoadRemoteProgram)
+      auto it = p.programs.find(id->second);
+      if (it == p.programs.end()) return;
+      entry = it->second;
+    }
+    if (auto pending = p.rebased.find(entry->id()); pending != p.rebased.end()) entry = pending->second;
+    const ProgramSource &cur = entry->source;
+    ProgramSource src = cur;
+    src.program = nullptr;
+    const auto [language, compiler] = LanguageOf(facts::FactValue(after));
+    if (language.empty()) {
+      // Back to the language it was imported with.
+      std::optional<ProgramSource> record = ImportRecord(p, cur.ordinal);
+      src.language_id = record ? record->language_id : std::string();
+      src.compiler_spec_id = record ? record->compiler_spec_id : std::string();
+    } else {
+      src.language_id = language;
+      src.compiler_spec_id = compiler;
+    }
+    src.program = LoadProgram(src, cur.program->file());
+    analysis::stage_image(tx, AnalysisKey(src.id), src.program->image(), src.program->Describe(src.ram_space));
+    StageInfer(tx, src);
+    plugins::stage_program(tx, AnalysisKey(src.id), src.program->image(), src.file_space, src.file_size);
+    tx.set<q::Source>(src.id, src);
+    facts::Snapshot head = p.db->snapshot();
+    for (std::uint64_t e : std::exchange(p.infer_published[src.id], {}))
+      if (*head.get<q::InferPublished>({src.id, e})) tx.set<q::InferPublished>({src.id, e}, std::nullopt);
+    for (std::uint64_t e : std::exchange(p.param_id_published[src.id], {}))
+      if (*head.get<q::ParamIdPublished>({src.id, e})) tx.set<q::ParamIdPublished>({src.id, e}, std::nullopt);
+    auto moved = std::make_shared<ProgramEntry>(*entry);
+    moved->source = std::move(src);
+    p.rebased[moved->id()] = std::move(moved);
+  }
+
+  std::shared_ptr<Program> LoadProgram(const ProgramSource &src, std::shared_ptr<const loader::Bytes> bytes,
+                                       std::function<void(const loader::Image &)> loaded = {}) {
+    Program::Options po;
+    if (loaded) po.discovery_pool = core_->pool.get();
+    po.loaded = std::move(loaded);
+    po.debug_info = core_->options.import_debug_info;
+    po.binary = src.path;
+    if (!src.loader.empty()) {
+      // A loader plugin, by name; a newer version of it loads the program
+      // just as well (its derived facts then recompute: the source differs).
+      const std::string name = src.loader.substr(0, src.loader.find('@'));
+      auto plugin = FindLoader(name);
+      if (!plugin) throw loader::LoadError("loader plugin " + src.loader + " is not loaded (rk-daemon --plugin-dir)");
+      if (plugin->id() != src.loader)
+        std::cerr << "revkit: " << src.id << " was loaded by " << src.loader << ", now by " << plugin->id() << "\n";
+      plugins::PluginImage loaded = plugins::load_with(*plugin, bytes);
+      po.image = std::make_shared<const loader::Image>(std::move(loaded.image));
+      po.format = "plugin:" + plugin->id();
+      po.language = {loaded.language, loaded.compiler};
+    }
+    po.language_id = src.language_id;
+    po.compiler_spec_id = src.compiler_spec_id;
+    po.image_base = src.image_base;
+    if (src.raw) {
+      po.raw = src.raw;
+      po.raw->base = src.image_base.value_or(0);
+    }
+    po.decompilers = core_->options.decompilers_per_program;
+    po.decompile_workers = core_->workers;
+    po.decompile_limits.timeout_seconds = core_->options.decompile_timeout_seconds;
+    po.decompile_limits.max_varnodes = core_->options.decompile_max_varnodes;
+    po.lifters = core_->options.lifters_per_program;
+    return Program::Load(std::move(bytes), po);
+  }
+
+  // Debug info as import:<source> assertions, committed with the import.
+  static void StageDebugInfo(facts::FactDb::Transaction &tx, const ProgramSource &src, const DebugFacts &dwarf,
+                         const pb::Provenance &request, std::uint64_t revision) {
+    pb::Provenance prov;
+    prov.set_kind(pb::PROVENANCE_KIND_IMPORT);
+    prov.set_id(dwarf.source);
+    prov.set_session(request.session());
+    prov.set_tool(request.tool());
+    const facts::Provenance who = ToFacts(prov);
+    for (const auto &[hash, record] : dwarf.records)
+      tx.assert_fact(who, TypeDefKey(src.ram_space, hash), record, 0, Meta(prov, nullptr, revision));
+    for (const auto &[key, path] : dwarf.categories) {
+      pb::AssertionBody body;
+      body.mutable_type_category()->set_named_key(key);
+      body.mutable_type_category()->set_path(path);
+      tx.assert_fact(who, TypeDefKey(src.ram_space, TypeCategorySub(key)), path, 0, Meta(prov, &body, revision));
+    }
+    for (const auto &[addr, name] : dwarf.names) {
+      pb::AssertionBody body;
+      body.mutable_rename()->mutable_target()->mutable_address()->set_offset(addr);
+      body.mutable_rename()->set_name(name);
+      tx.assert_fact(who, FactKeyAt(FactKind::Name, src.ram_space, addr), name, 0, Meta(prov, &body, revision));
+    }
+    for (const auto &[addr, type] : dwarf.types) {
+      pb::AssertionBody body;
+      body.mutable_retype()->mutable_target()->mutable_address()->set_offset(addr);
+      body.mutable_retype()->mutable_type()->set_type_hash(type.substr(2));
+      tx.assert_fact(who, FactKeyAt(FactKind::Type, src.ram_space, addr), type, 0, Meta(prov, &body, revision));
+    }
+  }
+
+  // Analysis facts (msvc_import.h) as analysis:<source> assertions,
+  // committed with the import.
+  static void StageAnalysisFacts(facts::FactDb::Transaction &tx, const ProgramSource &src, const AnalysisFacts &a,
+                                 const pb::Provenance &request, std::uint64_t revision) {
+    pb::Provenance prov;
+    prov.set_kind(pb::PROVENANCE_KIND_ANALYSIS);
+    prov.set_id(a.source);
+    prov.set_session(request.session());
+    prov.set_tool(request.tool());
+    const facts::Provenance who = ToFacts(prov);
+    for (const AnalysisAssertion &x : a.assertions) {
+      const facts::FactKey key = x.kind == FactKind::TypeDef ? TypeDefKey(src.ram_space, x.sub)
+                                                             : FactKeyAt(x.kind, src.ram_space, x.address, x.sub);
+      tx.assert_fact(who, key, x.value, 0,
+                     Meta(prov, x.body.kind_case() == pb::AssertionBody::KIND_NOT_SET ? nullptr : &x.body, revision));
+    }
+  }
+
+  // "analysis:msvc: 12 RTTI classes, 9 vftables, 20 virtual functions"
+  static std::string AnalysisSummary(const AnalysisFacts &a) {
+    std::string out = "analysis:" + a.source + ":";
+    bool first = true;
+    for (const auto &[what, n] : a.counts) {
+      if (n == 0) continue;
+      std::string label = what;
+      std::replace(label.begin(), label.end(), '_', ' ');
+      out += std::string(first ? " " : ", ") + std::to_string(n) + " " + label;
+      first = false;
+    }
+    if (first) out += " " + std::to_string(a.assertions.size()) + " assertions";
+    for (const std::string &w : a.warnings) out += "; " + w;
+    return out;
+  }
+
+  void Unreserve(const std::string &id, Project &p, std::uint32_t ordinal) {
+    std::lock_guard lock(core_->mu);
+    core_->program_project.erase(id);
+    p.ordinals.erase(ordinal);
+  }
+
+  // A program's ordinal fixes its fact-store spaces, which must be the same
+  // on every daemon sharing the project. Daemons can import concurrently,
+  // so the ordinal is a hash of the program's id and file, probing past
+  // the ones in use: the same file imported under the same name on two
+  // daemons lands in the same spaces (and merges), different programs
+  // almost never collide (docs/collab.md).
+  static std::uint32_t AllocateOrdinalLocked(Project &p, const std::string &id, const std::string &sha256) {
+    constexpr std::uint32_t kOrdinals = 16384;  // spaces up to 16 + 2 * 16383 fit a SpaceId
+    std::uint64_t h = 1469598103934665603ULL;
+    for (unsigned char c : id + "\n" + sha256) h = (h ^ c) * 1099511628211ULL;
+    auto ordinal = static_cast<std::uint32_t>(h % kOrdinals);
+    for (std::uint32_t i = 0; i < kOrdinals && p.ordinals.contains(ordinal); ++i) ordinal = (ordinal + 1) % kOrdinals;
+    if (p.ordinals.contains(ordinal)) throw std::runtime_error("project has no free program ordinal");
+    p.ordinals.insert(ordinal);
+    return ordinal;
+  }
+
+  // Opens (or creates) a project: its fact database, and on reopen, its
+  // programs from the records in its log.
+  Project &OpenProjectLocked(const std::string &id, const std::string &name, const std::string &path) {
+    auto owned = std::make_unique<Project>();
+    Project &p = *owned;
+    p.id = id;
+    p.name = name.empty() ? id : name;
+    p.path = path;
+    facts::FactDbOptions o;
+    o.memo_budget = core_->options.memo_budget;
+    if (!core_->options.project_dir.empty()) {
+      p.dir = fs::path(core_->options.project_dir) / id;
+      fs::create_directories(p.dir);
+      o.storage = facts::open_lmdb_storage(p.dir);
+      if (auto meta = o.storage->get(facts::Table::Meta, kProjectMetaKey)) {
+        facts::Decoder d(*meta);
+        p.name = std::string(d.bytes());
+        p.path = std::string(d.bytes());
+      } else {
+        facts::Encoder e;
+        e.bytes(p.name);
+        e.bytes(p.path);
+        facts::WriteBatch b;
+        b.put(facts::Table::Meta, std::string(kProjectMetaKey), std::move(e).str());
+        o.storage->write(b);
+      }
+    }
+    // Rebase (docs/memory-map.md): keys move with a program's image base,
+    // and the program reloads there in the commit that moves it.
+    o.relocator = Relocator();
+    o.on_rebase = [this, &p](facts::FactDbTransaction &tx, facts::SpaceId space, const facts::Shift &before,
+                             const facts::Shift &after) { OnRebase(p, tx, space, before, after); };
+    o.on_language = [this, &p](facts::FactDbTransaction &tx, facts::SpaceId space, const std::string &before,
+                               const std::string &after) { OnLanguage(p, tx, space, before, after); };
+    p.db = std::make_unique<facts::FactDb>(std::move(o));
+    RegisterQueries(p.db->engine());
+    // Discovery splits its fixpoint's work over the analysis pool.
+    p.db->engine().set_pool(core_->pool.get());
+    RestoreProgramsLocked(p);
+    p.head = p.db->engine().revision();
+    p.history.insert_or_assign(p.head, Retained{p.db->snapshot(), p.log().size()});
+    p.published = p.db->version_vector();
+    Project &out = *core_->projects.emplace(id, std::move(owned)).first->second;
+    ScheduleReopenedLocked(out);
+    return out;
+  }
+
+  // Reloads each program recorded in the log from the bytes the store kept,
+  // and sets the inputs its derived facts depend on. Persisted memos then
+  // validate against these inputs by fingerprint instead of recomputing.
+  void RestoreProgramsLocked(Project &p) {
+    std::vector<ProgramSource> sources;
+    for (const facts::FactKey &k : p.log().keys()) {
+      if (IsFolderKey(k)) p.folder_ids.insert(k.sub.substr(kFolderSubPrefix.size()));
+      if (k.kind != FactKind::Note || k.addr.space != kProjectSpace || k.sub != "program") continue;
+      FactValue v = p.log().effective(k);
+      if (const auto *s = std::get_if<std::string>(&v)) sources.push_back(facts::decode_from_string<ProgramSource>(*s));
+    }
+    if (sources.empty()) return;
+    std::sort(sources.begin(), sources.end(), [](const auto &a, const auto &b) { return a.ordinal < b.ordinal; });
+    facts::Snapshot snap = p.db->snapshot();
+    auto tx = p.db->begin();
+    std::vector<std::string> ids;
+    std::vector<ProgramSource> loaded;
+    for (ProgramSource &src : sources) {
+      p.ordinals.insert(src.ordinal);
+      auto bytes = std::make_shared<loader::Bytes>(src.file_size);
+      for (std::uint64_t off = 0; off < src.file_size; off += facts::kPageSize) {
+        auto page = snap.get<facts::MemoryPage>(facts::PageKey{src.file_space, off / facts::kPageSize});
+        const std::size_t n = std::min<std::uint64_t>(facts::kPageSize, src.file_size - off);
+        if (page->size() >= n) std::memcpy(bytes->data() + off, page->data(), n);
+      }
+      // A record a peer sent whose file never arrived: fetched again from
+      // a peer (docs/collab.md).
+      if (Sha256Hex(std::string(reinterpret_cast<const char *>(bytes->data()), bytes->size())) != src.sha256) {
+        p.missing[src.sha256] = std::move(src);
+        continue;
+      }
+      try {
+        // In the language its log says (SetProgramLanguage), if it changed.
+        if (const auto [language, compiler] = LanguageOf(p.log().effective(LanguageKey(src.ram_space))); !language.empty()) {
+          src.language_id = language;
+          src.compiler_spec_id = compiler;
+        }
+        src.program = LoadProgram(src, bytes);
+        // Rebased (docs/memory-map.md): at the base its log says.
+        if (const facts::Shift sh = ShiftAt(snap, src.ram_space); !sh.identity()) {
+          ProgramSource moved = RebasedSource(src, src.program->image().image_base, sh);
+          moved.program = LoadProgram(moved, bytes);
+          src = std::move(moved);
+        }
+      } catch (const std::exception &e) {
+        std::cerr << "revkit: cannot reopen program " << src.id << ": " << e.what() << "\n";
+        continue;
+      }
+      // The loader plugin that loaded it now, so a new version's image
+      // doesn't validate the old one's memos.
+      if (!src.loader.empty()) src.loader = src.program->format().substr(std::string_view("plugin:").size());
+      ids.push_back(src.id);
+      tx.set<q::Source>(src.id, src);
+      tx.set<q::DecompilerOptions>(src.id, DefaultDecompilerOptions());
+      // Not persisted (the bytes are): the same ProgramInfo as at import,
+      // so discovery's stored memos validate.
+      tx.set<analysis::LoadedProgram>(AnalysisKey(src.id), src.program->Describe(src.ram_space));
+      tx.set<analysis::LoadedDataProgram>(AnalysisKey(src.id), analysis::describe_data(src.program->image()));
+      tx.set<q::ParamIdModeInput>(src.id, static_cast<std::uint8_t>(core_->options.param_id));
+      // Not persisted either: inference's image, so its memoized rounds
+      // validate and the background run republishes them.
+      StageInfer(tx, src);
+      plugins::stage_program(tx, AnalysisKey(src.id), src.program->image(), src.file_space, src.file_size);
+      loaded.push_back(std::move(src));
+    }
+    tx.set<q::Programs>(0, ids);
+    const std::uint64_t rev = tx.commit();
+    for (ProgramSource &src : loaded) {
+      core_->program_project[src.id] = p.id;
+      auto spaces = std::make_shared<SpaceMap>(*p.spaces);
+      (*spaces)[src.ram_space] = src.id;
+      p.spaces = std::move(spaces);
+      auto entry = std::make_shared<ProgramEntry>(ProgramEntry{std::move(src), rev});
+      p.programs[entry->id()] = std::move(entry);
+    }
+    NoteMissingRegionBytesLocked(p);
+  }
+
+  // After a project's reopen (OpenProjectLocked): its programs' parameter
+  // ID again, whose published signatures aren't persisted (the commits are
+  // memoized and validate).
+  void ScheduleReopenedLocked(Project &p) {
+    for (const auto &[id, entry] : p.programs) {
+      ScheduleParamId(p, id);
+      ScheduleInfer(p, id);
+      if (FidFor(entry->source)) ScheduleFid(p, id, "");
+    }
+  }
+
+  static void FillProjectInfo(const Project &p, pb::ProjectInfo *out) {
+    out->set_project_id(p.id);
+    out->set_name(p.name);
+    out->set_path(p.path);
+    out->set_open(p.open);
+    out->set_head_revision(p.head);
+    out->set_oldest_retained_revision(p.history.empty() ? p.head : p.history.begin()->first);
+    std::uint32_t live = 0;
+    for (const auto &[id, e] : p.programs) live += !StateOf(p, *e, p.log().size()).deleted;
+    out->set_program_count(live);
+  }
+
+  // A program's name, deletion and folder as of a log position
+  // (RenameProgram, DeleteProgram, MoveToFolder).
+  struct ProgramState {
+    std::string name;
+    bool deleted = false;
+    std::string folder;  // its id, "" at the root
+    std::optional<facts::Op> name_op, deleted_op, folder_op;
+  };
+  static facts::FactKey ProgramKey(const ProgramEntry &e, std::string_view sub) {
+    return FactKeyAt(FactKind::Note, kProjectSpace, e.source.ordinal, std::string(sub));
+  }
+  static ProgramState StateOf(const Project &p, const ProgramEntry &e, Seq upto) {
+    ProgramState st;
+    st.name = e.source.name;
+    facts::Blame name = p.log().blame(ProgramKey(e, kProgramNameSub), upto);
+    if (const auto *n = std::get_if<std::string>(&name.value); n && !n->empty()) st.name = *n;
+    if (name.winner) st.name_op = name.winner;
+    facts::Blame del = p.log().blame(ProgramKey(e, kProgramDeletedSub), upto);
+    if (const auto *d = std::get_if<std::string>(&del.value); d && !d->empty()) {
+      st.deleted = true;
+      st.deleted_op = del.winner;
+    }
+    facts::Blame folder = p.log().blame(ProgramKey(e, kProgramFolderSub), upto);
+    if (const auto *f = std::get_if<std::string>(&folder.value)) st.folder = *f;
+    if (folder.winner) st.folder_op = folder.winner;
+    return st;
+  }
+
+  // --- Shared libraries (api_minor 70; docs/api.md "Libraries") -------------
+  //
+  // A program's libraries are what its file asks for (loader::Image::needed:
+  // ELF DT_NEEDED, PE import DLLs). Each resolves to a project program: the
+  // one a link assertion names (LinkProgramLibrary), else one of that name,
+  // else one whose own library name (soname) it is, in the same folder
+  // first. Libraries' libraries follow, breadth first. An import resolves
+  // to the first library (PE: its DLL's) that exports its name.
+
+  struct LibraryLink {
+    std::string name;  // as the program names it
+    pb::LibraryResolution how = pb::LIBRARY_RESOLUTION_NONE;
+    std::shared_ptr<const ProgramEntry> target;
+    std::optional<facts::Op> op;  // LINKED: the link assertion
+    std::uint32_t depth = 0;
+    std::string needed_by;  // depth > 0: the library that needs it
+  };
+  static constexpr std::uint32_t kMaxLibraryDepth = 4;
+  static constexpr std::size_t kMaxLibraries = 512;
+
+  static bool IsPeProgram(const ProgramEntry &e) { return e.program().image().format == loader::Format::pe; }
+  static std::string LibrarySub(const std::string &library) { return std::string(kProgramLibrarySubPrefix) + library; }
+
+  // Which project program `name`, a library `e` needs, is. Under core_->mu.
+  static LibraryLink ResolveLibraryLocked(const Project &p, const ProgramEntry &e, const std::string &name, Seq upto) {
+    LibraryLink out;
+    out.name = name;
+    const facts::Blame link = p.log().blame(ProgramKey(e, LibrarySub(name)), upto);
+    if (const auto *t = std::get_if<std::string>(&link.value); t && !t->empty()) {
+      auto it = p.programs.find(*t);
+      if (it != p.programs.end() && it->second.get() != &e && !StateOf(p, *it->second, upto).deleted) {
+        out.how = pb::LIBRARY_RESOLUTION_LINKED;
+        out.target = it->second;
+        out.op = link.winner;
+        return out;
+      }
+    }
+    const bool pe = IsPeProgram(e);
+    const std::string here = StateOf(p, e, upto).folder;
+    int best = 0;
+    for (const auto &[id, c] : p.programs) {
+      if (c.get() == &e || !c->source.program) continue;
+      const ProgramState st = StateOf(p, *c, upto);
+      if (st.deleted) continue;
+      int rank = 0;
+      if (libs::SameLibrary(st.name, name, pe) || libs::SameLibrary(c->source.name, name, pe)) rank = 3;
+      else if (const std::string &so = c->program().image().soname; !so.empty() && libs::SameLibrary(so, name, pe)) rank = 1;
+      if (!rank) continue;
+      if (st.folder == here) ++rank;
+      if (rank > best || (rank == best && c->source.ordinal < out.target->source.ordinal)) {
+        best = rank;
+        out.target = c;
+        out.how = rank >= 3 ? pb::LIBRARY_RESOLUTION_NAME : pb::LIBRARY_RESOLUTION_SONAME;
+      }
+    }
+    return out;
+  }
+
+  // `e`'s libraries, its own first, then theirs (to kMaxLibraryDepth), each
+  // name once. Under core_->mu.
+  static std::vector<LibraryLink> LibrariesOfLocked(const Project &p, const ProgramEntry &e, Seq upto) {
+    std::vector<LibraryLink> out;
+    std::set<std::string> seen;
+    std::set<const ProgramEntry *> visited{&e};
+    std::deque<std::pair<const ProgramEntry *, std::uint32_t>> queue{{&e, 0}};
+    while (!queue.empty() && out.size() < kMaxLibraries) {
+      auto [cur, depth] = queue.front();
+      queue.pop_front();
+      const bool pe = IsPeProgram(*cur);
+      for (const std::string &n : cur->program().image().needed) {
+        if (!seen.insert(pe ? Lower(n) : n).second || out.size() >= kMaxLibraries) continue;
+        LibraryLink l = ResolveLibraryLocked(p, *cur, n, upto);
+        l.depth = depth;
+        if (depth) l.needed_by = StateOf(p, *cur, upto).name;
+        if (l.target && depth + 1 < kMaxLibraryDepth && visited.insert(l.target.get()).second)
+          queue.emplace_back(l.target.get(), depth + 1);
+        out.push_back(std::move(l));
+      }
+    }
+    return out;
+  }
+
+  void FillLibrary(const Project &p, const LibraryLink &l, Seq upto, const FolderTree &tree, pb::ProgramLibrary *out) {
+    out->set_name(l.name);
+    out->set_resolution(l.how);
+    out->set_depth(l.depth);
+    out->set_needed_by(l.needed_by);
+    if (l.target) {
+      out->set_program_id(l.target->id());
+      const ProgramState st = StateOf(p, *l.target, upto);
+      out->set_program_name(st.name);
+      out->set_folder_path(tree.path(st.folder));
+    }
+    if (l.op) *out->mutable_origin() = OriginOf(*l.op);
+  }
+
+  // A program's imports: each slot (GOT, IAT) with its name, the PE's DLL,
+  // and the thunk that jumps through it; sorted by slot.
+  struct ImportItem {
+    std::string name, library;
+    std::uint64_t thunk = 0, slot = 0;
+  };
+  static std::vector<ImportItem> ImportsOf(View &v) {
+    std::map<std::uint64_t, ImportItem> by_slot;
+    std::map<std::uint64_t, std::string> dll;
+    for (const loader::Import &i : v.program().image().imports) dll[i.iat_address] = i.library;
+    auto info = v.snapshot().get<analysis::Program>(AnalysisKey(v.id()));
+    for (const analysis::ImportSlot &s : info->imports) {
+      ImportItem &it = by_slot[s.address];
+      it.name = libs::StripVersion(s.name);
+      it.slot = s.address;
+      if (auto d = dll.find(s.address); d != dll.end()) it.library = d->second;
+    }
+    auto found = v.snapshot().get<analysis::Functions>(AnalysisKey(v.id()));
+    std::vector<ImportItem> unslotted;
+    for (const analysis::FunctionInfo &f : found->functions) {
+      if (!(f.flags & analysis::kFunctionThunk) || f.import.empty()) continue;
+      if (f.thunk_target == 0) {
+        unslotted.push_back({libs::StripVersion(f.import), {}, f.entry.offset, 0});
+        continue;
+      }
+      ImportItem &it = by_slot[f.thunk_target];
+      if (it.name.empty()) it.name = libs::StripVersion(f.import);
+      it.slot = f.thunk_target;
+      if (!it.thunk) it.thunk = f.entry.offset;
+      if (it.library.empty())
+        if (auto d = dll.find(f.thunk_target); d != dll.end()) it.library = d->second;
+    }
+    std::vector<ImportItem> out;
+    for (auto &[slot, it] : by_slot)
+      if (!it.name.empty()) out.push_back(std::move(it));
+    out.insert(out.end(), unslotted.begin(), unslotted.end());
+    return out;
+  }
+
+  // Where each of `items` goes among `links`' programs.
+  std::vector<pb::ResolvedImport> ResolveImports(const CallContext &ctx, const std::vector<LibraryLink> &links,
+                                                 const std::vector<ImportItem> &items, bool pe) {
+    struct Lib {
+      std::optional<Read> read;
+      std::unique_ptr<View> view;
+      std::map<std::string, std::uint64_t> exports;
+      bool tried = false;
+    };
+    std::vector<Lib> libs_(links.size());
+    auto load = [&](std::size_t i) -> Lib * {
+      Lib &l = libs_[i];
+      if (!l.tried) {
+        l.tried = true;
+        Read r;
+        if (links[i].target && ResolveProgram(ctx, links[i].target->id(), {}, {}, r).ok()) {
+          l.read = std::move(r);
+          l.view = std::make_unique<View>(*l.read);
+          l.exports = libs::Exports(l.view->program().image());
+        }
+      }
+      return l.view ? &l : nullptr;
+    };
+    std::vector<pb::ResolvedImport> out;
+    out.reserve(items.size());
+    for (const ImportItem &it : items) {
+      pb::ResolvedImport r;
+      r.set_name(it.name);
+      r.set_library(it.library);
+      if (it.thunk) *r.mutable_thunk() = A(it.thunk);
+      if (it.slot) *r.mutable_slot() = A(it.slot);
+      for (std::size_t i = 0; i < links.size(); ++i) {
+        // A PE import names its DLL; an ELF one is looked up in load order.
+        if (pe && !it.library.empty() && !libs::SameLibrary(links[i].name, it.library, true)) continue;
+        Lib *l = load(i);
+        if (!l) continue;
+        auto e = l->exports.find(it.name);
+        if (e == l->exports.end()) continue;
+        r.set_resolved(true);
+        r.set_library(links[i].name);
+        r.set_program_id(links[i].target->id());
+        *r.mutable_address() = A(e->second);
+        r.set_function_name(l->view->Symbol(e->second));
+        if (r.function_name().empty()) r.set_function_name(it.name);
+        break;
+      }
+      out.push_back(std::move(r));
+    }
+    return out;
+  }
+
+  Status ListProgramLibraries(const CallContext &ctx, const pb::ListProgramLibrariesRequest &req,
+                              pb::ListProgramLibrariesResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    std::vector<LibraryLink> links;
+    FolderTree tree;
+    {
+      std::lock_guard lock(core_->mu);
+      links = LibrariesOfLocked(*r.project, *r.program, r.log_size);
+      tree = TreeLocked(*r.project, r.log_size);
+    }
+    const bool pe = IsPeProgram(*r.program);
+    const std::vector<pb::ResolvedImport> resolved = ResolveImports(ctx, links, ImportsOf(v), pe);
+    std::map<std::string, std::uint32_t> counts;
+    for (const pb::ResolvedImport &x : resolved)
+      if (x.resolved()) ++counts[pe ? Lower(x.library()) : x.library()];
+    for (const LibraryLink &l : links) {
+      pb::ProgramLibrary *o = resp.add_libraries();
+      FillLibrary(*r.project, l, r.log_size, tree, o);
+      o->set_imports_resolved(counts[pe ? Lower(l.name) : l.name]);
+    }
+    if (req.include_imports())
+      for (const pb::ResolvedImport &x : resolved) *resp.add_imports() = x;
+    const loader::Image &img = r.program->program().image();
+    resp.set_soname(img.soname);
+    resp.set_build_id(img.build_id);
+    return Status::Ok();
+  }
+
+  Status LinkProgramLibrary(const CallContext &, const pb::LinkProgramLibraryRequest &req,
+                            pb::LinkProgramLibraryResponse &resp) override {
+    const std::string &lib = req.library();
+    if (lib.empty() || lib.size() > 255) return Error(StatusCode::kInvalidArgument, "library is required (at most 255 bytes)");
+    for (unsigned char c : lib)
+      if (c < 0x20 || c == 0x7f || c == '/') return Error(StatusCode::kInvalidArgument, "library may not contain \"/\" or control characters");
+    Project *p = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), p); !st.ok()) return st;
+    if (!req.target_program_id().empty()) {
+      Project *t = nullptr;
+      if (auto st = FindProgramProject(req.target_program_id(), t); !st.ok()) return st;
+      if (t != p) return Error(StatusCode::kInvalidArgument, "the library program must be in the same project");
+      if (req.target_program_id() == req.program_id())
+        return Error(StatusCode::kInvalidArgument, "a program can't be its own library");
+    }
+    std::uint64_t revision = 0;
+    pb::Assertion a;
+    const std::string sub = LibrarySub(lib);
+    if (auto st = AssertProgramState(req.program_id(), sub, req.target_program_id(), req.provenance(), revision, a); !st.ok())
+      return st;
+    resp.mutable_snapshot()->set_revision(revision);
+    resp.mutable_snapshot()->set_head_revision(revision);
+    std::lock_guard lock(core_->mu);
+    const Seq upto = p->log().size();
+    const LibraryLink l = ResolveLibraryLocked(*p, *p->programs.at(req.program_id()), lib, upto);
+    FillLibrary(*p, l, upto, TreeLocked(*p, upto), resp.mutable_library());
+    *resp.mutable_assertion() = std::move(a);
+    return Status::Ok();
+  }
+
+  Status ResolveImport(const CallContext &ctx, const pb::ResolveImportRequest &req, pb::ResolveImportResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    std::vector<ImportItem> items = ImportsOf(v);
+    const ImportItem *hit = nullptr;
+    if (req.has_name()) {
+      const std::string want = libs::StripVersion(req.name());
+      for (const ImportItem &it : items)
+        if (it.name == want) hit = hit ? hit : &it;
+    } else if (req.has_address()) {
+      const std::uint64_t a = req.address().offset();
+      const Func *f = v.functions().containing(a);
+      for (const ImportItem &it : items)
+        if (it.thunk == a || it.slot == a || (f && it.thunk == f->entry)) hit = hit ? hit : &it;
+    } else {
+      return Error(StatusCode::kInvalidArgument, "address or name is required");
+    }
+    if (!hit) return Error(StatusCode::kNotFound, "no import there in " + req.program_id());
+    std::vector<LibraryLink> links;
+    {
+      std::lock_guard lock(core_->mu);
+      links = LibrariesOfLocked(*r.project, *r.program, r.log_size);
+    }
+    *resp.mutable_resolved() = ResolveImports(ctx, links, {*hit}, IsPeProgram(*r.program)).front();
+    return Status::Ok();
+  }
+
+  // ImportProgramRequest.folder_id: the program into that folder; false
+  // (with a warning) when it can't go there.
+  bool PlaceInFolder(const pb::ImportProgramRequest &req, const std::string &program_id, pb::ImportProgramResponse &resp) {
+    pb::MoveToFolderRequest m;
+    m.set_project_id(req.project_id());
+    m.set_folder_id(req.folder_id());
+    m.add_program_ids(program_id);
+    *m.mutable_provenance() = req.provenance();
+    pb::MoveToFolderResponse mr;
+    if (auto st = MoveToFolder(CallContext{}, m, mr); !st.ok()) {
+      resp.add_warnings("not moved into the folder: " + st.message);
+      return false;
+    }
+    return true;
+  }
+
+  // The program's ProgramInfo at head.
+  void RefillProgram(const std::string &id, pb::ProgramInfo *out) {
+    Project *p = nullptr;
+    if (!FindProgramProject(id, p).ok()) return;
+    std::lock_guard lock(core_->mu);
+    const Seq upto = p->log().size();
+    FillProgramInfo(*p, *p->programs.at(id), upto, TreeLocked(*p, upto), out);
+  }
+
+  // ImportOptions.import_libraries: the libraries the imported program (and
+  // then theirs, to library_depth) needs that the project has no program
+  // for, found on the search paths (libs::SearchDirs) and imported.
+  void ImportLibraries(const CallContext &ctx, const pb::ImportProgramRequest &req, pb::ImportProgramResponse &resp) {
+    const pb::ImportOptions &o = req.options();
+    const std::uint32_t max_depth = std::min<std::uint32_t>(o.library_depth() ? o.library_depth() : 2, 8);
+    const std::vector<std::string> user(o.library_search_paths().begin(), o.library_search_paths().end());
+    constexpr std::size_t kMaxImported = 64;
+    std::deque<std::pair<std::string, std::uint32_t>> queue{{resp.program().program_id(), 1}};
+    std::set<std::string> visited{resp.program().program_id()}, missing;
+    std::size_t imported = 0;
+    while (!queue.empty()) {
+      auto [id, depth] = queue.front();
+      queue.pop_front();
+      Project *p = nullptr;
+      if (!FindProgramProject(id, p).ok()) continue;
+      std::shared_ptr<const ProgramEntry> e;
+      std::string needed_by;
+      std::vector<std::pair<std::string, std::string>> needs;  // name, the program it is ("" none)
+      {
+        std::lock_guard lock(core_->mu);
+        e = p->programs.at(id);
+        const Seq upto = p->log().size();
+        needed_by = StateOf(*p, *e, upto).name;
+        for (const std::string &n : e->program().image().needed) {
+          const LibraryLink l = ResolveLibraryLocked(*p, *e, n, upto);
+          needs.emplace_back(n, l.target ? l.target->id() : std::string());
+        }
+      }
+      const loader::Image &img = e->program().image();
+      const bool host = !e->source.path.empty() && e->source.container_path.empty();
+      const std::vector<fs::path> dirs = libs::SearchDirs(user, e->source.path, img, host);
+      for (auto &[n, target] : needs) {
+        if (target.empty()) {
+          if (missing.contains(n)) continue;
+          std::optional<fs::path> found = imported < kMaxImported ? libs::FindLibrary(n, dirs, img) : std::nullopt;
+          if (!found) {
+            missing.insert(n);
+            pb::MissingLibrary *m = resp.add_libraries_not_found();
+            m->set_name(n);
+            m->set_needed_by(needed_by);
+            continue;
+          }
+          pb::ImportProgramRequest lr;
+          lr.set_project_id(req.project_id());
+          lr.set_path(found->string());
+          lr.set_name(n);
+          *lr.mutable_provenance() = req.provenance();
+          lr.mutable_options()->set_analyze(o.analyze());
+          pb::ImportProgramResponse lresp;
+          ImportProgress progress(ctx.caller, req.project_id(), n);
+          Status st;
+          try {
+            st = ImportProgramImpl(lr, lresp, progress, nullptr, ctx.caller);
+          } catch (const std::exception &x) {
+            st = Error(StatusCode::kInternal, x.what());
+          }
+          if (!st.ok()) {
+            missing.insert(n);
+            resp.add_warnings("library " + n + " (" + found->string() + ") not imported: " + st.message);
+            continue;
+          }
+          ++imported;
+          target = lresp.program().program_id();
+          if (!req.folder_id().empty()) PlaceInFolder(req, target, resp);
+          RefillProgram(target, resp.add_libraries());
+        }
+        if (depth < max_depth && visited.insert(target).second) queue.emplace_back(target, depth + 1);
+      }
+    }
+  }
+
+  // --- Folders (api_minor 37; docs/api.md, "Folders") -------------------------
+  //
+  // A folder is one assertion, keyed by its id: "<parent id>/<name>", ""
+  // once deleted. The tree is computed from the effective values, so
+  // every daemon sharing the project draws the same one whatever order
+  // concurrent edits arrived in: a folder whose parent is gone, and the
+  // lowest id of any cycle concurrent moves made, hang from the root.
+
+  static facts::FactKey FolderKey(std::string_view id) {
+    return FactKeyAt(FactKind::Note, kProjectSpace, kFolderAddress, std::string(kFolderSubPrefix) + std::string(id));
+  }
+  static bool ValidFolderId(std::string_view id) {
+    return id.size() == 16 && std::all_of(id.begin(), id.end(), [](char c) {
+             return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+           });
+  }
+  static std::string NewFolderId() {
+    static thread_local std::mt19937_64 rng{std::random_device{}()};
+    return Hex16(rng());
+  }
+  static std::string Hex16(std::uint64_t v) {
+    char buf[17];
+    std::snprintf(buf, sizeof buf, "%016llx", static_cast<unsigned long long>(v));
+    return buf;
+  }
+
+  // The tree as of a log position, from the folder ids the log names.
+  static FolderTree TreeFrom(const Project &p, const std::set<std::string> &ids, Seq upto) {
+    FolderTree t;
+    for (const std::string &id : ids) {
+      if (!ValidFolderId(id)) continue;
+      facts::Blame b = p.log().blame(FolderKey(id), upto);
+      const auto *v = std::get_if<std::string>(&b.value);
+      if (!v || v->empty()) continue;
+      const std::size_t slash = v->find('/');
+      if (slash == std::string::npos) continue;
+      Folder f{id, v->substr(0, slash), v->substr(slash + 1), {}, b.winner};
+      if ((!f.parent.empty() && !ValidFolderId(f.parent)) || !archive::ValidName(f.name) || f.name == "." ||
+          f.name == "..")
+        continue;
+      t.by_id.emplace(id, std::move(f));
+    }
+    for (auto &[id, f] : t.by_id)
+      if (!f.parent.empty() && !t.by_id.contains(f.parent)) f.parent.clear();
+    // Cycles (two daemons each moved one folder under the other): the
+    // lowest id of each hangs from the root.
+    for (bool again = true; again;) {
+      again = false;
+      for (auto &[id, f] : t.by_id) {
+        std::vector<std::string> chain;
+        std::set<std::string> seen;
+        std::string at = id;
+        while (!at.empty() && seen.insert(at).second) {
+          chain.push_back(at);
+          at = t.by_id.at(at).parent;
+        }
+        if (at.empty()) continue;
+        // `at` closes a cycle: its members are the chain from `at` on.
+        auto from = std::find(chain.begin(), chain.end(), at);
+        t.by_id.at(*std::min_element(from, chain.end())).parent.clear();
+        again = true;
+        break;
+      }
+    }
+    // Paths top-down (iteratively: a peer could make a deep chain). A
+    // folder deeper than kMaxFolderDepth hangs from the root.
+    for (auto &[id, f] : t.by_id) {
+      std::vector<Folder *> chain;
+      for (Folder *at = &f; at->path.empty();) {
+        chain.push_back(at);
+        if (at->parent.empty()) break;
+        at = &t.by_id.at(at->parent);
+      }
+      for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        Folder &c = **it;
+        const std::string &base = c.parent.empty() ? std::string() : t.by_id.at(c.parent).path;
+        const std::size_t depth = static_cast<std::size_t>(std::count(base.begin(), base.end(), '/'));
+        if (depth >= kMaxFolderDepth) {
+          c.parent.clear();
+          c.path = "/" + c.name;
+        } else {
+          c.path = base + "/" + c.name;
+        }
+      }
+    }
+    for (const auto &[id, f] : t.by_id) t.order.push_back(id);
+    std::sort(t.order.begin(), t.order.end(), [&](const std::string &a, const std::string &b) {
+      return std::tie(t.by_id.at(a).path, a) < std::tie(t.by_id.at(b).path, b);
+    });
+    return t;
+  }
+  // Under Core::mu.
+  static FolderTree TreeLocked(const Project &p, Seq upto) { return TreeFrom(p, p.folder_ids, upto); }
+  FolderTree TreeOf(const Project &p, Seq upto) {
+    std::set<std::string> ids;
+    {
+      std::lock_guard lock(core_->mu);
+      ids = p.folder_ids;
+    }
+    return TreeFrom(p, ids, upto);
+  }
+
+  static void FillFolder(const Folder &f, pb::ProjectFolder *out) {
+    out->set_folder_id(f.id);
+    out->set_parent_id(f.parent);
+    out->set_name(f.name);
+    out->set_path(f.path);
+    if (f.op) *out->mutable_origin() = OriginOf(*f.op);
+  }
+  static void FillFolders(const FolderTree &t, google::protobuf::RepeatedPtrField<pb::ProjectFolder> *out) {
+    for (const std::string &id : t.order) FillFolder(t.by_id.at(id), out->Add());
+  }
+
+  static pb::FactOrigin OriginOf(const facts::Op &op) {
+    pb::FactOrigin o;
+    o.mutable_asserted()->set_seq(op.seq);
+    *o.mutable_asserted()->mutable_provenance() = MetaOf(op).provenance();
+    *o.mutable_asserted()->mutable_id() = ToPbId(op.id);
+    return o;
+  }
+
+  // `upto`: the log position read (Read::log_size; p.log().size() for head).
+  static void FillProgramInfo(const Project &p, const ProgramEntry &e, Seq upto, const FolderTree &tree,
+                              pb::ProgramInfo *out) {
+    const ProgramState st = StateOf(p, e, upto);
+    // A folder that is gone (deleted, or not yet replicated here): the root.
+    out->set_folder_id(tree.has(st.folder) ? st.folder : std::string());
+    out->set_folder_path(tree.path(st.folder));
+    if (st.folder_op) *out->mutable_folder_origin() = OriginOf(*st.folder_op);
+    out->set_program_id(e.id());
+    out->set_project_id(p.id);
+    out->set_name(st.name);
+    out->set_format(e.program().format());
+    out->set_language_id(e.program().language().language);
+    out->set_compiler_spec_id(e.program().language().compiler);
+    out->set_file_size(e.source.file_size);
+    out->set_sha256(e.source.sha256);
+    if (!e.source.container_path.empty()) out->set_container_path(e.source.container_path);
+    *out->mutable_imported_at() = TimeUtil::SecondsToTimestamp(e.source.imported_at);
+    out->set_deleted(st.deleted);
+    if (st.deleted_op) *out->mutable_deleted_origin() = OriginOf(*st.deleted_op);
+    if (st.name_op) *out->mutable_name_origin() = OriginOf(*st.name_op);
+  }
+
+  // The memory map at the view's revision (analysis.memory): the image's
+  // blocks as edited and the regions the user added; `rejected`, the
+  // regions it can't place.
+  static void FillMemory(View &v, google::protobuf::RepeatedPtrField<pb::MemoryBlock> *out,
+                         google::protobuf::RepeatedPtrField<pb::MemoryBlock> *rejected = nullptr) {
+    auto map = v.snapshot().get<analysis::MemoryMap>(AnalysisKey(v.id()));
+    for (const analysis::MemoryBlock &b : map->blocks) FillMemoryBlock(v, b, out->Add());
+    if (rejected)
+      for (const analysis::MemoryBlock &b : map->rejected) FillMemoryBlock(v, b, rejected->Add());
+  }
+
+  static facts::FactKey MemoryKey(const View &v, const analysis::MemoryBlock &b) {
+    return v.Key(FactKind::MemoryRegion, 0,
+                 b.origin == analysis::BlockOrigin::user ? analysis::region_sub(b.id) : analysis::block_sub(b.range.first));
+  }
+
+  static void FillMemoryBlock(View &v, const analysis::MemoryBlock &b, pb::MemoryBlock *m) {
+    const loader::Image &image = v.loaded_program().image();
+    m->set_name(b.name);
+    *m->mutable_range() = Range(b.range.first, b.range.last);
+    m->set_read(b.read);
+    m->set_write(b.write);
+    m->set_execute(b.exec);
+    m->set_initialized(b.initialized);
+    m->set_is_volatile(b.is_volatile);
+    m->set_edited(b.edited);
+    m->set_rejected(b.rejected);
+    auto *src = m->mutable_source();
+    if (b.origin == analysis::BlockOrigin::user) {
+      m->set_region_id(b.id);
+      if (b.bytes && (b.initialized || b.bytes_missing)) {
+        src->set_kind(pb::MEMORY_BLOCK_SOURCE_KIND_FILE);
+        src->set_file(b.bytes->file);
+        src->set_file_offset(b.bytes->file_offset);
+        src->set_length(b.bytes->length);
+        src->set_sha256(b.bytes->sha256);
+        src->set_missing(b.bytes_missing);
+      } else {
+        src->set_kind(b.initialized ? pb::MEMORY_BLOCK_SOURCE_KIND_ZERO : pb::MEMORY_BLOCK_SOURCE_KIND_NONE);
+      }
+    } else if (const loader::Region *r = image.memory.find(b.range.first);
+               r && b.initialized && b.range.first - r->start < r->file_size) {
+      m->set_has_file_offset(true);
+      m->set_file_offset(r->file_offset + (b.range.first - r->start));
+      src->set_kind(pb::MEMORY_BLOCK_SOURCE_KIND_IMAGE);
+      src->set_file_offset(m->file_offset());
+      src->set_length(std::min(r->file_size - (b.range.first - r->start), b.range.last - b.range.first + 1));
+    } else {
+      src->set_kind(b.initialized ? pb::MEMORY_BLOCK_SOURCE_KIND_ZERO : pb::MEMORY_BLOCK_SOURCE_KIND_NONE);
+    }
+    std::optional<facts::Op> w;
+    if (b.origin == analysis::BlockOrigin::user || b.edited) w = v.Winner(MemoryKey(v, b));
+    *m->mutable_origin() =
+        w ? v.Origin(*w) : Derived("loader." + v.loaded_program().format() + ".sections", v.revision());
+  }
+
+  // The library archive's prototype for a function, by its name as
+  // inputs.program looks it up (the import a stub or thunk is named after).
+  static std::pair<std::shared_ptr<const inputs::LibraryPrototypes>, const inputs::LibraryFunction *> LibraryFunctionOf(
+      View &v, const Func &f) {
+    auto ref = v.snapshot().get<q::LibraryPrototypes>(v.id());
+    if (!ref->lib || f.name.empty()) return {nullptr, nullptr};
+    // The C runtime's own code (_init, _start, ...) takes none, as in the
+    // decompiler's inputs (inputs::crt_function).
+    if (inputs::crt_function(f.name) && (f.flags & analysis::kFunctionThunk) == 0) return {nullptr, nullptr};
+    const inputs::LibraryFunction *fn = ref->lib->find(f.name);
+    return {ref->lib, fn};
+  }
+
+  void FillFunction(View &v, const Func &f, pb::Function *out) const {
+    *out->mutable_entry() = A(f.entry);
+    out->set_name(v.Symbol(f.entry));
+    *out->mutable_name_origin() = v.NameOrigin(f.entry);
+    const RowIndex &rows = v.rows();
+    std::uint32_t count = 0;
+    for (auto [first, last] : f.body) {
+      *out->add_body() = Range(first, last);
+      if (last == UINT64_MAX) continue;
+      count += static_cast<std::uint32_t>(rows.row_at(last + 1) - rows.row_at(first));
+    }
+    const facts::FactKey bounds = v.Key(FactKind::FunctionBounds, f.entry);
+    std::optional<facts::Op> bw = f.asserted ? v.Winner(bounds) : std::nullopt;
+    *out->mutable_bounds_origin() = bw ? v.Origin(*bw) : Derived("analysis.functions", v.revision());
+    out->set_no_return((f.flags & analysis::kFunctionNoReturn) != 0);
+    out->set_thunk((f.flags & analysis::kFunctionThunk) != 0);
+    if (f.thunk_target) *out->mutable_thunk_target() = A(f.thunk_target);
+    const facts::FactKey type = v.Key(FactKind::Type, f.entry);
+    auto published = v.snapshot().get<q::ParamIdPublished>({v.id(), f.entry});
+    if (auto d = v.Demangled(f.entry)) *out->mutable_demangled() = std::move(*d);
+    // The demangler's prototype (import rank): under the user's and the
+    // debug info's, over agents', inference and parameter ID
+    // (docs/demangle.md).
+    auto w = v.Winner(type);
+    auto mangled = f.mangled.empty() || (w && facts::rank(w->prov.kind) >= facts::rank(facts::ProvenanceKind::Import))
+                       ? facts::Ref<std::optional<DemangledProto>>{}
+                       : v.snapshot().get<q::Demangled>({v.id(), f.entry});
+    if (mangled && *mangled) {
+      // A guessed `this` goes where inference counts the mangled
+      // parameters alone (a static member function).
+      bool without_this = false;
+      if ((*mangled)->this_guessed)
+        if (auto inferred = v.snapshot().get<q::InferPublished>({v.id(), f.entry}); *inferred) {
+          std::size_t floats = 0;
+          for (const infer::VType &t : (*inferred)->params) floats += t.meta == infer::Meta::float_;
+          std::size_t want = 0;
+          for (bool b : (*mangled)->param_float) want += b;
+          without_this = (*inferred)->params.size() == (*mangled)->param_float.size() && floats == want;
+        }
+      out->set_prototype((*mangled)->text(v.Symbol(f.entry), without_this));
+      *out->mutable_prototype_origin() = Derived("analysis.demangler", v.revision());
+    } else if (w) {
+      std::string t = v.Text(type);
+      const std::string c = v.AssertedCText(type);
+      out->set_prototype(!c.empty()                ? c
+                         : t.starts_with("h:") ? NamedPrototype(v.TypeDisplay(t.substr(2)), v.Symbol(f.entry))
+                                               : v.TypeText(type));
+      *out->mutable_prototype_origin() = v.Origin(*w);
+    } else if (const auto [lib, fn] = LibraryFunctionOf(v, f); fn != nullptr) {
+      // A library archive's prototype for the import's name (library
+      // rank: under debug info, the demangler and the user, over
+      // inference; docs/types.md#library-prototypes).
+      out->set_prototype(types::prototype(lib->store, fn->type, v.Symbol(f.entry)));
+      *out->mutable_prototype_origin() = Derived("library:" + fn->archive, v.revision());
+    } else if (auto inferred = v.snapshot().get<q::InferPublished>({v.id(), f.entry}); *inferred) {
+      // What inference published (it outranks parameter ID, as in the
+      // decompiler's lookups).
+      out->set_prototype((*inferred)->print(v.Symbol(f.entry), infer::data_org(v.program().image())));
+      *out->mutable_prototype_origin() = Derived(std::string(kInferAnalyzer), v.revision());
+    } else if (*published && (*published)->status == lift::CommittedSignature::Status::committed) {
+      // What parameter ID committed (api_minor 19).
+      out->set_prototype(SignatureText(**published, v.Symbol(f.entry)));
+      *out->mutable_prototype_origin() = Derived("analysis.param_id", v.revision());
+    }
+    out->set_instruction_count(count);
+    std::uint32_t callers = 0;
+    const auto refs = v.xrefs().to(f.entry, f.entry);
+    for (const StaticXref *x : refs) callers += x->kind == pb::XREF_KIND_CALL;
+    out->set_caller_count(callers);
+    out->set_xref_count(static_cast<std::uint32_t>(refs.size()));
+    out->set_size(BodySize(f));
+    out->set_decompile_failed(DecompileFailed(v, f));
+  }
+
+  // A function type's display ("int (char *s)") as a prototype naming the
+  // function ("int puts(char *s)"): the name goes before the outermost
+  // parameter list.
+  static std::string NamedPrototype(std::string display, const std::string &name) {
+    if (display.empty() || display.back() != ')') return display;
+    int depth = 0;
+    for (std::size_t i = display.size(); i-- > 0;) {
+      if (display[i] == ')') ++depth;
+      else if (display[i] == '(' && --depth == 0) {
+        std::size_t at = i;
+        while (at > 0 && display[at - 1] == ' ') --at;
+        const bool star = at > 0 && display[at - 1] == '*';
+        return display.substr(0, at) + (star ? "" : " ") + name + display.substr(i);
+      }
+    }
+    return display;
+  }
+
+  static std::uint64_t BodySize(const Func &f) {
+    std::uint64_t n = 0;
+    for (auto [first, last] : f.body) n += last - first + (last == UINT64_MAX ? 0 : 1);
+    return n;
+  }
+
+  // Function.decompile_failed: the last decompilation served failed, or
+  // parameter ID's did.
+  static bool DecompileFailed(View &v, const Func &f) {
+    if (v.program().DecompileFailed(f.entry)) return true;
+    auto published = v.snapshot().get<q::ParamIdPublished>({v.id(), f.entry});
+    return *published && (*published)->status == lift::CommittedSignature::Status::failed;
+  }
+
+  // A type reference as parameter ID commits it (lift::type_reference), in C.
+  static std::string SpellTypeRef(const lift::DecompElement &t) {
+    auto text = [&](const char *attr) {
+      const auto *v = t.attr(attr);
+      const std::string *s = v ? std::get_if<std::string>(v) : nullptr;
+      return s ? *s : std::string();
+    };
+    if (t.tag == "void") return "void";
+    const std::string meta = text("metatype");
+    if (meta == "ptr" && !t.children.empty()) {
+      std::string base = SpellTypeRef(t.children[0]);
+      return base + (base.ends_with('*') ? "*" : " *");
+    }
+    if (meta == "array" && !t.children.empty()) {
+      const auto *n = t.attr("arraysize");
+      const std::int64_t *count = n ? std::get_if<std::int64_t>(n) : nullptr;
+      return SpellTypeRef(t.children[0]) + "[" + (count ? std::to_string(*count) : std::string()) + "]";
+    }
+    std::string name = text("name");
+    return name.empty() ? "undefined" : name;
+  }
+
+  // A committed signature as a C prototype, Ghidra style
+  // ("undefined8 FUN_00101139(long param_1, int param_2)").
+  static std::string SignatureText(const lift::CommittedSignature &sig, const std::string &name) {
+    std::string out = sig.return_committed ? SpellTypeRef(sig.ret.type) : "undefined";
+    out += ' ';
+    out += name;
+    out += '(';
+    bool first = true;
+    for (const auto &p : sig.params) {
+      if (!first) out += ", ";
+      first = false;
+      std::string t = SpellTypeRef(p.type);
+      out += t;
+      if (!p.name.empty()) {
+        if (!t.ends_with('*')) out += ' ';
+        out += p.name;
+      }
+    }
+    if (sig.varargs) out += first ? "..." : ", ...";
+    else if (first) out += "void";
+    out += ')';
+    return out;
+  }
+
+  // Prints asserted local types in their declarations: the declaration's
+  // first TYPE token becomes the type (its trailing '*'s go before the
+  // name, Ghidra style), the rest of the declarator's TYPE and '*' tokens
+  // up to the variable are dropped.
+  static void RetypeDeclarations(const DecompileOutput &raw, const std::vector<std::string> &retyped,
+                                 pb::DecompiledFunction *out) {
+    std::set<std::pair<int, std::uint32_t>> done;  // (line, variable)
+    for (const auto &[ref, var] : raw.declaration_types) {
+      if (var >= retyped.size() || retyped[var].empty() || ref.line >= out->lines_size()) continue;
+      auto *tokens = out->mutable_lines(ref.line)->mutable_tokens();
+      if (ref.token >= tokens->size()) continue;
+      // The decompiler's type is replaced: not the struct it named.
+      tokens->Mutable(ref.token)->clear_type_hash();
+      if (!done.insert({ref.line, var}).second) {
+        tokens->Mutable(ref.token)->set_text("");
+        continue;
+      }
+      std::string base = retyped[var], stars;
+      while (!base.empty() && (base.back() == '*' || base.back() == ' ')) {
+        if (base.back() == '*') stars += '*';
+        base.pop_back();
+      }
+      tokens->Mutable(ref.token)->set_text(base);
+      // Up to the variable's own token: drop '*'s, put ours after the space.
+      bool placed = stars.empty();
+      for (int i = ref.token + 1; i < tokens->size(); ++i) {
+        auto *t = tokens->Mutable(i);
+        if (t->has_variable_index() && t->variable_index() == var) break;
+        if (t->text() == "*") t->set_text("");
+        else if (!placed && t->kind() == pb::CODE_TOKEN_KIND_WHITESPACE) {
+          t->set_text(t->text() + stars);
+          placed = true;
+        }
+      }
+      if (!placed) tokens->Mutable(ref.token)->set_text(base + " " + stars);
+    }
+  }
+
+  // Applies what the decompiler isn't told: local names and types, and a
+  // C-text prototype, which are this revision's and change no code.
+  // FIELD tokens' parents by type hash (api_minor 38, feature
+  // "field-tokens"): the decompiler knows a struct by the id GhidraTypes
+  // gave it, which the program's types name back (types.aggregate_ids).
+  static void NameFieldParents(View &v, const DecompileOutput &raw, pb::DecompiledFunction *out) {
+    auto ids = v.read().snapshot->get<q::AggregateIds>(v.id());
+    for (const auto &[ref, id] : raw.field_parents) {
+      if (ref.line >= out->lines_size()) continue;
+      auto *tokens = out->mutable_lines(ref.line)->mutable_tokens();
+      if (ref.token >= tokens->size()) continue;
+      auto it = std::lower_bound(ids->begin(), ids->end(), id, [](const auto &e, std::uint64_t x) { return e.first < x; });
+      if (it == ids->end() || it->first != id) continue;
+      // A TYPE token names the struct (api_minor 53, feature "type-uses").
+      pb::CodeToken *t = tokens->Mutable(ref.token);
+      if (t->kind() == pb::CODE_TOKEN_KIND_TYPE) t->set_type_hash(it->second);
+      else t->set_parent_type_hash(it->second);
+    }
+  }
+
+  static void Overlay(View &v, const Func &f, const DecompileOutput &raw, bool include_text, pb::DecompiledFunction *out,
+                      bool include_dataflow = false) {
+    *out = raw.function;
+    // The data-flow graph and the tokens' ops only on request (slices).
+    if (!include_dataflow) {
+      out->clear_dataflow();
+      for (auto &line : *out->mutable_lines())
+        for (auto &t : *line.mutable_tokens()) t.clear_op_index();
+    }
+    if (!raw.field_parents.empty()) NameFieldParents(v, raw, out);
+    out->set_name(v.Symbol(f.entry));
+    auto *origin = out->mutable_origin();
+    origin->set_rule("decompile.ghidra");
+    origin->set_confidence(0.9f);
+    origin->set_computed_at_revision(v.revision());
+    auto note_input = [&](const facts::FactKey &k) {
+      if (v.Asserted(k)) *origin->add_inputs() = ToPbKey(*v.read().spaces, k);
+    };
+    note_input(v.Key(FactKind::Name, f.entry));
+    note_input(v.Key(FactKind::Type, f.entry));
+    note_input(v.Key(FactKind::FunctionBounds, f.entry));
+
+    std::vector<std::string> renamed(static_cast<std::size_t>(out->variables_size()));
+    std::vector<std::string> retyped(static_cast<std::size_t>(out->variables_size()));
+    for (auto &var : *out->mutable_variables()) {
+      if (var.kind() == pb::VARIABLE_KIND_GLOBAL) {
+        if (var.has_address()) {
+          if (std::string name = v.Symbol(var.address().offset()); !name.empty()) var.set_name(name);
+          *var.mutable_name_origin() = v.NameOrigin(var.address().offset());
+        }
+        *var.mutable_type_origin() = Derived("decompile.ghidra.types", v.revision(), 0.6f);
+        continue;
+      }
+      const facts::FactKey name_key = v.Key(FactKind::Name, f.entry, "local:" + var.storage_key());
+      const facts::FactKey type_key = v.Key(FactKind::Type, f.entry, "local:" + var.storage_key());
+      auto name_w = v.Winner(name_key);
+      if (name_w) {
+        var.set_name(v.Text(name_key));
+        renamed[var.index()] = var.name();
+        *var.mutable_name_origin() = v.Origin(*name_w);
+        note_input(name_key);
+      } else {
+        *var.mutable_name_origin() = Derived("decompile.ghidra.naming", v.revision(), 0.5f);
+      }
+      if (auto type_w = v.Winner(type_key)) {
+        // A hashed type shows as its C spelling (with any rebound name).
+        const std::string t = v.Text(type_key);
+        var.mutable_type()->set_display(t.starts_with("h:") ? v.TypeDisplay(t.substr(2)) : v.TypeText(type_key));
+        if (var.index() < retyped.size()) retyped[var.index()] = var.type().display();
+        if (t.starts_with("h:")) var.mutable_type()->set_hash(t.substr(2));
+        else var.mutable_type()->clear_hash();
+        *var.mutable_type_origin() = v.Origin(*type_w);
+        note_input(type_key);
+      } else {
+        *var.mutable_type_origin() = Derived("decompile.ghidra.types", v.revision(), 0.6f);
+      }
+    }
+    for (auto &line : *out->mutable_lines())
+      for (auto &t : *line.mutable_tokens()) {
+        if (t.has_variable_index() && t.variable_index() < renamed.size() && !renamed[t.variable_index()].empty() &&
+            (t.kind() == pb::CODE_TOKEN_KIND_LOCAL_VARIABLE || t.kind() == pb::CODE_TOKEN_KIND_PARAMETER))
+          t.set_text(renamed[t.variable_index()]);
+        // A demangled name's other spellings (docs/demangle.md).
+        if (t.has_target() && (t.kind() == pb::CODE_TOKEN_KIND_FUNCTION_NAME || t.kind() == pb::CODE_TOKEN_KIND_GLOBAL_VARIABLE))
+          if (auto d = v.Demangled(t.target().offset())) *t.mutable_demangled() = std::move(*d);
+        // A call's signature override (docs/api.md, "Call-site signature
+        // overrides"), for hover cards.
+        if (t.kind() == pb::CODE_TOKEN_KIND_FUNCTION_NAME && t.has_address() && t.address().offset() != f.entry)
+          if (std::string sig = v.CallSignatureText(t.address().offset(), t.text()); !sig.empty())
+            t.set_call_signature(std::move(sig));
+      }
+    RetypeDeclarations(raw, retyped, out);
+
+    auto *proto = out->mutable_prototype();
+    const facts::FactKey type_key = v.Key(FactKind::Type, f.entry);
+    auto type_w = v.Winner(type_key);
+    const std::string c_text = type_w ? v.AssertedCText(type_key) : std::string();
+    if (type_w && (v.Text(type_key).starts_with("c:") || !c_text.empty())) {
+      // A C declaration shows as written, parsed (the decompiler printed
+      // it) or not (kept as text).
+      proto->set_c_declaration(c_text.empty() ? v.TypeText(type_key) : c_text);
+      *proto->mutable_origin() = v.Origin(*type_w);
+    } else {
+      std::string decl;
+      for (const auto &ref : raw.prototype) decl += out->lines(ref.line).tokens(ref.token).text();
+      proto->set_c_declaration(decl);
+      // A hashed prototype was given to the decompiler, which printed it.
+      if (type_w && !(f.mangled.size() && facts::rank(type_w->prov.kind) < facts::rank(facts::ProvenanceKind::Import) &&
+                      *v.snapshot().get<q::Demangled>({v.id(), f.entry})))
+        *proto->mutable_origin() = v.Origin(*type_w);
+      else if (!f.mangled.empty() && *v.snapshot().get<q::Demangled>({v.id(), f.entry}))
+        *proto->mutable_origin() = Derived("analysis.demangler", v.revision());
+      else *proto->mutable_origin() = Derived("decompile.ghidra.prototype", v.revision(), 0.7f);
+    }
+    if (include_text) {
+      std::string text;
+      for (const auto &line : out->lines()) {
+        if (!line.tokens().empty()) text.append(2 * line.indent(), ' ');
+        for (const auto &t : line.tokens()) text += t.text();
+        text += '\n';
+      }
+      out->set_text(std::move(text));
+    }
+  }
+
+  // --- Keys and assertions between the API and the store ---
+
+  static std::string ProgramOf(const SpaceMap &spaces, const facts::FactKey &k) {
+    facts::SpaceId space = k.addr.space;
+    // A program's name and deletion live in the project space at its
+    // ordinal (kProgramNameSub): they belong to that program.
+    if (space == kProjectSpace) {
+      if (k.kind != FactKind::Note || !IsProgramMetaSub(k.sub)) return {};
+      space = static_cast<facts::SpaceId>(kFirstProgramSpace + 2 * k.addr.offset);
+    }
+    auto it = spaces.find(space);
+    return it == spaces.end() ? std::string() : it->second;
+  }
+
+  std::shared_ptr<const SpaceMap> Spaces(const Project &p) {
+    std::lock_guard lock(core_->mu);
+    return p.spaces;
+  }
+
+  static pb::FactKey ToPbKey(const SpaceMap &spaces, const facts::FactKey &k) {
+    pb::FactKey out;
+    out.set_program_id(ProgramOf(spaces, k));
+    out.set_kind(static_cast<pb::FactKind>(k.kind));
+    if (k.kind != FactKind::TypeDef && k.addr.space != kProjectSpace) out.mutable_address()->set_offset(k.addr.offset);
+    out.set_sub(k.sub);
+    if (k.addr.space == kProjectSpace &&
+        (k.kind == FactKind::TypeDef || (k.kind == FactKind::Note && k.addr.offset == archive::kTypeArchiveAddress)))
+      out.set_project(true);
+    return out;
+  }
+
+  // A program space's Shift as the log stood after `upto` ops.
+  static facts::Shift ShiftOf(const Project &p, facts::SpaceId space, Seq upto) {
+    if (space == kProjectSpace) return {};
+    facts::FactValue v = p.log().blame(RebaseKey(space), upto).value;
+    if (const auto *t = std::get_if<std::string>(&v))
+      if (auto sh = facts::Shift::parse(*t)) return *sh;
+    return {};
+  }
+
+  static facts::FactKey FromPbKey(View &v, const pb::FactKey &k) {
+    const auto kind = static_cast<FactKind>(k.kind());
+    if (kind == FactKind::Note && IsProgramMetaSub(k.sub())) return v.ProgramKey(k.sub());
+    if (k.project()) {
+      // The project's (project types, type archive settings).
+      if (kind == FactKind::TypeDef) return TypeDefKey(kProjectSpace, k.sub());
+      return FactKeyAt(kind, kProjectSpace, archive::kTypeArchiveAddress, k.sub());
+    }
+    return v.Key(kind, kind == FactKind::TypeDef ? 0 : k.address().offset(), k.sub());
+  }
+
+  // An op as the API shows it at a log position: the stored request plus
+  // its sequence, time, key and status.
+  static pb::Assertion ToPbAssertion(const Project &p, const SpaceMap &spaces, const facts::Op &stored, Seq upto) {
+    // In a rebased program: its key and body at their moved addresses, as
+    // of `upto` (docs/memory-map.md, "Rebase").
+    const facts::Op op = ShiftedOp(stored, ShiftOf(p, stored.key.addr.space, upto));
+    pb::Assertion a = MetaOf(op);
+    a.set_seq(op.seq);
+    *a.mutable_time() = TimeUtil::NanosecondsToTimestamp(op.time_ns);
+    a.set_op(op.kind == facts::OpKind::Assert ? pb::ASSERTION_OP_ASSERT : pb::ASSERTION_OP_RETRACT);
+    *a.mutable_key() = ToPbKey(spaces, op.key);
+    if (op.kind == facts::OpKind::Retract) a.set_retracts_seq(op.target);
+    else a.set_depends_on_seq(op.depends_on);
+    a.set_status(ToPb(p.log().status(op.seq, upto)));
+    for (Seq r : p.log().retracted_by(op.seq, upto)) {
+      a.add_retracted_by(r);
+      *a.add_retracted_by_ids() = ToPbId(p.log().op(r)->id);
+    }
+    *a.mutable_id() = ToPbId(op.id);
+    a.set_stamp(op.stamp);
+    if (op.target_id) *a.mutable_retracts_id() = ToPbId(op.target_id);
+    if (op.depends_on_id) *a.mutable_depends_on_id() = ToPbId(op.depends_on_id);
+    if (op.supersedes) *a.mutable_supersedes() = ToPbId(op.supersedes);
+    return a;
+  }
+
+  // --- Revisions, reads and commits ---
+
+  static void SetSnapshot(const Read &r, pb::Snapshot *out) {
+    out->set_revision(r.revision);
+    out->set_head_revision(r.head);
+  }
+  static void SetHeadSnapshot(const Project &p, pb::Snapshot *out) {
+    out->set_revision(p.head);
+    out->set_head_revision(p.head);
+  }
+
+  Status FindProgramProject(const std::string &program_id, Project *&p) {
+    std::lock_guard lock(core_->mu);
+    auto pit = core_->program_project.find(program_id);
+    if (pit == core_->program_project.end()) return Error(StatusCode::kNotFound, "no program " + program_id);
+    auto proj = core_->projects.find(pit->second);
+    if (proj == core_->projects.end()) return Error(StatusCode::kNotFound, "no program " + program_id);
+    p = proj->second.get();
+    return Status::Ok();
+  }
+
+  // Asserts a program's name or deletion (kProgramNameSub,
+  // kProgramDeletedSub) in one revision; `out` is the assertion as the API
+  // shows it.
+  Status AssertProgramState(const std::string &program_id, std::string_view sub, const std::string &value,
+                            const pb::Provenance &prov, std::uint64_t &revision, pb::Assertion &out) {
+    if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    if (program_id.empty()) return Error(StatusCode::kInvalidArgument, "program_id is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(program_id, pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, program_id, 0); !st.ok()) return st;
+    std::shared_ptr<const ProgramEntry> entry;
+    {
+      std::lock_guard lock(core_->mu);
+      entry = p.programs.at(program_id);
+    }
+    const ProgramState state = StateOf(p, *entry, p.log().size());
+    if (sub == kProgramDeletedSub && state.deleted)
+      return Error(StatusCode::kFailedPrecondition, "program " + program_id + " is already deleted");
+    if (sub == kProgramNameSub && state.deleted)
+      return Error(StatusCode::kFailedPrecondition, "program " + program_id + " is deleted; restore it first");
+    pb::AssertionBody body;
+    body.mutable_note()->set_tag(std::string(sub));
+    body.mutable_note()->set_text(value);
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    tx.assert_fact(ToFacts(prov), ProgramKey(*entry, sub), value, 0, Meta(prov, &body, rev));
+    pb::RevisionEvent ev;
+    revision = Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    if (ev.assertions().empty()) return Error(StatusCode::kInternal, "the assertion was not recorded");
+    out = ev.assertions(0);
+    return Status::Ok();
+  }
+
+  // Under the project's writer: the project is open, the program exists,
+  // and head is what the caller expects.
+  Status CheckWritable(Project &p, const std::string &program_id, std::uint64_t expected_head) {
+    std::lock_guard lock(core_->mu);
+    if (!p.open) return Error(StatusCode::kFailedPrecondition, "project " + p.id + " is closed");
+    if (!p.programs.contains(program_id)) return Error(StatusCode::kNotFound, "program " + program_id + " is still importing");
+    if (expected_head && expected_head != p.head)
+      return Error(StatusCode::kAborted,
+                   "head is " + std::to_string(p.head) + ", expected " + std::to_string(expected_head));
+    return Status::Ok();
+  }
+
+  Status PinLocked(Project &p, std::uint64_t want, Read &r) {
+    auto h = p.history.find(want);
+    if (h == p.history.end())
+      return Error(StatusCode::kFailedPrecondition, "REVISION_EXPIRED: revision " + std::to_string(want) +
+                                                        " is older than the oldest retained (" +
+                                                        std::to_string(p.history.begin()->first) + ")");
+    r.project = &p;
+    r.snapshot = h->second.snapshot;
+    r.revision = want;
+    r.head = p.head;
+    r.log_size = h->second.log_size;
+    r.spaces = p.spaces;
+    return Status::Ok();
+  }
+
+  // Picks the snapshot a read runs against. A page token's revision is used
+  // when the request does not pin one, so later pages stay consistent.
+  Status ResolveProject(const CallContext &ctx, const std::string &project_id, const pb::ReadOptions &read,
+                        std::uint64_t token_revision, Read &r) {
+    std::unique_lock lock(core_->mu);
+    auto it = core_->projects.find(project_id);
+    if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + project_id);
+    Project &p = *it->second;
+    if (!p.open) return Error(StatusCode::kFailedPrecondition, "project " + project_id + " is closed");
+    std::uint64_t want = read.revision();
+    if (token_revision) {
+      if (want && want != token_revision)
+        return Error(StatusCode::kInvalidArgument, "page_token was issued for another revision");
+      want = token_revision;
+    }
+    if (!want && read.min_revision() > p.head) {
+      // Read-your-writes, bounded by the deadline (or 30 s).
+      auto limit = std::min(ctx.deadline, CallContext::Clock::now() + std::chrono::seconds(30));
+      while (p.head < read.min_revision()) {
+        if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+        if (CallContext::Clock::now() >= limit) return Error(StatusCode::kDeadlineExceeded, "head did not reach min_revision");
+        core_->head_changed.wait_for(lock, std::chrono::milliseconds(50));
+      }
+    }
+    if (!want) want = p.head;
+    if (want > p.head)
+      return Error(StatusCode::kOutOfRange,
+                   "revision " + std::to_string(want) + " is newer than head " + std::to_string(p.head));
+    return PinLocked(p, want, r);
+  }
+
+  Status ResolveProgram(const CallContext &ctx, const std::string &program_id, const pb::ReadOptions &read,
+                        const std::string &page_token, Read &r) {
+    if (program_id.empty()) return Error(StatusCode::kInvalidArgument, "program_id is required");
+    std::string project;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->program_project.find(program_id);
+      if (it == core_->program_project.end()) return Error(StatusCode::kNotFound, "no program " + program_id);
+      project = it->second;
+    }
+    std::uint64_t token_revision = 0;
+    if (!page_token.empty() && !ParsePageToken(page_token, token_revision, r.page_offset))
+      return Error(StatusCode::kInvalidArgument, "malformed page_token");
+    if (auto st = ResolveProject(ctx, project, read, token_revision, r); !st.ok()) return st;
+    std::lock_guard lock(core_->mu);
+    auto it = r.project->programs.find(program_id);
+    if (it == r.project->programs.end() || it->second->first_revision > r.revision)
+      return Error(StatusCode::kNotFound,
+                   "program " + program_id + " does not exist at revision " + std::to_string(r.revision));
+    r.program = it->second;
+    return Status::Ok();
+  }
+
+  // --- Ghidra's Decompiler Parameter ID, in the background (param_id.h) -------
+
+  // Queues `program` for the analyzer: after its import's analysis, after
+  // an edit to it, on reopen. Coalesced: queued at most once; an edit while
+  // it runs queues it again.
+  void ScheduleParamId(Project &p, const std::string &program) {
+    auto &w = core_->param_id;
+    std::lock_guard lock(w.mu);
+    if (w.stop) return;
+    if (w.queued.insert({&p, program}).second) w.queue.emplace_back(&p, program);
+    if (!w.thread.joinable()) {
+      // At most decompile workers - 1 of its decompilations at once, so an
+      // interactive one always finds a worker.
+      const unsigned workers = core_->workers->options().workers;
+      const unsigned runs = std::max(1u, workers > 1 ? workers - 1 : 1u);
+      if (runs > 1) w.pool = std::make_unique<facts::ThreadPool>(runs - 1);
+      w.thread = std::thread([this] { ParamIdLoop(); });
+    }
+    w.cv.notify_all();
+  }
+
+  // Whether the analyzer has `program` queued or running.
+  bool ParamIdBusy(const std::string &program) {
+    auto &w = core_->param_id;
+    std::lock_guard lock(w.mu);
+    if (w.running && w.running->second == program) return true;
+    for (const auto &[proj, prog] : w.queue)
+      if (prog == program) return true;
+    return false;
+  }
+
+  void StopParamId() {
+    auto &w = core_->param_id;
+    {
+      std::lock_guard lock(w.mu);
+      w.stop = true;
+      w.queue.clear();
+      w.queued.clear();
+      w.cv.notify_all();
+    }
+    {
+      // Runs in flight end at their next round trip.
+      std::lock_guard lock(core_->mu);
+      for (auto &[id, proj] : core_->projects)
+        for (auto &[pid, entry] : proj->programs) entry->program().decompiler().StopParamId();
+    }
+    if (w.thread.joinable()) w.thread.join();
+  }
+
+  void ParamIdLoop() {
+    auto &w = core_->param_id;
+    for (;;) {
+      std::pair<Project *, std::string> item;
+      {
+        std::unique_lock lock(w.mu);
+        w.cv.wait(lock, [&] { return w.stop || !w.queue.empty(); });
+        if (w.stop) return;
+        item = w.queue.front();
+        w.queue.pop_front();
+        w.queued.erase(item);
+        w.running = item;
+      }
+      try {
+        RefreshParamId(*item.first, item.second);
+      } catch (const std::exception &e) {
+        std::cerr << "revkit: parameter ID for " << item.second << ": " << e.what() << "\n";
+      }
+      std::lock_guard lock(w.mu);
+      w.running.reset();
+      w.cv.notify_all();
+    }
+  }
+
+  // One pass at the head revision: the plan, then every function's commit,
+  // callees first and in parallel (memoized, so a pass after an edit
+  // recomputes only what the edit changed), published as they arrive (at
+  // most every two seconds) and in full at the end.
+  void RefreshParamId(Project &p, const std::string &program) {
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (!p.open) return;
+      auto it = p.programs.find(program);
+      if (it == p.programs.end()) return;
+      if (!PinLocked(p, p.head, r).ok()) return;
+      r.program = it->second;
+    }
+    auto plan = r.snapshot->get<q::ParamIdPlan>(program);
+    std::map<std::uint64_t, std::optional<lift::CommittedSignature>> results;
+    pb::AnalysisJob job;
+    if (plan->enabled) {
+      {
+        std::lock_guard lock(core_->mu);
+        job.set_job_id("job-" + std::to_string(core_->next_job++));
+        job.set_program_id(program);
+        job.add_analyzers("decompiler_parameter_id");
+        *job.mutable_started_at() = TimeUtil::GetCurrentTime();
+        job.set_state(pb::ANALYSIS_STATE_RUNNING);
+        job.set_phase("decompiling 0/" + std::to_string(plan->plan.nodes.size()));
+        job.set_progress(0);
+        job.set_first_revision(p.head);
+        Broadcast(p, job);
+      }
+      // Callees first: a function starts once its dependencies are done
+      // (Ghidra's ConcurrentGraphQ), on up to `runs` threads.
+      const inputs::ParamIdPlan &pl = plan->plan;
+      std::unordered_map<std::uint64_t, std::vector<std::uint64_t>> dependents;
+      std::unordered_map<std::uint64_t, std::size_t> waiting;
+      std::vector<std::uint64_t> ready;
+      for (std::uint64_t n : pl.nodes) {
+        const std::vector<std::uint64_t> &d = pl.dependencies_of(n);
+        waiting[n] = d.size();
+        for (std::uint64_t c : d) dependents[c].push_back(n);
+        if (d.empty()) ready.push_back(n);
+      }
+      std::reverse(ready.begin(), ready.end());
+      std::mutex mu;
+      std::condition_variable cv;
+      std::size_t remaining = pl.nodes.size(), done = 0;
+      std::exception_ptr error;
+      auto published = std::chrono::steady_clock::now();
+      auto worker = [&](std::size_t) {
+        for (;;) {
+          std::uint64_t n;
+          {
+            std::unique_lock lock(mu);
+            cv.wait(lock, [&] { return !ready.empty() || remaining == 0 || error; });
+            if (error || ready.empty()) return;
+            n = ready.back();
+            ready.pop_back();
+          }
+          lift::CommittedSignature v;
+          try {
+            {
+              std::lock_guard stop(core_->param_id.mu);
+              if (core_->param_id.stop) throw DecompileStoppedError(lift::DecompileStop::cancelled, "stopped");
+            }
+            v = *r.snapshot->get<q::ParamId>({program, n});
+          } catch (...) {
+            std::lock_guard lock(mu);
+            if (!error) error = std::current_exception();
+            cv.notify_all();
+            return;
+          }
+          std::optional<std::map<std::uint64_t, std::optional<lift::CommittedSignature>>> partial;
+          {
+            std::lock_guard lock(mu);
+            results[n] = v.status == lift::CommittedSignature::Status::committed
+                             ? std::optional<lift::CommittedSignature>(std::move(v))
+                             : std::nullopt;
+            ++done;
+            for (std::uint64_t parent : dependents[n])
+              if (--waiting[parent] == 0) ready.push_back(parent);
+            --remaining;
+            cv.notify_all();
+            const auto now = std::chrono::steady_clock::now();
+            if (remaining > 0 && now - published > std::chrono::seconds(2)) {
+              published = now;
+              partial = results;
+            }
+          }
+          if (partial) {
+            // What is known so far, to decompilations (one revision).
+            PublishParamId(p, program, pl, *partial, true);
+            std::lock_guard lock(core_->mu);
+            job.set_phase("decompiling " + std::to_string(partial->size()) + "/" + std::to_string(pl.nodes.size()));
+            job.set_progress(static_cast<float>(partial->size()) /
+                             static_cast<float>(std::max<std::size_t>(1, pl.nodes.size())));
+            Broadcast(p, job);
+          }
+        }
+      };
+      facts::ThreadPool *pool = core_->param_id.pool.get();
+      if (pool != nullptr) pool->parallel_for(pool->size() + 1, worker);
+      else worker(0);
+      if (error) std::rethrow_exception(error);
+      (void)done;
+    }
+    const std::uint64_t last = PublishParamId(p, program, plan->plan, results, false);
+    if (!plan->enabled) return;
+    std::lock_guard lock(core_->mu);
+    job.set_state(pb::ANALYSIS_STATE_SUCCEEDED);
+    job.set_phase("done");
+    job.set_progress(1);
+    job.set_last_revision(last != 0 ? last : p.head);
+    *job.mutable_finished_at() = TimeUtil::GetCurrentTime();
+    Broadcast(p, job);
+    p.jobs.push_back(job);
+  }
+
+  // Sets param_id.published to `results` (and each thunk of a function to
+  // its function's) where it differs, in one revision; with `partial`,
+  // leaves what `results` doesn't mention. Returns the revision, 0 if
+  // nothing changed.
+  std::uint64_t PublishParamId(Project &p, const std::string &program, const inputs::ParamIdPlan &plan,
+                               const std::map<std::uint64_t, std::optional<lift::CommittedSignature>> &results,
+                               bool partial) {
+    std::map<std::uint64_t, std::optional<lift::CommittedSignature>> want = results;
+    for (const auto &[thunk, target] : plan.thunks)
+      if (target)
+        if (auto it = results.find(*target); it != results.end()) want[thunk] = it->second;
+    std::lock_guard write(p.write_mu);
+    {
+      std::lock_guard lock(core_->mu);
+      if (!p.open || !p.programs.contains(program)) return 0;
+    }
+    facts::Snapshot head = p.db->snapshot();
+    auto tx = p.db->begin();
+    std::vector<std::pair<std::string, std::uint64_t>> changed;
+    auto put = [&](std::uint64_t entry, const std::optional<lift::CommittedSignature> &v) {
+      auto cur = head.get<q::ParamIdPublished>({program, entry});
+      if (facts::encode_to_string(*cur) == facts::encode_to_string(v)) return;
+      tx.set<q::ParamIdPublished>({program, entry}, v);
+      changed.emplace_back(program, entry);
+    };
+    for (const auto &[entry, v] : want) put(entry, v);
+    std::set<std::uint64_t> &published = p.param_id_published[program];
+    if (!partial)
+      for (std::uint64_t entry : published)
+        if (!want.contains(entry)) put(entry, std::nullopt);
+    if (changed.empty()) return 0;
+    for (const auto &[prog, entry] : changed) {
+      if (want.contains(entry) && want.at(entry)) published.insert(entry);
+      else published.erase(entry);
+    }
+    pb::Provenance prov;
+    prov.set_kind(pb::PROVENANCE_KIND_ANALYSIS);
+    prov.set_id("decompiler_parameter_id");
+    return Commit(p, tx, prov, pb::CHANGE_CAUSE_ANALYSIS, nullptr, nullptr, &changed);
+  }
+
+  // --- Function ID (docs/fid.md, "In the daemon") ------------------------------
+
+  FidCatalog &Fid() { return *core_->fid_catalog; }
+
+  static facts::FactKey FidProjectKey() { return FactKeyAt(FactKind::Note, kProjectSpace, 0, kFidDatabasesTag); }
+
+  static FidSettings ProjectFidSettings(const facts::Snapshot &snap) {
+    const FactValue v = *snap.get<facts::AssertedFact>(FidProjectKey());
+    const std::string *s = std::get_if<std::string>(&v);
+    return s ? DecodeFidSettings(*s) : FidSettings{};
+  }
+
+  // The databases in force for a caller in a project: builtin ones not
+  // detached (by the caller or the project), then the caller's and the
+  // project's attached files. (id, scope, attached).
+  struct FidChoice {
+    std::string id, path;
+    pb::FidScope scope = pb::FID_SCOPE_UNSPECIFIED;
+    bool attached = false;
+  };
+  std::vector<FidChoice> FidChoices(const facts::Snapshot &snap, const std::string &caller) {
+    const FidSettings user = Fid().User(caller), project = ProjectFidSettings(snap);
+    std::vector<FidChoice> out;
+    for (const auto &[id, path] : Fid().Builtins())
+      out.push_back({id, path, pb::FID_SCOPE_BUILTIN, !user.detached.contains(id) && !project.detached.contains(id)});
+    for (const std::string &path : user.attached) out.push_back({path, path, pb::FID_SCOPE_USER, true});
+    for (const std::string &path : project.attached) out.push_back({path, path, pb::FID_SCOPE_PROJECT, true});
+    return out;
+  }
+
+  void FillFidDatabase(const FidChoice &c, const std::string &language, pb::FidDatabase &out) {
+    out.set_id(c.id);
+    out.set_path(c.path);
+    out.set_scope(c.scope);
+    out.set_attached(c.attached);
+    out.set_name(std::filesystem::path(c.path).stem().string());
+    FidCatalog::Peeked p = Fid().Peek(c.path);
+    if (!p.peek) {
+      out.set_error(p.error);
+      return;
+    }
+    out.set_format(p.peek->format == fid::Database::Format::fidbf ? "fidbf" : "rkfid");
+    out.set_functions(p.peek->functions);
+    for (const fid::Library &l : p.peek->libraries) {
+      auto *lib = out.add_libraries();
+      lib->set_family(l.family);
+      lib->set_version(l.version);
+      lib->set_variant(l.variant);
+      lib->set_language(l.language);
+      lib->set_compiler(l.compiler);
+    }
+    if (!language.empty()) out.set_applies(p.has_language(language));
+  }
+
+  static std::string BaseLanguage(const std::string &id) {
+    if (std::count(id.begin(), id.end(), ':') >= 4) return id.substr(0, id.rfind(':'));
+    return id;
+  }
+
+  // Function ID runs on PE and ELF programs (Ghidra's analyzer is for
+  // programs a library could be linked into, not raw firmware).
+  bool FidFor(const ProgramSource &src) const {
+    if (!core_->options.function_id) return false;
+    const auto f = src.program->image().format;
+    return f == loader::Format::pe || f == loader::Format::elf;
+  }
+
+  void ScheduleFid(Project &p, const std::string &program, const std::string &caller) {
+    auto &w = core_->fid;
+    std::lock_guard lock(w.mu);
+    if (w.stop) return;
+    if (w.queued.insert({&p, program}).second) w.queue.emplace_back(&p, program, caller);
+    if (!w.thread.joinable()) w.thread = std::thread([this] { FidLoop(); });
+    w.cv.notify_all();
+  }
+
+  bool FidBusy(const std::string &program) {
+    auto &w = core_->fid;
+    std::lock_guard lock(w.mu);
+    if (w.running && w.running->second == program) return true;
+    for (const auto &[proj, prog, caller] : w.queue)
+      if (prog == program) return true;
+    return false;
+  }
+
+  void StopFid() {
+    auto &w = core_->fid;
+    {
+      std::lock_guard lock(w.mu);
+      w.stop = true;
+      w.queue.clear();
+      w.queued.clear();
+      w.cv.notify_all();
+    }
+    if (w.thread.joinable()) w.thread.join();
+  }
+
+  void FidLoop() {
+    auto &w = core_->fid;
+    for (;;) {
+      std::tuple<Project *, std::string, std::string> item;
+      {
+        std::unique_lock lock(w.mu);
+        w.cv.wait(lock, [&] { return w.stop || !w.queue.empty(); });
+        if (w.stop) return;
+        item = w.queue.front();
+        w.queue.pop_front();
+        w.queued.erase({std::get<0>(item), std::get<1>(item)});
+        w.running = std::pair{std::get<0>(item), std::get<1>(item)};
+        w.cancel.store(false);
+      }
+      try {
+        RunFid(*std::get<0>(item), std::get<1>(item), std::get<2>(item));
+      } catch (const std::exception &e) {
+        std::cerr << "revkit: Function ID for " << std::get<1>(item) << ": " << e.what() << "\n";
+      }
+      std::lock_guard lock(w.mu);
+      w.running.reset();
+      w.running_job.clear();
+      w.cv.notify_all();
+    }
+  }
+
+  // One run at the head revision: hash every function, match against the
+  // databases in force, keep the results, and name what it may (one
+  // revision of cause ANALYSIS).
+  void RunFid(Project &p, const std::string &program, const std::string &caller) {
+    auto &w = core_->fid;
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (!p.open) return;
+      auto it = p.programs.find(program);
+      if (it == p.programs.end()) return;
+      if (!PinLocked(p, p.head, r).ok()) return;
+      r.program = it->second;
+    }
+    const ProgramSource &src = r.program->source;
+    const std::string language = BaseLanguage(src.program->language().id());
+    // The databases for its language.
+    std::vector<std::shared_ptr<const fid::Database>> dbs;
+    std::vector<std::string> ids;
+    for (const FidChoice &c : FidChoices(*r.snapshot, caller)) {
+      if (!c.attached || !Fid().Peek(c.path).has_language(language)) continue;
+      FidCatalog::Opened o = Fid().Open(c.path);
+      if (!o.db) continue;
+      dbs.push_back(o.db);
+      ids.push_back(c.id);
+    }
+    if (dbs.empty()) return;  // nothing to match against: no job
+    pb::AnalysisJob job;
+    {
+      std::lock_guard lock(core_->mu);
+      job.set_job_id("job-" + std::to_string(core_->next_job++));
+      job.set_program_id(program);
+      job.add_analyzers(kFidAnalyzer);
+      *job.mutable_started_at() = TimeUtil::GetCurrentTime();
+      job.set_state(pb::ANALYSIS_STATE_RUNNING);
+      job.set_phase("hashing");
+      job.set_progress(0);
+      job.set_first_revision(p.head);
+      p.running_jobs[job.job_id()] = job;
+      Broadcast(p, job);
+    }
+    {
+      std::lock_guard lock(w.mu);
+      w.running_job = job.job_id();
+    }
+    std::atomic<bool> stop{false};
+    auto reported = std::chrono::steady_clock::now();
+    auto progress = [&](const std::string &phase, double base, double share, std::size_t done, std::size_t total) {
+      if (w.cancel.load() || w.stop.load()) stop.store(true);
+      const auto now = std::chrono::steady_clock::now();
+      if (now - reported < std::chrono::milliseconds(500) && done != total) return;
+      reported = now;
+      std::lock_guard lock(core_->mu);
+      if (!p.open) stop.store(true);
+      auto it = p.running_jobs.find(job.job_id());
+      if (it == p.running_jobs.end()) return;
+      if (it->second.phase() != "cancelling")
+        it->second.set_phase(phase + " " + Thousands(done) + "/" + Thousands(total) + " functions");
+      it->second.set_progress(static_cast<float>(base + share * done / std::max<std::size_t>(1, total)));
+      Broadcast(p, it->second);
+    };
+    auto finish = [&](pb::AnalysisState state, const std::string &phase, const std::string &message,
+                      std::uint64_t last) {
+      std::lock_guard lock(core_->mu);
+      auto it = p.running_jobs.find(job.job_id());
+      if (it != p.running_jobs.end()) {
+        job = std::move(it->second);
+        p.running_jobs.erase(it);
+      }
+      job.set_state(state);
+      job.set_phase(phase);
+      if (state == pb::ANALYSIS_STATE_SUCCEEDED) job.set_progress(1);
+      if (!message.empty()) job.set_message(message);
+      job.set_last_revision(last != 0 ? last : p.head);
+      *job.mutable_finished_at() = TimeUtil::GetCurrentTime();
+      Broadcast(p, job);
+      p.jobs.push_back(job);
+    };
+    fid::ProgramHashes hashes;
+    std::vector<fid::Match> matches;
+    try {
+      hashes = HashSnapshot(*r.snapshot, AnalysisKey(program), src.program->image(), src.ram_space, &stop,
+                            [&](std::size_t d, std::size_t t) { progress("hashing", 0, 0.8, d, t); });
+      std::vector<const fid::Database *> ptrs;
+      for (const auto &d : dbs) ptrs.push_back(d.get());
+      fid::SearchOptions so;
+      so.cancel = &stop;
+      so.progress = [&](std::size_t d, std::size_t t) { progress("matching", 0.8, 0.15, d, t); };
+      matches = fid::search(hashes, ptrs, so);
+    } catch (const fid::FidError &e) {
+      if (stop.load()) {
+        finish(pb::ANALYSIS_STATE_CANCELLED, "cancelled", "", 0);
+        return;
+      }
+      finish(pb::ANALYSIS_STATE_FAILED, "failed", e.what(), 0);
+      return;
+    } catch (const std::exception &e) {
+      finish(pb::ANALYSIS_STATE_FAILED, "failed", e.what(), 0);
+      throw;
+    }
+    analysis::release_idle_decoders();
+    // The run's results, then the names.
+    Project::FidRun run;
+    run.revision = r.revision;
+    run.databases = ids;
+    for (const fid::ProgramFunction &f : hashes.functions) run.hashed += f.hash.has_value();
+    std::map<const fid::Database *, std::string> db_names;
+    for (std::size_t i = 0; i < dbs.size(); ++i) db_names[dbs[i].get()] = dbs[i]->name();
+    for (const fid::Match &m : matches) {
+      pb::FidMatch &fm = run.matches.emplace_back();
+      fm.set_entry(m.entry);
+      fm.set_current_name(hashes.functions[m.function].name);
+      fm.set_name(m.name);
+      static constexpr const char *kVerdicts[] = {"single", "same_base", "different", "below_threshold"};
+      fm.set_verdict(kVerdicts[static_cast<int>(m.verdict)]);
+      fm.set_score(m.score());
+      for (const fid::Candidate &c : m.candidates) {
+        auto *pc = fm.add_candidates();
+        pc->set_name(c.function->name);
+        if (c.library) pc->set_library(c.library->family + " " + c.library->version + " " + c.library->variant);
+        pc->set_database(db_names[c.db]);
+        pc->set_score(c.score());
+        pc->set_function_score(c.primary);
+        pc->set_child_score(c.children);
+        pc->set_parent_score(c.parents);
+        pc->set_specific(c.specific);
+      }
+      for (const std::string &l : m.libraries) fm.add_libraries(l);
+      fm.set_comment(m.comment());
+      fm.set_full_hash(Hex16(m.hash.full));
+      fm.set_specific_hash(Hex16(m.hash.specific));
+      fm.set_code_units(m.hash.code_units);
+    }
+    const std::uint64_t last = PublishFid(p, program, run);
+    std::size_t named = 0;
+    {
+      std::lock_guard lock(core_->mu);
+      p.fid_runs[program] = run;
+    }
+    for (const pb::FidMatch &m : run.matches) named += !m.name().empty();
+    finish(pb::ANALYSIS_STATE_SUCCEEDED,
+           "done: " + Thousands(run.matches.size()) + " of " + Thousands(run.hashed) + " functions match, " +
+               Thousands(named) + " named",
+           "", last);
+  }
+
+  // Whether the name at an entry is Function ID's to set: no name asserted
+  // but its own (an ANALYSIS assertion "fid:..."), and only a default one
+  // from discovery (FUN_...: never a symbol's, an export's or the demangler's).
+  static bool FidMayName(View &v, std::uint64_t entry) {
+    const facts::FactKey k = v.Key(FactKind::Name, entry);
+    if (auto win = v.Winner(k)) {
+      const pb::Provenance prov = MetaOf(*win).provenance();
+      if (prov.kind() != pb::PROVENANCE_KIND_ANALYSIS || !prov.id().starts_with("fid:")) return false;
+    }
+    const Func *f = v.functions().at(entry);
+    return f != nullptr && (f->name.starts_with("FUN_") || f->name.starts_with("thunk_FUN_"));
+  }
+
+  static std::set<std::uint64_t> FidRejected(View &v) {
+    return DecodeFidRejected(v.Text(v.Key(FactKind::Note, 0, kFidRejectedTag)));
+  }
+
+  // Asserts the run's names (and Ghidra's plate comment) where Function
+  // ID may name, and retracts its earlier names the run no longer makes.
+  std::uint64_t PublishFid(Project &p, const std::string &program, const Project::FidRun &run) {
+    std::lock_guard write(p.write_mu);
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (!p.open || !p.programs.contains(program)) return 0;
+      if (!PinLocked(p, p.head, r).ok()) return 0;
+      r.program = p.programs.at(program);
+    }
+    View v(r);
+    const std::set<std::uint64_t> rejected = FidRejected(v);
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    std::size_t ops = 0;
+    std::set<std::uint64_t> named;
+    for (const pb::FidMatch &m : run.matches) {
+      if (m.name().empty() || rejected.contains(m.entry()) || !FidMayName(v, m.entry())) continue;
+      named.insert(m.entry());
+      const std::string db = m.candidates().empty() ? std::string() : m.candidates(0).database();
+      pb::Provenance prov;
+      prov.set_kind(pb::PROVENANCE_KIND_ANALYSIS);
+      prov.set_id("fid:" + db);
+      prov.set_reason("Function ID: " + m.verdict() + " match, score " + std::to_string(m.score()) +
+                      (m.libraries().empty() ? std::string() : ", " + m.libraries(0)));
+      const facts::FactKey nk = v.Key(FactKind::Name, m.entry());
+      if (v.Text(nk) != m.name()) {
+        pb::AssertionBody body;
+        body.mutable_rename()->mutable_target()->mutable_address()->set_offset(m.entry());
+        body.mutable_rename()->set_name(m.name());
+        tx.assert_fact(ToFacts(prov), nk, m.name(), 0, Meta(prov, &body, rev));
+        ++ops;
+      }
+      const facts::FactKey ck = v.Key(FactKind::Comment, m.entry(), CommentSub(pb::COMMENT_KIND_PLATE));
+      const std::string cur = v.Text(ck);
+      bool ours = cur.empty();
+      if (!ours)
+        if (auto win = v.Winner(ck)) ours = MetaOf(*win).provenance().id().starts_with("fid:");
+      if (ours && cur != m.comment()) {
+        pb::AssertionBody body;
+        auto *c = body.mutable_comment();
+        c->mutable_address()->set_offset(m.entry());
+        c->set_kind(pb::COMMENT_KIND_PLATE);
+        c->set_text(m.comment());
+        tx.assert_fact(ToFacts(prov), ck, m.comment(), 0, Meta(prov, &body, rev));
+        ++ops;
+      }
+    }
+    // Names (and plates) an earlier run made that this one doesn't.
+    pb::Provenance retractor;
+    retractor.set_kind(pb::PROVENANCE_KIND_ANALYSIS);
+    retractor.set_id("fid");
+    for (FactKind kind : {FactKind::Name, FactKind::Comment})
+      for (const facts::FactKey &k : v.AllKeys(kind)) {
+        if (named.contains(k.addr.offset)) continue;
+        if (kind == FactKind::Comment && k.sub != CommentSub(pb::COMMENT_KIND_PLATE)) continue;
+        for (Seq s : LiveAssertions(p, k, p.log().size())) {
+          const std::optional<facts::Op> op = p.log().op(s);
+          if (op && op->prov.kind == facts::ProvenanceKind::Analysis && op->prov.id.starts_with("fid:")) {
+            tx.retract(ToFacts(retractor), s, Meta(retractor, nullptr, rev));
+            ++ops;
+          }
+        }
+      }
+    if (ops == 0) return 0;
+    pb::Provenance prov;
+    prov.set_kind(pb::PROVENANCE_KIND_ANALYSIS);
+    prov.set_id("fid");
+    return Commit(p, tx, prov, pb::CHANGE_CAUSE_ANALYSIS, nullptr);
+  }
+
+ public:
+  Status ListFidDatabases(const CallContext &ctx, const pb::ListFidDatabasesRequest &req,
+                          pb::ListFidDatabasesResponse &resp) override {
+    std::string project_id = req.project_id(), language;
+    if (!req.program_id().empty()) {
+      Read r;
+      if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+      project_id = r.project->id;
+      language = BaseLanguage(r.program->source.program->language().id());
+    }
+    std::optional<facts::Snapshot> snap;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(project_id);
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + project_id);
+      snap = it->second->db->snapshot();
+    }
+    for (const FidChoice &c : FidChoices(*snap, ctx.caller)) FillFidDatabase(c, language, *resp.add_databases());
+    return Status::Ok();
+  }
+
+  // The project-scope settings change in one assertion.
+  Status ChangeProjectFid(const std::string &project_id, const pb::Provenance &prov,
+                          const std::function<void(FidSettings &)> &change) {
+    Project *pp = nullptr;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(project_id);
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + project_id);
+      pp = it->second.get();
+      if (!pp->open) return Error(StatusCode::kFailedPrecondition, "project " + project_id + " is closed");
+    }
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    FidSettings s = ProjectFidSettings(p.db->snapshot());
+    const FidSettings before = s;
+    change(s);
+    if (s == before) return Status::Ok();
+    pb::AssertionBody body;
+    body.mutable_note()->set_tag(kFidDatabasesTag);
+    body.mutable_note()->set_text(EncodeFidSettings(s));
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    tx.assert_fact(ToFacts(prov), FidProjectKey(), body.note().text(), 0, Meta(prov, &body, rev));
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+    return Status::Ok();
+  }
+
+  Status AttachFidDatabase(const CallContext &ctx, const pb::AttachFidDatabaseRequest &req,
+                           pb::AttachFidDatabaseResponse &resp) override {
+    if (req.path().empty()) return Error(StatusCode::kInvalidArgument, "path is required");
+    const pb::FidScope scope = req.scope() == pb::FID_SCOPE_UNSPECIFIED ? pb::FID_SCOPE_USER : req.scope();
+    if (scope != pb::FID_SCOPE_USER && scope != pb::FID_SCOPE_PROJECT)
+      return Error(StatusCode::kInvalidArgument, "scope is USER or PROJECT");
+    const bool builtin = req.path().starts_with("builtin:");
+    const std::string path = builtin ? Fid().PathOf(req.path()) : req.path();
+    if (path.empty()) return Error(StatusCode::kNotFound, "no builtin database " + req.path());
+    if (!builtin && !std::filesystem::path(path).is_absolute())
+      return Error(StatusCode::kInvalidArgument, "path must be absolute (a file on the daemon's host)");
+    FidCatalog::Peeked o = Fid().Peek(path);
+    if (!o.peek) return Error(StatusCode::kInvalidArgument, o.error);
+    auto change = [&](FidSettings &s) {
+      if (builtin) {
+        s.detached.erase(req.path());
+      } else if (std::find(s.attached.begin(), s.attached.end(), path) == s.attached.end()) {
+        s.attached.push_back(path);
+      }
+    };
+    if (scope == pb::FID_SCOPE_USER) {
+      FidSettings s = Fid().User(ctx.caller);
+      change(s);
+      Fid().SetUser(ctx.caller, s);
+    } else {
+      pb::Provenance prov = req.provenance();
+      if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED) prov.set_kind(pb::PROVENANCE_KIND_USER);
+      if (auto st = ChangeProjectFid(req.project_id(), prov, change); !st.ok()) return st;
+    }
+    FidChoice c{builtin ? req.path() : path, path, builtin ? pb::FID_SCOPE_BUILTIN : scope, true};
+    FillFidDatabase(c, {}, *resp.mutable_database());
+    return Status::Ok();
+  }
+
+  Status DetachFidDatabase(const CallContext &ctx, const pb::DetachFidDatabaseRequest &req,
+                           pb::DetachFidDatabaseResponse &) override {
+    if (req.id().empty()) return Error(StatusCode::kInvalidArgument, "id is required");
+    const pb::FidScope scope = req.scope() == pb::FID_SCOPE_UNSPECIFIED ? pb::FID_SCOPE_USER : req.scope();
+    if (scope != pb::FID_SCOPE_USER && scope != pb::FID_SCOPE_PROJECT)
+      return Error(StatusCode::kInvalidArgument, "scope is USER or PROJECT");
+    auto change = [&](FidSettings &s) {
+      if (req.id().starts_with("builtin:")) s.detached.insert(req.id());
+      else std::erase(s.attached, req.id());
+    };
+    if (scope == pb::FID_SCOPE_USER) {
+      FidSettings s = Fid().User(ctx.caller);
+      change(s);
+      Fid().SetUser(ctx.caller, s);
+      return Status::Ok();
+    }
+    pb::Provenance prov = req.provenance();
+    if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED) prov.set_kind(pb::PROVENANCE_KIND_USER);
+    return ChangeProjectFid(req.project_id(), prov, change);
+  }
+
+  Status ListFidMatches(const CallContext &ctx, const pb::ListFidMatchesRequest &req,
+                        pb::ListFidMatchesResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    Project::FidRun run;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = r.project->fid_runs.find(req.program_id());
+      if (it == r.project->fid_runs.end()) return Status::Ok();
+      run = it->second;
+    }
+    View v(r);
+    const std::set<std::uint64_t> rejected = FidRejected(v);
+    resp.set_revision(run.revision);
+    resp.set_functions_hashed(run.hashed);
+    for (const std::string &d : run.databases) resp.add_databases(d);
+    for (pb::FidMatch m : run.matches) {
+      const std::string now = v.Symbol(m.entry());
+      m.set_current_name(now);
+      const facts::FactKey nk = v.Key(FactKind::Name, m.entry());
+      std::optional<pb::Provenance> who;
+      if (auto win = v.Winner(nk)) who = MetaOf(*win).provenance();
+      std::set<std::string> names;
+      for (const auto &c : m.candidates()) names.insert(c.name());
+      if (rejected.contains(m.entry())) m.set_status(pb::FID_MATCH_STATUS_REJECTED);
+      else if (who && who->kind() == pb::PROVENANCE_KIND_ANALYSIS && who->id().starts_with("fid:"))
+        m.set_status(pb::FID_MATCH_STATUS_APPLIED);
+      else if (who && (names.contains(now) || now == m.name())) m.set_status(pb::FID_MATCH_STATUS_ACCEPTED);
+      else if (m.name().empty()) m.set_status(pb::FID_MATCH_STATUS_UNAPPLIED);
+      else m.set_status(pb::FID_MATCH_STATUS_KEPT);
+      *resp.add_matches() = std::move(m);
+    }
+    return Status::Ok();
+  }
+
+  Status ApplyFidMatch(const CallContext &ctx, const pb::ApplyFidMatchRequest &req,
+                       pb::ApplyFidMatchResponse &resp) override {
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    Project &p = *pp;
+    pb::FidMatch match;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = p.fid_runs.find(req.program_id());
+      if (it == p.fid_runs.end()) return Error(StatusCode::kFailedPrecondition, "Function ID hasn't run on this program");
+      auto m = std::find_if(it->second.matches.begin(), it->second.matches.end(),
+                            [&](const pb::FidMatch &x) { return x.entry() == req.entry(); });
+      if (m == it->second.matches.end()) return Error(StatusCode::kNotFound, "no Function ID match at 0x" + Hex(req.entry()));
+      match = *m;
+    }
+    std::string name = req.name().empty() ? match.name() : req.name();
+    if (name.empty() && !match.candidates().empty()) name = match.candidates(0).name();
+    bool known = name == match.name();
+    for (const auto &c : match.candidates()) known = known || c.name() == name;
+    if (!known) return Error(StatusCode::kInvalidArgument, name + " is not one of the match's names");
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), 0); !st.ok()) return st;
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    pb::Provenance prov = req.provenance();
+    if (prov.reason().empty()) prov.set_reason("Function ID match" + (match.libraries().empty() ? std::string() : ": " + match.libraries(0)));
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    pb::AssertionBody body;
+    body.mutable_rename()->mutable_target()->mutable_address()->set_offset(req.entry());
+    body.mutable_rename()->set_name(name);
+    tx.assert_fact(ToFacts(prov), v.Key(FactKind::Name, req.entry()), name, 0, Meta(prov, &body, rev));
+    // Taken out of the rejected list, if it was there.
+    std::set<std::uint64_t> rejected = FidRejected(v);
+    if (rejected.erase(req.entry())) {
+      pb::AssertionBody note;
+      note.mutable_note()->set_tag(kFidRejectedTag);
+      note.mutable_note()->set_text(EncodeFidRejected(rejected));
+      tx.assert_fact(ToFacts(prov), v.Key(FactKind::Note, 0, kFidRejectedTag), note.note().text(), 0,
+                     Meta(prov, &note, rev));
+    }
+    pb::RevisionEvent ev;
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    resp.set_revision(ev.revision());
+    return Status::Ok();
+  }
+
+  Status RejectFidMatch(const CallContext &ctx, const pb::RejectFidMatchRequest &req,
+                        pb::RejectFidMatchResponse &resp) override {
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), 0); !st.ok()) return st;
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    const pb::Provenance &prov = req.provenance();
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    std::set<std::uint64_t> rejected = FidRejected(v);
+    if (rejected.insert(req.entry()).second) {
+      pb::AssertionBody note;
+      note.mutable_note()->set_tag(kFidRejectedTag);
+      note.mutable_note()->set_text(EncodeFidRejected(rejected));
+      tx.assert_fact(ToFacts(prov), v.Key(FactKind::Note, 0, kFidRejectedTag), note.note().text(), 0,
+                     Meta(prov, &note, rev));
+    }
+    // Its Function ID name and plate go.
+    for (const facts::FactKey &k : {v.Key(FactKind::Name, req.entry()),
+                                    v.Key(FactKind::Comment, req.entry(), CommentSub(pb::COMMENT_KIND_PLATE))})
+      for (Seq s : LiveAssertions(p, k, p.log().size())) {
+        const std::optional<facts::Op> op = p.log().op(s);
+        if (op && op->prov.kind == facts::ProvenanceKind::Analysis && op->prov.id.starts_with("fid:"))
+          tx.retract(ToFacts(prov), s, Meta(prov, nullptr, rev));
+      }
+    pb::RevisionEvent ev;
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    resp.set_revision(ev.revision());
+    return Status::Ok();
+  }
+
+  Status CreateFidDatabase(const CallContext &ctx, const pb::CreateFidDatabaseRequest &req,
+                           pb::CreateFidDatabaseResponse &resp) override {
+    if (req.path().empty() || !std::filesystem::path(req.path()).is_absolute())
+      return Error(StatusCode::kInvalidArgument, "path must be an absolute path on the daemon's host");
+    if (req.family().empty()) return Error(StatusCode::kInvalidArgument, "family is required");
+    if (req.program_ids().empty()) return Error(StatusCode::kInvalidArgument, "program_ids is required");
+    fid::Database db;
+    std::optional<fid::LibraryBuilder> builder;
+    std::string language;
+    const std::set<std::string> common(req.common_symbols().begin(), req.common_symbols().end());
+    for (const std::string &id : req.program_ids()) {
+      Read r;
+      if (auto st = ResolveProgram(ctx, id, {}, {}, r); !st.ok()) return st;
+      if (r.project->id != req.project_id())
+        return Error(StatusCode::kInvalidArgument, id + " is not in project " + req.project_id());
+      const ProgramSource &src = r.program->source;
+      const std::string lang = BaseLanguage(src.program->language().id());
+      if (!builder) {
+        language = lang;
+        fid::LibraryInfo li{req.family(), req.version(), req.variant(), lang, src.program->language().compiler};
+        builder.emplace(db, li, common);
+      } else if (lang != language) {
+        return Error(StatusCode::kInvalidArgument, id + " is " + lang + ", not " + language);
+      }
+      View v(r);
+      fid::ProgramHashes h;
+      try {
+        h = HashSnapshot(*r.snapshot, AnalysisKey(id), src.program->image(), src.ram_space, nullptr, {});
+      } catch (const std::exception &e) {
+        return Error(StatusCode::kInternal, std::string("hashing ") + id + ": " + e.what());
+      }
+      for (fid::ProgramFunction &f : h.functions) f.name = v.Symbol(f.entry);  // names as the program has them
+      builder->add_program(h, src.name, [](const std::string &n) { return diff::is_default_name(n); });
+    }
+    fid::IngestReport report = builder->finish();
+    try {
+      db.write(req.path());
+    } catch (const std::exception &e) {
+      return Error(StatusCode::kInternal, e.what());
+    }
+    resp.set_functions_added(static_cast<std::uint32_t>(db.functions().size()));
+    static constexpr const char *kWhy[] = {"included", "no_symbol", "thunk", "too_short", "filtered", "duplicate"};
+    for (const auto &[d, n] : report.counts)
+      if (d != fid::Disposition::included) (*resp.mutable_excluded())[kWhy[static_cast<int>(d)]] = static_cast<std::uint32_t>(n);
+    for (const std::string &u : report.unresolved) resp.add_unresolved_callees(u);
+    if (req.attach() == pb::FID_SCOPE_USER || req.attach() == pb::FID_SCOPE_PROJECT) {
+      pb::AttachFidDatabaseRequest a;
+      a.set_project_id(req.project_id());
+      a.set_path(req.path());
+      a.set_scope(req.attach());
+      *a.mutable_provenance() = req.provenance();
+      pb::AttachFidDatabaseResponse ar;
+      if (auto st = AttachFidDatabase(ctx, a, ar); !st.ok()) return st;
+      *resp.mutable_database() = ar.database();
+    } else {
+      FillFidDatabase({req.path(), req.path(), pb::FID_SCOPE_UNSPECIFIED, false}, {}, *resp.mutable_database());
+    }
+    return Status::Ok();
+  }
+
+ private:
+
+  // --- BSim databases (docs/bsim.md) ---------------------------------------------
+
+  BsimCatalog &Bsim() { return *core_->bsim_catalog; }
+
+  static facts::FactKey BsimProjectKey() { return FactKeyAt(FactKind::Note, kProjectSpace, 0, kBsimDatabasesTag); }
+
+  static std::vector<std::string> BsimAttached(const facts::Snapshot &snap) {
+    const FactValue v = *snap.get<facts::AssertedFact>(BsimProjectKey());
+    const std::string *s = std::get_if<std::string>(&v);
+    return s ? DecodeBsimAttached(*s) : std::vector<std::string>{};
+  }
+
+  // An open project, and its snapshot now.
+  Status OpenProjectNow(const std::string &project_id, Project *&p, std::optional<facts::Snapshot> &snap) {
+    std::lock_guard lock(core_->mu);
+    auto it = core_->projects.find(project_id.empty() ? std::string("default") : project_id);
+    if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + project_id);
+    p = it->second.get();
+    if (!p->open) return Error(StatusCode::kFailedPrecondition, "project " + project_id + " is closed");
+    snap = p->db->snapshot();
+    return Status::Ok();
+  }
+
+  // The attached list changes in one assertion.
+  Status ChangeBsimAttached(const std::string &project_id, pb::Provenance prov,
+                            const std::function<void(std::vector<std::string> &)> &change) {
+    Project *pp = nullptr;
+    std::optional<facts::Snapshot> snap;
+    if (auto st = OpenProjectNow(project_id, pp, snap); !st.ok()) return st;
+    Project &p = *pp;
+    if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED) prov.set_kind(pb::PROVENANCE_KIND_USER);
+    std::lock_guard write(p.write_mu);
+    std::vector<std::string> list = BsimAttached(p.db->snapshot());
+    const std::vector<std::string> before = list;
+    change(list);
+    if (list == before) return Status::Ok();
+    pb::AssertionBody body;
+    body.mutable_note()->set_tag(kBsimDatabasesTag);
+    body.mutable_note()->set_text(EncodeBsimAttached(list));
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    tx.assert_fact(ToFacts(prov), BsimProjectKey(), body.note().text(), 0, Meta(prov, &body, rev));
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+    return Status::Ok();
+  }
+
+  // The project's attached database `id`, opened (and reloaded).
+  Status AttachedBsim(const std::string &project_id, const std::string &id, std::shared_ptr<BsimEntry> &out) {
+    if (id.empty()) return Error(StatusCode::kInvalidArgument, "database is required");
+    Project *p = nullptr;
+    std::optional<facts::Snapshot> snap;
+    if (auto st = OpenProjectNow(project_id, p, snap); !st.ok()) return st;
+    const std::vector<std::string> list = BsimAttached(*snap);
+    if (std::find(list.begin(), list.end(), id) == list.end())
+      return Error(StatusCode::kNotFound, "no BSim database " + id + " is attached to project " + p->id);
+    try {
+      out = Bsim().Open(id);
+    } catch (const bsim::BsimError &e) {
+      return Error(StatusCode::kFailedPrecondition, e.what());
+    }
+    return Status::Ok();
+  }
+
+  Status CreateBSimDatabase(const CallContext &, const pb::CreateBSimDatabaseRequest &req,
+                            pb::CreateBSimDatabaseResponse &resp) override {
+    Project *p = nullptr;
+    std::optional<facts::Snapshot> snap;
+    if (auto st = OpenProjectNow(req.project_id(), p, snap); !st.ok()) return st;
+    std::string path = req.path();
+    if (path.empty()) {
+      if (p->dir.empty())
+        return Error(StatusCode::kFailedPrecondition, "an in-memory project has no directory: give the database a path");
+      if (req.name().empty() || req.name().size() > 100 ||
+          !std::all_of(req.name().begin(), req.name().end(),
+                       [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.'; }) ||
+          req.name().front() == '.')
+        return Error(StatusCode::kInvalidArgument, "name: letters, digits, '-', '_' and '.' (not first)");
+      path = (p->dir / "bsim" / (req.name() + ".rkbsim")).string();
+      std::error_code ec;
+      fs::create_directories(p->dir / "bsim", ec);
+    } else if (!fs::path(path).is_absolute()) {
+      return Error(StatusCode::kInvalidArgument, "path must be absolute (a directory on the daemon's host)");
+    }
+    bsim::DatabaseInfo info;
+    info.name = req.name();
+    info.description = req.description();
+    info.weights = FromProto(req.template_(), bsim::Template::w64);
+    if (req.lsh_k() != 0) info.lsh.k = req.lsh_k();
+    if (req.lsh_l() != 0) info.lsh.l = req.lsh_l();
+    std::shared_ptr<BsimEntry> e;
+    try {
+      e = Bsim().Create(path, info);
+    } catch (const bsim::BsimError &x) {
+      return Error(fs::exists(path) ? StatusCode::kAlreadyExists : StatusCode::kInvalidArgument, x.what());
+    }
+    if (auto st = ChangeBsimAttached(p->id, req.provenance(), [&](std::vector<std::string> &l) {
+          if (std::find(l.begin(), l.end(), path) == l.end()) l.push_back(path);
+        });
+        !st.ok())
+      return st;
+    std::lock_guard use(e->mu);
+    FillBsimDatabase(path, e->db, *resp.mutable_database());
+    return Status::Ok();
+  }
+
+  Status AttachBSimDatabase(const CallContext &, const pb::AttachBSimDatabaseRequest &req,
+                            pb::AttachBSimDatabaseResponse &resp) override {
+    const std::string &path = req.path();
+    if (path.empty() || !fs::path(path).is_absolute())
+      return Error(StatusCode::kInvalidArgument, "path must be absolute (a directory on the daemon's host)");
+    std::shared_ptr<BsimEntry> e;
+    try {
+      e = Bsim().Open(path);
+    } catch (const bsim::BsimError &x) {
+      return Error(StatusCode::kInvalidArgument, x.what());
+    }
+    if (auto st = ChangeBsimAttached(req.project_id(), req.provenance(), [&](std::vector<std::string> &l) {
+          if (std::find(l.begin(), l.end(), path) == l.end()) l.push_back(path);
+        });
+        !st.ok())
+      return st;
+    std::lock_guard use(e->mu);
+    FillBsimDatabase(path, e->db, *resp.mutable_database());
+    return Status::Ok();
+  }
+
+  Status DetachBSimDatabase(const CallContext &, const pb::DetachBSimDatabaseRequest &req,
+                            pb::DetachBSimDatabaseResponse &) override {
+    if (req.database().empty()) return Error(StatusCode::kInvalidArgument, "database is required");
+    bool found = false;
+    if (auto st = ChangeBsimAttached(req.project_id(), req.provenance(), [&](std::vector<std::string> &l) {
+          found = std::erase(l, req.database()) > 0;
+        });
+        !st.ok())
+      return st;
+    if (!found) return Error(StatusCode::kNotFound, "no BSim database " + req.database() + " is attached");
+    return Status::Ok();
+  }
+
+  Status ListBSimDatabases(const CallContext &, const pb::ListBSimDatabasesRequest &req,
+                           pb::ListBSimDatabasesResponse &resp) override {
+    Project *p = nullptr;
+    std::optional<facts::Snapshot> snap;
+    if (auto st = OpenProjectNow(req.project_id(), p, snap); !st.ok()) return st;
+    for (const std::string &path : BsimAttached(*snap)) {
+      pb::BSimDatabase &d = *resp.add_databases();
+      try {
+        auto e = Bsim().Open(path);
+        std::lock_guard use(e->mu);
+        FillBsimDatabase(path, e->db, d);
+      } catch (const bsim::BsimError &x) {
+        d.set_id(path);
+        d.set_name(fs::path(path).stem().string());
+        d.set_error(x.what());
+      }
+    }
+    return Status::Ok();
+  }
+
+  Status IngestBSim(const CallContext &ctx, const pb::IngestBSimRequest &req, pb::IngestBSimResponse &resp) override {
+    std::shared_ptr<BsimEntry> e;
+    if (auto st = AttachedBsim(req.project_id(), req.database(), e); !st.ok()) return st;
+    if (req.program_ids().empty()) return Error(StatusCode::kInvalidArgument, "program_ids is required");
+    bsim::DatabaseInfo info;
+    {
+      std::lock_guard use(e->mu);
+      info = e->db.info();
+    }
+    for (const std::string &pid : req.program_ids()) {
+      const auto started = std::chrono::steady_clock::now();
+      Read r;
+      if (auto st = ResolveProgram(ctx, pid, {}, {}, r); !st.ok()) return st;
+      if (!req.project_id().empty() && r.project->id != req.project_id())
+        return Error(StatusCode::kInvalidArgument, "program " + pid + " is not in project " + req.project_id());
+      pb::ProgramInfo pi;
+      FillProgramInfo(*r.project, *r.program, r.log_size, TreeOf(*r.project, r.log_size), &pi);
+      pb::BSimIngested &out = *resp.add_programs();
+      out.set_program_id(pid);
+      // Every function at this revision, with its name, prototype and size.
+      std::vector<pb::Function> fns;
+      pb::ListFunctionsRequest lreq;
+      lreq.set_program_id(pid);
+      lreq.mutable_read()->set_revision(r.revision);
+      lreq.mutable_page()->set_page_size(5000);
+      for (;;) {
+        pb::ListFunctionsResponse lresp;
+        if (auto st = ListFunctions(ctx, lreq, lresp); !st.ok()) return st;
+        for (auto &f : *lresp.mutable_functions()) fns.push_back(std::move(f));
+        if (lresp.page().next_page_token().empty()) break;
+        lreq.mutable_page()->set_page_token(lresp.page().next_page_token());
+      }
+      std::map<std::string, std::uint32_t> excluded;
+      std::vector<std::uint64_t> entries;
+      for (const pb::Function &f : fns) {
+        if (f.external() || f.size() == 0) ++excluded["external"];
+        else if (f.thunk()) ++excluded["thunk"];
+        else entries.push_back(f.entry().offset());
+      }
+      const std::string language = pi.language_id();
+      const std::uint32_t own = decompd::default_signature_settings(language);
+      SignatureJob::Options so;
+      so.threads = req.threads() != 0 ? std::min(req.threads(), 16u)
+                                      : std::max(1u, std::min(4u, std::thread::hardware_concurrency() / 2));
+      so.settings = info.settings == own ? 0 : info.settings;
+      std::map<std::uint64_t, decompd::FunctionSignature> sigs;
+      try {
+        SignatureJob job(*r.snapshot, r.program->id(), entries, so);
+        sigs = job.wait();
+      } catch (const std::exception &x) {
+        return Error(StatusCode::kInternal, std::string("signing ") + pid + ": " + x.what());
+      }
+      std::vector<bsim::FunctionRecord> records;
+      for (const pb::Function &f : fns) {
+        auto it = sigs.find(f.entry().offset());
+        if (it == sigs.end()) continue;
+        if (!it->second.ok()) {
+          ++excluded["failed"];
+          continue;
+        }
+        bsim::FunctionRecord rec;
+        rec.name = f.name();
+        rec.entry = f.entry().offset();
+        rec.prototype = f.prototype();
+        rec.size = static_cast<std::uint32_t>(std::min<std::uint64_t>(f.size(), 0xffffffffu));
+        if (bsim::is_default_name(rec.name)) rec.flags |= bsim::kDefaultName;
+        if (!rec.prototype.empty()) rec.flags |= bsim::kHasPrototype;
+        rec.features = it->second.features;
+        if (rec.features.empty()) {
+          ++excluded["empty"];
+          continue;
+        }
+        records.push_back(std::move(rec));
+      }
+      bsim::Executable exe;
+      exe.id = pi.sha256();
+      exe.name = pi.name();
+      exe.path = !pi.container_path().empty() ? pi.container_path() : r.program->source.path;
+      exe.language = language;
+      exe.compiler = pi.compiler_spec_id();
+      exe.source = req.source().empty() ? "daemon:" + pid : req.source();
+      for (const auto &[k, v] : req.categories()) exe.categories[k] = v;
+      if (info.weights != bsim::Template::nosize && bsim::template_for_language(language) != info.weights)
+        out.set_warning(std::string("the database weighs ") + bsim::template_name(info.weights) +
+                        "-bit programs; this one is " + language + " (a nosize database suits mixed sizes)");
+      try {
+        std::lock_guard use(e->mu);
+        auto added = e->db.add(exe, std::move(records));
+        out.set_replaced(added.replaced);
+        out.set_functions(static_cast<std::uint32_t>(added.functions));
+        if (added.empty) excluded["empty"] += static_cast<std::uint32_t>(added.empty);
+        if (const bsim::Executable *stored = e->db.executable(exe.id)) FillBsimExecutable(*stored, *out.mutable_executable());
+      } catch (const bsim::BsimError &x) {
+        return Error(StatusCode::kInternal, x.what());
+      }
+      for (const auto &[k, n] : excluded) (*out.mutable_excluded())[k] = n;
+      out.set_seconds(std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count());
+    }
+    return Status::Ok();
+  }
+
+  Status ListBSimExecutables(const CallContext &, const pb::ListBSimExecutablesRequest &req,
+                             pb::ListBSimExecutablesResponse &resp) override {
+    std::shared_ptr<BsimEntry> e;
+    if (auto st = AttachedBsim(req.project_id(), req.database(), e); !st.ok()) return st;
+    std::string needle = req.filter();
+    for (char &c : needle) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::lock_guard use(e->mu);
+    for (const bsim::Executable *x : e->db.executables()) {
+      if (!req.language().empty() && !x->language.starts_with(req.language())) continue;
+      if (!needle.empty()) {
+        std::string n = x->name;
+        for (char &c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (n.find(needle) == std::string::npos && !x->id.starts_with(needle)) continue;
+      }
+      FillBsimExecutable(*x, *resp.add_executables());
+    }
+    return Status::Ok();
+  }
+
+  Status ListBSimFunctions(const CallContext &, const pb::ListBSimFunctionsRequest &req,
+                           pb::ListBSimFunctionsResponse &resp) override {
+    std::shared_ptr<BsimEntry> e;
+    if (auto st = AttachedBsim(req.project_id(), req.database(), e); !st.ok()) return st;
+    std::lock_guard use(e->mu);
+    const bsim::Executable *x = e->db.find_executable(req.executable());
+    if (!x) return Error(StatusCode::kNotFound, "no executable " + req.executable() + " in " + req.database());
+    std::string needle = req.name_contains();
+    for (char &c : needle) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const std::uint32_t limit = req.limit() == 0 ? 1000 : std::min(req.limit(), 10000u);
+    std::uint32_t n = 0;
+    for (const bsim::FunctionRecord &f : e->db.functions(x->id)) {
+      if (!needle.empty()) {
+        std::string name = f.name;
+        for (char &c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (name.find(needle) == std::string::npos) continue;
+      }
+      if (n >= req.offset() && n - req.offset() < limit) FillBsimFunction(*x, f, *resp.add_functions());
+      ++n;
+    }
+    resp.set_total(n);
+    return Status::Ok();
+  }
+
+  Status UpdateBSimExecutable(const CallContext &, const pb::UpdateBSimExecutableRequest &req,
+                              pb::UpdateBSimExecutableResponse &resp) override {
+    std::shared_ptr<BsimEntry> e;
+    if (auto st = AttachedBsim(req.project_id(), req.database(), e); !st.ok()) return st;
+    std::lock_guard use(e->mu);
+    const bsim::Executable *x = e->db.find_executable(req.executable());
+    if (!x) return Error(StatusCode::kNotFound, "no executable " + req.executable() + " in " + req.database());
+    const std::string id = x->id;
+    std::map<std::string, std::string> cats = x->categories;
+    if (req.set_categories()) cats = {req.categories().begin(), req.categories().end()};
+    try {
+      e->db.update(id, cats, req.name());
+    } catch (const bsim::BsimError &err) {
+      return Error(StatusCode::kInternal, err.what());
+    }
+    if (const bsim::Executable *now = e->db.executable(id)) FillBsimExecutable(*now, *resp.mutable_executable());
+    return Status::Ok();
+  }
+
+  Status DeleteBSimExecutables(const CallContext &, const pb::DeleteBSimExecutablesRequest &req,
+                               pb::DeleteBSimExecutablesResponse &resp) override {
+    std::shared_ptr<BsimEntry> e;
+    if (auto st = AttachedBsim(req.project_id(), req.database(), e); !st.ok()) return st;
+    std::lock_guard use(e->mu);
+    std::uint32_t deleted = 0;
+    for (const std::string &key : req.executables()) {
+      const bsim::Executable *x = e->db.find_executable(key);
+      if (!x) {
+        resp.add_missing(key);
+        continue;
+      }
+      const std::string id = x->id;
+      try {
+        if (e->db.remove(id)) ++deleted;
+      } catch (const bsim::BsimError &err) {
+        return Error(StatusCode::kInternal, err.what());
+      }
+    }
+    resp.set_deleted(deleted);
+    return Status::Ok();
+  }
+
+  // The project's programs by their files' sha256 (not deleted ones).
+  std::map<std::string, std::string> ProgramsBySha(Project &p) {
+    std::map<std::string, std::string> out;
+    std::lock_guard lock(core_->mu);
+    for (const auto &[id, e] : p.programs)
+      if (!StateOf(p, *e, p.log().size()).deleted) out.try_emplace(e->source.sha256, id);
+    return out;
+  }
+
+  Status SearchBSim(const CallContext &ctx, const pb::SearchBSimRequest &req, pb::SearchBSimResponse &resp) override {
+    const auto started = std::chrono::steady_clock::now();
+    std::shared_ptr<BsimEntry> e;
+    if (auto st = AttachedBsim(req.project_id(), req.database(), e); !st.ok()) return st;
+    if (req.functions().empty() && !req.all_functions())
+      return Error(StatusCode::kInvalidArgument, "functions or all_functions is required");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    // The program's functions at this revision.
+    std::vector<pb::Function> fns;
+    pb::ListFunctionsRequest lreq;
+    lreq.set_program_id(req.program_id());
+    lreq.mutable_read()->set_revision(r.revision);
+    lreq.mutable_page()->set_page_size(5000);
+    for (;;) {
+      pb::ListFunctionsResponse lresp;
+      if (auto st = ListFunctions(ctx, lreq, lresp); !st.ok()) return st;
+      for (auto &f : *lresp.mutable_functions()) fns.push_back(std::move(f));
+      if (lresp.page().next_page_token().empty()) break;
+      lreq.mutable_page()->set_page_token(lresp.page().next_page_token());
+    }
+    // The queries: functions by entry, or containing the address.
+    std::vector<const pb::Function *> queries;
+    if (req.all_functions()) {
+      for (const pb::Function &f : fns) queries.push_back(&f);
+    } else {
+      for (const pb::Address &a : req.functions()) {
+        const pb::Function *hit = nullptr;
+        for (const pb::Function &f : fns) {
+          if (f.entry().offset() == a.offset()) {
+            hit = &f;
+            break;
+          }
+          for (const auto &rg : f.body())
+            if (rg.first().offset() <= a.offset() && a.offset() <= rg.last().offset()) hit = &f;
+        }
+        if (!hit) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(a.offset()));
+        if (std::find(queries.begin(), queries.end(), hit) == queries.end()) queries.push_back(hit);
+      }
+    }
+    bsim::DatabaseInfo info;
+    {
+      std::lock_guard use(e->mu);
+      info = e->db.info();
+    }
+    // Sign them under the database's settings.
+    std::vector<std::uint64_t> entries;
+    for (const pb::Function *f : queries)
+      if (!f->external() && f->size() != 0 && !f->thunk()) entries.push_back(f->entry().offset());
+    pb::ProgramInfo pi;
+    FillProgramInfo(*r.project, *r.program, r.log_size, TreeOf(*r.project, r.log_size), &pi);
+    const std::uint32_t own = decompd::default_signature_settings(pi.language_id());
+    SignatureJob::Options so;
+    so.threads = req.threads() != 0 ? std::min(req.threads(), 16u)
+                                    : std::max(1u, std::min(4u, std::thread::hardware_concurrency() / 2));
+    so.settings = info.settings == own ? 0 : info.settings;
+    std::map<std::uint64_t, decompd::FunctionSignature> sigs;
+    try {
+      SignatureJob job(*r.snapshot, r.program->id(), entries, so);
+      sigs = job.wait();
+    } catch (const std::exception &x) {
+      return Error(StatusCode::kInternal, std::string("signing: ") + x.what());
+    }
+    bsim::SearchOptions o;
+    o.min_similarity = req.has_min_similarity() ? std::max(0.0, req.min_similarity()) : 0.7;
+    o.min_confidence = req.has_min_confidence() ? req.min_confidence() : 0.0;
+    const std::size_t max_matches = req.max_matches() == 0 ? 10 : std::min<std::uint32_t>(req.max_matches(), 1000);
+    o.max_matches = std::numeric_limits<std::size_t>::max();  // all, to count them
+    o.executables = {req.executables().begin(), req.executables().end()};
+    o.exclude_executables = {req.exclude_executables().begin(), req.exclude_executables().end()};
+    if (!req.include_self()) o.exclude_executables.push_back(pi.sha256());
+    o.languages = {req.languages().begin(), req.languages().end()};
+    o.name_contains = req.name_contains();
+    o.categories = {req.categories().begin(), req.categories().end()};
+    o.exclude_default_names = req.exclude_default_names();
+    o.exhaustive = req.exhaustive();
+    // Every function scored while queries x database stays near 2e7 pairs
+    // (seconds); LSH candidates beyond.
+    o.exhaustive_below = req.index_only() ? 0
+                                          : std::min<std::size_t>(50000, 20000000 / std::max<std::size_t>(1, entries.size()));
+    const std::map<std::string, std::string> by_sha = ProgramsBySha(*r.project);
+    std::uint64_t scored = 0;
+    std::lock_guard use(e->mu);
+    for (const pb::Function *f : queries) {
+      pb::BSimQueryResult &q = *resp.add_results();
+      *q.mutable_function() = f->entry();
+      q.set_name(f->name());
+      if (f->external() || f->size() == 0) {
+        q.set_skipped("external");
+        continue;
+      }
+      if (f->thunk()) {
+        q.set_skipped("thunk");
+        continue;
+      }
+      auto it = sigs.find(f->entry().offset());
+      if (it == sigs.end() || !it->second.ok()) {
+        q.set_skipped(it == sigs.end() ? std::string("failed") : "failed: " + it->second.detail);
+        continue;
+      }
+      const std::vector<std::uint32_t> &features = it->second.features;
+      if (features.empty()) {
+        q.set_skipped("empty");
+        continue;
+      }
+      q.set_feature_count(static_cast<std::uint32_t>(features.size()));
+      q.set_self_significance(e->db.self_significance(features));
+      bsim::SearchStats st;
+      const std::vector<bsim::Match> m = e->db.search(features, o, &st);
+      scored += st.candidates;
+      q.set_hit_count(static_cast<std::uint32_t>(m.size()));
+      if (req.overview()) continue;
+      for (std::size_t i = 0; i < m.size() && i < max_matches; ++i) {
+        pb::BSimMatch &out = *q.add_matches();
+        FillBsimExecutable(*m[i].executable, *out.mutable_executable());
+        FillBsimFunction(*m[i].executable, *m[i].function, *out.mutable_function());
+        out.set_similarity(m[i].similarity);
+        out.set_confidence(m[i].confidence);
+        if (auto p = by_sha.find(m[i].executable->id); p != by_sha.end()) out.set_program_id(p->second);
+      }
+    }
+    resp.set_scored(scored);
+    resp.set_total(e->db.function_count());
+    resp.set_seconds(std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count());
+    return Status::Ok();
+  }
+
+  // --- revkit::infer, in the background (docs/infer.md) ------------------------
+
+  // Whether `src` gets inferred prototypes (ImageBackendOptions::
+  // infer_prototypes): automatic as rk-lift, in a program without debug
+  // info where inference knows the calling convention.
+  bool InferFor(const ProgramSource &src) const {
+    switch (core_->options.infer_prototypes) {
+      case InferMode::off: return false;
+      case InferMode::on: return true;
+      case InferMode::automatic:
+        return src.program->debug() == nullptr &&
+               infer::supports(src.program->language().id(), src.program->image());
+    }
+    return false;
+  }
+
+  // Inference's input for `src` (the loaded image the decompiler reads),
+  // where it gets inferred prototypes.
+  void StageInfer(facts::FactDb::Transaction &tx, const ProgramSource &src) const {
+    if (!InferFor(src)) return;
+    infer::stage_image(tx, AnalysisKey(src.id), src.program->image_ptr(), src.program->language().id(), src.sha256,
+                       DecompilerInferOptions());
+  }
+
+  // Queues `program` for inference: after its import, on reopen, after an
+  // edit to its memory, on StartAnalysis. Coalesced: queued at most once;
+  // queued again while it runs, it runs again after (validating what it
+  // computed). A program without inference's input is a no-op.
+  void ScheduleInfer(Project &p, const std::string &program) {
+    auto &w = core_->infer;
+    if (core_->options.infer_prototypes == InferMode::off) return;
+    std::lock_guard lock(w.mu);
+    w.expected.erase({&p, program});
+    if (w.stop) return;
+    if (w.queued.insert({&p, program}).second) w.queue.emplace_back(&p, program);
+    if (!w.thread.joinable()) {
+      // Import-time analysis's threads less one, so interactive work keeps
+      // a core; its decompilations run in infer's own worker processes.
+      const unsigned threads = core_->options.analysis_threads
+                                   ? core_->options.analysis_threads
+                                   : std::min(8u, std::max(1u, std::thread::hardware_concurrency()));
+      const unsigned runs = std::max(1u, threads > 1 ? threads - 1 : 1u);
+      if (runs > 1) w.pool = std::make_unique<facts::ThreadPool>(runs - 1);
+      w.thread = std::thread([this] { InferLoop(); });
+    }
+    w.cv.notify_all();
+  }
+
+  // An import's program, until its analysis is done and ScheduleInfer
+  // queues it: GetAnalysisStatus isn't idle in between.
+  void ExpectInfer(Project &p, const std::string &program) {
+    auto &w = core_->infer;
+    std::lock_guard lock(w.mu);
+    if (!w.stop) w.expected.insert({&p, program});
+  }
+
+  bool InferBusy(const std::string &program) {
+    auto &w = core_->infer;
+    std::lock_guard lock(w.mu);
+    if (w.running && w.running->second == program) return true;
+    for (const auto &[proj, prog] : w.expected)
+      if (prog == program) return true;
+    for (const auto &[proj, prog] : w.queue)
+      if (prog == program) return true;
+    return false;
+  }
+
+  void StopInfer() {
+    auto &w = core_->infer;
+    {
+      std::lock_guard lock(w.mu);
+      w.stop = true;
+      w.queue.clear();
+      w.queued.clear();
+      w.expected.clear();
+      w.cv.notify_all();
+    }
+    if (w.thread.joinable()) w.thread.join();
+  }
+
+  void InferLoop() {
+    auto &w = core_->infer;
+    for (;;) {
+      std::pair<Project *, std::string> item;
+      {
+        std::unique_lock lock(w.mu);
+        w.cv.wait(lock, [&] { return w.stop || !w.queue.empty(); });
+        if (w.stop) return;
+        item = w.queue.front();
+        w.queue.pop_front();
+        w.queued.erase(item);
+        w.running = item;
+        w.cancel.store(false);
+      }
+      try {
+        RefreshInfer(*item.first, item.second);
+      } catch (const std::exception &e) {
+        std::cerr << "revkit: inference for " << item.second << ": " << e.what() << "\n";
+      }
+      std::lock_guard lock(w.mu);
+      w.running.reset();
+      w.running_job.clear();
+      w.cv.notify_all();
+    }
+  }
+
+  // One run at the head revision: every round in parallel (memoized, so a
+  // run after reopen or an edit recomputes only what changed), as an
+  // analysis job with progress; the fixpoint's prototypes are published in
+  // one revision when it is reached. A cancelled run publishes nothing.
+  void RefreshInfer(Project &p, const std::string &program) {
+    auto &w = core_->infer;
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (!p.open) return;
+      auto it = p.programs.find(program);
+      if (it == p.programs.end()) return;
+      if (!PinLocked(p, p.head, r).ok()) return;
+      r.program = it->second;
+    }
+    const analysis::ProgramKey key = AnalysisKey(program);
+    const auto input = r.snapshot->get<infer::ImageInput>(key);
+    if (!input->image) return;  // not inferred (InferFor)
+    // Between runs the program's decompiler pool keeps nothing (its lifters
+    // were ~200 MB a program, for every program a daemon had open).
+    // (EffectiveImage's own pool, after a memory-map edit, too.)
+    struct Trim {
+      std::shared_ptr<infer::DecompilerPool> staged, effective;
+      ~Trim() {
+        if (staged) staged->trim();
+        if (effective) effective->trim();
+        ::malloc_trim(0);  // and give the freed pages back
+      }
+    } trim{input->pool, r.snapshot->get<infer::EffectiveImage>(key)->pool};
+    pb::AnalysisJob job;
+    {
+      std::lock_guard lock(core_->mu);
+      job.set_job_id("job-" + std::to_string(core_->next_job++));
+      job.set_program_id(program);
+      job.add_analyzers(std::string(kInferAnalyzer));
+      *job.mutable_started_at() = TimeUtil::GetCurrentTime();
+      job.set_state(pb::ANALYSIS_STATE_RUNNING);
+      job.set_phase("call graph");
+      job.set_progress(0);
+      job.set_first_revision(p.head);
+      p.running_jobs[job.job_id()] = job;
+      Broadcast(p, job);
+    }
+    {
+      std::lock_guard lock(w.mu);
+      w.running_job = job.job_id();
+    }
+    // Progress at most once a second, each round an equal share of the
+    // rounds a run usually takes (cmake: 10, the corpus at most 9; the
+    // first few cost about the same, later ones less).
+    std::mutex progress_mu;
+    auto reported = std::chrono::steady_clock::now();
+    std::atomic<bool> closed{false};  // the project, as of the last progress report
+    infer::RunControl control;
+    control.cancelled = [&] {
+      return w.cancel.load(std::memory_order_relaxed) || w.stop.load(std::memory_order_relaxed) ||
+             closed.load(std::memory_order_relaxed);
+    };
+    control.progress = [&](std::uint32_t round, std::size_t done, std::size_t total, std::uint32_t max_rounds) {
+      const auto now = std::chrono::steady_clock::now();
+      {
+        std::lock_guard lock(progress_mu);
+        if (now - reported < std::chrono::seconds(1) && done != total) return;
+        reported = now;
+      }
+      const double in_round = static_cast<double>(done) / static_cast<double>(std::max<std::size_t>(1, total));
+      const double expected = std::min<double>(max_rounds + 1, 10);
+      const double f = std::min(0.95, (round + in_round) / expected);
+      std::lock_guard lock(core_->mu);
+      if (!p.open) closed.store(true);
+      auto it = p.running_jobs.find(job.job_id());
+      if (it == p.running_jobs.end()) return;
+      if (it->second.phase() != "cancelling")
+        it->second.set_phase("round " + std::to_string(round) + ": " + Thousands(done) + "/" + Thousands(total) +
+                             " functions");
+      it->second.set_progress(static_cast<float>(std::min(0.99, f)));
+      Broadcast(p, it->second);
+    };
+    auto finish = [&](pb::AnalysisState state, const std::string &phase, const std::string &message,
+                      std::uint64_t last) {
+      std::lock_guard lock(core_->mu);
+      auto it = p.running_jobs.find(job.job_id());
+      if (it != p.running_jobs.end()) {
+        job = std::move(it->second);
+        p.running_jobs.erase(it);
+      }
+      job.set_state(state);
+      job.set_phase(phase);
+      if (state == pb::ANALYSIS_STATE_SUCCEEDED) job.set_progress(1);
+      if (!message.empty()) job.set_message(message);
+      job.set_last_revision(last != 0 ? last : p.head);
+      *job.mutable_finished_at() = TimeUtil::GetCurrentTime();
+      Broadcast(p, job);
+      p.jobs.push_back(job);
+    };
+    infer::FixpointResult result;
+    try {
+      r.snapshot->get<infer::CallGraphQuery>(key);
+      result = infer::run(*r.snapshot, key, w.pool.get(), nullptr, &control);
+    } catch (const infer::Cancelled &) {
+      finish(pb::ANALYSIS_STATE_CANCELLED, "cancelled", "", 0);
+      return;
+    } catch (const std::exception &e) {
+      finish(pb::ANALYSIS_STATE_FAILED, "failed", e.what(), 0);
+      throw;
+    }
+    analysis::release_idle_decoders();
+    const std::uint64_t last = PublishInfer(p, program, result);
+    finish(pb::ANALYSIS_STATE_SUCCEEDED,
+           "done: " + Thousands(result.prototypes.size()) + " prototypes in " + std::to_string(result.rounds + 1) +
+               " rounds" + (result.converged ? "" : " (not converged)"),
+           "", last);
+  }
+
+  // Sets infer.published to the fixpoint's prototypes where they differ
+  // (unsetting the ones it no longer has), in one revision of cause
+  // ANALYSIS. Returns the revision, 0 if nothing changed.
+  std::uint64_t PublishInfer(Project &p, const std::string &program, const infer::FixpointResult &result) {
+    std::lock_guard write(p.write_mu);
+    {
+      std::lock_guard lock(core_->mu);
+      if (!p.open || !p.programs.contains(program)) return 0;
+    }
+    facts::Snapshot head = p.db->snapshot();
+    auto tx = p.db->begin();
+    std::vector<std::pair<std::string, std::uint64_t>> changed;
+    auto put = [&](std::uint64_t entry, const std::optional<infer::Prototype> &v) {
+      auto cur = head.get<q::InferPublished>({program, entry});
+      if (*cur == v) return;
+      tx.set<q::InferPublished>({program, entry}, v);
+      changed.emplace_back(program, entry);
+    };
+    std::set<std::uint64_t> want;
+    for (const auto &[entry, proto] : result.prototypes) {
+      want.insert(entry);
+      put(entry, proto);
+    }
+    std::set<std::uint64_t> &published = p.infer_published[program];
+    for (std::uint64_t entry : published)
+      if (!want.contains(entry)) put(entry, std::nullopt);
+    published = std::move(want);
+    if (changed.empty()) return 0;
+    pb::Provenance prov;
+    prov.set_kind(pb::PROVENANCE_KIND_ANALYSIS);
+    prov.set_id(std::string(kInferAnalyzer));
+    return Commit(p, tx, prov, pb::CHANGE_CAUSE_ANALYSIS, nullptr, nullptr, &changed);
+  }
+
+  // Analysis runs at import; a job reports that, with the progress events a
+  // real job would send.
+  pb::AnalysisJob RunJobLocked(Project &p, const std::string &program, const std::vector<std::string> &analyzers) {
+    pb::AnalysisJob job;
+    job.set_job_id("job-" + std::to_string(core_->next_job++));
+    job.set_program_id(program);
+    for (const auto &a : analyzers) job.add_analyzers(a);
+    *job.mutable_started_at() = TimeUtil::GetCurrentTime();
+    job.set_state(pb::ANALYSIS_STATE_RUNNING);
+    job.set_phase("analyzing");
+    job.set_progress(0);
+    Broadcast(p, job);
+    job.set_state(pb::ANALYSIS_STATE_SUCCEEDED);
+    job.set_phase("done");
+    job.set_progress(1);
+    job.set_first_revision(p.head);
+    job.set_last_revision(p.head);
+    *job.mutable_finished_at() = TimeUtil::GetCurrentTime();
+    Broadcast(p, job);
+    p.jobs.push_back(job);
+    return job;
+  }
+
+  void Broadcast(Project &p, const pb::AnalysisJob &job) {
+    for (auto &s : p.subscribers) {
+      if (!s.programs.empty() && !s.programs.count(job.program_id())) continue;
+      pb::SubscribeResponse ev;
+      *ev.mutable_analysis()->mutable_job() = job;
+      s.sink->Send(std::move(ev));
+    }
+  }
+
+  // Commits the transaction (the caller holds p.write_mu), then works out
+  // what changed, publishes the revision and broadcasts its event. A new
+  // program (`imported`) becomes visible at this revision.
+  // `signatures`: functions (program, entry) whose published parameter-ID
+  // signature the transaction changes, which then affect what a prototype
+  // edit would. A commit other than the analyzer's own queues it for the
+  // programs it touched.
+  // `remapped_programs`: programs whose memory map the transaction changes
+  // other than through MEMORY_REGION keys (a region's bytes arriving).
+  std::uint64_t Commit(Project &p, facts::FactDb::Transaction &tx, const pb::Provenance &prov, pb::ChangeCause cause,
+                       std::shared_ptr<const ProgramEntry> imported, pb::RevisionEvent *out = nullptr,
+                       const std::vector<std::pair<std::string, std::uint64_t>> *signatures = nullptr,
+                       const std::set<std::string> *remapped_programs = nullptr) {
+    const Seq first_new = p.log().next_seq();
+    std::vector<facts::FactKey> changed;
+    const std::uint64_t revision = tx.commit(&changed);
+    facts::Snapshot snap = p.db->snapshot();
+    const Seq log_size = p.log().size();
+
+    std::uint64_t previous = 0;
+    std::map<std::string, std::shared_ptr<const ProgramEntry>> programs;
+    std::shared_ptr<const SpaceMap> spaces;
+    std::optional<facts::Snapshot> before;
+    std::vector<std::string> folders;
+    for (Seq s = first_new; s <= log_size; ++s)
+      if (auto op = p.log().op(s); op && IsFolderKey(op->key)) folders.push_back(op->key.sub.substr(kFolderSubPrefix.size()));
+    {
+      std::lock_guard lock(core_->mu);
+      p.folder_ids.insert(folders.begin(), folders.end());
+      previous = p.head;
+      for (auto &[id, e] : std::exchange(p.rebased, {})) p.programs[id] = std::move(e);
+      if (imported) {
+        p.programs[imported->id()] = imported;
+        auto next = std::make_shared<SpaceMap>(*p.spaces);
+        (*next)[imported->source.ram_space] = imported->id();
+        p.spaces = std::move(next);
+      }
+      programs = p.programs;
+      spaces = p.spaces;
+      before = p.history.at(previous).snapshot;
+    }
+
+    pb::RevisionEvent ev;
+    ev.set_revision(revision);
+    ev.set_previous_revision(previous);
+    ev.set_cause(cause);
+    *ev.mutable_provenance() = prov;
+    for (Seq s = first_new; s <= log_size; ++s) {
+      auto op = p.log().op(s);
+      if (!op || (ProgramOf(*spaces, op->key).empty() && !IsFolderKey(op->key) && !IsProjectTypeKey(op->key))) continue;
+      ev.add_assertion_seqs(s);
+      *ev.add_assertions() = ToPbAssertion(p, *spaces, *op, log_size);
+    }
+    std::set<std::string> seen;
+    std::set<std::string> rediscovered;  // programs whose discovery an edit steered
+    std::set<std::string> remapped;      // programs whose memory map changed
+    if (remapped_programs) remapped = *remapped_programs;
+    std::set<std::string> repatched;     // programs whose bytes a patch changed
+    std::map<std::string, std::set<std::uint64_t>> reheadered;  // programs and addresses whose header lines may have changed
+    auto publish = [&](std::vector<pb::InvalidatedQuery> &qs) {
+      for (auto &q : qs)
+        if (seen.insert(q.SerializeAsString()).second) *ev.add_invalidated() = std::move(q);
+    };
+    bool has_analyzers = false;
+    if (const auto &host = core_->options.plugins)
+      for (const auto &pl : host->plugins()) has_analyzers |= pl->manifest().kind == plugins::Kind::analyzer;
+    // Programs moved to another image base (docs/memory-map.md, "Rebase"):
+    // every key of theirs moved; they are invalidated whole.
+    std::set<std::string> rebased;
+    for (const facts::FactKey &k : changed)
+      if (k.kind == FactKind::Rebase)
+        if (std::string program = ProgramOf(*spaces, k); !program.empty()) rebased.insert(program);
+    for (const facts::FactKey &k : changed) {
+      if (!rebased.empty() && k.kind != FactKind::Rebase && rebased.contains(ProgramOf(*spaces, k))) continue;
+      // A folder created, renamed, moved or deleted: the project's tree.
+      if (IsFolderKey(k)) {
+        *ev.add_changed_keys() = ToPbKey(*spaces, k);
+        std::vector<pb::InvalidatedQuery> qs(1);
+        qs[0].set_kind(pb::QUERY_KIND_PROJECT_TREE);
+        publish(qs);
+        continue;
+      }
+      // A project-wide type or a type archive setting
+      // (docs/types.md#project-types): every program's types, and where a
+      // name now resolves elsewhere, or the library prototypes change,
+      // what uses them.
+      if (IsProjectTypeKey(k)) {
+        *ev.add_changed_keys() = ToPbKey(*spaces, k);
+        const facts::FactKey as_type =
+            k.kind == FactKind::TypeDef ? k : TypeDefKey(kProjectSpace, TypeNameSub("library prototypes"));
+        for (const auto &[program, entry] : programs) {
+          auto table = before->get<q::Functions>(program);
+          auto xrefs = before->get<q::Xrefs>(program);
+          std::vector<pb::InvalidatedQuery> qs;
+          Effects(*table, *table, *xrefs, entry->program(), program, as_type, qs);
+          publish(qs);
+        }
+        continue;
+      }
+      const std::string program = ProgramOf(*spaces, k);
+      if (program.empty()) continue;
+      *ev.add_changed_keys() = ToPbKey(*spaces, k);
+      // A program renamed, deleted, restored or moved: its ProgramInfo
+      // (and the tree it is listed in).
+      if (k.addr.space == kProjectSpace) {
+        std::vector<pb::InvalidatedQuery> qs(k.sub == kProgramFolderSub ? 2 : 1);
+        qs[0].set_program_id(program);
+        qs[0].set_kind(pb::QUERY_KIND_PROGRAM);
+        if (qs.size() > 1) {
+          qs[1].set_program_id(program);
+          qs[1].set_kind(pb::QUERY_KIND_PROJECT_TREE);
+        }
+        publish(qs);
+        continue;
+      }
+      // A new program's own keys are covered by invalidate_all_programs.
+      if (imported && program == imported->id()) continue;
+      // The memory map changed (docs/memory-map.md): discovery, the
+      // listing, references, data and every decompilation may follow; a
+      // rebase moves all of them.
+      if (k.kind == FactKind::MemoryRegion || k.kind == FactKind::Rebase || k.kind == FactKind::Language) {
+        remapped.insert(program);
+        continue;
+      }
+      auto e = programs.find(program);
+      if (e == programs.end()) continue;
+      // Only bounds and flow overrides steer discovery; for any other edit
+      // the functions and references are the previous revision's, already
+      // computed, so the commit doesn't validate discovery again.
+      const bool steers = k.kind == FactKind::FunctionBounds || k.kind == FactKind::FlowOverride || k.kind == FactKind::NoReturn ||
+                          k.kind == FactKind::Patch || k.kind == FactKind::CodeUnit || k.kind == FactKind::Reference;
+      auto f_before = before->get<q::Functions>(program);
+      auto f_after = steers ? snap.get<q::Functions>(program) : f_before;
+      auto xrefs = steers ? snap.get<q::Xrefs>(program) : before->get<q::Xrefs>(program);
+      std::vector<pb::InvalidatedQuery> qs;
+      // How far a listing edit reaches, before or after the commit.
+      std::uint64_t extent = 1;
+      if (k.kind == FactKind::CodeUnit || k.kind == FactKind::Mutability)
+        for (const facts::Snapshot *sn : {&*before, &snap}) {
+          const auto *bytes = std::get_if<std::string>(&*sn->get<facts::AssertedFact>(k));
+          if (!bytes || bytes->empty()) continue;
+          try {
+            extent = std::max(extent, k.kind == FactKind::CodeUnit ? facts::decode_from_string<analysis::UnitMark>(*bytes).length
+                                                                   : facts::decode_from_string<analysis::MutabilityMark>(*bytes).length);
+          } catch (const facts::DecodeError &) {
+          }
+        }
+      Effects(*f_before, *f_after, *xrefs, e->second->program(), program, k, qs, extent);
+      publish(qs);
+      if (steers) rediscovered.insert(program);
+      // Analyzer plugins read names, functions and instructions
+      // (docs/plugins.md): their facts may change with any of those.
+      if (k.kind == FactKind::Patch) repatched.insert(program);
+      if (has_analyzers && (steers || (k.kind == FactKind::Name && k.sub.empty()))) {
+        std::vector<pb::InvalidatedQuery> pq(1);
+        pq[0].set_program_id(program);
+        pq[0].set_kind(pb::QUERY_KIND_PLUGIN_FACTS);
+        publish(pq);
+      }
+      if (steers || (k.kind == FactKind::Name && k.sub.empty()) ||
+          (k.kind == FactKind::Comment && (k.sub == "plate" || k.sub == "pre")))
+        reheadered[program].insert(k.addr.offset);
+    }
+    for (const std::string &program : rediscovered) {
+      if (remapped.contains(program)) continue;
+      std::vector<pb::InvalidatedQuery> qs;
+      DiscoveryEffects(*before, snap, programs.at(program)->program(), program, qs);
+      publish(qs);
+    }
+    for (const std::string &program : remapped) {
+      ev.add_invalidate_all_programs(program);
+      std::vector<pb::InvalidatedQuery> qs(1);
+      qs[0].set_program_id(program);
+      qs[0].set_kind(pb::QUERY_KIND_MEMORY);
+      publish(qs);
+    }
+    // DiffService sessions (docs/diff.md): their reads follow either
+    // program's functions and names, and the session's Match assertions.
+    {
+      std::set<std::string> steered, sessions;
+      for (const facts::FactKey &k : changed) {
+        if (k.kind == FactKind::Note && k.addr.space == kProjectSpace && k.sub == kDiffSessionSub) {
+          if (const auto *v = std::get_if<std::string>(&*snap.get<facts::AssertedFact>(k))) try {
+              sessions.insert(facts::decode_from_string<DiffSessionRecord>(*v).id);
+            } catch (const facts::DecodeError &) {
+            }
+          continue;
+        }
+        const std::string program = ProgramOf(*spaces, k);
+        if (program.empty()) continue;
+        if (k.kind == FactKind::Match) {
+          if (auto s = diff::parse_match_sub(k.sub)) sessions.insert(s->session);
+        } else if (k.kind == FactKind::FunctionBounds || k.kind == FactKind::FlowOverride || k.kind == FactKind::NoReturn ||
+                   k.kind == FactKind::Patch || k.kind == FactKind::MemoryRegion ||
+                   k.kind == FactKind::CodeUnit || k.kind == FactKind::Reference ||
+                   (k.kind == FactKind::Name && k.sub.empty())) {
+          steered.insert(program);
+        }
+      }
+      if (!steered.empty() || !sessions.empty()) {
+        std::vector<pb::InvalidatedQuery> qs;
+        for (const DiffSessionRecord &s : *snap.get<q::DiffSessions>(kProjectSpace)) {
+          if (!sessions.contains(s.id) && !steered.contains(s.program_a) && !steered.contains(s.program_b)) continue;
+          for (const std::string &program : {s.program_a, s.program_b}) {
+            pb::InvalidatedQuery q;
+            q.set_program_id(program);
+            q.set_kind(pb::QUERY_KIND_DIFF_SESSION);
+            q.set_diff_session_id(s.id);
+            qs.push_back(std::move(q));
+          }
+        }
+        publish(qs);
+      }
+    }
+    // A function's committed signature changed: as if its prototype had
+    // been edited (it, its callers, decompilations that looked it up).
+    if (signatures != nullptr)
+      for (const auto &[program, entry] : *signatures) {
+        auto e = programs.find(program);
+        if (e == programs.end()) continue;
+        auto table = before->get<q::Functions>(program);
+        auto xrefs = before->get<q::Xrefs>(program);
+        std::vector<pb::InvalidatedQuery> qs;
+        Effects(*table, *table, *xrefs, e->second->program(), program,
+                FactKeyAt(FactKind::Type, e->second->source.ram_space, entry), qs);
+        std::erase_if(qs, [](const pb::InvalidatedQuery &q) { return q.kind() == pb::QUERY_KIND_ASSERTIONS; });
+        publish(qs);
+      }
+    std::set<std::string> touched;
+    if (cause != pb::CHANGE_CAUSE_ANALYSIS && cause != pb::CHANGE_CAUSE_IMPORT)
+      for (const facts::FactKey &k : changed)
+        if (std::string program = ProgramOf(*spaces, k); !program.empty() && programs.contains(program))
+          touched.insert(program);
+    for (const auto &[program, addresses] : reheadered) {
+      auto e = programs.find(program);
+      if (e == programs.end() || !e->second->header_rows_read->load(std::memory_order_relaxed)) continue;
+      std::vector<pb::InvalidatedQuery> qs;
+      if (remapped.contains(program)) continue;
+      if (rediscovered.contains(program)) HeaderEffects(*before, snap, program, true, qs);
+      else HeaderEffectsAt(*before, snap, program, e->second->source.ram_space, addresses, qs);
+      publish(qs);
+    }
+    if (imported) {
+      ev.add_invalidate_all_programs(imported->id());
+      pb::InvalidatedQuery q;
+      q.set_program_id(imported->id());
+      q.set_kind(pb::QUERY_KIND_PROGRAM);
+      *ev.add_invalidated() = std::move(q);
+    }
+
+    std::lock_guard lock(core_->mu);
+    p.head = revision;
+    p.history.insert_or_assign(revision, Retained{std::move(snap), log_size});
+    p.events[revision] = ev;
+    while (p.history.size() > core_->options.retained_revisions) p.history.erase(p.history.begin());
+    while (p.events.size() > core_->options.retained_revisions) p.events.erase(p.events.begin());
+    // Old revisions' input versions and memos go once no pin needs them.
+    if (++p.commits % 64 == 0) p.db->engine().collect_garbage();
+    for (auto &s : p.subscribers) {
+      pb::SubscribeResponse msg;
+      *msg.mutable_revision() = FilterEvent(ev, s.programs, s.include_assertions);
+      s.sink->Send(std::move(msg));
+    }
+    for (Seq s = first_new; s <= log_size; ++s) {
+      const facts::OpId id = p.log().op(s)->id;
+      p.published[id.replica] = std::max(p.published[id.replica], id.counter);
+    }
+    if (!p.pulls.empty()) SendOpsLocked(p, first_new, log_size);
+    core_->head_changed.notify_all();
+    if (out) *out = std::move(ev);
+    for (const std::string &program : touched) ScheduleParamId(p, program);
+    for (const std::string &program : rebased) ScheduleParamId(p, program);
+    // Inference reads discovery, which follows the memory map and patches
+    // (its memoized rounds recompute only where they changed).
+    for (const std::string &program : remapped) ScheduleInfer(p, program);
+    for (const std::string &program : repatched)
+      if (!remapped.contains(program)) ScheduleInfer(p, program);
+    // What the loader's markup says about the bytes (PE import stubs, GOT
+    // values, PE headers) is read as patched too: describe the program
+    // again, and set discovery's inputs in a revision of their own when
+    // that changed anything (rarely: patching code never does).
+    for (const std::string &program : repatched) Redescribe(p, program, programs);
+    return revision;
+  }
+
+  // analysis::describe and describe_data over the bytes as patched; their
+  // inputs are set again (one revision, cause analysis) only if they differ.
+  void Redescribe(Project &p, const std::string &program,
+                  const std::map<std::string, std::shared_ptr<const ProgramEntry>> &programs) {
+    auto e = programs.find(program);
+    if (e == programs.end()) return;
+    const ProgramEntry &entry = *e->second;
+    facts::Snapshot snap = p.db->snapshot();
+    const facts::SpaceId space = entry.source.ram_space;
+    const Program &prog = entry.program();
+    analysis::ByteSource bytes = [&](std::uint64_t addr, std::span<std::byte> out) -> std::size_t {
+      std::size_t n = prog.image().memory.read(addr, out);
+      if (n == 0) return 0;
+      std::string s(reinterpret_cast<const char *>(out.data()), n);
+      facts::apply_patches(facts::patches_overlapping(snap, space, addr, addr + (n - 1)), addr, s);
+      std::memcpy(out.data(), s.data(), n);
+      return n;
+    };
+    analysis::ProgramInfo info = prog.Describe(space, bytes);
+    analysis::DataProgramInfo data = analysis::describe_data(prog.image(), bytes);
+    const analysis::ProgramKey key = AnalysisKey(program);
+    const bool same_info = facts::encode_to_string(info) == facts::encode_to_string(*snap.get<analysis::LoadedProgram>(key));
+    const bool same_data = facts::encode_to_string(data) == facts::encode_to_string(*snap.get<analysis::LoadedDataProgram>(key));
+    if (same_info && same_data) return;
+    auto tx = p.db->begin();
+    if (!same_info) tx.set<analysis::LoadedProgram>(key, std::move(info));
+    if (!same_data) tx.set<analysis::LoadedDataProgram>(key, std::move(data));
+    pb::Provenance prov;
+    prov.set_kind(pb::PROVENANCE_KIND_ANALYSIS);
+    prov.set_id("patch");
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ANALYSIS, nullptr);
+  }
+
+  // --- Replication and presence (docs/collab.md) --------------------------------
+
+ public:
+  Status UpdatePresence(const CallContext &, const pb::UpdatePresenceRequest &req,
+                        pb::UpdatePresenceResponse &resp) override {
+    if (req.presence().client_id().empty()) return Error(StatusCode::kInvalidArgument, "presence.client_id is required");
+    if (req.ttl_seconds() > 600) return Error(StatusCode::kInvalidArgument, "ttl_seconds is at most 600");
+    std::lock_guard lock(core_->mu);
+    auto it = core_->projects.find(req.project_id());
+    if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+    Project &p = *it->second;
+    const std::string &program = req.presence().program_id();
+    if (!program.empty() && !p.programs.contains(program))
+      return Error(StatusCode::kNotFound, "no program " + program + " in project");
+    pb::Presence e = req.presence();
+    const auto now = std::chrono::system_clock::now();
+    const pb::Presence *old = p.presence.Find(e.client_id());
+    if (e.sequence() == 0) e.set_sequence(old ? old->sequence() + 1 : 1);
+    e.set_origin_replica(p.db->replica());
+    *e.mutable_expires_at() = Timestamp(now + std::chrono::seconds(req.ttl_seconds() ? req.ttl_seconds() : 30));
+    if (!ApplyPresenceLocked(p, e, 0))
+      return Error(StatusCode::kFailedPrecondition, "presence sequence " + std::to_string(e.sequence()) +
+                                                        " is not above the stored " + std::to_string(old->sequence()));
+    *resp.mutable_presence() = std::move(e);
+    return Status::Ok();
+  }
+
+  Status ListPresence(const CallContext &, const pb::ListPresenceRequest &req, pb::ListPresenceResponse &resp) override {
+    std::lock_guard lock(core_->mu);
+    auto it = core_->projects.find(req.project_id());
+    if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+    for (pb::Presence &e : it->second->presence.Live(std::chrono::system_clock::now(), req.program_id()))
+      *resp.add_presence() = std::move(e);
+    return Status::Ok();
+  }
+
+  // --- Emulator (docs/emulator.md): sessions are the caller's state, not facts ---
+
+  Status CreateEmulatorSession(const CallContext &ctx, const pb::CreateEmulatorSessionRequest &req,
+                               pb::CreateEmulatorSessionResponse &resp) override {
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    std::shared_ptr<const Program> program;
+    std::optional<facts::Snapshot> head;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = pp->programs.find(req.program_id());
+      if (it == pp->programs.end()) return Error(StatusCode::kNotFound, "program " + req.program_id() + " is still importing");
+      program = it->second->source.program;
+      head = pp->history.at(pp->head).snapshot;
+    }
+    if (!program) return Error(StatusCode::kFailedPrecondition, "program " + req.program_id() + " isn't loaded");
+    // The memory map at head: added RAM and regions are mapped.
+    program = EffectiveProgram(*head, req.program_id());
+    return emulator_.Create(ctx, req, std::move(program), resp, HeadPatches(req.program_id()));
+  }
+  Status CloseEmulatorSession(const CallContext &ctx, const pb::CloseEmulatorSessionRequest &req,
+                              pb::CloseEmulatorSessionResponse &) override {
+    return emulator_.Close(ctx, req);
+  }
+  Status ListEmulatorSessions(const CallContext &ctx, const pb::ListEmulatorSessionsRequest &req,
+                              pb::ListEmulatorSessionsResponse &resp) override {
+    return emulator_.List(ctx, req, resp);
+  }
+  Status RunEmulator(const CallContext &ctx, const pb::RunEmulatorRequest &req, pb::RunEmulatorResponse &resp) override {
+    return emulator_.Run(ctx, req, resp);
+  }
+  Status GetEmulatorState(const CallContext &ctx, const pb::GetEmulatorStateRequest &req,
+                          pb::GetEmulatorStateResponse &resp) override {
+    return emulator_.GetState(ctx, req, resp);
+  }
+  Status WriteEmulatorRegisters(const CallContext &ctx, const pb::WriteEmulatorRegistersRequest &req,
+                                pb::WriteEmulatorRegistersResponse &resp) override {
+    return emulator_.WriteRegisters(ctx, req, resp);
+  }
+  Status ReadEmulatorMemory(const CallContext &ctx, const pb::ReadEmulatorMemoryRequest &req,
+                            pb::ReadEmulatorMemoryResponse &resp) override {
+    return emulator_.ReadMemory(ctx, req, resp);
+  }
+  Status WriteEmulatorMemory(const CallContext &ctx, const pb::WriteEmulatorMemoryRequest &req,
+                             pb::WriteEmulatorMemoryResponse &resp) override {
+    return emulator_.WriteMemory(ctx, req, resp);
+  }
+  Status SetEmulatorBreakpoints(const CallContext &ctx, const pb::SetEmulatorBreakpointsRequest &req,
+                                pb::SetEmulatorBreakpointsResponse &resp) override {
+    return emulator_.SetBreakpoints(ctx, req, resp);
+  }
+  Status GetEmulatorTrace(const CallContext &ctx, const pb::GetEmulatorTraceRequest &req,
+                          pb::GetEmulatorTraceResponse &resp) override {
+    return emulator_.GetTrace(ctx, req, resp);
+  }
+
+  // --- Firmware (docs/firmware-emulation.md) ---
+
+  Status WriteEmulatorInput(const CallContext &ctx, const pb::WriteEmulatorInputRequest &req,
+                            pb::WriteEmulatorInputResponse &) override {
+    return emulator_.WriteInput(ctx, req);
+  }
+  Status GetEmulatorMachine(const CallContext &ctx, const pb::GetEmulatorMachineRequest &req,
+                            pb::GetEmulatorMachineResponse &resp) override {
+    return emulator_.GetMachine(ctx, req, resp);
+  }
+
+  // Where a program's machine descriptions are kept.
+  Status MachineProgramFor(const std::string &program_id, MachineProgram &out) {
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(program_id, pp); !st.ok()) return st;
+    std::lock_guard lock(core_->mu);
+    if (!pp->programs.contains(program_id)) return Error(StatusCode::kNotFound, "program " + program_id + " is still importing");
+    out.program_id = program_id;
+    if (!pp->dir.empty()) {
+      std::string name = program_id.substr(program_id.find('/') + 1);
+      for (char &c : name)
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '_' && c != '-') c = '_';
+      out.dir = pp->dir / "machines" / name;
+    }
+    return Status::Ok();
+  }
+  Status ListMachines(const CallContext &, const pb::ListMachinesRequest &req, pb::ListMachinesResponse &resp) override {
+    MachineProgram mp;
+    if (auto st = MachineProgramFor(req.program_id(), mp); !st.ok()) return st;
+    return machines_.List(mp, resp);
+  }
+  Status GetMachine(const CallContext &, const pb::GetMachineRequest &req, pb::GetMachineResponse &resp) override {
+    MachineProgram mp;
+    if (auto st = MachineProgramFor(req.program_id(), mp); !st.ok()) return st;
+    return machines_.Get(mp, req.name(), resp);
+  }
+  Status SaveMachine(const CallContext &, const pb::SaveMachineRequest &req, pb::SaveMachineResponse &resp) override {
+    MachineProgram mp;
+    if (auto st = MachineProgramFor(req.program_id(), mp); !st.ok()) return st;
+    return machines_.Save(mp, req.name(), req.machine(), resp);
+  }
+  Status DeleteMachine(const CallContext &, const pb::DeleteMachineRequest &req, pb::DeleteMachineResponse &) override {
+    MachineProgram mp;
+    if (auto st = MachineProgramFor(req.program_id(), mp); !st.ok()) return st;
+    return machines_.Delete(mp, req.name());
+  }
+  Status ListPeripheralKinds(const CallContext &, const pb::ListPeripheralKindsRequest &,
+                             pb::ListPeripheralKindsResponse &resp) override {
+    for (const auto &[kind, description] : emu::builtin_peripheral_kinds()) {
+      pb::PeripheralKind *k = resp.add_kinds();
+      k->set_kind(kind);
+      k->set_description(description);
+    }
+    if (const auto &host = core_->options.plugins)
+      for (const auto &p : host->plugins()) {
+        if (p->manifest().kind != plugins::Kind::peripheral) continue;
+        pb::PeripheralKind *k = resp.add_kinds();
+        k->set_kind("plugin:" + p->manifest().name);
+        k->set_description(p->manifest().description);
+        k->set_plugin(true);
+        for (const std::string &o : p->manifest().outputs) k->add_outputs(o);
+      }
+    return Status::Ok();
+  }
+
+  // A starter machine: the program's memory, the MMIO its code reaches
+  // (analysis's constant-address accesses), and a trial run's findings.
+  Status DeriveMachine(const CallContext &ctx, const pb::DeriveMachineRequest &req, pb::DeriveMachineResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    std::vector<emu::StaticAccess> accesses;
+    std::shared_ptr<const loader::Image> image;
+    std::string language;
+    std::optional<emu::ImageSpec> image_spec;
+    {
+      View v(r);
+      image = v.program().image_ptr();
+      language = v.program().language().id();
+      const auto key = AnalysisKey(v.id());
+      for (const Func &f : v.functions().funcs) {
+        if (ctx.cancelled && ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+        auto fi = v.snapshot().get<analysis::Function>(analysis::Location{key, f.entry});
+        if (fi->name.empty()) continue;
+        auto flow = v.snapshot().get<analysis::Flow>(analysis::Location{key, fi->flow_key()});
+        for (const analysis::DataRef &d : flow->data_refs)
+          if (d.access != analysis::DataAccess::address) accesses.push_back({d.to, d.size, d.access == analysis::DataAccess::write, d.from});
+      }
+      const ProgramSource &src = r.program->source;
+      if (src.raw) {
+        emu::ImageSpec is;
+        is.load = src.raw->base;
+        is.offset = src.raw->offset;
+        is.length = src.raw->length;
+        is.perms = src.raw->perms;
+        is.name = src.raw->block_name;
+        image_spec = is;
+      }
+    }
+    emu::DeriveOptions o;
+    o.trial_steps = req.no_trial() ? 0 : std::min<std::uint64_t>(req.trial_steps() == 0 ? 2000000 : req.trial_steps(), 50000000);
+    o.deadline = std::min(ctx.deadline, std::chrono::steady_clock::now() + std::chrono::seconds(60));
+    try {
+      const emu::DerivedMachine d = emu::derive_machine(image, language, accesses, image_spec, o);
+      resp.set_machine(d.json);
+      for (const std::string &n : d.notes) resp.add_notes(n);
+      resp.set_mmio_registers(d.mmio_registers);
+      resp.set_polling_loops(d.polling_loops);
+      resp.set_trial_steps(d.trial_steps);
+      pb::EmulatorStop *st = resp.mutable_trial_stop();
+      st->mutable_pc()->set_offset(d.trial_stop.pc);
+      st->set_detail(d.trial_stop.detail);
+      st->set_steps(d.trial_stop.steps);
+    } catch (const std::exception &e) {
+      return Error(StatusCode::kFailedPrecondition, std::string("deriving a machine: ") + e.what());
+    }
+    return Status::Ok();
+  }
+
+  Status GetSyncState(const CallContext &, const pb::GetSyncStateRequest &req, pb::GetSyncStateResponse &resp) override {
+    std::lock_guard lock(core_->mu);
+    resp.set_format(kSyncFormat);
+    for (auto &[id, p] : core_->projects) {
+      if (!req.project_id().empty() && id != req.project_id()) continue;
+      auto *s = resp.add_projects();
+      s->set_project_id(id);
+      s->set_replica(p->db->replica());
+      *s->mutable_version_vector() = ToPbVector(p->published);
+      s->set_waiting(p->db->waiting());
+      s->set_head_revision(p->head);
+      AddMissingLocked(*p, s->mutable_missing_programs());
+    }
+    if (!req.project_id().empty() && resp.projects().empty())
+      return Error(StatusCode::kNotFound, "no project " + req.project_id());
+    return Status::Ok();
+  }
+
+  // The backlog the caller lacks, then (live) every op committed here: the
+  // Commit hook (SendOpsLocked) streams what the peer isn't known to hold.
+  Status Pull(const CallContext &, const pb::PullRequest &req, std::shared_ptr<api::PullSink> sink,
+              std::unique_ptr<api::Subscription> &out) override {
+    out.reset();
+    if (req.format() != 0 && req.format() != kSyncFormat)
+      return Error(StatusCode::kFailedPrecondition, "sync format " + std::to_string(req.format()) + " is not " +
+                                                        std::to_string(kSyncFormat));
+    std::lock_guard lock(core_->mu);
+    auto it = core_->projects.find(req.project_id());
+    if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+    Project &p = *it->second;
+    if (!p.open) return Error(StatusCode::kFailedPrecondition, "project is closed");
+    pb::PullResponse hello;
+    hello.mutable_hello()->set_replica(p.db->replica());
+    *hello.mutable_hello()->mutable_version_vector() = ToPbVector(p.published);
+    hello.mutable_hello()->set_format(kSyncFormat);
+    hello.mutable_hello()->set_head_revision(p.head);
+    sink->Send(std::move(hello));
+    // Known: what they have plus what is sent (ops committed meanwhile but
+    // not yet published are sent by Commit's hook).
+    facts::VersionVector known = FromPbVector(req.have());
+    const std::size_t batch = req.max_batch() ? std::min<std::uint32_t>(req.max_batch(), 10000) : 1000;
+    const std::vector<facts::Op> ops = p.db->ops_since(known);
+    for (std::size_t i = 0; i < ops.size(); i += batch) {
+      pb::PullResponse r;
+      for (std::size_t j = i; j < std::min(ops.size(), i + batch); ++j) {
+        AddOp(ops[j], r.mutable_ops()->mutable_ops());
+        known[ops[j].id.replica] = std::max(known[ops[j].id.replica], ops[j].id.counter);
+      }
+      sink->Send(std::move(r));
+    }
+    pb::PullResponse caught_up;
+    *caught_up.mutable_caught_up()->mutable_version_vector() = ToPbVector(known);
+    sink->Send(std::move(caught_up));
+    if (req.include_presence())
+      for (pb::Presence &e : p.presence.Live(std::chrono::system_clock::now())) {
+        pb::PullResponse r;
+        *r.mutable_presence() = std::move(e);
+        sink->Send(std::move(r));
+      }
+    if (!req.live()) {
+      sink->End(Status::Ok());
+      out = std::make_unique<ImageSubscription>(core_, p.id, 0);
+      return Status::Ok();
+    }
+    PullStream s{core_->next_subscriber++, std::move(sink), req.replica(), std::move(known), req.include_presence()};
+    out = std::make_unique<ImageSubscription>(core_, p.id, s.id);
+    p.pulls.push_back(std::move(s));
+    return Status::Ok();
+  }
+
+  Status Push(const CallContext &, const pb::PushRequest &req, pb::PushResponse &resp) override {
+    if (req.format() != 0 && req.format() != kSyncFormat)
+      return Error(StatusCode::kFailedPrecondition, "sync format " + std::to_string(req.format()) + " is not " +
+                                                        std::to_string(kSyncFormat));
+    Project *pp = nullptr;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(req.project_id());
+      if (it != core_->projects.end()) {
+        pp = it->second.get();
+      } else if (!req.create_project()) {
+        return Error(StatusCode::kNotFound, "no project " + req.project_id());
+      } else {
+        if (req.project_id().empty() || req.project_id().find('/') != std::string::npos)
+          return Error(StatusCode::kInvalidArgument, "bad project id \"" + req.project_id() + "\"");
+        try {
+          pp = &OpenProjectLocked(req.project_id(), req.project_id(), "");
+        } catch (const std::exception &e) {
+          return Error(StatusCode::kInternal, std::string("cannot create project: ") + e.what());
+        }
+      }
+      if (!pp->open) return Error(StatusCode::kFailedPrecondition, "project is closed");
+    }
+    Project &p = *pp;
+
+    std::vector<facts::Op> ops;
+    ops.reserve(static_cast<std::size_t>(req.ops_size()));
+    for (int i = 0; i < req.ops_size(); ++i) {
+      std::string error;
+      auto op = DecodeOp(req.ops(i), error);
+      if (!op) return Error(StatusCode::kInvalidArgument, "ops[" + std::to_string(i) + "]: " + error);
+      ops.push_back(std::move(*op));
+    }
+    if (!ops.empty()) {
+      if (req.from_replica()) {
+        // The pusher holds what it pushed (and, counters being contiguous,
+        // everything before it): don't stream it back. Before the writer
+        // is taken, which is never held while waiting for Core::mu.
+        std::lock_guard lock(core_->mu);
+        for (PullStream &st : p.pulls)
+          if (st.peer == req.from_replica())
+            for (const facts::Op &op : ops) st.known[op.id.replica] = std::max(st.known[op.id.replica], op.id.counter);
+      }
+      std::vector<facts::FactKey> records;
+      bool regions = false;
+      {
+        std::lock_guard write(p.write_mu);
+        auto tx = p.db->begin();
+        const std::uint64_t rev = tx.next_revision();
+        std::optional<pb::Provenance> common;
+        bool mixed = false;
+        // A merged op's meta names the revision that merged it here.
+        facts::MergeResult m = tx.merge(ops, [&](facts::Op &op) {
+          pb::Assertion meta = MetaOf(op);
+          meta.set_revision(rev);
+          op.meta = Deterministic(meta);
+          if (IsProgramRecord(op.key)) records.push_back(op.key);
+          if (op.key.kind == FactKind::MemoryRegion) regions = true;
+          if (!common) common = meta.provenance();
+          else if (!google::protobuf::util::MessageDifferencer::Equals(*common, meta.provenance())) mixed = true;
+        });
+        resp.set_staged(m.staged);
+        resp.set_duplicate(m.duplicate);
+        resp.set_waiting(m.waiting);
+        resp.set_rejected(m.rejected);
+        for (auto &e : m.errors) resp.add_errors(std::move(e));
+        if (m.staged) {
+          pb::Provenance prov;
+          if (common && !mixed) prov = *common;
+          else prov.set_id("replication");
+          Commit(p, tx, prov, pb::CHANGE_CAUSE_REPLICATION, nullptr);
+        }
+      }
+      NoteProgramRecords(p, records);
+      if (regions) NoteMissingRegionBytes(p);
+    }
+    for (const pb::Presence &e : req.presence()) {
+      if (e.client_id().empty()) continue;
+      std::lock_guard lock(core_->mu);
+      ApplyPresenceLocked(p, e, req.from_replica());
+    }
+    if (req.has_program())
+      if (auto st = AcceptChunk(p, req.program()); !st.ok()) return st;
+    std::lock_guard lock(core_->mu);
+    resp.set_replica(p.db->replica());
+    *resp.mutable_version_vector() = ToPbVector(p.published);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    AddMissingLocked(p, resp.mutable_missing_programs());
+    return Status::Ok();
+  }
+
+  Status FetchProgram(const CallContext &, const pb::FetchProgramRequest &req, pb::FetchProgramResponse &resp) override {
+    if (req.max_bytes() > (4u << 20)) return Error(StatusCode::kInvalidArgument, "max_bytes is at most 4 MiB");
+    std::optional<ProgramSource> src;
+    std::optional<facts::Snapshot> snap;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(req.project_id());
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+      for (const auto &[id, e] : it->second->programs)
+        if (e->source.sha256 == req.sha256()) src = e->source;
+      if (src) snap = it->second->history.at(it->second->head).snapshot;
+    }
+    if (!src) {
+      // A memory-map region's bytes from another file (docs/memory-map.md).
+      Project *pp = nullptr;
+      {
+        std::lock_guard lock(core_->mu);
+        auto it = core_->projects.find(req.project_id());
+        if (it != core_->projects.end()) pp = it->second.get();
+      }
+      std::optional<analysis::RegionBytes> rb = pp ? FindRegionBytes(*pp, req.sha256()) : std::nullopt;
+      if (!rb) return Error(StatusCode::kNotFound, "no program with sha256 " + req.sha256());
+      if (req.offset() > rb->length) return Error(StatusCode::kOutOfRange, "offset past the end of the file");
+      const std::uint64_t n = std::min<std::uint64_t>(req.max_bytes() ? req.max_bytes() : (1u << 20), rb->length - req.offset());
+      std::string data;
+      data.reserve(n);
+      facts::Snapshot head = pp->db->snapshot();
+      for (std::uint64_t off = req.offset(); off < req.offset() + n;) {
+        const std::uint64_t at = rb->offset + off;
+        auto page = head.get<facts::MemoryPage>(facts::PageKey{rb->space, at / facts::kPageSize});
+        const std::uint64_t in = at % facts::kPageSize, take = std::min(facts::kPageSize - in, req.offset() + n - off);
+        if (page->size() < in + take) return Error(StatusCode::kInternal, "region bytes are missing");
+        data.append(*page, in, take);
+        off += take;
+      }
+      auto *c = resp.mutable_chunk();
+      c->set_sha256(req.sha256());
+      c->set_offset(req.offset());
+      c->set_total_size(rb->length);
+      c->set_data(std::move(data));
+      return Status::Ok();
+    }
+    if (req.offset() > src->file_size) return Error(StatusCode::kOutOfRange, "offset past the end of the file");
+    const std::uint64_t n = std::min<std::uint64_t>(req.max_bytes() ? req.max_bytes() : (1u << 20), src->file_size - req.offset());
+    std::string data;
+    data.reserve(n);
+    for (std::uint64_t off = req.offset(); off < req.offset() + n;) {
+      auto page = snap->get<facts::MemoryPage>(facts::PageKey{src->file_space, off / facts::kPageSize});
+      const std::uint64_t in = off % facts::kPageSize, take = std::min(facts::kPageSize - in, req.offset() + n - off);
+      if (page->size() < in + take) return Error(StatusCode::kInternal, "program file bytes are missing");
+      data.append(*page, in, take);
+      off += take;
+    }
+    auto *c = resp.mutable_chunk();
+    c->set_sha256(src->sha256);
+    c->set_offset(req.offset());
+    c->set_total_size(src->file_size);
+    c->set_data(std::move(data));
+    return Status::Ok();
+  }
+
+ private:
+  static google::protobuf::Timestamp Timestamp(std::chrono::system_clock::time_point t) {
+    return TimeUtil::NanosecondsToTimestamp(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(t.time_since_epoch()).count());
+  }
+
+  static bool IsProgramRecord(const facts::FactKey &k) {
+    return k.kind == FactKind::Note && k.addr.space == kProjectSpace && k.sub == "program";
+  }
+
+  static bool WantsPresence(const Subscriber &s, const pb::Presence &e) {
+    return s.programs.empty() || e.program_id().empty() || s.programs.contains(e.program_id());
+  }
+
+  // Stores a presence entry if it is newer, then tells subscribers and
+  // every peer but the one it came from. Under Core::mu.
+  bool ApplyPresenceLocked(Project &p, const pb::Presence &e, facts::ReplicaId from) {
+    if (!p.presence.Apply(e, std::chrono::system_clock::now())) return false;
+    for (Subscriber &s : p.subscribers)
+      if (s.presence && WantsPresence(s, e)) {
+        pb::SubscribeResponse ev;
+        *ev.mutable_presence() = e;
+        s.sink->Send(std::move(ev));
+      }
+    for (PullStream &st : p.pulls)
+      if (st.presence && (!from || st.peer != from)) {
+        pb::PullResponse ev;
+        *ev.mutable_presence() = e;
+        st.sink->Send(std::move(ev));
+      }
+    return true;
+  }
+
+  // Sends each live pull stream the ops at seqs [from, to] its peer isn't
+  // known to hold. Under Core::mu, from Commit.
+  void SendOpsLocked(Project &p, Seq from, Seq to) {
+    std::vector<facts::Op> ops;
+    for (Seq s = from; s <= to; ++s)
+      if (auto op = p.log().op(s)) ops.push_back(std::move(*op));
+    if (ops.empty()) return;
+    for (PullStream &st : p.pulls) {
+      pb::PullResponse r;
+      for (const facts::Op &op : ops) {
+        if (Covers(st.known, op.id)) continue;
+        AddOp(op, r.mutable_ops()->mutable_ops());
+        st.known[op.id.replica] = std::max(st.known[op.id.replica], op.id.counter);
+      }
+      if (r.ops().ops_size()) st.sink->Send(std::move(r));
+    }
+  }
+
+  static void AddMissingLocked(const Project &p, google::protobuf::RepeatedPtrField<pb::MissingProgram> *out) {
+    for (const auto &[sha, src] : p.missing) {
+      auto *m = out->Add();
+      m->set_program_id(src.id);
+      m->set_sha256(sha);
+      m->set_size(src.file_size);
+    }
+    // A region's bytes travel as a program's file does, by sha256.
+    for (const auto &[sha, r] : p.missing_regions) {
+      auto *m = out->Add();
+      m->set_program_id(r.program_id);
+      m->set_sha256(sha);
+      m->set_size(r.bytes.length);
+    }
+  }
+
+  // Memory-map regions of the project's programs whose bytes from another
+  // file are referenced but not staged here (a peer added them): they are
+  // fetched like a missing program file. Called after merging a peer's
+  // memory-map edits, after a peer's program loads, and at reopen.
+  void NoteMissingRegionBytes(Project &p) {
+    std::lock_guard lock(core_->mu);
+    NoteMissingRegionBytesLocked(p);
+  }
+  void NoteMissingRegionBytesLocked(Project &p) {
+    std::map<facts::SpaceId, std::string> spaces;
+    std::map<std::string, Project::MissingRegionBytes> missing;
+    for (const auto &[id, e] : p.programs) spaces[e->source.ram_space] = id;
+    facts::Snapshot snap = p.db->snapshot();
+    for (Seq s = 1; s <= p.log().size(); ++s) {
+      auto op = p.log().op(s);
+      if (!op || op->kind != facts::OpKind::Assert || op->key.kind != FactKind::MemoryRegion) continue;
+      auto program = spaces.find(op->key.addr.space);
+      if (program == spaces.end()) continue;
+      const auto *text = std::get_if<std::string>(&op->value);
+      auto r = text ? analysis::decode_region(*text) : std::nullopt;
+      if (!r || !r->bytes || r->bytes->length == 0) continue;
+      auto page = snap.get<facts::MemoryPage>(facts::PageKey{r->bytes->space, r->bytes->offset / facts::kPageSize});
+      if (page->empty()) missing.emplace(r->bytes->sha256, Project::MissingRegionBytes{program->second, *r->bytes});
+    }
+    p.missing_regions = std::move(missing);
+  }
+
+  // A region's bytes staged here, by their sha256, for a peer missing them.
+  std::optional<analysis::RegionBytes> FindRegionBytes(Project &p, const std::string &sha) {
+    facts::Snapshot snap = p.db->snapshot();
+    for (Seq s = p.log().size(); s >= 1; --s) {
+      auto op = p.log().op(s);
+      if (!op || op->kind != facts::OpKind::Assert || op->key.kind != FactKind::MemoryRegion) continue;
+      const auto *text = std::get_if<std::string>(&op->value);
+      auto r = text ? analysis::decode_region(*text) : std::nullopt;
+      if (!r || !r->bytes || r->bytes->sha256 != sha) continue;
+      if (!snap.get<facts::MemoryPage>(facts::PageKey{r->bytes->space, r->bytes->offset / facts::kPageSize})->empty())
+        return r->bytes;
+    }
+    return std::nullopt;
+  }
+
+  // A region's bytes from a peer: staged where its regions say, so the
+  // memory map maps them (one revision, the program's views invalidated).
+  void LoadRemoteRegionBytes(Project &p, const std::string &sha) {
+    Project::MissingRegionBytes want;
+    std::string data;
+    {
+      std::lock_guard lock(core_->mu);
+      auto m = p.missing_regions.find(sha);
+      auto in = p.incoming.find(sha);
+      if (m == p.missing_regions.end() || in == p.incoming.end() || in->second.size() != m->second.bytes.length) return;
+      want = m->second;
+      data = std::move(in->second);
+      p.incoming.erase(in);
+      p.missing_regions.erase(m);
+    }
+    if (Sha256Hex(data) != sha) {
+      std::cerr << "revkit: project " << p.id << ": a peer's region bytes don't match their sha256; fetching again\n";
+      std::lock_guard lock(core_->mu);
+      p.missing_regions.emplace(sha, want);
+      return;
+    }
+    {
+      std::lock_guard write(p.write_mu);
+      auto tx = p.db->begin();
+      tx.write_bytes({want.bytes.space, want.bytes.offset}, data);
+      pb::Provenance prov;
+      prov.set_kind(pb::PROVENANCE_KIND_IMPORT);
+      prov.set_id("memory-region");
+      prov.set_tool("sync");
+      const std::set<std::string> remapped{want.program_id};
+      Commit(p, tx, prov, pb::CHANGE_CAUSE_REPLICATION, nullptr, nullptr, nullptr, &remapped);
+    }
+    auto bytes = std::make_shared<loader::Bytes>(data.size());
+    std::memcpy(bytes->data(), data.data(), data.size());
+    RememberRegionBytes(sha, std::move(bytes));
+  }
+
+  // Program records merged from a peer: a program this daemon doesn't have
+  // waits for its file (Push reports it missing), then loads as if
+  // imported here, at the record's spaces.
+  void NoteProgramRecords(Project &p, const std::vector<facts::FactKey> &keys) {
+    std::vector<std::string> ready;
+    {
+      std::lock_guard lock(core_->mu);
+      for (const facts::FactKey &k : keys) {
+        FactValue v = p.log().effective(k);
+        const auto *text = std::get_if<std::string>(&v);
+        if (!text) continue;
+        ProgramSource src;
+        try {
+          src = facts::decode_from_string<ProgramSource>(*text);
+        } catch (const facts::DecodeError &) {
+          continue;
+        }
+        if (auto e = p.programs.find(src.id); e != p.programs.end()) {
+          if (e->second->source.sha256 != src.sha256 || e->second->source.ordinal != src.ordinal)
+            std::cerr << "revkit: project " << p.id << ": a peer's program " << src.id
+                      << " differs from the one imported here; keeping this daemon's\n";
+          continue;
+        }
+        if (p.missing.contains(src.sha256)) continue;
+        bool clash = core_->program_project.contains(src.id);
+        for (const auto &[id, e] : p.programs) clash = clash || e->source.ordinal == src.ordinal;
+        for (const auto &[sha, m] : p.missing) clash = clash || m.ordinal == src.ordinal;
+        if (clash) {
+          std::cerr << "revkit: project " << p.id << ": a peer's program " << src.id << " (ordinal " << src.ordinal
+                    << ") clashes with a program imported here; not loaded (docs/collab.md)\n";
+          continue;
+        }
+        p.ordinals.insert(src.ordinal);
+        if (auto in = p.incoming.find(src.sha256); in != p.incoming.end() && in->second.size() == src.file_size)
+          ready.push_back(src.sha256);
+        p.missing.emplace(src.sha256, std::move(src));
+      }
+    }
+    for (const std::string &sha : ready) LoadRemoteProgram(p, sha);
+  }
+
+  Status AcceptChunk(Project &p, const pb::ProgramChunk &c) {
+    if (c.total_size() > (std::uint64_t{4} << 30)) return Error(StatusCode::kInvalidArgument, "program file too large");
+    bool complete = false, region = false;
+    {
+      std::lock_guard lock(core_->mu);
+      std::string &buf = p.incoming[c.sha256()];
+      if (c.offset() == 0) buf.clear();
+      if (c.offset() != buf.size() || buf.size() + c.data().size() > c.total_size()) {
+        p.incoming.erase(c.sha256());
+        return Error(StatusCode::kFailedPrecondition, "program chunk out of order; send it again from offset 0");
+      }
+      buf += c.data();
+      complete = buf.size() == c.total_size() && (p.missing.contains(c.sha256()) || p.missing_regions.contains(c.sha256()));
+      region = complete && !p.missing.contains(c.sha256());
+    }
+    if (complete && region) LoadRemoteRegionBytes(p, c.sha256());
+    else if (complete) LoadRemoteProgram(p, c.sha256());
+    return Status::Ok();
+  }
+
+  // Loads a program a peer imported, from its record and its file's bytes:
+  // the same inputs its import staged there, so every derived fact comes
+  // out the same.
+  void LoadRemoteProgram(Project &p, const std::string &sha, std::string_view tool = "sync") {
+    ProgramSource src;
+    std::string data;
+    {
+      std::lock_guard lock(core_->mu);
+      auto m = p.missing.find(sha);
+      auto in = p.incoming.find(sha);
+      if (m == p.missing.end() || in == p.incoming.end() || in->second.size() != m->second.file_size) return;
+      if (core_->program_project.contains(m->second.id)) return;
+      src = m->second;
+      data = std::move(in->second);
+      p.incoming.erase(in);
+      p.missing.erase(m);
+      core_->program_project[src.id] = p.id;
+    }
+    auto fail = [&](const std::string &why) {
+      std::cerr << "revkit: project " << p.id << ": cannot load " << src.id << " from a peer: " << why << "\n";
+      std::lock_guard lock(core_->mu);
+      core_->program_project.erase(src.id);
+      if (why.starts_with("sha256")) p.missing.emplace(src.sha256, src);  // fetch it again
+    };
+    if (Sha256Hex(data) != src.sha256) return fail("sha256 mismatch");
+    analysis::ProgramInfo info;
+    try {
+      auto bytes = std::make_shared<loader::Bytes>(data.size());
+      std::memcpy(bytes->data(), data.data(), data.size());
+      // A language change that came before the file: in that language.
+      if (const auto [language, compiler] = LanguageOf(p.log().effective(LanguageKey(src.ram_space))); !language.empty()) {
+        src.language_id = language;
+        src.compiler_spec_id = compiler;
+      }
+      src.program = LoadProgram(src, bytes);
+      // A rebase that came before the file: at the base the log says.
+      if (const facts::Shift sh = ShiftAt(p.db->snapshot(), src.ram_space); !sh.identity()) {
+        ProgramSource moved = RebasedSource(src, src.program->image().image_base, sh);
+        moved.program = LoadProgram(moved, bytes);
+        src = std::move(moved);
+      }
+      info = src.program->Describe(src.ram_space);
+    } catch (const std::exception &e) {
+      return fail(e.what());
+    }
+    std::uint64_t revision = 0;
+    {
+      std::lock_guard write(p.write_mu);
+      auto tx = p.db->begin();
+      const std::uint64_t rev = tx.next_revision();
+      tx.write_bytes({src.file_space, 0}, data);
+      analysis::stage_image(tx, AnalysisKey(src.id), src.program->image(), info);
+      StageInfer(tx, src);
+      tx.set<q::ParamIdModeInput>(src.id, static_cast<std::uint8_t>(core_->options.param_id));
+      std::vector<std::string> programs = *p.db->snapshot().get<q::Programs>(0);
+      programs.push_back(src.id);
+      tx.set<q::Programs>(0, std::move(programs));
+      tx.set<q::Source>(src.id, src);
+      tx.set<q::DecompilerOptions>(src.id, DefaultDecompilerOptions());
+      pb::Provenance prov;
+      prov.set_kind(pb::PROVENANCE_KIND_IMPORT);
+      prov.set_id(src.program->format());
+      prov.set_tool(std::string(tool));
+      revision = Commit(p, tx, prov, pb::CHANGE_CAUSE_IMPORT, std::make_shared<ProgramEntry>(ProgramEntry{src, rev}));
+    }
+    if (InferFor(src)) ExpectInfer(p, src.id);
+    {
+      // Peers that asked for this file before it arrived retry on a
+      // heartbeat: send one now rather than at the next tick.
+      std::lock_guard lock(core_->mu);
+      for (PullStream &st : p.pulls) {
+        pb::PullResponse hb;
+        hb.mutable_heartbeat()->set_head_revision(p.head);
+        st.sink->Send(std::move(hb));
+      }
+    }
+    Read r;
+    {
+      std::lock_guard lock(core_->mu);
+      if (!PinLocked(p, revision, r).ok()) return;
+      r.program = p.programs.at(src.id);
+    }
+    try {
+      Analyze(r, info);
+    } catch (const std::exception &e) {
+      std::cerr << "revkit: analysis of " << src.id << " failed: " << e.what() << "\n";
+    }
+    if (p.persistent()) p.db->engine().flush();
+    ScheduleParamId(p, src.id);
+    ScheduleInfer(p, src.id);
+    if (FidFor(src)) ScheduleFid(p, src.id, "");
+    NoteMissingRegionBytes(p);  // its regions' bytes, if a peer added any
+  }
+
+  // --- Diffing (docs/diff.md): sessions and decisions are facts, matches derived ---
+
+ public:
+  Status CreateDiffSession(const CallContext &ctx, const pb::CreateDiffSessionRequest &req,
+                           pb::CreateDiffSessionResponse &resp) override {
+    if (req.program_a().empty() || req.program_b().empty())
+      return Error(StatusCode::kInvalidArgument, "program_a and program_b are required");
+    if (req.program_a() == req.program_b())
+      return Error(StatusCode::kInvalidArgument, "program_a and program_b are the same program");
+    Read r;
+    if (auto st = ResolveProject(ctx, req.project_id(), {}, 0, r); !st.ok()) return st;
+    Project &p = *r.project;
+    std::string name_a, name_b;
+    {
+      std::lock_guard lock(core_->mu);
+      for (const std::string &id : {req.program_a(), req.program_b()})
+        if (!p.programs.contains(id)) return Error(StatusCode::kNotFound, "no program " + id + " in project " + p.id);
+      name_a = p.programs.at(req.program_a())->source.name;
+      name_b = p.programs.at(req.program_b())->source.name;
+    }
+    pb::Provenance prov = req.provenance();
+    if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED) prov.set_kind(pb::PROVENANCE_KIND_USER);
+    if (prov.id().empty()) prov.set_id(ctx.caller.substr(ctx.caller.find(':') + 1));
+    DiffSessionRecord s;
+    s.name = req.name().empty() ? name_a + " -> " + name_b : req.name();
+    s.program_a = req.program_a();
+    s.program_b = req.program_b();
+    for (const auto &t : req.options().similarity_tiers()) s.similarity.push_back(t);
+    s.created_at = TimeUtil::GetCurrentTime().seconds();
+    s.created_by = ToFacts(prov).str();
+    {
+      std::lock_guard write(p.write_mu);
+      if (auto st = CheckWritable(p, req.program_b(), 0); !st.ok()) return st;
+      auto tx = p.db->begin();
+      const std::uint64_t rev = tx.next_revision();
+      const auto now = std::chrono::system_clock::now().time_since_epoch();
+      s.id = NewDiffSessionId(s.program_a, s.program_b, p.db->replica(), p.log().next_seq(),
+                              std::chrono::duration_cast<std::chrono::nanoseconds>(now).count());
+      tx.assert_fact(ToFacts(prov),
+                     FactKeyAt(FactKind::Note, kProjectSpace, DiffSessionAddress(s.id), std::string(kDiffSessionSub)),
+                     facts::encode_to_string(s), 0, Meta(prov, nullptr, rev));
+      Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+      std::lock_guard lock(core_->mu);
+      SetHeadSnapshot(p, resp.mutable_snapshot());
+    }
+    if (req.run()) StartDiffRun(p, s);
+    *resp.mutable_session() = SessionInfo(p.id, s);
+    return Status::Ok();
+  }
+
+  Status ListDiffSessions(const CallContext &ctx, const pb::ListDiffSessionsRequest &req,
+                          pb::ListDiffSessionsResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProject(ctx, req.project_id(), req.read(), 0, r); !st.ok()) return st;
+    SetSnapshot(r, resp.mutable_snapshot());
+    for (const DiffSessionRecord &s : *r.snapshot->get<q::DiffSessions>(kProjectSpace)) {
+      if (!req.program_id().empty() && s.program_a != req.program_id() && s.program_b != req.program_id()) continue;
+      *resp.add_sessions() = SessionInfo(r.project->id, s);
+    }
+    return Status::Ok();
+  }
+
+  Status RunDiff(const CallContext &ctx, const pb::RunDiffRequest &req, pb::RunDiffResponse &resp) override {
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), {}, {}, d); !st.ok()) return st;
+    *resp.mutable_run() = StartDiffRun(*d.r.project, d.session);
+    return Status::Ok();
+  }
+
+  Status GetDiffStatus(const CallContext &ctx, const pb::GetDiffStatusRequest &req,
+                       pb::GetDiffStatusResponse &resp) override {
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), {}, {}, d); !st.ok()) return st;
+    *resp.mutable_session() = SessionInfo(d.r.project->id, d.session);
+    std::lock_guard lock(diff_mu_);
+    if (auto it = diff_runs_.find({d.r.project->id, d.session.id}); it != diff_runs_.end())
+      *resp.mutable_counts() = it->second.counts;
+    return Status::Ok();
+  }
+
+  Status CancelDiff(const CallContext &ctx, const pb::CancelDiffRequest &req, pb::CancelDiffResponse &resp) override {
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), {}, {}, d); !st.ok()) return st;
+    std::lock_guard lock(diff_mu_);
+    auto it = diff_runs_.find({d.r.project->id, d.session.id});
+    if (it == diff_runs_.end()) {
+      resp.mutable_run()->set_state(pb::DIFF_RUN_STATE_IDLE);
+      return Status::Ok();
+    }
+    it->second.cancel->store(true);
+    *resp.mutable_run() = it->second.run;
+    return Status::Ok();
+  }
+
+  Status ListMatches(const CallContext &ctx, const pb::ListMatchesRequest &req, pb::ListMatchesResponse &resp) override {
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), req.read(), req.page().page_token(), d);
+        !st.ok())
+      return st;
+    SetSnapshot(d.r, resp.mutable_snapshot());
+    auto result = d.r.snapshot->get<diff::Matches>(d.session.key());
+    View va(d.a), vb(d.b);
+    const auto &f = req.filter();
+    std::set<int> tiers(f.tiers().begin(), f.tiers().end());
+    std::set<int> statuses(f.statuses().begin(), f.statuses().end());
+    std::set<int> kinds(f.change_kinds().begin(), f.change_kinds().end());
+    const std::string needle = Lower(f.name_contains());
+    const auto &ms = result->matches;
+    std::vector<std::string> name_a, name_b;
+    const bool names = !needle.empty() || req.sort() == pb::DIFF_SORT_NAME_A || req.sort() == pb::DIFF_SORT_NAME_B;
+    if (names) {
+      name_a.resize(ms.size());
+      name_b.resize(ms.size());
+      for (std::size_t i = 0; i < ms.size(); ++i) {
+        name_a[i] = va.Symbol(ms[i].a);
+        name_b[i] = vb.Symbol(ms[i].b);
+      }
+    }
+    std::vector<std::size_t> rows;
+    for (std::size_t i = 0; i < ms.size(); ++i) {
+      const diff::Match &m = ms[i];
+      if (!tiers.empty() && !tiers.contains(static_cast<int>(m.tier))) continue;
+      if (m.confidence < f.min_confidence()) continue;
+      if (f.max_confidence() > 0 && m.confidence > f.max_confidence()) continue;
+      if (!statuses.empty() && !statuses.contains(static_cast<int>(m.state))) continue;
+      const int kind = m.unchanged ? pb::DIFF_CHANGE_KIND_UNCHANGED : pb::DIFF_CHANGE_KIND_MODIFIED;
+      if (!kinds.empty() && !kinds.contains(kind)) continue;
+      if (!needle.empty() && Lower(name_a[i]).find(needle) == std::string::npos &&
+          Lower(name_b[i]).find(needle) == std::string::npos)
+        continue;
+      rows.push_back(i);
+    }
+    auto key = [&](std::size_t i) -> std::tuple<double, std::string> {
+      const diff::Match &m = ms[i];
+      switch (req.sort()) {
+        case pb::DIFF_SORT_ADDRESS_B: return {static_cast<double>(m.b), {}};
+        case pb::DIFF_SORT_CONFIDENCE: return {m.confidence, {}};
+        case pb::DIFF_SORT_SIMILARITY: return {m.similarity, {}};
+        case pb::DIFF_SORT_NAME_A: return {0, name_a[i]};
+        case pb::DIFF_SORT_NAME_B: return {0, name_b[i]};
+        case pb::DIFF_SORT_TIER: return {static_cast<double>(m.tier), {}};
+        case pb::DIFF_SORT_STATUS: return {static_cast<double>(m.state), {}};
+        default: return {static_cast<double>(m.a), {}};
+      }
+    };
+    std::stable_sort(rows.begin(), rows.end(), [&](std::size_t x, std::size_t y) {
+      auto kx = key(x), ky = key(y);
+      if (kx != ky) return req.descending() ? kx > ky : kx < ky;
+      return ms[x].a < ms[y].a;
+    });
+    const std::size_t offset = req.page().page_token().empty() ? req.offset() : d.r.page_offset;
+    Paginate(rows.size(), offset, req.page().page_size(), 200, 5000, d.r.revision, resp.mutable_page(),
+             [&](std::size_t i) { FillDiffMatch(d, va, vb, ms[rows[i]], *resp.add_matches()); });
+    *resp.mutable_counts() = CountsOf(*result);
+    return Status::Ok();
+  }
+
+  Status ListUnmatched(const CallContext &ctx, const pb::ListUnmatchedRequest &req,
+                       pb::ListUnmatchedResponse &resp) override {
+    if (req.side() != pb::DIFF_SIDE_A && req.side() != pb::DIFF_SIDE_B)
+      return Error(StatusCode::kInvalidArgument, "side must be A or B");
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), req.read(), req.page().page_token(), d);
+        !st.ok())
+      return st;
+    SetSnapshot(d.r, resp.mutable_snapshot());
+    auto result = d.r.snapshot->get<diff::Matches>(d.session.key());
+    View va(d.a), vb(d.b);
+    const bool side_a = req.side() == pb::DIFF_SIDE_A;
+    View &mine = side_a ? va : vb;
+    View &other = side_a ? vb : va;
+    const auto &list = side_a ? result->unmatched_a : result->unmatched_b;
+    std::set<std::uint64_t> matched_other;
+    for (const diff::Match &m : result->matches) matched_other.insert(side_a ? m.b : m.a);
+    const std::string needle = Lower(req.name_contains());
+    std::vector<std::size_t> rows;
+    for (std::size_t i = 0; i < list.size(); ++i)
+      if (needle.empty() || Lower(mine.Symbol(list[i].entry)).find(needle) != std::string::npos) rows.push_back(i);
+    const std::size_t max = std::min<std::size_t>(req.max_candidates() ? req.max_candidates() : 8,
+                                                  diff::MatchResult::kMaxCandidates);
+    const std::size_t offset = req.page().page_token().empty() ? req.offset() : d.r.page_offset;
+    Paginate(rows.size(), offset, req.page().page_size(), 100, 2000, d.r.revision, resp.mutable_page(),
+             [&](std::size_t i) {
+               const diff::Unmatched &u = list[rows[i]];
+               pb::DiffUnmatched *out = resp.add_functions();
+               FillDiffRef(d, mine, side_a ? d.session.program_a : d.session.program_b, u.entry, *out->mutable_function());
+               out->set_side(req.side());
+               out->set_reason(ToApi(u.reason));
+               for (std::size_t c = 0; c < u.candidates.size() && c < max; ++c) {
+                 pb::DiffCandidate *cand = out->add_candidates();
+                 FillDiffRef(d, other, side_a ? d.session.program_b : d.session.program_a, u.candidates[c].entry,
+                             *cand->mutable_function());
+                 cand->set_tier(ToApi(u.candidates[c].tier));
+                 cand->set_score(u.candidates[c].score);
+                 cand->set_matched(matched_other.contains(u.candidates[c].entry));
+               }
+             });
+    return Status::Ok();
+  }
+
+  Status GetFunctionDiff(const CallContext &ctx, const pb::GetFunctionDiffRequest &req,
+                         pb::GetFunctionDiffResponse &resp) override {
+    if (!req.has_entry_a() && !req.has_entry_b()) return Error(StatusCode::kInvalidArgument, "entry_a or entry_b is required");
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), req.read(), {}, d); !st.ok()) return st;
+    SetSnapshot(d.r, resp.mutable_snapshot());
+    auto result = d.r.snapshot->get<diff::Matches>(d.session.key());
+    View va(d.a), vb(d.b);
+    std::optional<std::uint64_t> a, b;
+    if (req.has_entry_a()) a = req.entry_a().offset();
+    if (req.has_entry_b()) b = req.entry_b().offset();
+    if (a && !va.functions().at(*a)) return Error(StatusCode::kNotFound, "no function at entry_a in " + d.session.program_a);
+    if (b && !vb.functions().at(*b)) return Error(StatusCode::kNotFound, "no function at entry_b in " + d.session.program_b);
+    const diff::Match *m = a ? result->by_a(*a) : result->by_b(*b);
+    if (m && (!a || m->a == *a) && (!b || m->b == *b)) {
+      FillDiffMatch(d, va, vb, *m, *resp.mutable_match());
+      a = m->a;
+      b = m->b;
+    } else if (!(a && b)) {
+      // Unmatched: its candidates.
+      const auto &list = a ? result->unmatched_a : result->unmatched_b;
+      const std::uint64_t entry = a ? *a : *b;
+      for (const diff::Unmatched &u : list) {
+        if (u.entry != entry) continue;
+        for (const diff::Candidate &c : u.candidates) {
+          pb::DiffCandidate *cand = resp.add_candidates();
+          FillDiffRef(d, a ? vb : va, a ? d.session.program_b : d.session.program_a, c.entry, *cand->mutable_function());
+          cand->set_tier(ToApi(c.tier));
+          cand->set_score(c.score);
+        }
+      }
+    }
+    if (a) FillDiffSummary(d, va, d.session.program_a, *a, *resp.mutable_a());
+    if (b) FillDiffSummary(d, vb, d.session.program_b, *b, *resp.mutable_b());
+    if (req.detail() && a && b) {
+      if (!va.functions().at(*a) || !vb.functions().at(*b))
+        return Error(StatusCode::kNotFound, "no function at 0x" + Hex(*a) + " / 0x" + Hex(*b));
+      if (auto st = FillPairDetail(ctx, d, va, vb, *result, *a, *b, req.omit_bytes(), *resp.mutable_detail()); !st.ok())
+        return st;
+    }
+    return Status::Ok();
+  }
+
+  Status SummarizeFunctionDiffs(const CallContext &ctx, const pb::SummarizeFunctionDiffsRequest &req,
+                                pb::SummarizeFunctionDiffsResponse &resp) override {
+    if (req.pairs_size() > 500) return Error(StatusCode::kInvalidArgument, "at most 500 pairs");
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), req.read(), {}, d); !st.ok()) return st;
+    SetSnapshot(d.r, resp.mutable_snapshot());
+    auto result = d.r.snapshot->get<diff::Matches>(d.session.key());
+    View va(d.a), vb(d.b);
+    for (const pb::DiffPair &p : req.pairs()) {
+      const std::uint64_t a = p.entry_a().offset(), b = p.entry_b().offset();
+      if (!va.functions().at(a)) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(a) + " in " + d.session.program_a);
+      if (!vb.functions().at(b)) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(b) + " in " + d.session.program_b);
+      if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+      PairCorrelation pc = CorrelatePair(d, *result, a, b);
+      pb::DiffChangeSummary *s = resp.add_summaries();
+      FillCounts(pc.c, *s);
+      s->mutable_entry_a()->set_offset(a);
+      s->mutable_entry_b()->set_offset(b);
+      SummarizePair(va, vb, *result, pc, [&](bool side_a, std::uint64_t at) {
+        auto row = InstructionRow(side_a ? va : vb, at);
+        return row ? RowText(*row) : "0x" + Hex(at);
+      }, *s);
+    }
+    return Status::Ok();
+  }
+
+  Status AcceptMatches(const CallContext &ctx, const pb::AcceptMatchesRequest &req,
+                       pb::AcceptMatchesResponse &resp) override {
+    if (req.pairs().empty() && req.min_confidence() <= 0)
+      return Error(StatusCode::kInvalidArgument, "pairs or min_confidence is required");
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), {}, {}, d); !st.ok()) return st;
+    std::vector<std::tuple<std::uint64_t, std::uint64_t, diff::Tier, float>> pairs;
+    auto result = d.r.snapshot->get<diff::Matches>(d.session.key());
+    if (req.pairs().empty()) {
+      for (const diff::Match &m : result->matches)
+        if (m.state == diff::MatchState::proposed && m.confidence >= req.min_confidence())
+          pairs.emplace_back(m.a, m.b, m.tier, m.confidence);
+    } else {
+      for (const pb::DiffPair &p : req.pairs()) {
+        const diff::Match *m = result->by_a(p.entry_a().offset());
+        const bool same = m && m->b == p.entry_b().offset();
+        pairs.emplace_back(p.entry_a().offset(), p.entry_b().offset(), same ? m->tier : diff::Tier::accepted,
+                           same ? m->confidence : 1.f);
+      }
+    }
+    if (auto st = UniquePairs(pairs); !st.ok()) return st;
+    Project &p = *d.r.project;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, d.session.program_b, 0); !st.ok()) return st;
+    DiffRead h;
+    if (auto st = ReadSessionAtHead(p, d.session, h); !st.ok()) return st;
+    View va(h.a), vb(h.b);
+    if (auto st = CheckPairs(va, vb, pairs); !st.ok()) return st;
+    SessionDecisions dec = Decisions(vb, d.session.id);
+    const pb::Provenance prov = req.provenance();
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    std::vector<Seq> seqs;
+    for (const auto &[a, b, tier, conf] : pairs) {
+      auto here = dec.by_b.find(b);
+      if (here != dec.by_b.end() && here->second.value.a == a && here->second.value.state == diff::MatchState::accepted) {
+        seqs.push_back(0);
+        continue;
+      }
+      // Conflicting decisions: a user's or agent's blocks the pair; an
+      // apply run's is replaced (and what it ported goes with it).
+      std::vector<const SessionDecisions::Entry *> conflicts;
+      if (here != dec.by_b.end() && here->second.value.a != a) conflicts.push_back(&here->second);
+      if (auto it = dec.b_of_a.find(a); it != dec.b_of_a.end() && it->second != b) conflicts.push_back(&dec.by_b.at(it->second));
+      for (const SessionDecisions::Entry *e : conflicts) {
+        if (e->value.state == diff::MatchState::accepted)
+          return Error(StatusCode::kFailedPrecondition,
+                       "0x" + Hex(a) + " -> 0x" + Hex(b) + " conflicts with the accepted match 0x" + Hex(e->value.a) +
+                           " -> 0x" + Hex(e->key.addr.offset) + " (SetMatch replaces it)");
+        for (Seq s : LiveAssertions(p, e->key, p.log().size()))
+          resp.add_seqs(tx.retract(ToFacts(prov), s, Meta(prov, nullptr, rev)));
+      }
+      if (auto rj = dec.rejected.find({a, b}); rj != dec.rejected.end())
+        for (Seq s : LiveAssertions(p, rj->second, p.log().size()))
+          resp.add_seqs(tx.retract(ToFacts(prov), s, Meta(prov, nullptr, rev)));
+      seqs.push_back(AssertMatch(tx, vb, d.session.id, prov, rev, a, b, diff::MatchState::accepted, tier, conf));
+      resp.add_seqs(seqs.back());
+    }
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+    for (Seq s : seqs) resp.add_match_seqs(s);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+  Status RejectMatches(const CallContext &ctx, const pb::RejectMatchesRequest &req,
+                       pb::RejectMatchesResponse &resp) override {
+    if (req.pairs().empty()) return Error(StatusCode::kInvalidArgument, "no pairs");
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), {}, {}, d); !st.ok()) return st;
+    std::vector<std::tuple<std::uint64_t, std::uint64_t, diff::Tier, float>> pairs;
+    for (const pb::DiffPair &p : req.pairs())
+      pairs.emplace_back(p.entry_a().offset(), p.entry_b().offset(), diff::Tier::accepted, 1.f);
+    Project &p = *d.r.project;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, d.session.program_b, 0); !st.ok()) return st;
+    DiffRead h;
+    if (auto st = ReadSessionAtHead(p, d.session, h); !st.ok()) return st;
+    View va(h.a), vb(h.b);
+    if (auto st = CheckPairs(va, vb, pairs); !st.ok()) return st;
+    SessionDecisions dec = Decisions(vb, d.session.id);
+    const pb::Provenance prov = req.provenance();
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    std::set<std::pair<std::uint64_t, std::uint64_t>> done;
+    for (const auto &[a, b, tier, conf] : pairs) {
+      if (!done.insert({a, b}).second) continue;
+      if (auto it = dec.by_b.find(b); it != dec.by_b.end() && it->second.value.a == a)
+        for (Seq s : LiveAssertions(p, it->second.key, p.log().size())) {
+          resp.add_seqs(tx.retract(ToFacts(prov), s, Meta(prov, nullptr, rev)));
+          resp.add_retracted_seqs(s);
+        }
+      if (dec.rejected.contains({a, b})) {
+        resp.add_match_seqs(0);
+        continue;
+      }
+      pb::AssertionBody body;
+      auto *m = body.mutable_diff_match();
+      m->set_session_id(d.session.id);
+      m->mutable_entry_a()->set_offset(a);
+      m->mutable_entry_b()->set_offset(b);
+      m->set_rejected(true);
+      resp.add_match_seqs(tx.assert_fact(ToFacts(prov), vb.Key(FactKind::Match, b, diff::reject_sub(d.session.id, a)),
+                                         std::string("rejected"), 0, Meta(prov, &body, rev)));
+      resp.add_seqs(resp.match_seqs(resp.match_seqs_size() - 1));
+    }
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+  Status SetMatch(const CallContext &ctx, const pb::SetMatchRequest &req, pb::SetMatchResponse &resp) override {
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), {}, {}, d); !st.ok()) return st;
+    const std::uint64_t a = req.entry_a().offset(), b = req.entry_b().offset();
+    std::vector<std::tuple<std::uint64_t, std::uint64_t, diff::Tier, float>> pairs{{a, b, diff::Tier::accepted, 1.f}};
+    Project &p = *d.r.project;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, d.session.program_b, 0); !st.ok()) return st;
+    DiffRead h;
+    if (auto st = ReadSessionAtHead(p, d.session, h); !st.ok()) return st;
+    View va(h.a), vb(h.b);
+    if (auto st = CheckPairs(va, vb, pairs); !st.ok()) return st;
+    SessionDecisions dec = Decisions(vb, d.session.id);
+    const pb::Provenance prov = req.provenance();
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    std::vector<facts::FactKey> gone;
+    if (auto it = dec.by_b.find(b); it != dec.by_b.end()) gone.push_back(it->second.key);
+    if (auto it = dec.b_of_a.find(a); it != dec.b_of_a.end() && it->second != b) gone.push_back(dec.by_b.at(it->second).key);
+    if (auto it = dec.rejected.find({a, b}); it != dec.rejected.end()) gone.push_back(it->second);
+    for (const facts::FactKey &k : gone)
+      for (Seq s : LiveAssertions(p, k, p.log().size())) {
+        resp.add_seqs(tx.retract(ToFacts(prov), s, Meta(prov, nullptr, rev)));
+        resp.add_retracted_seqs(s);
+      }
+    resp.set_match_seq(AssertMatch(tx, vb, d.session.id, prov, rev, a, b, diff::MatchState::accepted,
+                                   diff::Tier::accepted, 1.f));
+    resp.add_seqs(resp.match_seq());
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+  Status ApplyMarkup(const CallContext &ctx, const pb::ApplyMarkupRequest &req, pb::ApplyMarkupResponse &resp) override {
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), {}, {}, d); !st.ok()) return st;
+    const float min_conf = req.min_confidence() > 0 ? req.min_confidence() : 0.95f;
+    // Which pairs: the request's, or every match at or above the threshold
+    // (computed before taking the writer; decisions are read again under it).
+    std::vector<std::tuple<std::uint64_t, std::uint64_t, diff::Tier, float>> pairs;
+    auto result = d.r.snapshot->get<diff::Matches>(d.session.key());
+    if (req.pairs().empty()) {
+      for (const diff::Match &m : result->matches)
+        if (m.confidence >= min_conf || m.state != diff::MatchState::proposed)
+          pairs.emplace_back(m.a, m.b, m.tier, m.confidence);
+    } else {
+      for (const pb::DiffPair &p : req.pairs()) {
+        const diff::Match *m = result->by_a(p.entry_a().offset());
+        const bool same = m && m->b == p.entry_b().offset();
+        pairs.emplace_back(p.entry_a().offset(), p.entry_b().offset(), same ? m->tier : diff::Tier::accepted,
+                           same ? m->confidence : 1.f);
+      }
+    }
+    if (auto st = UniquePairs(pairs); !st.ok()) return st;
+    std::set<int> items(req.items().begin(), req.items().end());
+    if (items.empty()) items = {pb::DIFF_MARKUP_ITEM_NAMES, pb::DIFF_MARKUP_ITEM_COMMENTS, pb::DIFF_MARKUP_ITEM_PROTOTYPES};
+    const pb::DiffApplyPolicy policy =
+        req.policy() == pb::DIFF_APPLY_POLICY_UNSPECIFIED ? pb::DIFF_APPLY_POLICY_SAFE : req.policy();
+
+    Project &p = *d.r.project;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, d.session.program_b, 0); !st.ok()) return st;
+    DiffRead h;
+    if (auto st = ReadSessionAtHead(p, d.session, h); !st.ok()) return st;
+    View va(h.a), vb(h.b);
+    if (!req.pairs().empty())
+      if (auto st = CheckPairs(va, vb, pairs); !st.ok()) return st;
+    SessionDecisions dec = Decisions(vb, d.session.id);
+
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    const std::string run =
+        "apply-" + Hex(diff::Hasher()
+                           .str(d.session.id)
+                           .u64(p.log().next_seq())
+                           .u64(static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(now).count()))
+                           .done() &
+                       0xffffffffffULL);
+    const pb::Provenance &who = req.provenance();
+    std::string who_text = ToFacts(who).str();
+    if (who.kind() == pb::PROVENANCE_KIND_UNSPECIFIED) who_text = ctx.caller;
+    pb::Provenance base;
+    base.set_kind(pb::PROVENANCE_KIND_MIGRATION);
+    base.set_id("diff");
+    base.set_version(d.session.id);
+    base.set_session(run);
+    base.set_tool(who.tool());
+
+    MarkupPlan plan;
+    plan.policy = policy;
+    std::map<std::string, std::string> types_defined;  // hash -> record, staged once
+    for (const auto &[a, b, tier, conf] : pairs) {
+      if (!va.functions().at(a) || !vb.functions().at(b)) continue;
+      // The pair's Match: an existing decision for it, else one this run records.
+      Seq match_seq = 0;
+      auto here = dec.by_b.find(b);
+      if (here != dec.by_b.end() && here->second.value.a != a) {
+        resp.add_warnings("0x" + Hex(b) + " in " + d.session.program_b + " is matched to 0x" + Hex(here->second.value.a) +
+                          ", not 0x" + Hex(a) + ": skipped");
+        continue;
+      }
+      if (auto it = dec.b_of_a.find(a); it != dec.b_of_a.end() && it->second != b) {
+        resp.add_warnings("0x" + Hex(a) + " in " + d.session.program_a + " is matched to 0x" + Hex(it->second) +
+                          ", not 0x" + Hex(b) + ": skipped");
+        continue;
+      }
+      if (dec.rejected.contains({a, b})) continue;
+      if (here != dec.by_b.end())
+        if (auto w = vb.Winner(here->second.key)) match_seq = w->seq;
+      const diff::Match *m = result->by_a(a);
+      const bool unchanged = m && m->b == b && m->unchanged;
+      pb::Provenance prov = base;
+      char conf_text[16];
+      std::snprintf(conf_text, sizeof conf_text, "%.2f", static_cast<double>(conf));
+      prov.set_reason("from " + d.session.program_a + "@0x" + Hex(a) + " (" + std::string(diff::to_string(tier)) + ", " +
+                      conf_text + "); applied by " + who_text +
+                      (req.pairs().empty() ? std::string(" at confidence >= ") + std::to_string(min_conf).substr(0, 4) : std::string()));
+      const std::size_t before = plan.ops.size();
+      std::optional<InsnPartners> partners;
+      auto partner_of = [&](std::uint64_t x) -> std::optional<std::uint64_t> {
+        if (!partners) partners = InstructionPartners(*h.r.snapshot, d.session.program_a, d.session.program_b, a, b);
+        if (auto it = partners->a2b.find(x); it != partners->a2b.end()) return it->second;
+        return std::nullopt;
+      };
+      PlanPair(va, vb, d.session, a, b, unchanged, items, prov, plan, types_defined, partner_of);
+      if (plan.ops.size() == before) continue;
+      ++plan.pairs;
+      if (!match_seq) {
+        // Recorded first, so the port's assertions can depend on it.
+        PlannedOp op;
+        op.key = vb.Key(FactKind::Match, b, diff::match_sub(d.session.id));
+        op.value = diff::MatchValue{diff::MatchState::applied, false, a, tier, conf}.text();
+        op.body.mutable_diff_match()->set_session_id(d.session.id);
+        op.body.mutable_diff_match()->mutable_entry_a()->set_offset(a);
+        op.body.mutable_diff_match()->mutable_entry_b()->set_offset(b);
+        op.body.mutable_diff_match()->set_status(pb::DIFF_MATCH_STATUS_APPLIED);
+        op.body.mutable_diff_match()->set_tier(ToApi(tier));
+        op.body.mutable_diff_match()->set_confidence(conf);
+        op.prov = prov;
+        op.is_match = true;
+        plan.ops.insert(plan.ops.begin() + static_cast<std::ptrdiff_t>(before), std::move(op));
+        ++plan.matches;
+        for (std::size_t i = before + 1; i < plan.ops.size(); ++i) plan.ops[i].depends_plan = static_cast<int>(before);
+      } else {
+        for (std::size_t i = before; i < plan.ops.size(); ++i) plan.ops[i].depends_seq = match_seq;
+      }
+    }
+    resp.set_pairs(plan.pairs);
+    resp.set_matches_recorded(plan.matches);
+    resp.set_names(plan.names);
+    resp.set_comments(plan.comments);
+    resp.set_prototypes(plan.prototypes);
+    resp.set_types(plan.types);
+    resp.set_skipped(plan.skipped);
+    if (req.dry_run() || plan.ops.empty()) {
+      std::lock_guard lock(core_->mu);
+      SetHeadSnapshot(p, resp.mutable_snapshot());
+      return Status::Ok();
+    }
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    std::vector<Seq> staged(plan.ops.size(), 0);
+    for (std::size_t i = 0; i < plan.ops.size(); ++i) {
+      PlannedOp &op = plan.ops[i];
+      const Seq dep = op.depends_plan >= 0 ? staged[static_cast<std::size_t>(op.depends_plan)] : op.depends_seq;
+      pb::Assertion meta;
+      *meta.mutable_provenance() = op.prov;
+      if (op.body.kind_case() != pb::AssertionBody::KIND_NOT_SET) *meta.mutable_body() = op.body;
+      meta.set_revision(rev);
+      if (op.ported) {
+        *meta.mutable_ported_from() = *op.ported;
+        meta.mutable_ported_from()->set_run_id(run);
+        meta.mutable_ported_from()->set_match_seq(dep);
+      }
+      staged[i] = tx.assert_fact(ToFacts(op.prov), op.key, op.value, op.is_match ? 0 : dep, Deterministic(meta));
+      resp.add_seqs(staged[i]);
+    }
+    Commit(p, tx, base, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+    resp.set_run_id(run);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+  Status RevertApply(const CallContext &ctx, const pb::RevertApplyRequest &req, pb::RevertApplyResponse &resp) override {
+    if (req.run_id().empty()) return Error(StatusCode::kInvalidArgument, "run_id is required");
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), {}, {}, d); !st.ok()) return st;
+    Project &p = *d.r.project;
+    pb::Provenance prov = req.provenance();
+    if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED) prov.set_kind(pb::PROVENANCE_KIND_USER);
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, d.session.program_b, 0); !st.ok()) return st;
+    facts::SpaceId space = 0;
+    {
+      std::lock_guard lock(core_->mu);
+      space = p.programs.at(d.session.program_b)->source.ram_space;
+    }
+    pb::ProvenanceFilter f;
+    f.set_kind(pb::PROVENANCE_KIND_MIGRATION);
+    f.set_id("diff");
+    f.set_version(d.session.id);
+    f.set_session(req.run_id());
+    std::vector<Seq> targets;
+    for (Seq s = 1; s <= p.log().size(); ++s) {
+      auto op = p.log().op(s);
+      if (!op || op->key.addr.space != space || op->kind != facts::OpKind::Assert) continue;
+      if (!MatchesProvenance(f, MetaOf(*op).provenance())) continue;
+      if (p.log().status(s, p.log().size()) == facts::OpStatus::Retracted) continue;
+      targets.push_back(s);
+    }
+    if (targets.empty()) return Error(StatusCode::kNotFound, "no live assertions of apply run " + req.run_id());
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    for (auto it = targets.rbegin(); it != targets.rend(); ++it) {
+      tx.retract(ToFacts(prov), *it, Meta(prov, nullptr, rev));
+      resp.add_retracted_seqs(*it);
+    }
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_RETRACTION, nullptr);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+  // --- Comparing any two functions (api_minor 54, feature "function-compare") ---
+
+  Status Unmatch(const CallContext &ctx, const pb::UnmatchRequest &req, pb::UnmatchResponse &resp) override {
+    if (req.pairs().empty()) return Error(StatusCode::kInvalidArgument, "no pairs");
+    DiffRead d;
+    if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), {}, {}, d); !st.ok()) return st;
+    Project &p = *d.r.project;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, d.session.program_b, 0); !st.ok()) return st;
+    DiffRead h;
+    if (auto st = ReadSessionAtHead(p, d.session, h); !st.ok()) return st;
+    View vb(h.b);
+    SessionDecisions dec = Decisions(vb, d.session.id);
+    std::vector<facts::FactKey> gone;
+    for (const pb::DiffPair &pr : req.pairs()) {
+      const std::uint64_t a = pr.entry_a().offset(), b = pr.entry_b().offset();
+      if (auto it = dec.by_b.find(b); it != dec.by_b.end() && it->second.value.a == a) gone.push_back(it->second.key);
+      if (auto it = dec.rejected.find({a, b}); it != dec.rejected.end()) gone.push_back(it->second);
+    }
+    if (gone.empty())
+      return Error(StatusCode::kFailedPrecondition, "no decision to undo on these pairs (none is accepted, applied or rejected)");
+    const pb::Provenance prov = req.provenance();
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    std::set<Seq> done;
+    for (const facts::FactKey &k : gone)
+      for (Seq s : LiveAssertions(p, k, p.log().size())) {
+        if (!done.insert(s).second) continue;
+        resp.add_seqs(tx.retract(ToFacts(prov), s, Meta(prov, nullptr, rev)));
+        resp.add_retracted_seqs(s);
+      }
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_RETRACTION, nullptr);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+  Status CompareFunctions(const CallContext &ctx, const pb::CompareFunctionsRequest &req,
+                          pb::CompareFunctionsResponse &resp) override {
+    if (!req.has_entry_a() || !req.has_entry_b()) return Error(StatusCode::kInvalidArgument, "entry_a and entry_b are required");
+    DiffRead d;
+    facts::Ref<diff::MatchResult> session_result;
+    if (!req.session_id().empty()) {
+      if (auto st = ResolveSession(ctx, req.project_id(), req.session_id(), req.read(), {}, d); !st.ok()) return st;
+      if ((!req.program_a().empty() && req.program_a() != d.session.program_a) ||
+          (!req.program_b().empty() && req.program_b() != d.session.program_b))
+        return Error(StatusCode::kInvalidArgument, "session " + d.session.id + " compares " + d.session.program_a +
+                                                       " (A) with " + d.session.program_b + " (B)");
+      session_result = d.r.snapshot->get<diff::Matches>(d.session.key());
+    } else {
+      if (req.program_a().empty() || req.program_b().empty())
+        return Error(StatusCode::kInvalidArgument, "program_a and program_b (or session_id) are required");
+      if (auto st = ResolveProject(ctx, req.project_id(), req.read(), 0, d.r); !st.ok()) return st;
+      d.session.program_a = req.program_a();
+      d.session.program_b = req.program_b();
+      if (auto st = ProgramsAt(d); !st.ok()) return st;
+    }
+    SetSnapshot(d.r, resp.mutable_snapshot());
+    View va(d.a), vb(d.b);
+    const std::uint64_t a = req.entry_a().offset(), b = req.entry_b().offset();
+    if (!va.functions().at(a)) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(a) + " in " + d.session.program_a);
+    if (!vb.functions().at(b)) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(b) + " in " + d.session.program_b);
+    if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+    const diff::MatchResult own = session_result ? diff::MatchResult{} : CallPartners(d, va, vb, a, b);
+    const diff::MatchResult &result = session_result ? *session_result : own;
+    FillDiffSummary(d, va, d.session.program_a, a, *resp.mutable_a());
+    FillDiffSummary(d, vb, d.session.program_b, b, *resp.mutable_b());
+    if (session_result)
+      if (const diff::Match *m = result.by_a(a); m && m->b == b) FillDiffMatch(d, va, vb, *m, *resp.mutable_match());
+    if (auto st = FillPairDetail(ctx, d, va, vb, result, a, b, req.omit_bytes(), *resp.mutable_detail()); !st.ok()) return st;
+    if (req.markup()) FillCompareMarkup(ctx, d, va, vb, a, b, *resp.mutable_markup());
+    return Status::Ok();
+  }
+
+  Status PortFunctionMarkup(const CallContext &ctx, const pb::PortFunctionMarkupRequest &req,
+                            pb::PortFunctionMarkupResponse &resp) override {
+    if (req.from_program().empty() || req.to_program().empty())
+      return Error(StatusCode::kInvalidArgument, "from_program and to_program are required");
+    if (!req.has_from_entry() || !req.has_to_entry())
+      return Error(StatusCode::kInvalidArgument, "from_entry and to_entry are required");
+    const std::uint64_t from = req.from_entry().offset(), to = req.to_entry().offset();
+    if (req.from_program() == req.to_program() && from == to)
+      return Error(StatusCode::kInvalidArgument, "from and to are the same function");
+    for (const pb::FunctionMarkupItem &it : req.items())
+      if (it.kind() == pb::FUNCTION_MARKUP_KIND_UNSPECIFIED) return Error(StatusCode::kInvalidArgument, "an item has no kind");
+    Read pr;
+    if (auto st = ResolveProject(ctx, req.project_id(), {}, 0, pr); !st.ok()) return st;
+    Project &p = *pr.project;
+    pb::Provenance prov = req.provenance();
+    if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED) prov.set_kind(pb::PROVENANCE_KIND_USER);
+    if (prov.id().empty()) prov.set_id(ctx.caller.substr(ctx.caller.find(':') + 1));
+
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.to_program(), 0); !st.ok()) return st;
+    DiffRead h;
+    {
+      std::lock_guard lock(core_->mu);
+      if (auto st = PinLocked(p, p.head, h.r); !st.ok()) return st;
+    }
+    h.session.program_a = req.from_program();
+    h.session.program_b = req.to_program();
+    if (auto st = ProgramsAt(h); !st.ok()) return st;
+    View vf(h.a), vt(h.b);
+    if (!vf.functions().at(from)) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(from) + " in " + req.from_program());
+    if (!vt.functions().at(to)) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(to) + " in " + req.to_program());
+
+    // The session (optional): recorded in ported_from, with the pair's Match.
+    Seq match_seq = 0;
+    if (!req.session_id().empty()) {
+      auto sessions = h.r.snapshot->get<q::DiffSessions>(kProjectSpace);
+      auto it = std::find_if(sessions->begin(), sessions->end(), [&](const DiffSessionRecord &x) { return x.id == req.session_id(); });
+      if (it == sessions->end()) return Error(StatusCode::kNotFound, "no diff session " + req.session_id() + " in project " + p.id);
+      const bool forward = it->program_a == req.from_program() && it->program_b == req.to_program();
+      const bool backward = it->program_b == req.from_program() && it->program_a == req.to_program();
+      if (!forward && !backward)
+        return Error(StatusCode::kInvalidArgument, "session " + it->id + " doesn't compare " + req.from_program() + " with " + req.to_program());
+      View &vb = forward ? vt : vf;
+      const std::uint64_t eb = forward ? to : from, ea = forward ? from : to;
+      if (auto w = vb.Winner(vb.Key(FactKind::Match, eb, diff::match_sub(it->id))))
+        if (auto v = diff::MatchValue::parse(vb.Text(vb.Key(FactKind::Match, eb, diff::match_sub(it->id)))); v && v->a == ea)
+          match_seq = w->seq;
+    }
+
+    // What to port.
+    const bool everything = req.items().empty();
+    auto wants = [&](pb::FunctionMarkupKind k) {
+      return everything || std::any_of(req.items().begin(), req.items().end(), [&](const auto &it) { return it.kind() == k; });
+    };
+    const bool vars = wants(pb::FUNCTION_MARKUP_KIND_VARIABLE_NAME) || wants(pb::FUNCTION_MARKUP_KIND_VARIABLE_TYPE);
+    const bool sig = wants(pb::FUNCTION_MARKUP_KIND_SIGNATURE);
+    const InsnPartners partners = InstructionPartners(*h.r.snapshot, req.from_program(), req.to_program(), from, to);
+    pb::DecompiledFunction ff, ft;
+    std::string err_f, err_t;
+    if (vars || sig) {
+      err_f = DecompileFor(ctx, vf, from, ff);
+      err_t = DecompileFor(ctx, vt, to, ft);
+      if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+    }
+
+    std::vector<PlannedOp> ops;
+    std::map<std::string, std::string> types_defined;
+    auto ported_from = [&](std::uint64_t address, const facts::FactKey *source) {
+      pb::PortedFrom out;
+      out.set_session_id(req.session_id());
+      out.set_program_id(req.from_program());
+      out.mutable_function()->set_offset(from);
+      out.mutable_address()->set_offset(address);
+      out.set_match_seq(match_seq);
+      if (source)
+        if (auto w = vf.Winner(*source)) {
+          out.set_source_seq(w->seq);
+          *out.mutable_source_id() = ToPbId(w->id);
+        }
+      return out;
+    };
+    auto add = [&](facts::FactKey key, FactValue value, pb::AssertionBody body, pb::PortedFrom pf) {
+      PlannedOp op;
+      op.key = std::move(key);
+      op.value = std::move(value);
+      op.body = std::move(body);
+      op.prov = prov;
+      op.ported = std::move(pf);
+      ops.push_back(std::move(op));
+    };
+    auto note = [&](pb::FunctionMarkupKind k, std::uint64_t address, const std::string &variable, const std::string &comment_kind,
+                    const std::string &before, const std::string &after) {
+      pb::PortedMarkup *m = resp.add_ported();
+      m->set_kind(k);
+      m->mutable_address()->set_offset(address);
+      m->set_variable(variable);
+      m->set_comment_kind(comment_kind);
+      m->set_before(before);
+      m->set_after(after);
+    };
+    // A hashed type and every type it reaches, defined in the target by hash.
+    auto define_closure = [&](const std::string &hash) -> bool {
+      auto closure = vf.snapshot().get<q::Types>({vf.id(), hash});
+      if (closure->empty()) return false;
+      for (const auto &[x, record] : *closure) {
+        if (types_defined.contains(x) || vt.Asserted(TypeDefKey(vt.space(), x)) || vt.Asserted(TypeDefKey(kProjectSpace, x)))
+          continue;
+        types_defined.emplace(x, record);
+        add(TypeDefKey(vt.space(), x), record, {}, ported_from(from, nullptr));
+        resp.set_types(resp.types() + 1);
+      }
+      return true;
+    };
+    const std::string from_where = req.from_program() + "@0x" + Hex(from);
+
+    // The name.
+    if (wants(pb::FUNCTION_MARKUP_KIND_NAME)) {
+      const std::string name = vf.Symbol(from), cur = vt.Symbol(to);
+      if (name.empty() || diff::is_default_name(name)) {
+        if (!everything) resp.add_warnings("the name " + name + " of " + from_where + " is a default one: not ported");
+      } else if (cur != name) {
+        if (!req.overwrite() && !cur.empty() && !diff::is_default_name(cur)) {
+          resp.set_skipped(resp.skipped() + 1);
+        } else {
+          pb::AssertionBody body;
+          body.mutable_rename()->mutable_target()->mutable_address()->set_offset(to);
+          body.mutable_rename()->set_name(name);
+          const facts::FactKey src = vf.Key(FactKind::Name, from);
+          add(vt.Key(FactKind::Name, to), name, std::move(body), ported_from(from, &src));
+          note(pb::FUNCTION_MARKUP_KIND_NAME, to, {}, {}, cur, name);
+          resp.set_names(resp.names() + 1);
+        }
+      }
+    }
+
+    // The signature: an asserted prototype (with its types), else the
+    // decompiled declaration when someone set it or it was asked for.
+    if (sig) {
+      const facts::FactKey ka = vf.Key(FactKind::Type, from), kb = vt.Key(FactKind::Type, to);
+      std::string value = vf.Text(ka);
+      const bool from_set = !value.empty() || (err_f.empty() && SignatureSet(ff));
+      if (value.empty() && err_f.empty() && (from_set || !everything) && !ff.prototype().c_declaration().empty())
+        value = "c:" + ff.prototype().c_declaration();
+      const std::string cur = vt.Text(kb);
+      const bool to_set = !cur.empty() || (err_t.empty() && SignatureSet(ft));
+      const std::string before = err_t.empty() ? ft.prototype().c_declaration() : cur;
+      const std::string after = value.starts_with("h:") ? vf.PrototypeDisplay(value.substr(2), vt.Symbol(to))
+                                : value.starts_with("c:") ? value.substr(2) : value;
+      if (value.empty() || (everything && !from_set)) {
+        if (!everything) resp.add_warnings("no signature to port from " + from_where + (err_f.empty() ? "" : ": " + err_f));
+      } else if (cur == value || (!value.starts_with("h:") && after == before)) {
+        // Already the same.
+      } else if (!req.overwrite() && to_set) {
+        resp.set_skipped(resp.skipped() + 1);
+      } else {
+        if (value.starts_with("h:") && !define_closure(value.substr(2))) value = "c:" + after;
+        pb::AssertionBody body;
+        body.mutable_retype()->mutable_target()->mutable_address()->set_offset(to);
+        if (value.starts_with("h:")) body.mutable_retype()->mutable_type()->set_type_hash(value.substr(2));
+        else body.mutable_retype()->mutable_type()->set_c_declaration(value.substr(2));
+        add(kb, value, std::move(body), ported_from(from, &ka));
+        note(pb::FUNCTION_MARKUP_KIND_SIGNATURE, to, {}, {}, before, after);
+        resp.set_signatures(resp.signatures() + 1);
+      }
+    }
+
+    // Variables: names and types to their partners.
+    if (vars) {
+      if (!err_f.empty() || !err_t.empty()) {
+        resp.add_warnings("variables not ported: " + (err_f.empty() ? err_t : err_f));
+      } else {
+        const auto pairs = PairVariables(ff, ft, partners.a2b);
+        auto wanted = [&](pb::FunctionMarkupKind k, const std::string &key) {
+          if (everything) return true;
+          return std::any_of(req.items().begin(), req.items().end(),
+                             [&](const auto &it) { return it.kind() == k && (it.variable().empty() || it.variable() == key); });
+        };
+        std::set<std::string> asked;
+        for (const auto &it : req.items())
+          if ((it.kind() == pb::FUNCTION_MARKUP_KIND_VARIABLE_NAME || it.kind() == pb::FUNCTION_MARKUP_KIND_VARIABLE_TYPE) &&
+              !it.variable().empty())
+            asked.insert(it.variable());
+        std::set<std::string> found;
+        // Names the target's variables have (one of them taken by a port can't go to another).
+        std::map<std::string, std::string> taken;  // name -> storage key
+        for (const pb::Variable &v : ft.variables())
+          if (v.kind() != pb::VARIABLE_KIND_GLOBAL) taken.emplace(v.name(), v.storage_key());
+        for (const VariablePairing &vp : pairs) {
+          if (vp.a < 0) continue;
+          const pb::Variable &x = ff.variables(vp.a);
+          if (vp.b < 0) continue;
+          found.insert(x.storage_key());
+          const pb::Variable &y = ft.variables(vp.b);
+          const CompareVariableInfo xi = VariableInfo(x), yi = VariableInfo(y);
+          const bool explicit_item = asked.contains(x.storage_key());
+          if (wanted(pb::FUNCTION_MARKUP_KIND_VARIABLE_NAME, x.storage_key())) {
+            if (!xi.named) {
+              if (explicit_item) resp.add_warnings(x.name() + " is a default name: not ported");
+            } else if (x.name() != y.name()) {
+              auto clash = taken.find(x.name());
+              if (!req.overwrite() && yi.named) {
+                resp.set_skipped(resp.skipped() + 1);
+              } else if (clash != taken.end() && clash->second != y.storage_key()) {
+                resp.add_warnings(req.to_program() + "@0x" + Hex(to) + " already has a variable named " + x.name() + ": " +
+                                  y.name() + " keeps its name");
+                resp.set_skipped(resp.skipped() + 1);
+              } else {
+                taken.erase(y.name());
+                taken[x.name()] = y.storage_key();
+                pb::AssertionBody body;
+                auto *t = body.mutable_rename()->mutable_target()->mutable_local();
+                t->mutable_function()->set_offset(to);
+                t->set_storage_key(y.storage_key());
+                body.mutable_rename()->set_name(x.name());
+                const facts::FactKey src = vf.Key(FactKind::Name, from, "local:" + x.storage_key());
+                add(vt.Key(FactKind::Name, to, "local:" + y.storage_key()), x.name(), std::move(body), ported_from(from, &src));
+                note(pb::FUNCTION_MARKUP_KIND_VARIABLE_NAME, to, y.storage_key(), {}, y.name(), x.name());
+                resp.set_variable_names(resp.variable_names() + 1);
+              }
+            }
+          }
+          if (wanted(pb::FUNCTION_MARKUP_KIND_VARIABLE_TYPE, x.storage_key())) {
+            const std::string &tx_ = x.type().display(), &ty = y.type().display();
+            if (tx_.empty() || tx_.starts_with("undefined") || (!xi.typed && !explicit_item)) {
+              if (explicit_item && (tx_.empty() || tx_.starts_with("undefined")))
+                resp.add_warnings(x.name() + "'s type " + tx_ + " is undefined: not ported");
+            } else if (tx_ != ty) {
+              if (!req.overwrite() && yi.typed) {
+                resp.set_skipped(resp.skipped() + 1);
+              } else {
+                const facts::FactKey src = vf.Key(FactKind::Type, from, "local:" + x.storage_key());
+                std::string value = vf.Text(src);
+                if (!value.starts_with("h:") && !value.starts_with("c:"))
+                  value = !x.type().hash().empty() ? "h:" + x.type().hash() : "c:" + tx_;
+                if (value.starts_with("h:") && !define_closure(value.substr(2))) value = "c:" + tx_;
+                pb::AssertionBody body;
+                auto *t = body.mutable_retype()->mutable_target()->mutable_local();
+                t->mutable_function()->set_offset(to);
+                t->set_storage_key(y.storage_key());
+                if (value.starts_with("h:")) body.mutable_retype()->mutable_type()->set_type_hash(value.substr(2));
+                else body.mutable_retype()->mutable_type()->set_c_declaration(value.substr(2));
+                add(vt.Key(FactKind::Type, to, "local:" + y.storage_key()), value, std::move(body), ported_from(from, &src));
+                note(pb::FUNCTION_MARKUP_KIND_VARIABLE_TYPE, to, y.storage_key(), {}, ty, tx_);
+                resp.set_variable_types(resp.variable_types() + 1);
+              }
+            }
+          }
+        }
+        for (const std::string &k : asked)
+          if (!found.contains(k)) resp.add_warnings("no variable of " + from_where + " with storage key " + k + " has a partner");
+      }
+    }
+
+    // Comments: the function's at the entry, the others at their
+    // instruction's partner.
+    if (wants(pb::FUNCTION_MARKUP_KIND_COMMENT)) {
+      std::vector<const pb::FunctionMarkupItem *> asked;
+      for (const auto &it : req.items())
+        if (it.kind() == pb::FUNCTION_MARKUP_KIND_COMMENT) asked.push_back(&it);
+      auto wanted = [&](const facts::FactKey &k) {
+        if (everything) return true;
+        return std::any_of(asked.begin(), asked.end(), [&](const pb::FunctionMarkupItem *it) {
+          return (!it->has_address() || it->address().offset() == k.addr.offset) && (it->comment_kind().empty() || it->comment_kind() == k.sub);
+        });
+      };
+      std::uint32_t considered = 0;
+      for (const facts::FactKey &k : BodyCommentKeys(vf, from)) {
+        if (!wanted(k)) continue;
+        const std::string text = vf.Text(k);
+        if (text.empty()) continue;
+        ++considered;
+        std::optional<std::uint64_t> at;
+        if (k.addr.offset == from && IsFunctionComment(k.sub)) at = to;
+        else if (auto it = partners.a2b.find(k.addr.offset); it != partners.a2b.end()) at = it->second;
+        if (!at) {
+          if (!everything) resp.add_warnings("the instruction at 0x" + Hex(k.addr.offset) + " has no partner: its " + k.sub + " comment is not ported");
+          else resp.set_skipped(resp.skipped() + 1);
+          continue;
+        }
+        const facts::FactKey kb = vt.Key(FactKind::Comment, *at, k.sub);
+        const std::string cur = vt.Text(kb);
+        if (cur == text) continue;
+        if (!cur.empty() && !req.overwrite()) {
+          resp.set_skipped(resp.skipped() + 1);
+          continue;
+        }
+        pb::AssertionBody body;
+        body.mutable_comment()->mutable_address()->set_offset(*at);
+        body.mutable_comment()->set_kind(CommentKindOf(k.sub));
+        body.mutable_comment()->set_text(text);
+        add(kb, text, std::move(body), ported_from(k.addr.offset, &k));
+        note(pb::FUNCTION_MARKUP_KIND_COMMENT, *at, {}, k.sub, cur, text);
+        resp.set_comments(resp.comments() + 1);
+      }
+      if (!everything && considered == 0) resp.add_warnings("no comment to port at what was asked");
+    }
+
+    // Globals and callees: what the function's aligned instructions
+    // reference (data references and calls, in order, where both
+    // instructions have as many), to their names, types and signatures.
+    const bool globals = wants(pb::FUNCTION_MARKUP_KIND_GLOBAL_NAME) || wants(pb::FUNCTION_MARKUP_KIND_GLOBAL_TYPE);
+    const bool callees = wants(pb::FUNCTION_MARKUP_KIND_CALLEE_NAME) || wants(pb::FUNCTION_MARKUP_KIND_CALLEE_SIGNATURE);
+    if (globals || callees) {
+      std::map<std::uint64_t, std::uint64_t> gpair, cpair;  // source -> target
+      std::set<std::uint64_t> gconflict, cconflict;
+      auto refs = [](View &v, std::uint64_t at, bool call) {
+        std::vector<const StaticXref *> out;
+        for (const StaticXref *x : v.xrefs().from(at, at)) {
+          const bool is_call = x->kind == pb::XREF_KIND_CALL;
+          const bool is_data = x->kind == pb::XREF_KIND_DATA_READ || x->kind == pb::XREF_KIND_DATA_WRITE || x->kind == pb::XREF_KIND_DATA_POINTER;
+          if (call ? is_call : is_data) out.push_back(x);
+        }
+        std::stable_sort(out.begin(), out.end(), [](const StaticXref *a, const StaticXref *b) {
+          return std::tie(a->operand, a->kind) < std::tie(b->operand, b->kind);
+        });
+        return out;
+      };
+      auto pair_up = [](std::map<std::uint64_t, std::uint64_t> &pairs, std::set<std::uint64_t> &conflict, std::uint64_t a, std::uint64_t b) {
+        auto [it, fresh] = pairs.emplace(a, b);
+        if (!fresh && it->second != b) conflict.insert(a);
+      };
+      std::vector<std::pair<std::uint64_t, std::uint64_t>> insns(partners.a2b.begin(), partners.a2b.end());
+      std::sort(insns.begin(), insns.end());
+      for (const auto &[ia, ib] : insns) {
+        if (callees) {
+          auto ca = refs(vf, ia, true), cb = refs(vt, ib, true);
+          if (ca.size() == cb.size())
+            for (std::size_t i = 0; i < ca.size(); ++i)
+              if (vf.functions().at(ca[i]->to) && vt.functions().at(cb[i]->to) && ca[i]->to != from) pair_up(cpair, cconflict, ca[i]->to, cb[i]->to);
+        }
+        if (globals) {
+          auto da = refs(vf, ia, false), db = refs(vt, ib, false);
+          if (da.size() == db.size())
+            for (std::size_t i = 0; i < da.size(); ++i)
+              if (!vf.functions().at(da[i]->to) && !vt.functions().at(db[i]->to)) pair_up(gpair, gconflict, da[i]->to, db[i]->to);
+        }
+      }
+      auto wanted_at = [&](pb::FunctionMarkupKind k, std::uint64_t a) {
+        if (everything) return true;
+        return std::any_of(req.items().begin(), req.items().end(),
+                           [&](const auto &it) { return it.kind() == k && (!it.has_address() || it.address().offset() == a); });
+      };
+      std::set<std::uint64_t> asked_globals, asked_callees;
+      for (const auto &it : req.items()) {
+        if (!it.has_address()) continue;
+        if (it.kind() == pb::FUNCTION_MARKUP_KIND_GLOBAL_NAME || it.kind() == pb::FUNCTION_MARKUP_KIND_GLOBAL_TYPE) asked_globals.insert(it.address().offset());
+        if (it.kind() == pb::FUNCTION_MARKUP_KIND_CALLEE_NAME || it.kind() == pb::FUNCTION_MARKUP_KIND_CALLEE_SIGNATURE) asked_callees.insert(it.address().offset());
+      }
+      // A default name: a function's, or data's (DAT_, PTR_, s_, ... as the listing names it).
+      auto is_default = [](const std::string &n) {
+        if (diff::is_default_name(n)) return true;
+        for (const char *prefix : {"DAT_", "PTR_", "s_", "u_", "UNK_", "BYTE_", "WORD_", "DWORD_", "QWORD_"})
+          if (n.rfind(prefix, 0) == 0) return true;
+        return false;
+      };
+      // A name to its partner (a global's or a callee's).
+      auto port_name = [&](pb::FunctionMarkupKind k, std::uint64_t a, std::uint64_t b, bool explicit_item) {
+        const std::string name = vf.Symbol(a), cur = vt.Symbol(b);
+        if (name.empty() || is_default(name)) {
+          if (explicit_item) resp.add_warnings("the name " + (name.empty() ? "of 0x" + Hex(a) : name) + " is a default one: not ported");
+          return;
+        }
+        if (cur == name) return;
+        if (!req.overwrite() && !cur.empty() && !is_default(cur)) {
+          resp.set_skipped(resp.skipped() + 1);
+          return;
+        }
+        pb::AssertionBody body;
+        body.mutable_rename()->mutable_target()->mutable_address()->set_offset(b);
+        body.mutable_rename()->set_name(name);
+        const facts::FactKey src = vf.Key(FactKind::Name, a);
+        add(vt.Key(FactKind::Name, b), name, std::move(body), ported_from(a, &src));
+        note(k, b, {}, {}, cur, name);
+        if (k == pb::FUNCTION_MARKUP_KIND_GLOBAL_NAME) resp.set_globals(resp.globals() + 1);
+        else resp.set_callees(resp.callees() + 1);
+      };
+      // A type or a prototype someone set (a TYPE assertion) to its partner.
+      auto port_type = [&](pb::FunctionMarkupKind k, std::uint64_t a, std::uint64_t b, bool explicit_item) {
+        const facts::FactKey ka = vf.Key(FactKind::Type, a), kb = vt.Key(FactKind::Type, b);
+        std::string value = vf.Text(ka);
+        if (value.empty()) {
+          if (explicit_item) resp.add_warnings("0x" + Hex(a) + " (" + vf.Symbol(a) + ") has no type set: not ported");
+          return;
+        }
+        const std::string cur = vt.Text(kb);
+        if (cur == value) return;
+        if (!req.overwrite() && !cur.empty()) {
+          resp.set_skipped(resp.skipped() + 1);
+          return;
+        }
+        const bool callee = k == pb::FUNCTION_MARKUP_KIND_CALLEE_SIGNATURE;
+        const std::string shown = value.starts_with("h:") ? (callee ? vf.PrototypeDisplay(value.substr(2), vt.Symbol(b)) : vf.TypeDisplay(value.substr(2)))
+                                  : value.starts_with("c:") ? value.substr(2) : value;
+        if (value.starts_with("h:") && !define_closure(value.substr(2))) value = "c:" + shown;
+        pb::AssertionBody body;
+        body.mutable_retype()->mutable_target()->mutable_address()->set_offset(b);
+        if (value.starts_with("h:")) body.mutable_retype()->mutable_type()->set_type_hash(value.substr(2));
+        else body.mutable_retype()->mutable_type()->set_c_declaration(value.starts_with("c:") ? value.substr(2) : value);
+        add(kb, value, std::move(body), ported_from(a, &ka));
+        note(k, b, {}, {}, cur.starts_with("h:") ? vt.TypeDisplay(cur.substr(2)) : cur.starts_with("c:") ? cur.substr(2) : cur, shown);
+        if (callee) resp.set_callees(resp.callees() + 1);
+        else resp.set_globals(resp.globals() + 1);
+      };
+      for (const auto &[a, b] : gpair) {
+        if (gconflict.contains(a)) {
+          if (asked_globals.contains(a)) resp.add_warnings("0x" + Hex(a) + " pairs with more than one global: not ported");
+          continue;
+        }
+        const bool ex = asked_globals.contains(a);
+        if (wanted_at(pb::FUNCTION_MARKUP_KIND_GLOBAL_NAME, a)) port_name(pb::FUNCTION_MARKUP_KIND_GLOBAL_NAME, a, b, ex);
+        if (wanted_at(pb::FUNCTION_MARKUP_KIND_GLOBAL_TYPE, a)) port_type(pb::FUNCTION_MARKUP_KIND_GLOBAL_TYPE, a, b, ex);
+      }
+      for (const auto &[a, b] : cpair) {
+        if (cconflict.contains(a)) {
+          if (asked_callees.contains(a)) resp.add_warnings("0x" + Hex(a) + " pairs with more than one callee: not ported");
+          continue;
+        }
+        const bool ex = asked_callees.contains(a);
+        if (wanted_at(pb::FUNCTION_MARKUP_KIND_CALLEE_NAME, a)) port_name(pb::FUNCTION_MARKUP_KIND_CALLEE_NAME, a, b, ex);
+        if (wanted_at(pb::FUNCTION_MARKUP_KIND_CALLEE_SIGNATURE, a)) port_type(pb::FUNCTION_MARKUP_KIND_CALLEE_SIGNATURE, a, b, ex);
+      }
+      for (std::uint64_t a : asked_globals)
+        if (!gpair.contains(a)) resp.add_warnings("0x" + Hex(a) + " isn't referenced from an instruction with a partner: nothing to port it to");
+      for (std::uint64_t a : asked_callees)
+        if (!cpair.contains(a)) resp.add_warnings("0x" + Hex(a) + " isn't called from an instruction with a partner: nothing to port it to");
+    }
+
+    if (req.dry_run() || ops.empty()) {
+      std::lock_guard lock(core_->mu);
+      SetHeadSnapshot(p, resp.mutable_snapshot());
+      return Status::Ok();
+    }
+    if (prov.reason().empty()) prov.set_reason("ported from " + from_where);
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    for (PlannedOp &op : ops) {
+      op.prov = prov;
+      pb::Assertion meta;
+      *meta.mutable_provenance() = op.prov;
+      if (op.body.kind_case() != pb::AssertionBody::KIND_NOT_SET) *meta.mutable_body() = op.body;
+      meta.set_revision(rev);
+      if (op.ported) *meta.mutable_ported_from() = *op.ported;
+      resp.add_seqs(tx.assert_fact(ToFacts(op.prov), op.key, op.value, 0, Deterministic(meta)));
+    }
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+ private:
+  // A session read: the project at a revision, and A's and B's programs.
+  struct DiffRead {
+    Read r, a, b;
+    DiffSessionRecord session;
+  };
+
+  Status ResolveSession(const CallContext &ctx, const std::string &project_id, const std::string &session_id,
+                        const pb::ReadOptions &read, const std::string &page_token, DiffRead &out) {
+    if (session_id.empty()) return Error(StatusCode::kInvalidArgument, "session_id is required");
+    std::uint64_t token_revision = 0;
+    if (!page_token.empty() && !ParsePageToken(page_token, token_revision, out.r.page_offset))
+      return Error(StatusCode::kInvalidArgument, "malformed page_token");
+    if (auto st = ResolveProject(ctx, project_id, read, token_revision, out.r); !st.ok()) return st;
+    return SessionAt(session_id, out);
+  }
+
+  // The session as of out.r's revision, and its programs' reads.
+  Status SessionAt(const std::string &session_id, DiffRead &out) {
+    auto sessions = out.r.snapshot->get<q::DiffSessions>(kProjectSpace);
+    auto it = std::find_if(sessions->begin(), sessions->end(), [&](const DiffSessionRecord &s) { return s.id == session_id; });
+    if (it == sessions->end())
+      return Error(StatusCode::kNotFound, "no diff session " + session_id + " in project " + out.r.project->id);
+    out.session = *it;
+    return ProgramsAt(out);
+  }
+
+  // out.session's programs as of out.r's revision (both may be one program).
+  Status ProgramsAt(DiffRead &out) {
+    std::lock_guard lock(core_->mu);
+    for (auto [side, id] : {std::pair{&out.a, out.session.program_a}, std::pair{&out.b, out.session.program_b}}) {
+      auto pit = out.r.project->programs.find(id);
+      if (pit == out.r.project->programs.end() || pit->second->first_revision > out.r.revision)
+        return Error(StatusCode::kFailedPrecondition,
+                     "program " + id + " is not in the project at revision " + std::to_string(out.r.revision));
+      *side = out.r;
+      side->program = pit->second;
+    }
+    return Status::Ok();
+  }
+
+  // Under the project's writer: the session at head.
+  Status ReadSessionAtHead(Project &p, const DiffSessionRecord &s, DiffRead &out) {
+    {
+      std::lock_guard lock(core_->mu);
+      if (auto st = PinLocked(p, p.head, out.r); !st.ok()) return st;
+    }
+    return SessionAt(s.id, out);
+  }
+
+  static std::string Hex(std::uint64_t v) {
+    char buf[24];
+    std::snprintf(buf, sizeof buf, "%llx", static_cast<unsigned long long>(v));
+    return buf;
+  }
+
+  static Status UniquePairs(const std::vector<std::tuple<std::uint64_t, std::uint64_t, diff::Tier, float>> &pairs) {
+    std::set<std::uint64_t> as, bs;
+    for (const auto &[a, b, t, c] : pairs) {
+      if (!as.insert(a).second) return Error(StatusCode::kInvalidArgument, "0x" + Hex(a) + " appears in two pairs");
+      if (!bs.insert(b).second) return Error(StatusCode::kInvalidArgument, "0x" + Hex(b) + " appears in two pairs");
+    }
+    return Status::Ok();
+  }
+
+  static Status CheckPairs(View &va, View &vb, const std::vector<std::tuple<std::uint64_t, std::uint64_t, diff::Tier, float>> &pairs) {
+    for (const auto &[a, b, t, c] : pairs) {
+      if (!va.functions().at(a)) return Error(StatusCode::kInvalidArgument, "no function at 0x" + Hex(a) + " in " + va.id());
+      if (!vb.functions().at(b)) return Error(StatusCode::kInvalidArgument, "no function at 0x" + Hex(b) + " in " + vb.id());
+    }
+    return Status::Ok();
+  }
+
+  // The session's decisions at a view of program B: accepted and applied
+  // matches (effective values), and rejected pairs.
+  struct SessionDecisions {
+    struct Entry {
+      diff::MatchValue value;
+      facts::FactKey key;
+    };
+    std::map<std::uint64_t, Entry> by_b;
+    std::map<std::uint64_t, std::uint64_t> b_of_a;
+    std::map<std::pair<std::uint64_t, std::uint64_t>, facts::FactKey> rejected;
+  };
+
+  static SessionDecisions Decisions(View &vb, const std::string &session) {
+    SessionDecisions out;
+    const facts::Snapshot &snap = vb.snapshot();
+    auto buckets = snap.get<facts::AssertedBuckets>({FactKind::Match, vb.space()});
+    for (std::uint64_t bucket : *buckets) {
+      auto keys = snap.get<facts::AssertedKeys>(facts::BucketKey{FactKind::Match, vb.space(), bucket});
+      for (const auto &[offset, sub] : *keys) {
+        auto s = diff::parse_match_sub(sub);
+        if (!s || s->session != session) continue;
+        const facts::FactKey key = vb.Key(FactKind::Match, offset, sub);
+        auto v = diff::MatchValue::parse(vb.Text(key));
+        if (!v) continue;
+        if (s->rejected_a) {
+          if (v->rejected) out.rejected.emplace(std::pair{*s->rejected_a, offset}, key);
+        } else if (!v->rejected) {
+          out.by_b.emplace(offset, SessionDecisions::Entry{*v, key});
+          out.b_of_a.emplace(v->a, offset);
+        }
+      }
+    }
+    return out;
+  }
+
+  // Live assertions on a key (effective or shadowed): what undoing a decision retracts.
+  static std::vector<Seq> LiveAssertions(Project &p, const facts::FactKey &key, Seq upto) {
+    std::vector<Seq> out;
+    // `key` is as read (moved in a rebased program); the log's is stored.
+    facts::FactKey stored = key;
+    if (key.kind != FactKind::Rebase)
+      if (const facts::Shift sh = ShiftOf(p, key.addr.space, upto); !sh.identity())
+        stored = facts::shifted_key(Relocator().get(), key, sh.inverse());
+    for (const facts::BlameEntry &e : p.log().blame(stored, upto).candidates)
+      if (e.op.kind == facts::OpKind::Assert &&
+          (e.status == facts::OpStatus::Effective || e.status == facts::OpStatus::Shadowed))
+        out.push_back(e.op.seq);
+    return out;
+  }
+
+  static Seq AssertMatch(facts::FactDb::Transaction &tx, View &vb, const std::string &session, const pb::Provenance &prov,
+                         std::uint64_t rev, std::uint64_t a, std::uint64_t b, diff::MatchState state, diff::Tier tier,
+                         float conf) {
+    pb::AssertionBody body;
+    auto *m = body.mutable_diff_match();
+    m->set_session_id(session);
+    m->mutable_entry_a()->set_offset(a);
+    m->mutable_entry_b()->set_offset(b);
+    m->set_status(ToApi(state));
+    m->set_tier(ToApi(tier));
+    m->set_confidence(conf);
+    return tx.assert_fact(ToFacts(prov), vb.Key(FactKind::Match, b, diff::match_sub(session)),
+                          diff::MatchValue{state, false, a, tier, conf}.text(), 0, Meta(prov, &body, rev));
+  }
+
+  // --- ApplyMarkup's plan ---
+
+  struct PlannedOp {
+    facts::FactKey key;
+    FactValue value;
+    pb::AssertionBody body;
+    pb::Provenance prov;
+    std::optional<pb::PortedFrom> ported;
+    bool is_match = false;
+    int depends_plan = -1;  // index of the Match op this run records
+    Seq depends_seq = 0;    // or an existing Match assertion
+  };
+  struct MarkupPlan {
+    pb::DiffApplyPolicy policy = pb::DIFF_APPLY_POLICY_SAFE;
+    std::vector<PlannedOp> ops;
+    std::uint32_t pairs = 0, matches = 0, names = 0, comments = 0, prototypes = 0, types = 0, skipped = 0;
+  };
+
+  // Whether B's asserted value at `key` may be replaced: an earlier port
+  // of this session (SAFE), any value but a user's (REPLACE).
+  static bool Replaceable(View &vb, const facts::FactKey &key, const std::string &session, pb::DiffApplyPolicy policy) {
+    auto w = vb.Winner(key);
+    if (!w) return true;
+    if (w->prov.kind == facts::ProvenanceKind::Migration && w->prov.id == "diff" && w->prov.version == session) return true;
+    return policy == pb::DIFF_APPLY_POLICY_REPLACE && w->prov.kind != facts::ProvenanceKind::User;
+  }
+
+  static pb::PortedFrom PortedFromOf(View &va, const DiffSessionRecord &s, std::uint64_t function, std::uint64_t address,
+                                     const facts::FactKey &source) {
+    pb::PortedFrom out;
+    out.set_session_id(s.id);
+    out.set_program_id(s.program_a);
+    out.mutable_function()->set_offset(function);
+    out.mutable_address()->set_offset(address);
+    if (auto w = va.Winner(source)) {
+      out.set_source_seq(w->seq);
+      *out.mutable_source_id() = ToPbId(w->id);
+    }
+    return out;
+  }
+
+  // What porting markup over one pair would assert, appended to `plan`.
+  // `partner_of` maps an instruction of A to its partner in B (the
+  // instruction map), for comments of a pair whose code changed.
+  static void PlanPair(View &va, View &vb, const DiffSessionRecord &s, std::uint64_t a, std::uint64_t b, bool unchanged,
+                       const std::set<int> &items, const pb::Provenance &prov, MarkupPlan &plan,
+                       std::map<std::string, std::string> &types_defined,
+                       const std::function<std::optional<std::uint64_t>(std::uint64_t)> &partner_of) {
+    auto add = [&](facts::FactKey key, FactValue value, pb::AssertionBody body, pb::PortedFrom from) {
+      PlannedOp op;
+      op.key = std::move(key);
+      op.value = std::move(value);
+      op.body = std::move(body);
+      op.prov = prov;
+      op.ported = std::move(from);
+      plan.ops.push_back(std::move(op));
+    };
+    if (items.contains(pb::DIFF_MARKUP_ITEM_NAMES)) {
+      const std::string name = va.Symbol(a);
+      if (!name.empty() && !diff::is_default_name(name)) {
+        const facts::FactKey kb = vb.Key(FactKind::Name, b);
+        const std::string cur = vb.Text(kb);
+        const std::string derived = vb.DefaultName(b);
+        // Only over default names, whatever the policy: an asserted name
+        // goes only when this session's earlier port made it.
+        bool ok = false;
+        if (!cur.empty()) ok = cur != name && Replaceable(vb, kb, s.id, pb::DIFF_APPLY_POLICY_SAFE);
+        else ok = diff::is_default_name(derived) && derived != name;
+        if (ok) {
+          pb::AssertionBody body;
+          body.mutable_rename()->mutable_target()->mutable_address()->set_offset(b);
+          body.mutable_rename()->set_name(name);
+          add(kb, name, std::move(body), PortedFromOf(va, s, a, a, va.Key(FactKind::Name, a)));
+          ++plan.names;
+        } else if ((cur.empty() ? derived : cur) != name) {
+          ++plan.skipped;
+        }
+      }
+    }
+    if (items.contains(pb::DIFF_MARKUP_ITEM_COMMENTS)) {
+      // Function-level comments at the entry; every other comment in the
+      // body at the same offset when the bytes are equal, else at its
+      // instruction's partner in the instruction map (none: left alone).
+      std::vector<std::pair<facts::FactKey, std::uint64_t>> keys;
+      for (const facts::FactKey &k : BodyCommentKeys(va, a)) {
+        if (k.addr.offset == a && IsFunctionComment(k.sub)) keys.emplace_back(k, b);
+        else if (unchanged) keys.emplace_back(k, b + (k.addr.offset - a));
+        else if (auto y = partner_of(k.addr.offset)) keys.emplace_back(k, *y);
+      }
+      for (const auto &[k, at] : keys) {
+        const std::string text = va.Text(k);
+        if (text.empty()) continue;
+        const facts::FactKey kb = vb.Key(FactKind::Comment, at, k.sub);
+        const std::string cur = vb.Text(kb);
+        std::string port = text;
+        if (cur == text || (!cur.empty() && cur.find(text) != std::string::npos)) continue;
+        if (!cur.empty()) {
+          if (plan.policy == pb::DIFF_APPLY_POLICY_ADD && Replaceable(vb, kb, s.id, pb::DIFF_APPLY_POLICY_REPLACE))
+            port = cur + "\n" + text;
+          else if (!Replaceable(vb, kb, s.id, plan.policy)) {
+            ++plan.skipped;
+            continue;
+          }
+        }
+        pb::AssertionBody body;
+        body.mutable_comment()->mutable_address()->set_offset(at);
+        body.mutable_comment()->set_kind(CommentKindOf(k.sub));
+        body.mutable_comment()->set_text(port);
+        add(kb, port, std::move(body), PortedFromOf(va, s, a, k.addr.offset, k));
+        ++plan.comments;
+      }
+    }
+    if (items.contains(pb::DIFF_MARKUP_ITEM_PROTOTYPES)) {
+      const facts::FactKey ka = va.Key(FactKind::Type, a);
+      const std::string type = va.Text(ka);
+      const facts::FactKey kb = vb.Key(FactKind::Type, b);
+      const std::string cur = vb.Text(kb);
+      if (!type.empty() && cur != type) {
+        if (!cur.empty() && !Replaceable(vb, kb, s.id, plan.policy)) {
+          ++plan.skipped;
+        } else {
+          if (type.starts_with("h:")) {
+            // The type closure, defined in B by hash; names are not bound.
+            auto closure = va.snapshot().get<q::Types>({va.id(), type.substr(2)});
+            for (const auto &[hash, record] : *closure) {
+              if (types_defined.contains(hash) || vb.Asserted(TypeDefKey(vb.space(), hash))) continue;
+              types_defined.emplace(hash, record);
+              add(TypeDefKey(vb.space(), hash), record, {}, PortedFromOf(va, s, a, a, TypeDefKey(va.space(), hash)));
+              ++plan.types;
+            }
+          }
+          pb::AssertionBody body;
+          body.mutable_retype()->mutable_target()->mutable_address()->set_offset(b);
+          if (type.starts_with("h:")) body.mutable_retype()->mutable_type()->set_type_hash(type.substr(2));
+          else body.mutable_retype()->mutable_type()->set_c_declaration(type.starts_with("c:") ? type.substr(2) : type);
+          add(kb, type, std::move(body), PortedFromOf(va, s, a, a, ka));
+          ++plan.prototypes;
+        }
+      }
+    }
+  }
+
+  // A function's comments: every comment key in its body.
+  static std::vector<facts::FactKey> BodyCommentKeys(View &v, std::uint64_t entry) {
+    std::vector<facts::FactKey> keys;
+    if (const Func *f = v.functions().at(entry))
+      for (auto [first, last] : f->body)
+        for (std::uint64_t bucket = first >> facts::kBucketShift; bucket <= last >> facts::kBucketShift; ++bucket) {
+          auto in = v.snapshot().get<facts::AssertedKeys>(facts::BucketKey{FactKind::Comment, v.space(), bucket});
+          for (const auto &[offset, sub] : *in)
+            if (offset >= first && offset <= last) keys.push_back(v.Key(FactKind::Comment, offset, sub));
+        }
+    std::sort(keys.begin(), keys.end(), [](const facts::FactKey &x, const facts::FactKey &y) {
+      return std::tie(x.addr.offset, x.sub) < std::tie(y.addr.offset, y.sub);
+    });
+    keys.erase(std::unique(keys.begin(), keys.end(), [](const facts::FactKey &x, const facts::FactKey &y) {
+                 return x.addr.offset == y.addr.offset && x.sub == y.sub;
+               }),
+               keys.end());
+    return keys;
+  }
+
+  // A comment that belongs to the function at its entry (it goes to the
+  // partner's entry), not to the entry's instruction.
+  static bool IsFunctionComment(std::string_view sub) { return sub == "plate" || sub == "pre" || sub == "repeatable"; }
+
+  // The instruction map of two functions, both ways: each instruction's
+  // partner (EQUAL or CHANGED) by address.
+  struct InsnPartners {
+    std::unordered_map<std::uint64_t, std::uint64_t> a2b, b2a;
+  };
+  static InsnPartners InstructionPartners(const facts::Snapshot &snap, const std::string &program_a,
+                                          const std::string &program_b, std::uint64_t a, std::uint64_t b) {
+    InsnPartners out;
+    auto ca = snap.get<diff::Code>({AnalysisKey(program_a), a});
+    auto cb = snap.get<diff::Code>({AnalysisKey(program_b), b});
+    auto c = snap.get<diff::Correlate>({program_a, program_b, a, b});
+    for (std::size_t i = 0; i < c->insn_a.size() && i < ca->insns.size(); ++i) {
+      const std::int32_t j = c->insn_a[i];
+      if (j < 0 || static_cast<std::size_t>(j) >= cb->insns.size()) continue;
+      out.a2b.emplace(ca->insns[i].address, cb->insns[static_cast<std::size_t>(j)].address);
+      out.b2a.emplace(cb->insns[static_cast<std::size_t>(j)].address, ca->insns[i].address);
+    }
+    return out;
+  }
+
+  // --- Comparing any two functions ---
+
+  // Without a session: which calls of the two functions correspond. In
+  // one program a callee is itself; across two, callees with the same name
+  // (not a default one, unique on each side) correspond. The pair compared
+  // corresponds too (recursion).
+  diff::MatchResult CallPartners(DiffRead &d, View &va, View &vb, std::uint64_t a, std::uint64_t b) {
+    auto ca = d.r.snapshot->get<diff::Code>({AnalysisKey(d.session.program_a), a});
+    auto cb = d.r.snapshot->get<diff::Code>({AnalysisKey(d.session.program_b), b});
+    auto targets = [](const diff::FunctionCode &c) {
+      std::set<std::uint64_t> out;
+      for (const diff::CodeInsn &i : c.insns)
+        for (const diff::CodeRef &r : i.refs)
+          if (r.kind != diff::CodeRef::Kind::data) out.insert(r.to);
+      return out;
+    };
+    std::map<std::uint64_t, std::uint64_t> pairs{{a, b}};
+    const std::set<std::uint64_t> ta = targets(*ca), tb = targets(*cb);
+    if (d.session.program_a == d.session.program_b) {
+      for (const std::set<std::uint64_t> *t : {&ta, &tb})
+        for (std::uint64_t x : *t)
+          if (va.functions().at(x) && !pairs.contains(x)) pairs.emplace(x, x);
+    } else {
+      auto by_name = [](View &v, const std::set<std::uint64_t> &t) {
+        std::map<std::string, std::uint64_t> out;
+        std::set<std::string> twice;
+        for (std::uint64_t x : t) {
+          if (!v.functions().at(x)) continue;
+          const std::string n = v.Symbol(x);
+          if (n.empty() || diff::is_default_name(n)) continue;
+          if (!out.emplace(n, x).second) twice.insert(n);
+        }
+        for (const std::string &n : twice) out.erase(n);
+        return out;
+      };
+      const auto na = by_name(va, ta), nb = by_name(vb, tb);
+      std::set<std::uint64_t> used_b{b};
+      for (const auto &[n, x] : na)
+        if (auto it = nb.find(n); it != nb.end() && !pairs.contains(x) && used_b.insert(it->second).second)
+          pairs.emplace(x, it->second);
+    }
+    diff::MatchResult out;
+    for (const auto &[x, y] : pairs) {
+      diff::Match m;
+      m.a = x;
+      m.b = y;
+      m.tier = diff::Tier::accepted;
+      m.confidence = 1;
+      m.similarity = 1;
+      out.matches.push_back(m);
+    }
+    return out;
+  }
+
+  // One function decompiled as the API shows it (names and types
+  // overlaid); an error message when it can't be.
+  std::string DecompileFor(const CallContext &ctx, View &v, std::uint64_t entry, pb::DecompiledFunction &out) {
+    const Func *f = v.functions().at(entry);
+    if (!f) return "no function at 0x" + Hex(entry);
+    try {
+      DecompileLimitsScope scope(LimitsFor(ctx, 0));
+      facts::Ref<DecompileOutput> raw = v.read().snapshot->get<q::Decompile>({v.id(), entry});
+      std::shared_ptr<const DecompileOutput> escalated;
+      if (raw->failure) escalated = v.program().Escalated(raw->failure->bundle_hash);
+      const DecompileOutput &use = escalated ? *escalated : *raw;
+      if (use.failure) return v.Symbol(entry) + " didn't decompile (" + decompd::failure_kind_name(use.failure->kind) + ")";
+      Overlay(v, *f, use, false, &out);
+    } catch (const DecompileStoppedError &e) {
+      return e.what();
+    }
+    return {};
+  }
+
+  // Whether a decompiled prototype was set by someone (an assertion, debug
+  // info, a library, the demangler), not guessed by the decompiler.
+  static bool SignatureSet(const pb::DecompiledFunction &f) {
+    const pb::FactOrigin &o = f.prototype().origin();
+    return o.has_asserted() || (o.has_derived() && o.derived().rule() != "decompile.ghidra.prototype");
+  }
+
+  struct CompareVariableInfo {
+    bool named = false, typed = false;
+  };
+  // Named: asserted, or a name the decompiler doesn't make up (debug
+  // info's). Typed: asserted, or it came with such a name.
+  static CompareVariableInfo VariableInfo(const pb::Variable &v) {
+    CompareVariableInfo out;
+    const bool name_asserted = v.name_origin().has_asserted();
+    out.named = name_asserted || !IsDefaultVariableName(v.name());
+    out.typed = v.type_origin().has_asserted() ||
+                (out.named && !name_asserted && !v.type().display().empty() && !v.type().display().starts_with("undefined"));
+    return out;
+  }
+
+  static void FillCompareVariable(const pb::Variable &v, pb::CompareVariable &out) {
+    out.set_storage_key(v.storage_key());
+    out.set_name(v.name());
+    out.set_type(v.type().display());
+    out.set_kind(v.kind());
+    if (v.has_parameter_index()) out.set_parameter_index(v.parameter_index());
+    const CompareVariableInfo info = VariableInfo(v);
+    out.set_named(info.named);
+    out.set_typed(info.typed);
+  }
+
+  void FillCompareMarkup(const CallContext &ctx, DiffRead &d, View &va, View &vb, std::uint64_t a, std::uint64_t b,
+                         pb::CompareMarkup &out) {
+    const InsnPartners partners = InstructionPartners(*d.r.snapshot, d.session.program_a, d.session.program_b, a, b);
+    pb::DecompiledFunction fa, fb;
+    out.set_error_a(DecompileFor(ctx, va, a, fa));
+    out.set_error_b(DecompileFor(ctx, vb, b, fb));
+    if (out.error_a().empty()) {
+      out.set_signature_a(fa.prototype().c_declaration());
+      out.set_signature_set_a(!va.Text(va.Key(FactKind::Type, a)).empty() || SignatureSet(fa));
+    }
+    if (out.error_b().empty()) {
+      out.set_signature_b(fb.prototype().c_declaration());
+      out.set_signature_set_b(!vb.Text(vb.Key(FactKind::Type, b)).empty() || SignatureSet(fb));
+    }
+    if (out.error_a().empty() && out.error_b().empty())
+      for (const VariablePairing &vp : PairVariables(fa, fb, partners.a2b)) {
+        pb::CompareVariablePair *x = out.add_variables();
+        if (vp.a >= 0) FillCompareVariable(fa.variables(vp.a), *x->mutable_a());
+        if (vp.b >= 0) FillCompareVariable(fb.variables(vp.b), *x->mutable_b());
+        x->set_votes(vp.instructions + vp.lines);
+        if (vp.parameter) {
+          x->set_evidence("parameter " + std::to_string(fa.variables(vp.a).parameter_index() + 1));
+        } else if (vp.a >= 0 && vp.b >= 0) {
+          std::string e;
+          if (vp.instructions) e = std::to_string(vp.instructions) + (vp.instructions == 1 ? " instruction" : " instructions");
+          if (vp.lines) e += (e.empty() ? "" : ", ") + std::to_string(vp.lines) + (vp.lines == 1 ? " C line" : " C lines");
+          x->set_evidence(e);
+        }
+      }
+    // Comments of either side, each with its place on the other.
+    std::map<std::tuple<std::uint64_t, std::uint64_t, std::string>, pb::CompareComment> comments;
+    auto place = [&](bool side_a, std::uint64_t at, const std::string &kind) -> std::optional<std::uint64_t> {
+      if (at == (side_a ? a : b) && IsFunctionComment(kind)) return side_a ? b : a;
+      const auto &m = side_a ? partners.a2b : partners.b2a;
+      if (auto it = m.find(at); it != m.end()) return it->second;
+      return std::nullopt;
+    };
+    for (bool side_a : {true, false}) {
+      View &v = side_a ? va : vb;
+      View &w = side_a ? vb : va;
+      for (const facts::FactKey &k : BodyCommentKeys(v, side_a ? a : b)) {
+        const std::string text = v.Text(k);
+        if (text.empty()) continue;
+        const std::optional<std::uint64_t> other = place(side_a, k.addr.offset, k.sub);
+        const std::uint64_t xa = side_a ? k.addr.offset : other.value_or(~0ULL);
+        const std::uint64_t xb = side_a ? other.value_or(~0ULL) : k.addr.offset;
+        auto [it, fresh] = comments.try_emplace({xa, xb, k.sub});
+        if (!fresh) continue;
+        pb::CompareComment &c = it->second;
+        c.set_kind(k.sub);
+        if (xa != ~0ULL) c.mutable_address_a()->set_offset(xa);
+        if (xb != ~0ULL) c.mutable_address_b()->set_offset(xb);
+        (side_a ? *c.mutable_text_a() : *c.mutable_text_b()) = text;
+        if (other) (side_a ? *c.mutable_text_b() : *c.mutable_text_a()) = w.Text(w.Key(FactKind::Comment, *other, k.sub));
+      }
+    }
+    for (auto &[k, c] : comments) *out.add_comments() = std::move(c);
+  }
+
+  // --- Rows ---
+
+  // Inside a pair: the memoized correlation with the session's matches
+  // applied to its calls, and the references gained and lost.
+  struct PairCorrelation {
+    facts::Ref<diff::FunctionCode> a, b;
+    diff::Correlation c;
+    std::vector<diff::RefChange> refs;
+    double correlate_ms = 0;
+  };
+
+  PairCorrelation CorrelatePair(DiffRead &d, const diff::MatchResult &result, std::uint64_t a, std::uint64_t b) {
+    const auto t0 = std::chrono::steady_clock::now();
+    PairCorrelation pc{d.r.snapshot->get<diff::Code>({AnalysisKey(d.session.program_a), a}),
+                       d.r.snapshot->get<diff::Code>({AnalysisKey(d.session.program_b), b}),
+                       *d.r.snapshot->get<diff::Correlate>({d.session.program_a, d.session.program_b, a, b}),
+                       {},
+                       0};
+    const diff::MatchOf match_of = [&](std::uint64_t x) -> std::optional<std::uint64_t> {
+      if (const diff::Match *m = result.by_a(x)) return m->b;
+      return std::nullopt;
+    };
+    diff::retarget(pc.c, *pc.a, *pc.b, match_of);
+    pc.refs = diff::reference_diff(pc.c, *pc.a, *pc.b, match_of);
+    pc.correlate_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    return pc;
+  }
+
+  // A call target with no match in the session: a function only in B (in_b)
+  // or only in A.
+  static bool Unmatched(View &v, const diff::MatchResult &result, bool in_b, std::uint64_t to) {
+    if (!v.functions().at(to)) return false;
+    return in_b ? !result.by_b(to) : !result.by_a(to);
+  }
+
+  // The summary's text: the differing instructions when there are at most
+  // three (`text` renders one), else the calls gained and lost.
+  void SummarizePair(View &va, View &vb, const diff::MatchResult &result, const PairCorrelation &pc,
+                     const std::function<std::string(bool, std::uint64_t)> &text, pb::DiffChangeSummary &s) {
+    const diff::Correlation &c = pc.c;
+    std::set<std::uint32_t> calls_new;  // B instructions calling a function only in B
+    std::vector<std::string> gained, lost;
+    std::set<std::pair<bool, std::uint64_t>> named;
+    for (const diff::RefChange &x : pc.refs) {
+      if (x.ref.kind == diff::CodeRef::Kind::data) continue;
+      View &v = x.in_b ? vb : va;
+      const bool fresh = Unmatched(v, result, x.in_b, x.ref.to);
+      if (x.in_b && fresh) calls_new.insert(x.insn);
+      if (!named.insert({x.in_b, x.ref.to}).second) continue;
+      std::string name = v.Symbol(x.ref.to);
+      if (name.empty()) name = "0x" + Hex(x.ref.to);
+      if (fresh) name += x.in_b ? " (new)" : " (gone)";
+      (x.in_b ? gained : lost).push_back(std::move(name));
+    }
+    std::vector<SummaryItem> items;
+    if (c.changed + c.inserted + c.deleted <= 3)
+      for (const auto &[x, y] : c.lines) {
+        SummaryItem it;
+        if (x >= 0 && y >= 0) {
+          if (c.status_a[static_cast<std::size_t>(x)] != diff::InsnStatus::changed) continue;
+          it.status = diff::InsnStatus::changed;
+        } else if (x >= 0) {
+          if (c.status_a[static_cast<std::size_t>(x)] != diff::InsnStatus::deleted) continue;
+          it.status = diff::InsnStatus::deleted;
+        } else {
+          if (c.status_b[static_cast<std::size_t>(y)] != diff::InsnStatus::inserted) continue;
+          it.status = diff::InsnStatus::inserted;
+        }
+        if (x >= 0) it.a = text(true, pc.a->insns[static_cast<std::size_t>(x)].address);
+        if (y >= 0) {
+          it.b = text(false, pc.b->insns[static_cast<std::size_t>(y)].address);
+          it.new_callee = calls_new.contains(static_cast<std::uint32_t>(y));
+        }
+        items.push_back(std::move(it));
+      }
+    s.set_text(SummaryText(s, items, gained, lost));
+  }
+
+  Status FillPairDetail(const CallContext &ctx, DiffRead &d, View &va, View &vb, const diff::MatchResult &result,
+                        std::uint64_t a, std::uint64_t b, bool omit_bytes, pb::DiffDetail &out) {
+    const auto t0 = std::chrono::steady_clock::now();
+    PairCorrelation pc = CorrelatePair(d, result, a, b);
+    std::vector<pb::ListingRow> rows_a, rows_b;
+    bool truncated = false;
+    if (!FunctionRows(ctx, va, *va.functions().at(a), omit_bytes, rows_a, truncated) ||
+        !FunctionRows(ctx, vb, *vb.functions().at(b), omit_bytes, rows_b, truncated))
+      return Error(StatusCode::kCancelled, "cancelled");
+    FillDetail(*pc.a, *pc.b, pc.c, pc.refs, std::move(rows_a), std::move(rows_b), out);
+    for (pb::DiffReferenceChange &r : *out.mutable_references()) {
+      const bool in_b = r.side() == pb::DIFF_SIDE_B;
+      View &v = in_b ? vb : va;
+      const std::uint64_t to = r.target().offset();
+      std::string name = v.Symbol(to);
+      r.set_name(name.empty() ? "0x" + Hex(to) : std::move(name));
+      if (r.kind() != pb::DIFF_REFERENCE_KIND_CALL) continue;
+      if (in_b) {
+        if (const diff::Match *m = result.by_b(to)) FillDiffRef(d, va, d.session.program_a, m->a, *r.mutable_partner());
+      } else if (const diff::Match *m = result.by_a(to)) {
+        FillDiffRef(d, vb, d.session.program_b, m->b, *r.mutable_partner());
+      }
+      r.set_unmatched(Unmatched(v, result, in_b, to));
+    }
+    std::unordered_map<std::uint64_t, int> row_a, row_b;
+    for (int k = 0; k < out.rows_a_size(); ++k) row_a.emplace(out.rows_a(k).address().offset(), k);
+    for (int k = 0; k < out.rows_b_size(); ++k) row_b.emplace(out.rows_b(k).address().offset(), k);
+    SummarizePair(va, vb, result, pc, [&](bool side_a, std::uint64_t at) -> std::string {
+      const auto &m = side_a ? row_a : row_b;
+      auto it = m.find(at);
+      if (it == m.end()) return "0x" + Hex(at);
+      return (side_a ? out.rows_a(it->second) : out.rows_b(it->second)).text();
+    }, *out.mutable_summary());
+    out.mutable_summary()->mutable_entry_a()->set_offset(a);
+    out.mutable_summary()->mutable_entry_b()->set_offset(b);
+    out.set_correlate_ms(pc.correlate_ms);
+    out.set_total_ms(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+    return Status::Ok();
+  }
+
+  void FillDiffRef(DiffRead &d, View &v, const std::string &program, std::uint64_t entry, pb::DiffFunctionRef &out) {
+    out.mutable_entry()->set_offset(entry);
+    std::string name = v.Symbol(entry);
+    out.set_default_name(name.empty() || diff::is_default_name(name));
+    out.set_name(std::move(name));
+    auto f = d.r.snapshot->get<diff::Features>({AnalysisKey(program), entry});
+    out.set_instructions(f->instructions);
+    out.set_blocks(f->blocks);
+  }
+
+  void FillDiffMatch(DiffRead &d, View &va, View &vb, const diff::Match &m, pb::DiffMatch &out) {
+    FillDiffRef(d, va, d.session.program_a, m.a, *out.mutable_a());
+    FillDiffRef(d, vb, d.session.program_b, m.b, *out.mutable_b());
+    out.set_tier(ToApi(m.tier));
+    out.set_confidence(m.confidence);
+    out.set_similarity(m.similarity);
+    out.set_status(ToApi(m.state));
+    out.set_change_kind(m.unchanged ? pb::DIFF_CHANGE_KIND_UNCHANGED : pb::DIFF_CHANGE_KIND_MODIFIED);
+    pb::DiffEvidence *e = out.mutable_evidence();
+    e->set_tier(ToApi(m.evidence.tier));
+    e->set_relation(ToApi(m.evidence.relation));
+    e->set_round(m.evidence.round);
+    e->set_group(m.evidence.group);
+    std::string pa, pb_;
+    if (m.evidence.parent_a || m.evidence.parent_b) {
+      e->mutable_parent_a()->set_offset(m.evidence.parent_a);
+      e->mutable_parent_b()->set_offset(m.evidence.parent_b);
+      pa = va.Symbol(m.evidence.parent_a);
+      pb_ = vb.Symbol(m.evidence.parent_b);
+    }
+    e->set_detail(EvidenceText(m.evidence, pa, pb_));
+    if (m.state != diff::MatchState::proposed)
+      if (auto w = vb.Winner(vb.Key(FactKind::Match, m.b, diff::match_sub(d.session.id)))) out.set_match_seq(w->seq);
+  }
+
+  void FillDiffSummary(DiffRead &d, View &v, const std::string &program, std::uint64_t entry, pb::DiffFunctionSummary &out) {
+    FillDiffRef(d, v, program, entry, *out.mutable_function());
+    auto f = d.r.snapshot->get<diff::Features>({AnalysisKey(program), entry});
+    out.set_edges(f->edges);
+    out.set_loops(f->loops);
+    out.set_pcode_ops(f->pcode_ops);
+    std::set<std::uint64_t> seen;
+    for (std::uint64_t c : f->calls) {
+      if (!seen.insert(c).second || seen.size() > 64) continue;
+      pb::DiffFunctionRef *r = out.add_callees();
+      r->mutable_entry()->set_offset(c);
+      std::string n = v.Symbol(c);
+      r->set_default_name(n.empty() || diff::is_default_name(n));
+      r->set_name(std::move(n));
+    }
+    std::set<std::uint64_t> callers;
+    for (const StaticXref *x : v.xrefs().to(entry, entry))
+      if (x->kind == pb::XREF_KIND_CALL)
+        if (const Func *g = v.functions().containing(x->from)) callers.insert(g->entry);
+    out.set_callers(static_cast<std::uint32_t>(callers.size()));
+    char buf[24];
+    for (auto [field, value] : {std::pair{out.mutable_bytes_hash(), f->bytes}, std::pair{out.mutable_pcode_hash(), f->pcode},
+                                std::pair{out.mutable_shape_hash(), f->shape}, std::pair{out.mutable_refs_hash(), f->refs}}) {
+      std::snprintf(buf, sizeof buf, "%016llx", static_cast<unsigned long long>(value));
+      *field = buf;
+    }
+    const std::string type = v.Text(v.Key(FactKind::Type, entry));
+    if (type.starts_with("h:")) out.set_prototype(v.PrototypeDisplay(type.substr(2), v.Symbol(entry)));
+    else if (type.starts_with("c:")) out.set_prototype(type.substr(2));
+  }
+
+  static pb::DiffCounts CountsOf(const diff::MatchResult &m) {
+    pb::DiffCounts c;
+    c.set_functions_a(m.functions_a);
+    c.set_functions_b(m.functions_b);
+    c.set_matched(static_cast<std::uint32_t>(m.matches.size()));
+    for (const diff::Match &x : m.matches) {
+      if (x.state == diff::MatchState::accepted) c.set_accepted(c.accepted() + 1);
+      if (x.state == diff::MatchState::applied) c.set_applied(c.applied() + 1);
+      if (x.state == diff::MatchState::proposed && x.confidence >= 0.95f) c.set_auto_matches(c.auto_matches() + 1);
+      if (x.unchanged) c.set_unchanged(c.unchanged() + 1);
+    }
+    c.set_unmatched_a(static_cast<std::uint32_t>(m.unmatched_a.size()));
+    c.set_unmatched_b(static_cast<std::uint32_t>(m.unmatched_b.size()));
+    c.set_rounds(m.rounds);
+    return c;
+  }
+
+  // --- Runs: fingerprints then matching, in the background ---
+
+  struct DiffRunEntry {
+    pb::DiffRun run;
+    pb::DiffCounts counts;
+    std::shared_ptr<std::atomic<bool>> cancel = std::make_shared<std::atomic<bool>>(false);
+  };
+
+  pb::DiffSessionInfo SessionInfo(const std::string &project, const DiffSessionRecord &s) {
+    pb::DiffSessionInfo info;
+    info.set_session_id(s.id);
+    info.set_project_id(project);
+    info.set_program_a(s.program_a);
+    info.set_program_b(s.program_b);
+    info.set_name(s.name);
+    for (const std::string &t : s.similarity) info.mutable_options()->add_similarity_tiers(t);
+    info.mutable_created_at()->set_seconds(s.created_at);
+    if (auto prov = facts::Provenance::parse(s.created_by)) *info.mutable_created_by() = ToPb(*prov);
+    std::lock_guard lock(diff_mu_);
+    if (auto it = diff_runs_.find({project, s.id}); it != diff_runs_.end()) *info.mutable_run() = it->second.run;
+    else info.mutable_run()->set_state(pb::DIFF_RUN_STATE_IDLE);
+    return info;
+  }
+
+  pb::DiffRun StartDiffRun(Project &p, const DiffSessionRecord &s) {
+    std::lock_guard lock(diff_mu_);
+    DiffRunEntry &e = diff_runs_[{p.id, s.id}];
+    if (e.run.state() == pb::DIFF_RUN_STATE_RUNNING || diff_stop_) return e.run;
+    e = DiffRunEntry{};
+    e.run.set_state(pb::DIFF_RUN_STATE_RUNNING);
+    e.run.set_phase("starting");
+    e.run.set_progress(0);
+    *e.run.mutable_started_at() = TimeUtil::GetCurrentTime();
+    auto cancel = e.cancel;
+    diff_threads_.emplace_back([this, &p, s, cancel] { RunDiffSession(p, s, cancel); });
+    return e.run;
+  }
+
+  void RunDiffSession(Project &p, const DiffSessionRecord &s, const std::shared_ptr<std::atomic<bool>> &cancel) {
+    auto update = [&](const std::function<void(DiffRunEntry &)> &fn) {
+      std::lock_guard lock(diff_mu_);
+      fn(diff_runs_[{p.id, s.id}]);
+    };
+    auto finish = [&](pb::DiffRunState state, const std::string &message) {
+      update([&](DiffRunEntry &e) {
+        e.run.set_state(state);
+        e.run.set_message(message);
+        e.run.set_phase(state == pb::DIFF_RUN_STATE_SUCCEEDED ? "done" : message);
+        *e.run.mutable_finished_at() = TimeUtil::GetCurrentTime();
+      });
+    };
+    try {
+      Read r;
+      {
+        std::lock_guard lock(core_->mu);
+        if (!p.open) return finish(pb::DIFF_RUN_STATE_FAILED, "project closed");
+        if (auto st = PinLocked(p, p.head, r); !st.ok()) return finish(pb::DIFF_RUN_STATE_FAILED, st.message);
+      }
+      update([&](DiffRunEntry &e) { e.run.set_revision(r.revision); });
+      const facts::Snapshot &snap = *r.snapshot;
+      std::vector<analysis::Location> keys;
+      for (const std::string &program : {s.program_a, s.program_b})
+        for (const analysis::FunctionInfo &f : snap.get<analysis::Functions>(AnalysisKey(program))->functions)
+          keys.push_back({AnalysisKey(program), f.entry.offset});
+      const auto t0 = std::chrono::steady_clock::now();
+      constexpr std::size_t kChunk = 1024;
+      for (std::size_t i = 0; i < keys.size(); i += kChunk) {
+        if (cancel->load()) return finish(pb::DIFF_RUN_STATE_CANCELLED, "cancelled");
+        const std::size_t n = std::min(kChunk, keys.size() - i);
+        snap.get_all<diff::Features>(std::span<const analysis::Location>(keys).subspan(i, n), core_->pool.get());
+        update([&](DiffRunEntry &e) {
+          e.run.set_phase("fingerprints " + std::to_string(i + n) + "/" + std::to_string(keys.size()));
+          e.run.set_progress(0.9f * static_cast<float>(i + n) / static_cast<float>(keys.size()));
+        });
+      }
+      const auto t1 = std::chrono::steady_clock::now();
+      update([&](DiffRunEntry &e) {
+        e.run.set_phase("matching");
+        e.run.set_progress(0.9f);
+        e.run.set_features_ms(std::chrono::duration<double, std::milli>(t1 - t0).count());
+      });
+      if (cancel->load()) return finish(pb::DIFF_RUN_STATE_CANCELLED, "cancelled");
+      auto result = snap.get<diff::Matches>(s.key());
+      const auto t2 = std::chrono::steady_clock::now();
+      update([&](DiffRunEntry &e) {
+        e.run.set_match_ms(std::chrono::duration<double, std::milli>(t2 - t1).count());
+        e.run.set_progress(1);
+        e.counts = CountsOf(*result);
+      });
+      finish(pb::DIFF_RUN_STATE_SUCCEEDED, {});
+    } catch (const std::exception &e) {
+      finish(pb::DIFF_RUN_STATE_FAILED, e.what());
+    }
+  }
+
+  void StopDiffRuns() {
+    std::vector<std::thread> threads;
+    {
+      std::lock_guard lock(diff_mu_);
+      diff_stop_ = true;
+      for (auto &[k, e] : diff_runs_) e.cancel->store(true);
+      threads.swap(diff_threads_);
+    }
+    for (std::thread &t : threads)
+      if (t.joinable()) t.join();
+  }
+
+  std::mutex diff_mu_;
+  std::map<std::pair<std::string, std::string>, DiffRunEntry> diff_runs_;  // (project, session)
+  std::vector<std::thread> diff_threads_;
+  bool diff_stop_ = false;
+
+ public:
+
+  // --- Patching (docs/patching.md): patches are assertions; assembly, listing and export are reads ---
+
+  // The program's patches at head, in the order they compose.
+  facts::PatchList HeadPatches(const std::string &program_id) {
+    CallContext ctx;
+    ctx.deadline = CallContext::Clock::now() + std::chrono::seconds(5);
+    Read r;
+    if (!ResolveProgram(ctx, program_id, {}, {}, r).ok()) return {};
+    facts::PatchList out;
+    for (auto &p : PatchesInOrder(*r.snapshot, r.program->source.ram_space)) out.emplace_back(p.address, std::move(p.bytes));
+    return out;
+  }
+
+  // An assembler, the context and the current bytes at one address.
+  struct AsmSetup {
+    std::optional<Assemblers::Lease> as;
+    std::vector<std::uint32_t> context;
+    std::string described;
+    std::string current;       // the instruction's bytes there now (16 bytes where none decodes)
+    std::string current_text;  // as patched
+    std::uint32_t current_length = 0;
+    bool thumb = false;
+  };
+
+  Status SetUpAssembly(View &v, std::uint64_t address, const google::protobuf::Map<std::string, std::uint32_t> &overrides,
+                       AsmSetup &s) {
+    const Program &p = v.program();
+    if (!p.block_containing(address)) return Error(StatusCode::kInvalidArgument, "0x" + Hex(address) + " is not mapped");
+    try {
+      s.as.emplace(assemblers_.Take(p.language().language));
+    } catch (const std::exception &e) {
+      return Error(StatusCode::kFailedPrecondition, std::string("no assembler for ") + p.language().language + ": " + e.what());
+    }
+    auto info = v.snapshot().get<analysis::Program>(AnalysisKey(v.id()));
+    s.thumb = v.code().thumb_at(address);
+    s.context = ContextAt(**s.as, *info, address, s.thumb, overrides, &s.described);
+    SnapshotPatches patches(v.snapshot(), v.space());
+    if (auto d = p.instruction(address, s.thumb, &patches)) {
+      s.current_length = d->insn.length;
+      s.current_text = d->insn.text;
+      s.current = p.read(address, d->insn.length, &patches);
+    } else {
+      s.current = p.read(address, 16, &patches);
+    }
+    return Status::Ok();
+  }
+
+  // Labels in assembly ("bl my_func"): every function, label and asserted
+  // name of the program, by exact name. Built on the first lookup and kept
+  // for the program's revision (the parser asks for every identifier).
+  using NameMap = std::map<std::string, std::uint64_t, std::less<>>;
+  std::function<std::optional<std::uint64_t>(std::string_view)> SymbolsOf(View &v) {
+    return [this, &v](std::string_view name) -> std::optional<std::uint64_t> {
+      std::shared_ptr<const NameMap> names;
+      {
+        std::lock_guard lock(names_mu_);
+        if (names_key_ == std::pair{v.id(), v.revision()}) names = names_;
+      }
+      if (!names) {
+        auto m = std::make_shared<NameMap>();
+        for (const Func &f : v.functions().funcs) m->emplace(v.Symbol(f.entry), f.entry);
+        for (const Label &l : v.defaults().labels) m->emplace(v.Symbol(l.address), l.address);
+        for (const facts::FactKey &k : v.LogKeys())
+          if (k.kind == FactKind::Name && k.sub.empty() && k.addr.space == v.space())
+            if (std::string n = v.Symbol(k.addr.offset); !n.empty()) m->emplace(n, k.addr.offset);
+        names = m;
+        std::lock_guard lock(names_mu_);
+        names_key_ = {v.id(), v.revision()};
+        names_ = std::move(m);
+      }
+      auto it = names->find(name);
+      if (it == names->end()) return std::nullopt;
+      return it->second;
+    };
+  }
+
+  // Bytes a patch may change: those the file holds (initialized, file-backed).
+  static std::string Patchable(const Program &p, std::uint64_t address, std::size_t n) {
+    for (std::size_t i = 0; i < n; ++i) {
+      const std::uint64_t a = address + i;
+      const loader::Region *r = p.image().memory.find(a);
+      if (r == nullptr || a - r->start >= r->file_size)
+        return "0x" + Hex(a) + " is not in the file's bytes (unmapped, uninitialized or synthesized memory): it can't be patched";
+    }
+    return {};
+  }
+
+  // Stages `data` at `address` as patch assertions (256 bytes each). A key
+  // that already holds a longer value keeps its tail: a patch inside an
+  // earlier one at the same address changes only its own bytes.
+  void StagePatch(View &v, facts::FactDb::Transaction &tx, const pb::Provenance &prov, std::uint64_t address,
+                  const std::string &data, const pb::PatchBody &body, std::uint64_t rev) {
+    const facts::Provenance who = ToFacts(prov);
+    for (std::size_t done = 0; done < data.size(); done += facts::kMaxPatchBytes) {
+      std::string piece = data.substr(done, facts::kMaxPatchBytes);
+      const std::uint64_t at = address + done;
+      const facts::FactKey key = v.Key(FactKind::Patch, at);
+      const std::string had = v.Text(key);
+      if (had.size() > piece.size()) piece += had.substr(piece.size());
+      pb::AssertionBody b;
+      *b.mutable_patch() = body;
+      b.mutable_patch()->mutable_address()->set_offset(at);
+      b.mutable_patch()->set_data(piece);
+      b.mutable_patch()->set_original(v.program().read(at, static_cast<std::uint32_t>(piece.size())));
+      tx.assert_fact(who, key, piece, 0, Meta(prov, &b, rev));
+    }
+  }
+
+  static void FillAssembly(const assembler::Result &res, pb::AssembleResponse &resp) {
+    for (const auto &c : res.candidates) {
+      auto *o = resp.add_candidates();
+      o->set_bytes(std::string(c.bytes.begin(), c.bytes.end()));
+      o->set_text(c.text);
+      o->set_hamming(c.hamming);
+      o->set_current(c.current);
+    }
+    resp.set_error(res.error);
+    resp.set_error_column(res.error_column);
+    for (const auto &e : res.expected) resp.add_expected(e);
+    resp.set_truncated(res.truncated);
+    resp.set_micros(static_cast<std::uint32_t>(res.micros));
+  }
+
+ public:
+  Status Assemble(const CallContext &ctx, const pb::AssembleRequest &req, pb::AssembleResponse &resp) override {
+    if (!IsDefaultSpace(req.address())) return Error(StatusCode::kInvalidArgument, "only the default space can be assembled into");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const std::uint64_t address = req.address().offset();
+    AsmSetup s;
+    if (auto st = SetUpAssembly(v, address, req.context(), s); !st.ok()) return st;
+    resp.set_current_text(s.current_text);
+    resp.set_current_bytes(s.current);
+    resp.set_context(s.described);
+    assembler::Options o;
+    std::vector<std::uint8_t> current(s.current.begin(), s.current.end());
+    o.current = current;
+    o.current_text = s.current_text;
+    o.symbols = SymbolsOf(v);
+    o.max_candidates = req.max_candidates() ? std::min<std::uint32_t>(req.max_candidates(), 256) : 16;
+    if (!req.text().empty()) FillAssembly((*s.as)->assemble(address, req.text(), s.context, o), resp);
+    if (req.complete()) {
+      const std::size_t cursor = req.cursor() ? std::min<std::size_t>(req.cursor(), req.text().size()) : req.text().size();
+      assembler::Completion c = (*s.as)->complete(address, req.text(), cursor, s.context, o);
+      resp.set_completion_from(static_cast<std::uint32_t>(c.from));
+      for (const auto &item : c.items) resp.add_completions(item);
+    }
+    return Status::Ok();
+  }
+
+  Status PatchInstruction(const CallContext &ctx, const pb::PatchInstructionRequest &req,
+                          pb::PatchInstructionResponse &resp) override {
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    if (!IsDefaultSpace(req.address())) return Error(StatusCode::kInvalidArgument, "only the default space can be patched");
+    if (req.text().empty()) return Error(StatusCode::kInvalidArgument, "text is required");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    const std::uint64_t address = req.address().offset();
+    AsmSetup s;
+    if (auto st = SetUpAssembly(v, address, req.context(), s); !st.ok()) return st;
+    assembler::Options o;
+    std::vector<std::uint8_t> current(s.current.begin(), s.current.end());
+    o.current = current;
+    o.current_text = s.current_text;
+    o.symbols = SymbolsOf(v);
+    o.max_candidates = 256;
+    assembler::Result res = (*s.as)->assemble(address, req.text(), s.context, o);
+    if (res.candidates.empty())
+      return Error(StatusCode::kInvalidArgument,
+                   "can't assemble \"" + req.text() + "\" at 0x" + Hex(address) + ": " + res.error +
+                       (res.error_column >= 0 ? " (column " + std::to_string(res.error_column + 1) + ")" : ""));
+    const assembler::Candidate *chosen = &res.candidates.front();
+    if (!req.bytes().empty()) {
+      chosen = nullptr;
+      for (const auto &c : res.candidates)
+        if (std::string(c.bytes.begin(), c.bytes.end()) == req.bytes()) chosen = &c;
+      if (!chosen) return Error(StatusCode::kInvalidArgument, "bytes are not an encoding of the text at this address");
+    }
+    std::string data(chosen->bytes.begin(), chosen->bytes.end());
+    // NOP padding for a shorter replacement.
+    std::string padding;
+    if (req.pad() && s.current_length > data.size()) {
+      const std::uint64_t gap_at = address + data.size();
+      std::size_t gap = s.current_length - data.size();
+      for (const char *nop : {"nop", "NOP", "mov r0,r0", "mov r8,r8", "or r0,r0", "move \\$zero,\\$zero"}) {
+        std::string pad;
+        while (pad.size() < gap) {
+          assembler::Options po;
+          auto n = (*s.as)->assemble(gap_at + pad.size(), nop, s.context, po);
+          const assembler::Candidate *fit = nullptr;
+          for (const auto &c : n.candidates)
+            if (c.bytes.size() <= gap - pad.size() && (!fit || c.bytes.size() > fit->bytes.size())) fit = &c;
+          if (!fit) break;
+          pad.append(fit->bytes.begin(), fit->bytes.end());
+        }
+        if (pad.size() == gap) {
+          padding = std::move(pad);
+          break;
+        }
+      }
+      if (padding.empty())
+        return Error(StatusCode::kFailedPrecondition, "no NOP fills the " + std::to_string(gap) + " bytes left at 0x" +
+                                                          Hex(gap_at) + "; patch without pad");
+    }
+    if (auto e = Patchable(v.program(), address, data.size() + padding.size()); !e.empty())
+      return Error(StatusCode::kFailedPrecondition, e);
+    Project &p = *r.project;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), req.expected_head_revision()); !st.ok()) return st;
+    // Re-read at head under the writer: what StagePatch merges with.
+    Read h;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, h); !st.ok()) return st;
+    View hv(h);
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    pb::PatchBody body;
+    body.set_text(req.text());
+    body.set_canonical_text(chosen->text);
+    body.set_alternatives(static_cast<std::uint32_t>(res.candidates.size() - 1));
+    body.set_context(s.described);
+    StagePatch(hv, tx, req.provenance(), address, data, body, rev);
+    if (!padding.empty()) {
+      pb::PatchBody pad;
+      pad.set_text("(padding)");
+      pad.set_context(s.described);
+      StagePatch(hv, tx, req.provenance(), address + data.size(), padding, pad, rev);
+    }
+    pb::RevisionEvent ev;
+    Commit(p, tx, req.provenance(), pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    resp.set_revision(ev.revision());
+    for (const auto &a : ev.assertions()) resp.add_seqs(a.seq());
+    resp.set_bytes(data);
+    resp.set_padding(padding);
+    resp.set_text(chosen->text);
+    return Status::Ok();
+  }
+
+  Status PatchBytes(const CallContext &ctx, const pb::PatchBytesRequest &req, pb::PatchBytesResponse &resp) override {
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    if (!IsDefaultSpace(req.address())) return Error(StatusCode::kInvalidArgument, "only the default space can be patched");
+    if (req.data().empty()) return Error(StatusCode::kInvalidArgument, "data is empty");
+    if (req.data().size() > (1u << 20)) return Error(StatusCode::kInvalidArgument, "data exceeds 1 MiB");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), req.expected_head_revision()); !st.ok()) return st;
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    const std::uint64_t address = req.address().offset();
+    if (auto e = Patchable(v.program(), address, req.data().size()); !e.empty())
+      return Error(StatusCode::kFailedPrecondition, e);
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    StagePatch(v, tx, req.provenance(), address, req.data(), pb::PatchBody{}, rev);
+    pb::RevisionEvent ev;
+    Commit(p, tx, req.provenance(), pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    resp.set_revision(ev.revision());
+    for (const auto &a : ev.assertions()) resp.add_seqs(a.seq());
+    return Status::Ok();
+  }
+
+  Status ListPatches(const CallContext &ctx, const pb::ListPatchesRequest &req, pb::ListPatchesResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const Program &prog = v.program();
+    std::uint64_t first = 0, last = ~std::uint64_t{0};
+    if (req.has_range()) {
+      first = req.range().first().offset();
+      last = req.range().last().offset();
+    }
+    SnapshotPatches patches(v.snapshot(), v.space());
+    std::uint64_t total = 0;
+    for (const LivePatch &lp : LivePatches(v.snapshot(), v.space(), first, last)) {
+      auto *o = resp.add_patches();
+      *o->mutable_address() = A(lp.address);
+      o->set_bytes(lp.bytes);
+      o->set_original(prog.read(lp.address, static_cast<std::uint32_t>(lp.bytes.size())));
+      total += lp.bytes.size();
+      if (auto w = v.Winner(lp.key)) {
+        o->set_seq(w->seq);
+        pb::Assertion meta = MetaOf(*w);
+        *o->mutable_provenance() = meta.provenance();
+        o->set_revision(meta.revision());
+        *o->mutable_time() = TimeUtil::NanosecondsToTimestamp(w->time_ns);
+        if (meta.body().has_patch()) o->set_typed_text(meta.body().patch().text());
+      }
+      const bool thumb = v.code().thumb_at(lp.address);
+      if (prog.executable(lp.address)) {
+        if (auto d = prog.instruction(lp.address, thumb, &patches)) o->set_text(d->insn.text);
+        if (auto d = prog.instruction(lp.address, thumb)) o->set_original_text(d->insn.text);
+      }
+      if (const Func *f = v.functions().containing(lp.address)) {
+        *o->mutable_function() = A(f->entry);
+        o->set_function_name(v.Symbol(f->entry));
+      }
+      const std::string now = prog.read(lp.address, static_cast<std::uint32_t>(lp.bytes.size()), &patches);
+      std::uint32_t shadowed = 0;
+      for (std::size_t i = 0; i < lp.bytes.size() && i < now.size(); ++i) shadowed += now[i] != lp.bytes[i];
+      o->set_shadowed_bytes(shadowed);
+    }
+    resp.set_patched_bytes(total);
+    return Status::Ok();
+  }
+
+  Status RevertPatches(const CallContext &ctx, const pb::RevertPatchesRequest &req, pb::RevertPatchesResponse &resp) override {
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    if (req.seqs().empty() && !req.has_range()) return Error(StatusCode::kInvalidArgument, "seqs or range is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), req.expected_head_revision()); !st.ok()) return st;
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    std::set<facts::FactKey> keys;
+    for (std::uint64_t seq : req.seqs()) {
+      auto op = p.log().op(seq);
+      if (!op || op->kind != facts::OpKind::Assert || op->key.kind != FactKind::Patch || op->key.addr.space != v.space())
+        return Error(StatusCode::kNotFound, "no patch of this program with seq " + std::to_string(seq));
+      keys.insert(op->key);
+    }
+    if (req.has_range())
+      for (const LivePatch &lp : LivePatches(v.snapshot(), v.space(), req.range().first().offset(), req.range().last().offset()))
+        keys.insert(v.Stored(lp.key));
+    // Every live assertion on those keys: the bytes go back to the file's.
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    std::size_t n = 0;
+    for (const facts::FactKey &k : keys)
+      for (const facts::BlameEntry &c : p.log().blame(k, r.log_size).candidates)
+        if (c.status == facts::OpStatus::Effective || c.status == facts::OpStatus::Shadowed) {
+          tx.retract(ToFacts(req.provenance()), c.op.seq, Meta(req.provenance(), nullptr, rev));
+          ++n;
+        }
+    if (n == 0) return Error(StatusCode::kFailedPrecondition, "no live patch to revert");
+    pb::RevisionEvent ev;
+    Commit(p, tx, req.provenance(), pb::CHANGE_CAUSE_RETRACTION, nullptr, &ev);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    resp.set_revision(ev.revision());
+    for (const auto &a : ev.assertions()) resp.add_seqs(a.seq());
+    return Status::Ok();
+  }
+
+  // The stored export settings, if any.
+  static std::optional<pb::ExportSettings> StoredSettings(View &v) {
+    const std::string text = v.Text(v.Key(FactKind::Note, 0, kExportSettingsTag));
+    pb::ExportSettings s;
+    if (text.empty() || !DecodeSettings(text, s)) return std::nullopt;
+    return s;
+  }
+
+  Status ExportProgram(const CallContext &ctx, const pb::ExportProgramRequest &req, pb::ExportProgramResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const Program &prog = v.program();
+    const ProgramSource &src = r.program->source;
+    if (!prog.file()) return Error(StatusCode::kFailedPrecondition, "the program's file bytes aren't loaded");
+    pb::ExportSettings settings = req.settings();
+    if (req.use_stored_settings() || !req.has_settings())
+      if (auto stored = StoredSettings(v)) settings = *stored;
+    const std::vector<patch::Patch> patches = PatchesInOrder(v.snapshot(), v.space());
+    patch::MapResult mapped = patch::map_to_file(prog.image(), patches);
+    if (!mapped.error.empty()) return Error(StatusCode::kFailedPrecondition, mapped.error);
+    std::vector<std::uint8_t> file(prog.file()->size());
+    std::memcpy(file.data(), prog.file()->data(), file.size());
+    patch::ExportOptions o;
+    o.original_name = src.name;
+    o.name_template = settings.file_name_template();
+    if (settings.format() == pb::EXPORT_FORMAT_IMAGE) {
+      if (!src.raw) return Error(StatusCode::kInvalidArgument, "only a raw import has an image slice to export");
+      o.image_only = true;
+      o.image_offset = src.raw->offset;
+      o.image_length = src.raw->length.value_or(0);
+    }
+    for (const auto &f : settings.fixups()) {
+      patch::Fixup x;
+      if (f.has_pe_checksum()) {
+        x.kind = patch::Fixup::Kind::pe_checksum;
+      } else if (f.has_checksum()) {
+        x.spec = SpecFromPb(f.checksum());
+        if (x.spec.algorithm == patch::Algorithm::none) return Error(StatusCode::kInvalidArgument, "a checksum fixup needs an algorithm");
+        if (x.spec.algorithm == patch::Algorithm::pe) x.kind = patch::Fixup::Kind::pe_checksum;
+        if (!x.spec.field && !x.spec.name) x.spec.name = true;
+      } else {
+        continue;
+      }
+      o.fixups.push_back(x);
+    }
+    patch::ExportResult out = patch::build_export(file, mapped.mapped, o);
+    if (!out.error.empty()) return Error(StatusCode::kFailedPrecondition, out.error);
+    if (!req.skip_verify()) {
+      // Load what was written as the program was loaded; an image-only
+      // export is checked inside the file it came from.
+      std::vector<std::uint8_t> whole = out.data;
+      if (o.image_only) {
+        whole = file;
+        std::copy(out.data.begin(), out.data.end(), whole.begin() + static_cast<std::ptrdiff_t>(o.image_offset));
+      }
+      auto bytes = std::make_shared<loader::Bytes>(whole.size());
+      std::memcpy(bytes->data(), whole.data(), whole.size());
+      auto *ver = resp.mutable_verification();
+      try {
+        auto reloaded = prog.Reload(bytes);
+        if (!reloaded) {
+          ver->set_ok(true);
+          ver->set_detail("not verified: a loader plugin's image can't be loaded again here");
+        } else {
+          std::vector<std::pair<std::uint64_t, std::uint64_t>> fixed = out.fixed;
+          for (auto &[a, b] : fixed) a += o.image_only ? o.image_offset : 0, b += o.image_only ? o.image_offset : 0;
+          patch::Verification vr = patch::verify_export(prog.image(), patches, *reloaded, fixed);
+          ver->set_ok(vr.ok);
+          ver->set_compared(vr.compared);
+          ver->set_mismatches(vr.mismatches);
+          if (vr.first_mismatch) *ver->mutable_first_mismatch() = A(*vr.first_mismatch);
+          ver->set_detail(vr.detail);
+        }
+      } catch (const std::exception &e) {
+        ver->set_ok(false);
+        ver->set_detail(std::string("the output doesn't load: ") + e.what());
+      }
+      if (!ver->ok()) return Error(StatusCode::kInternal, "export verification failed: " + ver->detail());
+    }
+    std::string data(out.data.begin(), out.data.end());
+    resp.set_file_name(out.file_name);
+    resp.set_size(data.size());
+    resp.set_sha256(Sha256Hex(data));
+    for (const auto &c : out.changes) {
+      auto *x = resp.add_changes();
+      x->set_file_offset(c.file_offset);
+      x->set_length(c.length);
+      if (c.address) *x->mutable_address() = A(*c.address);
+      x->set_what(c.what);
+    }
+    for (const auto &f : out.fixups) resp.add_fixups(f);
+    if (!req.host_path().empty()) {
+      fs::path path(req.host_path());
+      std::error_code ec;
+      if (fs::is_directory(path, ec)) path /= out.file_name;
+      std::ofstream f(path, std::ios::binary | std::ios::trunc);
+      if (!f) return Error(StatusCode::kFailedPrecondition, "can't write " + path.string());
+      f.write(data.data(), static_cast<std::streamsize>(data.size()));
+      if (!f) return Error(StatusCode::kFailedPrecondition, "writing " + path.string() + " failed");
+      resp.set_path(path.string());
+    } else {
+      resp.set_data(std::move(data));
+    }
+    return Status::Ok();
+  }
+
+  Status DetectChecksum(const CallContext &ctx, const pb::DetectChecksumRequest &req, pb::DetectChecksumResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const Program &prog = v.program();
+    const ProgramSource &src = r.program->source;
+    if (!prog.file()) return Error(StatusCode::kFailedPrecondition, "the program's file bytes aren't loaded");
+    std::vector<std::uint8_t> file(prog.file()->size());
+    std::memcpy(file.data(), prog.file()->data(), file.size());
+    if (req.patched()) {
+      patch::MapResult mapped = patch::map_to_file(prog.image(), PatchesInOrder(v.snapshot(), v.space()));
+      if (!mapped.error.empty()) return Error(StatusCode::kFailedPrecondition, mapped.error);
+      for (const auto &p : mapped.mapped) std::copy(p.bytes.begin(), p.bytes.end(), file.begin() + static_cast<std::ptrdiff_t>(p.file_offset));
+    }
+    patch::DetectOptions o;
+    if (!req.expected().empty()) {
+      std::string e = req.expected();
+      if (e.rfind("0x", 0) == 0 || e.rfind("0X", 0) == 0) e.erase(0, 2);
+      try {
+        std::size_t used = 0;
+        const std::uint64_t value = std::stoull(e, &used, 16);
+        if (used != e.size()) throw std::invalid_argument("trailing text");
+        o.expected.emplace_back(value, "the expected value");
+      } catch (const std::exception &) {
+        return Error(StatusCode::kInvalidArgument, "expected is not a hex number: " + req.expected());
+      }
+    }
+    const std::string name = req.file_name().empty() && req.expected().empty() ? src.name : req.file_name();
+    for (auto &x : patch::values_in_name(name)) o.expected.push_back(std::move(x));
+    if (src.raw) o.image_offset = src.raw->offset;
+    patch::DetectResult d = patch::detect(file, o);
+    resp.set_tried(d.tried);
+    for (const auto &h : d.hits) {
+      auto *x = resp.add_hits();
+      *x->mutable_spec() = SpecToPb(h.spec);
+      x->set_value(h.value);
+      x->set_evidence(h.evidence);
+      if (h.spec.name && !name.empty()) x->set_file_name_template(patch::template_for(name, h.value));
+    }
+    return Status::Ok();
+  }
+
+  Status GetExportSettings(const CallContext &ctx, const pb::GetExportSettingsRequest &req,
+                           pb::GetExportSettingsResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    if (auto s = StoredSettings(v)) {
+      *resp.mutable_settings() = *s;
+      resp.set_stored(true);
+    }
+    resp.set_file_name(r.program->source.name);
+    return Status::Ok();
+  }
+
+  Status OpenOriginal(const CallContext &ctx, const pb::OpenOriginalRequest &req, pb::OpenOriginalResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    const ProgramSource &src = r.program->source;
+    const std::string project = r.project->id;
+    const std::string name = src.name + " (original)";
+    {
+      std::lock_guard lock(core_->mu);
+      if (r.project->programs.contains(project + "/" + name)) {
+        SetHeadSnapshot(*r.project, resp.mutable_snapshot());
+        resp.set_program_id(project + "/" + name);
+        return Status::Ok();
+      }
+    }
+    const Program &prog = r.program->program();
+    if (!prog.file()) return Error(StatusCode::kFailedPrecondition, "the program's file bytes aren't loaded");
+    pb::ImportProgramRequest in;
+    in.set_project_id(project);
+    in.set_name(name);
+    in.set_content(std::string(reinterpret_cast<const char *>(prog.file()->data()), prog.file()->size()));
+    *in.mutable_provenance() = req.provenance();
+    pb::ImportOptions *o = in.mutable_options();
+    o->set_language_id(src.language_id);
+    o->set_compiler_spec_id(src.compiler_spec_id);
+    if (src.image_base) {
+      o->set_has_image_base(true);
+      o->set_image_base(*src.image_base);
+    }
+    if (!src.loader.empty()) o->set_format(src.loader);
+    if (src.raw) {
+      const loader::RawOptions &raw = *src.raw;
+      o->set_format("raw");
+      o->set_raw_offset(raw.offset);
+      if (raw.length) o->set_raw_length(*raw.length);
+      o->set_raw_permissions(std::string(raw.perms.read ? "r" : "-") + (raw.perms.write ? "w" : "-") + (raw.perms.exec ? "x" : "-"));
+      if (raw.entry) {
+        o->set_has_entry_point(true);
+        o->set_entry_point(*raw.entry);
+      }
+      for (const loader::RawRegion &x : raw.regions) {
+        pb::MemoryRegion *m = o->add_regions();
+        m->set_name(x.name);
+        m->set_start(x.start);
+        m->set_size(x.size);
+        m->set_read(x.perms.read);
+        m->set_write(x.perms.write);
+        m->set_execute(x.perms.exec);
+        m->set_initialized(x.initialized);
+        m->set_is_volatile(x.is_volatile);
+      }
+    }
+    pb::ImportProgramResponse ir;
+    if (auto st = ImportProgram(ctx, in, ir); !st.ok()) return st;
+    *resp.mutable_snapshot() = ir.snapshot();
+    resp.set_program_id(ir.program().program_id());
+    resp.set_created(true);
+    return Status::Ok();
+  }
+
+  Status SetExportSettings(const CallContext &ctx, const pb::SetExportSettingsRequest &req,
+                           pb::SetExportSettingsResponse &resp) override {
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), 0); !st.ok()) return st;
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+    View v(r);
+    pb::AssertionBody body;
+    body.mutable_note()->set_tag(kExportSettingsTag);
+    body.mutable_note()->set_text(EncodeSettings(req.settings()));
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    tx.assert_fact(ToFacts(req.provenance()), v.Key(FactKind::Note, 0, kExportSettingsTag), body.note().text(), 0,
+                   Meta(req.provenance(), &body, rev));
+    pb::RevisionEvent ev;
+    Commit(p, tx, req.provenance(), pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    resp.set_revision(ev.revision());
+    return Status::Ok();
+  }
+
+  // --- Debugger (docs/debugger.md): sessions are the caller's state, not facts ---
+
+  static DebugBounds DebugBoundsFor(const ImageBackendOptions &o) {
+    DebugBounds b;
+    b.live = o.debug_live;
+    return b;
+  }
+
+  // What a debug session needs of a program: the loaded image, where its
+  // traces are saved, and the analysis's function bounds.
+  Status DebugProgramFor(const std::string &program_id, DebugProgram &out, bool with_libraries = true) {
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(program_id, pp); !st.ok()) return st;
+    std::optional<facts::Snapshot> head;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = pp->programs.find(program_id);
+      if (it == pp->programs.end()) return Error(StatusCode::kNotFound, "program " + program_id + " is still importing");
+      out.program = it->second->source.program;
+      head = pp->history.at(pp->head).snapshot;
+      if (!pp->dir.empty()) {
+        std::string name = program_id.substr(program_id.find('/') + 1);
+        for (char &c : name)
+          if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '_' && c != '-') c = '_';
+        out.trace_dir = pp->dir / "traces" / name;
+      }
+    }
+    if (!out.program) return Error(StatusCode::kFailedPrecondition, "program " + program_id + " isn't loaded");
+    out.program = EffectiveProgram(*head, program_id);  // the memory map at head
+    out.program_id = program_id;
+    out.patches = HeadPatches(program_id);
+    out.function_entry = [this, program_id](std::uint64_t a) -> std::optional<std::uint64_t> {
+      CallContext ctx;
+      ctx.deadline = CallContext::Clock::now() + std::chrono::seconds(5);
+      Read r;
+      if (!ResolveProgram(ctx, program_id, {}, {}, r).ok()) return std::nullopt;
+      View v(r);
+      if (const Func *f = v.functions().containing(a)) return f->entry;
+      return std::nullopt;
+    };
+    out.function_at = [this, program_id](std::uint64_t a) -> std::optional<std::pair<std::uint64_t, std::string>> {
+      CallContext ctx;
+      ctx.deadline = CallContext::Clock::now() + std::chrono::seconds(5);
+      Read r;
+      if (!ResolveProgram(ctx, program_id, {}, {}, r).ok()) return std::nullopt;
+      View v(r);
+      if (const Func *f = v.functions().containing(a)) return std::make_pair(f->entry, v.Symbol(f->entry));
+      return std::nullopt;
+    };
+    // A runtime module that is another project program (api_minor 70): the
+    // library of that name the program links, else a program of that name.
+    if (with_libraries)
+      out.library = [this, program_id](const std::string &module) -> std::optional<DebugProgram> {
+        Project *p = nullptr;
+        if (!FindProgramProject(program_id, p).ok()) return std::nullopt;
+        std::string target;
+        {
+          std::lock_guard lock(core_->mu);
+          auto it = p->programs.find(program_id);
+          if (it == p->programs.end()) return std::nullopt;
+          const LibraryLink l = ResolveLibraryLocked(*p, *it->second, module, p->log().size());
+          if (l.target) target = l.target->id();
+        }
+        DebugProgram d;
+        if (target.empty() || !DebugProgramFor(target, d, false).ok()) return std::nullopt;
+        return d;
+      };
+    return Status::Ok();
+  }
+
+ public:
+  Status CreateDebugSession(const CallContext &ctx, const pb::CreateDebugSessionRequest &req,
+                            pb::CreateDebugSessionResponse &resp) override {
+    DebugProgram p;
+    if (auto st = DebugProgramFor(req.program_id(), p); !st.ok()) return st;
+    return debugger_.Create(ctx, req, std::move(p), resp);
+  }
+  Status CloseDebugSession(const CallContext &ctx, const pb::CloseDebugSessionRequest &req,
+                           pb::CloseDebugSessionResponse &) override {
+    return debugger_.Close(ctx, req);
+  }
+  Status ListDebugSessions(const CallContext &ctx, const pb::ListDebugSessionsRequest &req,
+                           pb::ListDebugSessionsResponse &resp) override {
+    return debugger_.List(ctx, req, resp);
+  }
+  Status ResumeDebugSession(const CallContext &ctx, const pb::ResumeDebugSessionRequest &req,
+                            pb::ResumeDebugSessionResponse &resp) override {
+    return WithDebugEnv(ctx, req.session_id(), [&](const DebugEvalEnv &env) { return debugger_.Resume(ctx, req, resp, &env); });
+  }
+  Status WaitDebugSession(const CallContext &ctx, const pb::WaitDebugSessionRequest &req,
+                          pb::WaitDebugSessionResponse &resp) override {
+    return WithDebugEnv(ctx, req.session_id(), [&](const DebugEvalEnv &env) { return debugger_.Wait(ctx, req, resp, &env); });
+  }
+  Status InterruptDebugSession(const CallContext &ctx, const pb::InterruptDebugSessionRequest &req,
+                               pb::InterruptDebugSessionResponse &) override {
+    return debugger_.Interrupt(ctx, req);
+  }
+  Status GetDebugState(const CallContext &ctx, const pb::GetDebugStateRequest &req, pb::GetDebugStateResponse &resp) override {
+    return debugger_.GetState(ctx, req, resp);
+  }
+  Status WriteDebugRegisters(const CallContext &ctx, const pb::WriteDebugRegistersRequest &req,
+                             pb::WriteDebugRegistersResponse &resp) override {
+    return debugger_.WriteRegisters(ctx, req, resp);
+  }
+  Status ReadDebugMemory(const CallContext &ctx, const pb::ReadDebugMemoryRequest &req, pb::ReadDebugMemoryResponse &resp) override {
+    return debugger_.ReadMemory(ctx, req, resp);
+  }
+  Status WriteDebugMemory(const CallContext &ctx, const pb::WriteDebugMemoryRequest &req, pb::WriteDebugMemoryResponse &) override {
+    return debugger_.WriteMemory(ctx, req);
+  }
+  Status SetDebugBreakpoints(const CallContext &ctx, const pb::SetDebugBreakpointsRequest &req,
+                             pb::SetDebugBreakpointsResponse &resp) override {
+    return WithDebugEnv(ctx, req.session_id(), [&](const DebugEvalEnv &env) { return debugger_.SetBreakpoints(ctx, req, resp, &env); });
+  }
+  Status SelectDebugThread(const CallContext &ctx, const pb::SelectDebugThreadRequest &req,
+                           pb::SelectDebugThreadResponse &resp) override {
+    return debugger_.SelectThread(ctx, req, resp);
+  }
+  Status ListDebugModules(const CallContext &ctx, const pb::ListDebugModulesRequest &req,
+                          pb::ListDebugModulesResponse &resp) override {
+    return debugger_.ListModules(ctx, req, resp);
+  }
+  Status GetDebugTimeline(const CallContext &ctx, const pb::GetDebugTimelineRequest &req,
+                          pb::GetDebugTimelineResponse &resp) override {
+    return debugger_.GetTimeline(ctx, req, resp);
+  }
+  Status SaveDebugTrace(const CallContext &ctx, const pb::SaveDebugTraceRequest &req, pb::SaveDebugTraceResponse &resp) override {
+    return debugger_.SaveTrace(ctx, req, resp);
+  }
+  Status ListDebugTraces(const CallContext &, const pb::ListDebugTracesRequest &req, pb::ListDebugTracesResponse &resp) override {
+    DebugProgram p;
+    if (auto st = DebugProgramFor(req.program_id(), p); !st.ok()) return st;
+    return debugger_.ListTraces(p, resp);
+  }
+  Status DeleteDebugTrace(const CallContext &, const pb::DeleteDebugTraceRequest &req, pb::DeleteDebugTraceResponse &) override {
+    DebugProgram p;
+    if (auto st = DebugProgramFor(req.program_id(), p); !st.ok()) return st;
+    return debugger_.DeleteTrace(p, req.name());
+  }
+  Status WriteDebugInput(const CallContext &ctx, const pb::WriteDebugInputRequest &req, pb::WriteDebugInputResponse &) override {
+    return debugger_.WriteInput(ctx, req);
+  }
+  Status GetDebugMachine(const CallContext &ctx, const pb::GetDebugMachineRequest &req, pb::GetDebugMachineResponse &resp) override {
+    return debugger_.GetMachine(ctx, req, resp);
+  }
+  Status GetDebugBacktrace(const CallContext &ctx, const pb::GetDebugBacktraceRequest &req,
+                           pb::GetDebugBacktraceResponse &resp) override {
+    return debugger_.GetBacktrace(ctx, req, resp);
+  }
+
+  // DebugService.EvaluateDebug (api_minor 60, feature "debugger-values";
+  // docs/debugger.md "Expressions"): the session's program at head gives
+  // the names, types and the decompiler's variables.
+  Status EvaluateDebug(const CallContext &ctx, const pb::EvaluateDebugRequest &req, pb::EvaluateDebugResponse &resp) override {
+    return WithDebugEnv(ctx, req.session_id(), [&](const DebugEvalEnv &env) { return debugger_.Evaluate(ctx, req, env, resp); });
+  }
+
+  // DebugService.DisassembleDebugMemory (api_minor 62, feature
+  // "debugger-disassembly"; docs/debugger.md "Runtime disassembly").
+  Status DisassembleDebugMemory(const CallContext &ctx, const pb::DisassembleDebugMemoryRequest &req,
+                                pb::DisassembleDebugMemoryResponse &resp) override {
+    return WithDebugEnv(ctx, req.session_id(), [&](const DebugEvalEnv &env) { return debugger_.Disassemble(ctx, req, env, resp); });
+  }
+
+  // DebugService.SetDebugHooks, AnswerDebugHook (api_minor 68, feature "debugger-hooks").
+  Status SetDebugHooks(const CallContext &ctx, const pb::SetDebugHooksRequest &req, pb::SetDebugHooksResponse &resp) override {
+    return WithDebugEnv(ctx, req.session_id(), [&](const DebugEvalEnv &env) { return debugger_.SetHooks(ctx, req, &env, resp); });
+  }
+  Status AnswerDebugHook(const CallContext &ctx, const pb::AnswerDebugHookRequest &req, pb::AnswerDebugHookResponse &resp) override {
+    return debugger_.AnswerHook(ctx, req, resp);
+  }
+
+  // DebugService.RewindDebugSession (api_minor 65, feature "debugger-rewind").
+  Status RewindDebugSession(const CallContext &ctx, const pb::RewindDebugSessionRequest &req,
+                            pb::RewindDebugSessionResponse &resp) override {
+    return debugger_.Rewind(ctx, req, resp);
+  }
+
+  // DebugService.CopyDebugMemory (api_minor 63, feature "debugger-copy";
+  // docs/debugger.md "Copying runtime memory"): target memory into the
+  // program as a new memory block or as patches, one revision either way
+  // (one undo), or into a new raw program at its runtime address.
+  Status CopyDebugMemory(const CallContext &ctx, const pb::CopyDebugMemoryRequest &req, pb::CopyDebugMemoryResponse &resp) override {
+    if (req.mode() == pb::DEBUG_COPY_MODE_UNSPECIFIED) return Error(StatusCode::kInvalidArgument, "mode is required (block, patch or new program)");
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    DebugCopySource src;
+    if (auto st = debugger_.ReadForCopy(ctx, req, src); !st.ok()) return st;
+    if (!src.unreadable.empty()) {
+      std::uint64_t n = 0;
+      for (const auto &[off, len] : src.unreadable) n += len;
+      const auto &[off, len] = src.unreadable.front();
+      return Error(StatusCode::kFailedPrecondition,
+                   std::to_string(n) + " of the bytes could not be read (the first at 0x" + Hex(src.runtime + off) + ", " +
+                       std::to_string(len) + " bytes): copy a smaller range" + (req.has_snapshot() ? ", or one recorded at that snapshot" : ""));
+    }
+    resp.set_address(src.runtime);
+    resp.set_length(src.bytes.size());
+    std::string perms = req.permissions().empty() ? src.perms : req.permissions();
+    if (perms.empty()) perms = "rwx";
+    const bool r = perms.find('r') != std::string::npos, w = perms.find('w') != std::string::npos, x = perms.find('x') != std::string::npos;
+    std::string name = req.name();
+    if (name.empty()) {
+      std::string base = src.region_name.empty() ? "runtime" : fs::path(src.region_name).filename().string();
+      for (char &c : base)
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '_' && c != '-') c = '_';
+      name = base + "_" + Hex(src.runtime);
+    }
+    switch (req.mode()) {
+      case pb::DEBUG_COPY_MODE_PATCH: {
+        if (!src.program_address)
+          return Error(StatusCode::kFailedPrecondition, "0x" + Hex(src.runtime) + " is outside the program: copy it as a new block or a new program");
+        const std::uint64_t address = *src.program_address;
+        Project *pp = nullptr;
+        if (auto st = FindProgramProject(src.program_id, pp); !st.ok()) return st;
+        Project &p = *pp;
+        std::lock_guard write(p.write_mu);
+        if (auto st = CheckWritable(p, src.program_id, 0); !st.ok()) return st;
+        Read rd;
+        if (auto st = ResolveProgram(ctx, src.program_id, {}, {}, rd); !st.ok()) return st;
+        View v(rd);
+        if (auto e = Patchable(v.program(), address, src.bytes.size()); !e.empty()) return Error(StatusCode::kFailedPrecondition, e);
+        // Only what differs from the program's bytes now (patches included), in runs.
+        SnapshotPatches patched(v.snapshot(), v.space());
+        const std::string now = v.program().read(address, static_cast<std::uint32_t>(src.bytes.size()), &patched);
+        auto tx = p.db->begin();
+        const std::uint64_t rev = tx.next_revision();
+        std::uint64_t changed = 0;
+        for (std::size_t i = 0; i < src.bytes.size();) {
+          if (i < now.size() && now[i] == src.bytes[i]) {
+            ++i;
+            continue;
+          }
+          std::size_t j = i;
+          // Runs joined across short equal gaps: fewer, longer patches.
+          while (j < src.bytes.size()) {
+            if (j >= now.size() || now[j] != src.bytes[j]) {
+              ++j;
+              continue;
+            }
+            std::size_t k = j;
+            while (k < src.bytes.size() && k < now.size() && now[k] == src.bytes[k] && k - j < 8) ++k;
+            if (k - j >= 8 || k == src.bytes.size()) break;
+            j = k;
+          }
+          StagePatch(v, tx, req.provenance(), address + i, src.bytes.substr(i, j - i), pb::PatchBody{}, rev);
+          for (std::size_t q = i; q < j; ++q) changed += (q >= now.size() || now[q] != src.bytes[q]) ? 1 : 0;
+          i = j;
+        }
+        resp.set_program_address(address);
+        resp.set_changed(changed);
+        if (changed == 0) return Status::Ok();  // the program has these bytes already: nothing to undo
+        pb::RevisionEvent ev;
+        Commit(p, tx, req.provenance(), pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+        resp.set_revision(ev.revision());
+        for (const auto &a : ev.assertions()) resp.add_seqs(a.seq());
+        return Status::Ok();
+      }
+      case pb::DEBUG_COPY_MODE_BLOCK: {
+        if (src.program_address)
+          return Error(StatusCode::kFailedPrecondition,
+                       "0x" + Hex(src.runtime) + " is in the program (at 0x" + Hex(*src.program_address) + "): copy it as patches");
+        // At its runtime address: where the code that runs there expects to be.
+        pb::AddMemoryRegionRequest ar;
+        ar.set_program_id(src.program_id);
+        pb::MemoryRegion *mr = ar.mutable_region();
+        mr->set_name(name);
+        mr->set_start(src.runtime);
+        mr->set_size(src.bytes.size());
+        mr->set_read(r);
+        mr->set_write(w);
+        mr->set_execute(x);
+        mr->set_initialized(true);
+        ar.set_content(src.bytes);
+        ar.set_file_name(name);
+        *ar.mutable_provenance() = req.provenance();
+        pb::AddMemoryRegionResponse aresp;
+        if (auto st = AddMemoryRegion(ctx, ar, aresp); !st.ok()) return st;
+        resp.set_program_address(src.runtime);
+        resp.set_region_id(aresp.region_id());
+        *resp.mutable_block() = aresp.block();
+        resp.set_revision(aresp.snapshot().revision());
+        resp.add_seqs(aresp.assertion().seq());
+        return Status::Ok();
+      }
+      case pb::DEBUG_COPY_MODE_NEW_PROGRAM: {
+        Project *pp = nullptr;
+        if (auto st = FindProgramProject(src.program_id, pp); !st.ok()) return st;
+        std::string language, compiler;
+        {
+          Read rd;
+          if (auto st = ResolveProgram(ctx, src.program_id, {}, {}, rd); !st.ok()) return st;
+          View v(rd);
+          language = v.program().language().language;
+          compiler = v.program().language().compiler;
+        }
+        pb::ImportProgramRequest ir;
+        ir.set_project_id(src.program_id.substr(0, src.program_id.find('/')));
+        ir.set_content(src.bytes);
+        ir.set_name(name);
+        pb::ImportOptions *o = ir.mutable_options();
+        o->set_format("raw");
+        o->set_language_id(language);
+        o->set_compiler_spec_id(compiler);
+        o->set_has_image_base(true);
+        o->set_image_base(src.runtime);
+        o->set_raw_permissions(std::string(r ? "r" : "-") + (w ? "w" : "-") + (x ? "x" : "-"));
+        o->set_analyze(req.analyze());
+        *ir.mutable_provenance() = req.provenance();
+        pb::ImportProgramResponse iresp;
+        if (auto st = ImportProgram(ctx, ir, iresp); !st.ok()) return st;
+        resp.set_program_address(src.runtime);
+        *resp.mutable_program() = iresp.program();
+        resp.set_revision(iresp.snapshot().revision());
+        return Status::Ok();
+      }
+      default: break;
+    }
+    return Error(StatusCode::kInvalidArgument, "unknown mode");
+  }
+
+  // What debug values and runtime disassembly read of the session's
+  // program at head (names, types, the decompiler's variables), for `f`.
+  template <class F>
+  Status WithDebugEnv(const CallContext &ctx, const std::string &session_id, F &&f) {
+    std::string program_id;
+    if (auto st = debugger_.ProgramOf(ctx, session_id, program_id); !st.ok()) return st;
+    Read r;
+    if (auto st = ResolveProgram(ctx, program_id, {}, {}, r); !st.ok()) return st;
+    View v(r);
+    std::shared_ptr<const NamedTypes> names;
+    std::optional<std::map<std::string, std::uint64_t>> symbols;
+    DebugEvalEnv env;
+    env.describe = [&](const std::string &hash) -> std::optional<pb::TypeDefinition> {
+      google::protobuf::RepeatedPtrField<pb::TypeDefinition> out;
+      try {
+        if (r.snapshot->get<q::Types>({v.id(), hash})->empty()) return std::nullopt;
+        DescribeTypes(v, r, {hash}, &out);
+      } catch (const std::exception &) {
+        return std::nullopt;
+      }
+      if (out.empty()) return std::nullopt;
+      return out[0];
+    };
+    env.type_named = [&](const std::string &name) -> std::optional<std::string> {
+      auto all = r.snapshot->get<q::TypeNames>(v.id());
+      std::vector<std::string> keys;
+      if (name.rfind("struct ", 0) == 0 || name.rfind("union ", 0) == 0 || name.rfind("enum ", 0) == 0 || name.rfind("class ", 0) == 0)
+        keys = {name};
+      else
+        keys = {"typedef " + name, "struct " + name, "union " + name, "enum " + name, "class " + name};
+      for (const std::string &k : keys) {
+        if (const std::string *b = all->bound(k)) return *b;
+        for (const NamedTypes::Entry &t : all->types)
+          if (t.key == k) return t.hash;
+      }
+      return std::nullopt;
+    };
+    env.symbol = [&](const std::string &name) -> std::optional<std::uint64_t> {
+      if (!symbols) {
+        symbols.emplace();
+        std::set<std::uint64_t> addrs;
+        for (const Func &f : v.functions().funcs) addrs.insert(f.entry);
+        for (const Label &l : v.defaults().labels) addrs.insert(l.address);
+        for (const facts::FactKey &k : v.LogKeys())
+          if (k.kind == FactKind::Name && k.sub.empty() && k.addr.space == v.space()) addrs.insert(k.addr.offset);
+        for (std::uint64_t a : addrs) {
+          std::string n = v.Symbol(a);
+          if (!n.empty()) symbols->emplace(std::move(n), a);
+        }
+      }
+      if (auto it = symbols->find(name); it != symbols->end()) return it->second;
+      return std::nullopt;
+    };
+    env.symbol_at = [&](std::uint64_t a) -> std::string {
+      std::string n = v.Symbol(a);
+      if (!n.empty()) return n;
+      if (const Func *f = v.functions().containing(a)) {
+        std::string fn = v.Symbol(f->entry);
+        if (!fn.empty()) return fn + "+0x" + Hex(a - f->entry);
+      }
+      return {};
+    };
+    env.data_type = [&](std::uint64_t a) -> std::optional<std::string> {
+      if (v.functions().at(a)) return std::nullopt;
+      const std::string t = v.Text(v.Key(FactKind::Type, a));
+      if (t.starts_with("h:")) return t.substr(2);
+      return std::nullopt;
+    };
+    env.variables = [&](std::uint64_t entry) -> std::vector<pb::Variable> {
+      std::vector<pb::Variable> out;
+      const Func *f = v.functions().at(entry);
+      if (!f) return out;
+      try {
+        DecompileLimitsScope scope(LimitsFor(ctx, 0));
+        facts::Ref<DecompileOutput> d = r.snapshot->get<q::Decompile>({v.id(), f->entry});
+        if (d->failure) return out;
+        pb::DecompiledFunction fn;
+        Overlay(v, *f, *d, false, &fn, false);
+        out.assign(fn.variables().begin(), fn.variables().end());
+      } catch (const std::exception &) {
+      }
+      return out;
+    };
+    return f(env);
+  }
+
+  // --- File systems (api_minor 48; docs/filesystems.md) ------------------------
+
+  // A program's stored file as a container's bytes, without a copy.
+  class ProgramFileSource final : public container::Source {
+   public:
+    explicit ProgramFileSource(std::shared_ptr<const loader::Bytes> b) : b_(std::move(b)) {}
+    std::uint64_t size() const override { return b_->size(); }
+    std::size_t read(std::uint64_t offset, std::span<std::byte> out) const override {
+      if (offset >= b_->size()) return 0;
+      const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(out.size(), b_->size() - offset));
+      std::memcpy(out.data(), b_->data() + offset, n);
+      return n;
+    }
+    std::span<const std::byte> view() const override { return *b_; }
+
+   private:
+    std::shared_ptr<const loader::Bytes> b_;
+  };
+
+  Status OpenProjectNamed(const std::string &project_id) {
+    if (project_id.empty()) return Error(StatusCode::kInvalidArgument, "project_id is required");
+    std::lock_guard lock(core_->mu);
+    auto it = core_->projects.find(project_id);
+    if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + project_id);
+    if (!it->second->open) return Error(StatusCode::kFailedPrecondition, "project is closed");
+    return Status::Ok();
+  }
+
+  Status OpenFileSystem(const CallContext &ctx, const pb::OpenFileSystemRequest &req,
+                        pb::OpenFileSystemResponse &resp) override {
+    if (auto st = OpenProjectNamed(req.project_id()); !st.ok()) return st;
+    const container::Limits limits = LimitsFrom(req.limits());
+    std::shared_ptr<container::Session> session;
+    std::string name = req.name();
+    Status st = FsGuard([&]() -> Status {
+      switch (req.source_case()) {
+        case pb::OpenFileSystemRequest::kHostPath: {
+          std::error_code ec;
+          const fs::path path = fs::absolute(req.host_path(), ec);
+          if (ec || !fs::exists(path, ec)) return Error(StatusCode::kNotFound, "no such file: " + req.host_path());
+          if (fs::is_directory(path, ec)) {
+            const fs::path canon = fs::canonical(path, ec);
+            session = container::Session::open_directory(canon.string(), limits);
+            if (name.empty()) name = canon.filename().string();
+          } else {
+            if (name.empty()) name = path.filename().string();
+            session = container::Session::open(container::open_host_file(path.string()), name, limits, ctx.cancelled);
+          }
+          return Status::Ok();
+        }
+        case pb::OpenFileSystemRequest::kProgramId: {
+          Read r;
+          if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
+          if (r.project->id != req.project_id())
+            return Error(StatusCode::kInvalidArgument, req.program_id() + " is not in project " + req.project_id());
+          auto file = r.program->program().file();
+          if (!file) return Error(StatusCode::kFailedPrecondition, "the program's file bytes aren't loaded");
+          if (name.empty()) name = r.program->source.name;
+          session = container::Session::open(std::make_shared<ProgramFileSource>(file), name, limits, ctx.cancelled);
+          return Status::Ok();
+        }
+        case pb::OpenFileSystemRequest::kUploadId: {
+          fs::path path;
+          if (auto st = uploads_.Find(ctx.caller, req.upload_id(), path); !st.ok()) return st;
+          if (name.empty()) name = "upload";
+          session = container::Session::open(container::open_host_file(path.string()), name, limits, ctx.cancelled);
+          return Status::Ok();
+        }
+        case pb::OpenFileSystemRequest::kContent: {
+          std::vector<std::byte> bytes(req.content().size());
+          std::memcpy(bytes.data(), req.content().data(), bytes.size());
+          if (name.empty()) name = "upload";
+          session = container::Session::open(container::memory_source(std::move(bytes)), name, limits, ctx.cancelled);
+          return Status::Ok();
+        }
+        default: return Error(StatusCode::kInvalidArgument, "host_path, program_id, upload_id or content is required");
+      }
+    });
+    if (!st.ok()) return st;
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Add(ctx, req.project_id(), name, session, fss); !st.ok()) return st;
+    resp.set_session_id(fss->id);
+    resp.set_name(container::display_name(name));
+    FillLayer(*session, *session->root(), "", 1, resp.mutable_root());
+    FillLimits(limits, resp.mutable_limits());
+    return Status::Ok();
+  }
+
+  Status ListFileSystem(const CallContext &ctx, const pb::ListFileSystemRequest &req,
+                        pb::ListFileSystemResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    return ListFileSystemEntries(*fss, ctx, req, resp);
+  }
+
+  Status ReadFileSystemFile(const CallContext &ctx, const pb::ReadFileSystemFileRequest &req,
+                            pb::ReadFileSystemFileResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    return backend::ReadFileSystemFile(*fss, ctx, req, resp);
+  }
+
+  Status GetFileSystemFileInfo(const CallContext &ctx, const pb::GetFileSystemFileInfoRequest &req,
+                               pb::GetFileSystemFileInfoResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    return FileSystemFileInfo(*fss, ctx, req, resp);
+  }
+
+  Status ExtractFromFileSystem(const CallContext &ctx, const pb::ExtractFromFileSystemRequest &req,
+                               pb::ExtractFromFileSystemResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    return ExtractFileSystem(*fss, ctx, req, core_->options.browse_roots, resp);
+  }
+
+  Status CloseFileSystem(const CallContext &ctx, const pb::CloseFileSystemRequest &req,
+                         pb::CloseFileSystemResponse &) override {
+    return filesystems_.Close(ctx, req);
+  }
+
+  Status ListFileSystems(const CallContext &ctx, const pb::ListFileSystemsRequest &,
+                         pb::ListFileSystemsResponse &resp) override {
+    filesystems_.List(ctx, resp);
+    return Status::Ok();
+  }
+
+  // What raw detection says of a member, as import options; FAILED_PRECONDITION
+  // with the reason when it isn't sure.
+  Status DetectMember(const CallContext &ctx, const std::string &project, std::span<const std::byte> bytes,
+                      pb::ImportOptions &out) {
+    if (bytes.size() > kMaxDetectBytes) return Error(StatusCode::kFailedPrecondition, "too large for raw detection");
+    std::shared_ptr<DetectJob> job;
+    if (auto st = core_->detections.Start(ctx.caller, project, "", job); !st.ok()) return st;
+    DetectRegistry::Slot slot;
+    if (auto st = core_->detections.Acquire(*job, ctx.cancelled, slot); !st.ok()) return st;
+    const unsigned threads = core_->options.analysis_threads
+                                 ? core_->options.analysis_threads
+                                 : std::min(8u, std::max(1u, std::thread::hardware_concurrency()));
+    pb::DetectRawLayoutResponse d;
+    if (auto st = RunRawDetect(bytes, DetectHints{}, threads, *job, ctx.cancelled, d); !st.ok()) return st;
+    job->Finish("done");
+    if (d.has_refusal() || d.suggestions_size() == 0)
+      return Error(StatusCode::kFailedPrecondition,
+                   "raw detection isn't sure" + (d.has_refusal() ? ": " + d.refusal().detail() : std::string()));
+    const pb::RawLayoutSuggestion &s = d.suggestions(0);
+    if (s.processor_confidence() != pb::DETECT_CONFIDENCE_HIGH)
+      return Error(StatusCode::kFailedPrecondition, "raw detection's best guess (" + s.options().language_id() +
+                                                        ") isn't confident enough to import unattended");
+    out = s.options();
+    return Status::Ok();
+  }
+
+  // Batch and single imports from a session (docs/filesystems.md, "Batch
+  // import"): the plan, then each program through ImportProgram's own code
+  // with the member's bytes, then into its folder.
+  Status ImportFromFileSystem(const CallContext &ctx, const pb::ImportFromFileSystemRequest &req,
+                              pb::ImportFromFileSystemResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    const std::string project = req.project_id();
+    if (auto st = OpenProjectNamed(project); !st.ok()) return st;
+    if (req.options().format() == "raw" && req.options().language_id().empty())
+      return Error(StatusCode::kInvalidArgument, "format \"raw\" needs options.language_id");
+    std::vector<ImportPlanItem> plan;
+    bool capped = false;
+    if (auto st = PlanFileSystemImport(*fss, ctx, req, plan, capped); !st.ok()) return st;
+    resp.set_capped(capped);
+    // The project's folders by path, to place each program.
+    std::map<std::string, std::string> folder_ids{{"/", ""}};
+    std::string base = "/";
+    {
+      pb::ListProgramsRequest lr;
+      lr.set_project_id(project);
+      pb::ListProgramsResponse lp;
+      if (auto st = ListPrograms(ctx, lr, lp); !st.ok()) return st;
+      bool found = req.folder_id().empty();
+      for (const pb::ProjectFolder &f : lp.folders()) {
+        folder_ids[f.path()] = f.folder_id();
+        if (f.folder_id() == req.folder_id()) {
+          base = f.path();
+          found = true;
+        }
+      }
+      if (!found) return Error(StatusCode::kNotFound, "no folder " + req.folder_id() + " in project " + project);
+    }
+    auto ensure_folder = [&](const std::vector<std::string> &names, std::string &id, std::string &path) -> Status {
+      path = base;
+      id = folder_ids[base];
+      for (std::string n : names) {
+        for (char &ch : n)
+          if (ch == '/' || static_cast<unsigned char>(ch) < 0x20) ch = '_';
+        if (n.size() > 200) n.resize(200);
+        if (n.empty() || n == "." || n == "..") n = "_" + n;
+        const std::string next = (path == "/" ? "" : path) + "/" + n;
+        if (auto it = folder_ids.find(next); it != folder_ids.end()) {
+          id = it->second;
+          path = next;
+          continue;
+        }
+        pb::CreateFolderRequest cr;
+        cr.set_project_id(project);
+        cr.set_parent_id(id);
+        cr.set_name(n);
+        *cr.mutable_provenance() = req.provenance();
+        pb::CreateFolderResponse cf;
+        if (auto st = CreateFolder(ctx, cr, cf); !st.ok()) return st;
+        id = cf.folder().folder_id();
+        path = next;
+        folder_ids[path] = id;
+      }
+      return Status::Ok();
+    };
+    for (const ImportPlanItem &item : plan) {
+      pb::FileSystemImport *out = resp.add_items();
+      out->set_path(item.path);
+      out->set_container_path(item.container_path);
+      out->set_detected(item.detected);
+      out->set_action(item.action);
+      out->set_reason(item.reason);
+      if (!item.language.empty()) out->set_language_id(item.language);
+      if (item.action != "import") {
+        resp.set_skipped(resp.skipped() + 1);
+        continue;
+      }
+      if (req.preview()) continue;
+      auto fail = [&](const std::string &why, const char *action = "failed") {
+        out->set_action(action);
+        out->set_reason(why);
+        if (std::string_view(action) == "failed")
+          resp.set_failed(resp.failed() + 1);
+        else
+          resp.set_skipped(resp.skipped() + 1);
+      };
+      if (ctx.cancelled()) {
+        fail("cancelled", "skipped");
+        continue;
+      }
+      auto bytes = std::make_shared<loader::Bytes>();
+      Status rs = FsGuard([&]() -> Status {
+        auto src = fss->session->open_file(item.path, ctx.cancelled);
+        bytes->resize(static_cast<std::size_t>(src->size()));
+        if (src->read(0, *bytes) != bytes->size()) return Error(StatusCode::kDataLoss, "short read");
+        return Status::Ok();
+      });
+      if (!rs.ok()) {
+        fail(rs.message);
+        continue;
+      }
+      pb::ImportProgramRequest in;
+      in.set_project_id(project);
+      in.set_name(item.name);
+      *in.mutable_options() = req.options();
+      *in.mutable_provenance() = req.provenance();
+      if (item.detect_raw && in.options().format().empty()) {
+        pb::ImportOptions detected;
+        if (auto st = DetectMember(ctx, project, *bytes, detected); !st.ok()) {
+          fail(st.message, "skipped");
+          continue;
+        }
+        detected.set_analyze(req.options().analyze());
+        *in.mutable_options() = detected;
+      } else if (!item.language.empty() && item.kind != "elf" && item.kind != "pe" && in.options().format().empty()) {
+        in.mutable_options()->set_format("raw");
+        in.mutable_options()->set_language_id(item.language);
+        if (item.load_address) {
+          in.mutable_options()->set_has_image_base(true);
+          in.mutable_options()->set_image_base(*item.load_address);
+        }
+      }
+      if (in.options().format() == "raw") out->set_language_id(in.options().language_id());
+      auto progress = std::make_shared<ImportProgress>(ctx.caller, project, item.name);
+      pb::ImportProgramResponse ir;
+      PreloadedImport pre{bytes, item.container_path};
+      bytes.reset();
+      Status is;
+      try {
+        is = ImportProgramImpl(in, ir, *progress, &pre, ctx.caller);
+      } catch (const std::exception &e) {
+        is = Error(StatusCode::kInternal, std::string("import failed: ") + e.what());
+      }
+      if (!is.ok()) {
+        fail(is.message);
+        continue;
+      }
+      out->set_action("imported");
+      out->set_reason("");
+      for (const std::string &w : ir.warnings()) out->add_warnings(w);
+      pb::ProgramInfo prog = ir.program();
+      std::string fid, fpath;
+      if (auto st = ensure_folder(item.folders, fid, fpath); !st.ok()) {
+        out->add_warnings("left at the root: " + st.message);
+      } else if (!fid.empty()) {
+        pb::MoveToFolderRequest mr;
+        mr.set_project_id(project);
+        mr.set_folder_id(fid);
+        mr.add_program_ids(prog.program_id());
+        *mr.mutable_provenance() = req.provenance();
+        pb::MoveToFolderResponse mv;
+        if (auto st = MoveToFolder(ctx, mr, mv); !st.ok()) {
+          out->add_warnings("left at the root: " + st.message);
+        } else {
+          prog.set_folder_id(fid);
+          prog.set_folder_path(fpath);
+        }
+      }
+      *out->mutable_program() = std::move(prog);
+      resp.set_imported(resp.imported() + 1);
+    }
+    {
+      std::lock_guard lock(core_->mu);
+      SetHeadSnapshot(*core_->projects.at(project), resp.mutable_snapshot());
+    }
+    return Status::Ok();
+  }
+
+ private:
+  std::shared_ptr<Core> core_;
+  EmulatorSessions emulator_;
+  Assemblers assemblers_;
+  // The last program's names by revision, for labels in assembly.
+  std::mutex names_mu_;
+  std::pair<std::string, std::uint64_t> names_key_;
+  std::shared_ptr<const NameMap> names_;
+  // After core_: sessions call back into it (function bounds), so they go first.
+  DebugSessions debugger_;
+  MachineStore machines_;
+  Uploads uploads_;
+  FileSystemRegistry filesystems_;
+
+ public:
+  facts::Engine *EngineOf(const std::string &project_id) {
+    std::lock_guard lock(core_->mu);
+    auto it = core_->projects.find(project_id);
+    return it == core_->projects.end() ? nullptr : &it->second->db->engine();
+  }
+};
+
+template <class... Q>
+void CountRules(facts::Engine &e, std::map<std::string, RuleCounters> &out) {
+  ((out[std::string(Q::name)] = [&] {
+     facts::QueryStats s = e.stats<Q>();
+     return RuleCounters{s.executions, s.validations, s.hits, s.loads};
+   }()),
+   ...);
+}
+
+facts::Engine &EngineFor(api::Backend &backend, const std::string &project_id) {
+  auto *b = dynamic_cast<ImageBackend *>(&backend);
+  if (!b) throw std::invalid_argument("not an image backend");
+  facts::Engine *e = b->EngineOf(project_id);
+  if (!e) throw std::invalid_argument("no project " + project_id);
+  return *e;
+}
+
+}  // namespace
+
+std::unique_ptr<api::Backend> MakeImageBackend(ImageBackendOptions options) {
+  return std::make_unique<ImageBackend>(std::move(options));
+}
+
+std::map<std::string, RuleCounters> QueryCounters(api::Backend &backend, const std::string &project_id) {
+  std::map<std::string, RuleCounters> out;
+  namespace an = ::revkit::analysis;
+  CountRules<an::MemoryMap, an::Data, an::Functions, an::Function, an::Flow, an::Thunk, an::Program, an::DataProgram, facts::EffectivePage, facts::PatchSpan, facts::PatchedPage, q::LoaderNames, q::Functions, q::Code, q::FunctionXrefs,
+             q::Xrefs, q::DefaultNames, q::Rows, q::Page, q::HeaderBucket, q::HeaderSlots, q::Headers, q::Symbol, q::Container, q::Types, q::Inputs, q::Decompile,
+             q::InputsStatic, q::InputsProgram, q::InputsImage,
+             q::ParamIdPlan, q::ParamIdDeps, q::ParamId, q::SignatureInputs, q::DiffSignature,
+             plugins::ProgramInfoBlob, plugins::FunctionsBlob, plugins::CodeBlob, plugins::Name, plugins::Analyze>(
+      EngineFor(backend, project_id), out);
+  return out;
+}
+
+void ResetQueryCounters(api::Backend &backend, const std::string &project_id) {
+  EngineFor(backend, project_id).reset_stats();
+}
+
+facts::Engine &ProjectEngine(api::Backend &backend, const std::string &project_id) {
+  return EngineFor(backend, project_id);
+}
+
+}  // namespace revkit::backend

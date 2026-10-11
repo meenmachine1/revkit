@@ -1,0 +1,3400 @@
+<xml_savefile name="struct_decl" target="default" adjustvma="0">
+<binaryimage arch="AARCH64:LE:64:v8A:default">
+<bytechunk space="ram" offset="0x124d60" readonly="true">
+fd7bafa9e2430391fd030091f35301a9
+f30302aaf55b02a9e03700f9e23f00f9
+e18300b9ff7f0da9ff7f0ea97dd2ff97
+e00313aab3f8ff976001009013000b91
+60fa41b91fec01710104005460ba41b9
+e09700b90104001161ba01b9e18340b9
+640280520404a072000002323f004871
+030080122410841ae183029102008052
+e4a300b9ff5700f91e9fff97011040b9
+f50300aa1f0800796001009013000b91
+e03740f9010000b9150400f960fa41b9
+1fec0171a0050054f35341a9f55b42a9
+fd7bd1a8c0035fd6e09700b955d2ff97
+e09740b91ffc0371cd800054612a40b9
+02000451210004513f00026b89fbff54
+610640f9215862f8350c40f915fbffb4
+61a241b9a20e40b95f00016b80000054
+61fa41b93fec017120faff54a11240b9
+e28340b93f00026b80fbff545f004871
+a100005422601912424c0c125f004871
+c0faff54010080d2f76303a9f96b04a9
+fb7305a9eb94ff97e10300aa600000b0
+00003991687cff97f76303a9f96b04a9
+fb7305a92bd2ff97a00a40b91f040031
+e1790054e18340b9b982009160fa41b9
+3f004871600b00541ff40171c0170054
+e0c30291faef9f52f7c3039115008052
+16008052fa01a072e03b00f960620691
+e03300f9e03b40f9e10317aae5030094
+f803002ac02d0034154f00357be20591
+f46302912b0000141fec007180280054
+fc830291e2530291e0031caae10317aa
+43008052f7060094e69740b986270034
+e10314aae0031caab275ff97e029f837
+e5a340b915008052a00c00121f180071
+604b0054bf0c1472214b005465fa41b9
+bfe8007140030054e10314aae0031caa
+a475ff97e19740b9e2a340b9e1220035
+420c00125f1c0071e0179f1ad602002a
+400f0054bfec0071a418413a00100054
+bfb00071814a0054e6d1ff9775490035
+e20f4ba9ff9700b960fa41b9e20f0aa9
+1fe8007121faff5415008052ddd1ff97
+ecf6ff97fc03002ae19740b9606ef837
+3f0000710018407a406c0054e00317aa
+0cf8ff97e10314aae08302918175ff97
+e2a340b9c10381d2440c00122124c49a
+41090037600000d000a02791027cff97
+78008452fa030391160080d2170080d2
+140080d2fb6780521806a072f56700f9
+16000014e09740b902068052e1031aaa
+03008052f8c300b9729eff97140400f9
+df0214eb62fa41b9d6d2949aff0214eb
+200300f9f7a2949a198000915fb00071
+613f0054afd1ff979406009160fa41b9
+1ff4017100220054e09700b91fe40471
+8d5b0054612a40b90200045121000451
+3f00026be9000054610640f9215862f8
+211040f9610000b461ce40f9216900b4
+9cd1ff9760fa41b91ff4007141fbff54
+98d1ff97611a41b960be41b921040011
+611a01b90004001160be01b941eeff97
+620e40f9601a41b961be41b900040051
+601a01b9402040792104005161be01b9
+6003000a1fc00071e1660054541040f9
+4f7eff97c4ffff1700701d539f03006b
+cc500054a01a00549f030171c0550054
+42001a0a43681c2a62001932e2a300b9
+e19740b9a1130035420c00125f1c0071
+e0179f1ad602002a61ba41b9e19700b9
+2004001160ba01b90165003565fa41b9
+bfec0071a418413a41f0ff54bfec0071
+8165005467d1ff9760fa41b91ff40171
+a1e9ff5463d1ff973a008052e03f40f9
+170080521c00805296f7ff97f5a34179
+e13740f9400100f000000b91220440f9
+008040f95b1040f9145440b9019c42f9
+9f020071e0179f1ae07300b9360040b9
+3b0900b43a008052f3730291f9031a2a
+e000805207008052170080521c008052
+e06300b9ff8300b9691340b9491a3836
+e10313aa60430091f274ff97287d1a53
+610f4079e303002a8a02082a2c100072
+a01c00546b0340f96bd170d36b050051
+2023cb1a0a1a0035e13740f9e2008052
+e09f00b90202a072210440f9211040b9
+3f00026b401c0054020180524220cb1a
+e11e0011e703004b17008052810f810b
+2100000b21040051fc00010a5f810071
+60d8487ae1000054216d1c1221040032
+611300b903000014f702024b9c03000b
+ff02026baaffff54610340b9e22e0c53
+f7020a0be133e037611340b95f03006b
+5aa3801af8031c2a206406120000022a
+601300b9e703182a7f0b0079780b00b9
+7b1340f9bbf8ffb5e03740f9020440f9
+5b1040f9b5120012b42f0035e41e0011
+9c0f840b952f00355f03007140c79f1a
+033c001201001c0be003004b21040051
+430800790800010a480800b90b008012
+6a008052db0200b4661340b946023836
+6b0f00b9c57c1a537b0f00f9c5010034
+f3730291c76454d3e10313aa60430091
+9c74ff97e903002aa000070b6c0b40b9
+1f0c096bec1b005420010c0b1f01006b
+8b1b00547b1340f99bfdffb5f76343a9
+f96b44a9fb7345a9f35341a9f55b42a9
+fd7bd1a8c0035fd6f603182a60ce40f9
+21000332030080521f0000f1e03340f9
+6003809a7c8aff97e15740f91f080079
+e2e34179020c0079010c00f965fa41b9
+200300f919800091dffeff17e5a340b9
+a00c00121f1c0071413f0054e05f40f9
+000040b90001e837007801120100be12
+1f00016b8c000054608240f9004c40b9
+003e0034fc830291e10314aae0031caa
+6874ff978000f8371500805206008052
+b9feff1706008052e08340b91f1c0071
+a1370054e5a340b9c01a458a40370036
+f503182aadfeff17e0a34179e1e34179
+0000012ae0e52f3628ffff1760fa41b9
+1fec007180e7ff54610208915993ff97
+61078052e20300aa600000b000201691
+d57aff979bd0ff973604f8b7e07f40b2
+ff0200eb491e00548102815283028152
+0104a072e23740f9a01240f9410000b9
+bf0a00b9a11200b9a0f5ffb463001c12
+e501811284008152e67f40b21f2003d5
+020440f95fc022eb40010054011040b9
+a300003421001c32011000b95f0006eb
+890000542100050a2100042a011000b9
+001040f960feffb599ffff17ffc237eb
+6034005481008152830081520104a072
+e1ffff17e10313aa604300912174ff97
+e303002a610f40792c10007280070054
+600340f90800801200d070d30000080b
+2023c01ad414003476250034e13740f9
+e09f00b92b0440f921008052601140b9
+e20080520202a0721f00026b60110054
+1f050031e12a0054e29f40b954080035
+3f000014e03740f90b0440f96c1140b9
+0a420035e09f40b9e10080520102a072
+02701d539f01016b41e4ff5408008052
+031d0011637c0313620340b99f03036b
+9ca3831a18008052420004125f03006b
+5aa3801a82e6ff34611340b9210c0012
+3f1c007101e6ff54670f40f9e00040b9
+a000e837007801120100be121f00016b
+ed2f0054e00307aae103182ae703182a
+2c74ff971800805224ffff17d40c0035
+e03740f90a0080120b0440f92c001b12
+c11e2837a0021b12d527283621008052
+e19f00b996320034df02016bab270054
+e203012ae8030a2a2100805216f8ff36
+611140b9e00080520002a0723f00006b
+600900541f05003101330054e41e0011
+9c0f840b41001c0be903024be003022a
+620340b9210400513801010a42000412
+7f0000718d0c0054e10080521c03030b
+17008052e16300b9ff8300b9c4ffff17
+ec0c0c0b20008052e09f00b982090012
+8d7d0313e7030d2abf050031202f0054
+ee030391120000143f08007120049f1a
+3f0c007100b08a1ae08700b9e28740b9
+e10313aae0030eaae2c300b9a573ff97
+e19f40b9e103014b21000d0a820d014b
+3f00076b40010054e703012aa000020b
+001c0011017c03131f9c00716dfdff54
+80008052e08700b9edffff1701701d53
+a500020bbf00016bac010054e100000b
+1f01016b4b010054c6640612670b00b9
+c250022a621300b93f01006bc0deff54
+e08740b9600f00b9f3feff17e0008052
+600f00b9f0feff17e29f40b9e07340b9
+1f000071e003022a0419413a60f0ff54
+80ffff17e03740f90b0440f96c1140b9
+560b00358c014451e29f40b98c1d0071
+a1f5ff54e003022a78ffff17e1152836
+21008052e19f00b916150034df060071
+6b1e0054df02006b8a140054e03740f9
+e203012a0b0440f996ffff175ff40171
+20e3ff5461020891e003022a6992ff97
+e20300aaa10f8052600000b000201691
+e579ff97e1008052fc03182a17008052
+e16300b9ff8300b961ffff1761028052
+630280520104a0720fffff17010080d2
+e003062a5792ff97e10300aa600000d0
+00202691d479ff97e09740b9010080d2
+5092ff97e10300aa600000d000c02491
+cd79ff97400100f001000b9121000891
+e003052a4792ff97e20300aa610000b0
+2020169181058052c379ff9721008052
+d5000034e06b40f92100805200100012
+000400512120c01a3f001a6b20a09a1a
+9f020071c41a407a033c0012c0125a7a
+aacfff54df02016bc0a2811a7afeff17
+611340b95f030071200080525ac79f1a
+21640612f8031c2a2100022a611300b9
+e09f00b92effff1708008012e29f40b9
+df02026b8b110054e00080520002a072
+9f01006b80f4ff541f050031c0e9ff54
+1f010071eb179f1ae16340b92c0d0012
+0001170b9f01016bed079f1a1f0c036b
+6c0000547f010d6b800b0054e18340b9
+e09f40b90a01012a01001c0be003004b
+210400511800010a8a0200341c03030b
+f703082a0a008052620340b97f010071
+a419407a4200041221010054e09f40b9
+611340b9ec6300b921640612e88300b9
+21000a2a611300b9fdfeff1720008052
+f99f00b9f7ffff17fc03182a17008052
+eeffff17e13740f9e09f00b92b0440f9
+01008052d6feff1721008052e19f00b9
+e0008052df020071621140b90002a072
+b60d00355f00006b000d0054e203012a
+5f05003140e2ff545f0100710c008052
+eb179f1a9f010071e003022a6009407a
+42701d53e1beff54a1bfff35680cc01a
+e70e1c0be10cc21a219c021b21000a0b
+2100020b21040051210cc21a3f00086b
+6dbeff54ebfdff17e23740f9e09f00b9
+4b0440f9b2feff170100805295002836
+22008052e103022ae29f00b9f6feff34
+e29f40b9df02026b2b080054df02006b
+6ad4ff54e03740f90b0440f9e5feff17
+1f010071eb179f1a14f4ff35e29f40b9
+ea03082ad8ffff17ea2e0c53f803072a
+f703002aadffff17e09740b9010080d2
+b091ff97e10300aa600000d000202891
+2d79ff97010080d2e003062aa991ff97
+e10300aa600000d000a025912679ff97
+f60d0034e29f40b9df02026bcad8ff54
+e8030a2a00008052e17340b9f69f00b9
+3f000071c012407a8a0b0054e203162a
+c0feff17611140b9e0008052f69f00b9
+0002a0723f00006b80100054e203162a
+1f05003100d8ff5472ffff17dfc236eb
+a1cbff5461008052630080520104a072
+3dfeff17600000d000a028910679ff97
+600000d000400e912a79ff97e13740f9
+2b0440f9e1ffff17e29f40b9e8030a2a
+f3feff17cd0a00545f00006b60ffff54
+e203012a5f050031a0d4ff545f010071
+0c008052eb179f1a93ffff17400100f0
+08000b91e30840b90ae10591e21040b9
+006106910bcd40f9e73f00f901b941b9
+7f0100f12c0400114001809a21000332
+0cb901b95488ff9708800091e73f40f9
+e19c41a91f080079010c00f9600f00f9
+c70100b4e10307aae30840b902008052
+e73f00f9e84700f9200441b8559bff97
+e84740f9e73f40f9000100f908800091
+e71040f987feffb51f0100f9670f40f9
+5dfeff17621140b9e00080520002a072
+5f00006b20f9ff545f010071e203012a
+eb179f1a5f05003120ceff5462ffff17
+01018052a3feff172100805280c4ff34
+e09f00b922feff171f010071ea03082a
+eb179f1a2100805257ffff17621140b9
+e10080520102a0725f00016b60f6ff54
+5f05003101030054e29f40b95cfeff17
+e003012a010080d22a91ff97e10300aa
+600000d000202791a778ff97f69f00b9
+5f00006ba0f4ff54e203162a5f050031
+e0c9ff543dffff17e003012a010080d2
+1c91ff97e10300aa600000d000802691
+9978ff975f010071e29f40b9ec03002a
+eb179f1a0100805233ffff17600000d0
+00a023919078ff97e003162a0bfeff17
+0c91ff97e10300aa600000d000402491
+8978ff97600000d000800b91ad78ff97
+600000d000402391f76303a9f96b04a9
+fb7305a9a778ff97e2a340b96cfdff17
+54020034d6daff358c0144518c1d0071
+81dbff54e29f40b9e003022af3fdff17
+400100f001000b912100089100008012
+f090ff97e20300aa610000b020201691
+610780526c78ff97ea03082a04feff17
+</bytechunk>
+</binaryimage>
+
+<coretypes>
+  <type name="uint3" size="3" metatype="uint" id="0xc0000000000000c0"/>
+  <type name="uint5" size="5" metatype="uint" id="0xc0000000000000c1"/>
+  <type name="code" size="1" metatype="code" id="0xe000000000000001"/>
+  <type name="uint6" size="6" metatype="uint" id="0xc0000000000000c2"/>
+  <type name="double" size="8" metatype="float" id="0xc000000000000082"/>
+  <type name="uint7" size="7" metatype="uint" id="0xc0000000000000c3"/>
+  <type name="uint" size="4" metatype="uint" id="0xc0000000000000c4"/>
+  <type name="float10" size="10" metatype="float" id="0xc000000000000084"/>
+  <type name="float16" size="16" metatype="float" id="0xc000000000000085"/>
+  <type name="ulong" size="8" metatype="uint" id="0xc0000000000000c6"/>
+  <type name="float2" size="2" metatype="float" id="0xc000000000000086"/>
+  <type name="ushort" size="2" metatype="uint" id="0xc0000000000000c8"/>
+  <type name="void" size="0" metatype="void" id="0xc0000000000000c9"/>
+  <type name="float" size="4" metatype="float" id="0xc00000000000008a"/>
+  <type name="wchar16" size="2" metatype="int" utf="true" id="0xc0000000000000cb"/>
+  <type name="wchar_t" size="4" metatype="int" utf="true" id="0xc0000000000000cd"/>
+  <type name="int16" size="16" metatype="int" id="0xc000000000000090"/>
+  <type name="int3" size="3" metatype="int" id="0xc000000000000091"/>
+  <type name="int5" size="5" metatype="int" id="0xc000000000000092"/>
+  <type name="int6" size="6" metatype="int" id="0xc000000000000093"/>
+  <type name="int7" size="7" metatype="int" id="0xc000000000000094"/>
+  <type name="int" size="4" metatype="int" id="0xc000000000000095"/>
+  <type name="long" size="8" metatype="int" id="0xc000000000000097"/>
+  <type name="short" size="2" metatype="int" id="0xc0000000000000a8"/>
+  <type name="sbyte" size="1" metatype="int" id="0xc0000000000000a9"/>
+  <type name="undefined1" size="1" metatype="unknown" id="0xc0000000000000b4"/>
+  <type name="undefined2" size="2" metatype="unknown" id="0xc0000000000000b5"/>
+  <type name="undefined3" size="3" metatype="unknown" id="0xc0000000000000b6"/>
+  <type name="undefined4" size="4" metatype="unknown" id="0xc0000000000000b7"/>
+  <type name="undefined5" size="5" metatype="unknown" id="0xc0000000000000b8"/>
+  <type name="undefined6" size="6" metatype="unknown" id="0xc0000000000000b9"/>
+  <type name="bool" size="1" metatype="bool" id="0xc000000000000079"/>
+  <type name="undefined7" size="7" metatype="unknown" id="0xc0000000000000ba"/>
+  <type name="byte" size="1" metatype="uint" id="0xc00000000000007a"/>
+  <type name="undefined8" size="8" metatype="unknown" id="0xc0000000000000bb"/>
+  <type name="char" size="1" metatype="int" char="true" id="0xc00000000000007b"/>
+  <type name="uint16" size="16" metatype="uint" id="0xc0000000000000bf"/>
+</coretypes><save_state>
+
+<typegrp structalign="4">
+  <type name="_IO_marker" id="0x10000000000000d" metatype="struct" size="1" alignment="1" incomplete="true"/>
+  <type name="_IO_codecvt" id="0x10000000000000e" metatype="struct" size="1" alignment="1" incomplete="true"/>
+  <type name="_IO_wide_data" id="0x10000000000000f" metatype="struct" size="1" alignment="1" incomplete="true"/>
+  <type name="FuncAttr" id="0x100000000000020" metatype="struct" size="4" alignment="4" incomplete="true"/>
+  <type name="CType" id="0x100000000000021" metatype="struct" size="16" alignment="8" incomplete="true"/>
+  <type name="anon_union_8_2_ebb9b702_for_Sym_5" id="0x100000000000022" metatype="union" size="8" alignment="8" incomplete="true"/>
+  <type name="sym_attr" id="0x100000000000018" metatype="struct" size="16" alignment="4" incomplete="true"/>
+  <type name="SymAttr" id="0x10000000000001c" metatype="struct" size="2" alignment="2" incomplete="true"/>
+  <type name="__va_list" id="0x10000000000000b" metatype="struct" size="32" alignment="8" incomplete="true"/>
+  <type name="anon_struct_16_2_3fd17462_for_str" id="0x10000000000002c" metatype="struct" size="16" alignment="8" incomplete="true"/>
+  <type name="__sigset_t" id="0x100000000000009" metatype="struct" size="128" alignment="8" incomplete="true"/>
+  <type name="anon_union_4_4_7e1f9648_for_anon_struct_8_2_817edc44_for_anon_union_8_3_a16eda46_for_Sym_3_0_1" id="0x10000000000001f" metatype="union" size="4" alignment="4" incomplete="true"/>
+  <type name="TokenString" id="0x10000000000001a" metatype="struct" size="56" alignment="8" incomplete="true"/>
+  <type name="AttributeDef" id="0x10000000000002f" metatype="struct" size="32" alignment="8" incomplete="true"/>
+  <type name="DLLReference" id="0x100000000000014" metatype="struct" size="24" alignment="8" incomplete="true"/>
+  <type name="CachedInclude" id="0x100000000000015" metatype="struct" size="16" alignment="4" incomplete="true"/>
+  <type name="InlineFunc" id="0x100000000000016" metatype="struct" size="24" alignment="8" incomplete="true"/>
+  <type name="filespec" id="0x100000000000019" metatype="struct" size="3" alignment="1" incomplete="true"/>
+  <type name="TokenSym" id="0x10000000000002a" metatype="struct" size="56" alignment="8" incomplete="true"/>
+  <type name="CValue" id="0x10000000000002d" metatype="union" size="16" alignment="16" incomplete="true"/>
+  <type name="_IO_FILE" id="0x10000000000000c" metatype="struct" size="216" alignment="8" incomplete="true"/>
+  <type name="anon_struct_8_2_817edc44_for_anon_union_8_3_a16eda46_for_Sym_3_0" id="0x10000000000001e" metatype="struct" size="8" alignment="4" incomplete="true"/>
+  <type name="__jmp_buf_tag" id="0x100000000000010" metatype="struct" size="312" alignment="8" incomplete="true"/>
+  <type name="Section" id="0x100000000000017" metatype="struct" size="128" alignment="8" incomplete="true"/>
+  <type name="SValue" id="0x10000000000002e" metatype="struct" size="64" alignment="16" incomplete="true"/>
+  <type name="anon_union_8_3_a16eda46_for_Sym_3" id="0x10000000000001d" metatype="union" size="8" alignment="8" incomplete="true"/>
+  <type name="BufferedFile" id="0x100000000000013" metatype="struct" size="1104" alignment="8" incomplete="true"/>
+  <type name="Sym" id="0x10000000000001b" metatype="struct" size="56" alignment="8" incomplete="true"/>
+  <type name="TCCState" id="0x100000000000012" metatype="struct" size="1536" alignment="8" incomplete="true"/>
+  <type name="anon_enum_32" id="0x800000000000003" metatype="enum_uint" size="4">
+    <val name="LINE_MACRO_OUTPUT_FORMAT_GCC" value="0"/>
+    <val name="OPT_REG8" value="0"/>
+    <val name="TCC_OPTION_HELP" value="0"/>
+    <val name="TREG_RAX" value="0"/>
+    <val name="LINE_MACRO_OUTPUT_FORMAT_NONE" value="1"/>
+    <val name="OPT_REG16" value="1"/>
+    <val name="TCC_OPTION_HELP2" value="1"/>
+    <val name="TREG_RCX" value="1"/>
+    <val name="LINE_MACRO_OUTPUT_FORMAT_STD" value="2"/>
+    <val name="OPT_REG32" value="2"/>
+    <val name="TCC_OPTION_v" value="2"/>
+    <val name="TREG_RDX" value="2"/>
+    <val name="OPT_REG64" value="3"/>
+    <val name="TCC_OPTION_I" value="3"/>
+    <val name="OPT_MMX" value="4"/>
+    <val name="TCC_OPTION_D" value="4"/>
+    <val name="TREG_RSP" value="4"/>
+    <val name="OPT_SSE" value="5"/>
+    <val name="TCC_OPTION_U" value="5"/>
+    <val name="OPT_CR" value="6"/>
+    <val name="TCC_OPTION_P" value="6"/>
+    <val name="TREG_RSI" value="6"/>
+    <val name="OPT_TR" value="7"/>
+    <val name="TCC_OPTION_L" value="7"/>
+    <val name="TREG_RDI" value="7"/>
+    <val name="OPT_DB" value="8"/>
+    <val name="TCC_OPTION_B" value="8"/>
+    <val name="TREG_R8" value="8"/>
+    <val name="OPT_SEG" value="9"/>
+    <val name="TCC_OPTION_l" value="9"/>
+    <val name="TREG_R9" value="9"/>
+    <val name="OPT_ST" value="10"/>
+    <val name="TCC_OPTION_bench" value="10"/>
+    <val name="TREG_R10" value="10"/>
+    <val name="LINE_MACRO_OUTPUT_FORMAT_P10" value="11"/>
+    <val name="OPT_REG8_LOW" value="11"/>
+    <val name="TCC_OPTION_bt" value="11"/>
+    <val name="TREG_R11" value="11"/>
+    <val name="OPT_IM8" value="12"/>
+    <val name="TCC_OPTION_b" value="12"/>
+    <val name="OPT_IM8S" value="13"/>
+    <val name="TCC_OPTION_g" value="13"/>
+    <val name="OPT_IM16" value="14"/>
+    <val name="TCC_OPTION_c" value="14"/>
+    <val name="OPT_IM32" value="15"/>
+    <val name="TCC_OPTION_dumpversion" value="15"/>
+    <val name="OPT_IM64" value="16"/>
+    <val name="TCC_OPTION_d" value="16"/>
+    <val name="TREG_XMM0" value="16"/>
+    <val name="OPT_EAX" value="17"/>
+    <val name="TCC_OPTION_static" value="17"/>
+    <val name="TREG_XMM1" value="17"/>
+    <val name="OPT_ST0" value="18"/>
+    <val name="TCC_OPTION_std" value="18"/>
+    <val name="TREG_XMM2" value="18"/>
+    <val name="OPT_CL" value="19"/>
+    <val name="TCC_OPTION_shared" value="19"/>
+    <val name="TREG_XMM3" value="19"/>
+    <val name="OPT_DX" value="20"/>
+    <val name="TCC_OPTION_soname" value="20"/>
+    <val name="TREG_XMM4" value="20"/>
+    <val name="OPT_ADDR" value="21"/>
+    <val name="TCC_OPTION_o" value="21"/>
+    <val name="TREG_XMM5" value="21"/>
+    <val name="OPT_INDIR" value="22"/>
+    <val name="TCC_OPTION_r" value="22"/>
+    <val name="TREG_XMM6" value="22"/>
+    <val name="OPT_COMPOSITE_FIRST" value="23"/>
+    <val name="TCC_OPTION_s" value="23"/>
+    <val name="TREG_XMM7" value="23"/>
+    <val name="OPT_IM" value="24"/>
+    <val name="TCC_OPTION_traditional" value="24"/>
+    <val name="TREG_ST0" value="24"/>
+    <val name="OPT_REG" value="25"/>
+    <val name="TCC_OPTION_Wl" value="25"/>
+    <val name="OPT_REGW" value="26"/>
+    <val name="TCC_OPTION_Wp" value="26"/>
+    <val name="OPT_IMW" value="27"/>
+    <val name="TCC_OPTION_W" value="27"/>
+    <val name="OPT_MMXSSE" value="28"/>
+    <val name="TCC_OPTION_O" value="28"/>
+    <val name="OPT_DISP" value="29"/>
+    <val name="TCC_OPTION_mfloat_abi" value="29"/>
+    <val name="OPT_DISP8" value="30"/>
+    <val name="TCC_OPTION_m" value="30"/>
+    <val name="TCC_OPTION_f" value="31"/>
+    <val name="TCC_OPTION_isystem" value="32"/>
+    <val name="TREG_MEM" value="32"/>
+    <val name="TCC_OPTION_iwithprefix" value="33"/>
+    <val name="TCC_OPTION_include" value="34"/>
+    <val name="TCC_OPTION_nostdinc" value="35"/>
+    <val name="TCC_OPTION_nostdlib" value="36"/>
+    <val name="TCC_OPTION_print_search_dirs" value="37"/>
+    <val name="TCC_OPTION_rdynamic" value="38"/>
+    <val name="TCC_OPTION_param" value="39"/>
+    <val name="TCC_OPTION_pedantic" value="40"/>
+    <val name="TCC_OPTION_pthread" value="41"/>
+    <val name="TCC_OPTION_run" value="42"/>
+    <val name="TCC_OPTION_w" value="43"/>
+    <val name="TCC_OPTION_pipe" value="44"/>
+    <val name="TCC_OPTION_E" value="45"/>
+    <val name="TCC_OPTION_MD" value="46"/>
+    <val name="TCC_OPTION_MF" value="47"/>
+    <val name="TCC_OPTION_x" value="48"/>
+    <val name="TCC_OPTION_ar" value="49"/>
+    <val name="TCC_OPTION_impdef" value="50"/>
+    <val name="OPT_EA" value="128"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="_IO_marker" id="0x10000000000000d"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="_IO_FILE" id="0x10000000000000c"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="_IO_codecvt" id="0x10000000000000e"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="_IO_wide_data" id="0x10000000000000f"/>
+  </type>
+  <type name="_IO_marker" id="0x10000000000000d" metatype="struct" size="1" alignment="1"/>
+  <type name="_IO_codecvt" id="0x10000000000000e" metatype="struct" size="1" alignment="1"/>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="BufferedFile" id="0x100000000000013"/>
+  </type>
+  <type name="_IO_wide_data" id="0x10000000000000f" metatype="struct" size="1" alignment="1"/>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="DLLReference" id="0x100000000000014"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="CachedInclude" id="0x100000000000015"/>
+  </type>
+  <def name="__gnuc_va_list" id="0x500000000000014">
+    <typeref name="__va_list" id="0x10000000000000b"/>
+  </def>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="InlineFunc" id="0x100000000000016"/>
+  </type>
+  <def name="FILE" id="0x500000000000016">
+    <typeref name="_IO_FILE" id="0x10000000000000c"/>
+  </def>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="Section" id="0x100000000000017"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="sym_attr" id="0x100000000000018"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="filespec" id="0x100000000000019"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="TokenString" id="0x10000000000001a"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="Sym" id="0x10000000000001b"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="TokenSym" id="0x10000000000002a"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="SValue" id="0x10000000000002e"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="TCCState" id="0x100000000000012"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="CType" id="0x100000000000021"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="AttributeDef" id="0x10000000000002f"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="CValue" id="0x10000000000002d"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="_IO_FILE" id="0x10000000000000c"/>
+    </type>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="BufferedFile" id="0x100000000000013"/>
+    </type>
+  </type>
+  <type name="" metatype="array" size="256" arraysize="32">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="BufferedFile" id="0x100000000000013"/>
+    </type>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="DLLReference" id="0x100000000000014"/>
+    </type>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="CachedInclude" id="0x100000000000015"/>
+    </type>
+  </type>
+  <def name="va_list" id="0x500000000000017">
+    <typeref name="__gnuc_va_list" id="0x500000000000014"/>
+  </def>
+  <type name="" metatype="ptr" size="8">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="InlineFunc" id="0x100000000000016"/>
+    </type>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="FILE" id="0x500000000000016"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="Section" id="0x100000000000017"/>
+    </type>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="filespec" id="0x100000000000019"/>
+    </type>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="Sym" id="0x10000000000001b"/>
+    </type>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="TokenSym" id="0x10000000000002a"/>
+    </type>
+  </type>
+  <def name="__uint64_t" id="0x500000000000008">
+    <type name="qword" id="0xc0000000000000a2" metatype="uint" size="8"/>
+  </def>
+  <type name="" metatype="ptr" size="8">
+    <void/>
+  </type>
+  <def name="_IO_lock_t" id="0x500000000000015">
+    <void/>
+  </def>
+  <type name="" metatype="array" size="128" arraysize="16">
+    <type name="ulong" id="0xc0000000000000c6" metatype="uint" size="8"/>
+  </type>
+  <def name="long double" id="0x500000000000000">
+    <typeref name="float16" id="0xc000000000000085"/>
+  </def>
+  <type name="FuncAttr" id="0x100000000000020" metatype="struct" size="4" alignment="4">
+    <bitfield name="func_call" id="0" offset="0" first="0" size="3">
+      <type name="uint" id="0xc0000000000000c4" metatype="uint" size="4"/>
+    </bitfield>
+    <bitfield name="func_type" id="1" offset="0" first="3" size="2">
+      <type name="uint" id="0xc0000000000000c4" metatype="uint" size="4"/>
+    </bitfield>
+    <bitfield name="func_args" id="2" offset="0" first="5" size="8">
+      <type name="uint" id="0xc0000000000000c4" metatype="uint" size="4"/>
+    </bitfield>
+  </type>
+  <type name="CType" id="0x100000000000021" metatype="struct" size="16" alignment="8">
+    <field name="t" offset="0">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="ref" offset="8">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Sym" id="0x10000000000001b"/>
+      </type>
+    </field>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </type>
+  <type name="anon_union_8_2_ebb9b702_for_Sym_5" id="0x100000000000022" metatype="union" size="8" alignment="8">
+    <field name="next" offset="0" id="0">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Sym" id="0x10000000000001b"/>
+      </type>
+    </field>
+    <field name="asm_label" offset="0" id="1">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+  </type>
+  <type name="" metatype="array" size="256" arraysize="64">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </type>
+  <type name="" metatype="array" size="128" arraysize="32">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </type>
+  <type name="" metatype="array" size="32" arraysize="8">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </type>
+  <type name="" metatype="array" size="16" arraysize="4">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </type>
+  <type name="sym_attr" id="0x100000000000018" metatype="struct" size="16" alignment="4">
+    <field name="got_offset" offset="0">
+      <type name="uint" id="0xc0000000000000c4" metatype="uint" size="4"/>
+    </field>
+    <field name="plt_offset" offset="4">
+      <type name="uint" id="0xc0000000000000c4" metatype="uint" size="4"/>
+    </field>
+    <field name="plt_sym" offset="8">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="dyn_index" offset="12">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+  </type>
+  <def name="__off_t" id="0x500000000000009">
+    <type name="long" id="0xc000000000000097" metatype="int" size="8"/>
+  </def>
+  <type name="SymAttr" id="0x10000000000001c" metatype="struct" size="2" alignment="2">
+    <bitfield name="aligned" id="0" offset="0" first="0" size="5">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </bitfield>
+    <bitfield name="packed" id="1" offset="0" first="5" size="1">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </bitfield>
+    <bitfield name="weak" id="2" offset="0" first="6" size="1">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </bitfield>
+    <bitfield name="visibility" id="3" offset="0" first="7" size="2">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </bitfield>
+    <bitfield name="dllexport" id="4" offset="1" first="1" size="1">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </bitfield>
+    <bitfield name="dllimport" id="5" offset="1" first="2" size="1">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </bitfield>
+    <bitfield name="unused" id="6" offset="1" first="3" size="5">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </bitfield>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+  </type>
+  <type name="" metatype="array" size="1" arraysize="1">
+    <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+  </type>
+  <type name="" metatype="array" size="20" arraysize="20">
+    <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+  </type>
+  <type name="" metatype="array" size="1024" arraysize="1024">
+    <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+  </type>
+  <def name="__uint8_t" id="0x500000000000003">
+    <type name="uchar" id="0xc0000000000000be" metatype="uint" size="1" char="true"/>
+  </def>
+  <type name="" metatype="array" size="4" arraysize="4">
+    <type name="uchar" id="0xc0000000000000be" metatype="uint" size="1" char="true"/>
+  </type>
+  <type name="" metatype="array" size="1" arraysize="1">
+    <type name="uchar" id="0xc0000000000000be" metatype="uint" size="1" char="true"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="uchar" id="0xc0000000000000be" metatype="uint" size="1" char="true"/>
+  </type>
+  <def name="__off64_t" id="0x50000000000000a">
+    <type name="sqword" id="0xc0000000000000ad" metatype="int" size="8"/>
+  </def>
+  <type name="" metatype="array" size="176" arraysize="22">
+    <type name="ulonglong" id="0xc0000000000000c7" metatype="uint" size="8"/>
+  </type>
+  <def name="uint64_t" id="0x50000000000001b">
+    <typeref name="__uint64_t" id="0x500000000000008"/>
+  </def>
+  <type name="__va_list" id="0x10000000000000b" metatype="struct" size="32" alignment="8">
+    <field name="__stack" offset="0">
+      <type name="" metatype="ptr" size="8">
+        <void/>
+      </type>
+    </field>
+    <field name="__gr_top" offset="8">
+      <type name="" metatype="ptr" size="8">
+        <void/>
+      </type>
+    </field>
+    <field name="__vr_top" offset="16">
+      <type name="" metatype="ptr" size="8">
+        <void/>
+      </type>
+    </field>
+    <field name="__gr_offs" offset="24">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="__vr_offs" offset="28">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+  </type>
+  <type name="anon_struct_16_2_3fd17462_for_str" id="0x10000000000002c" metatype="struct" size="16" alignment="8">
+    <field name="size" offset="0">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="data" offset="8">
+      <type name="" metatype="ptr" size="8">
+        <void/>
+      </type>
+    </field>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <def name="_IO_lock_t" id="0x500000000000015">
+      <void/>
+    </def>
+  </type>
+  <type name="__sigset_t" id="0x100000000000009" metatype="struct" size="128" alignment="8">
+    <field name="__val" offset="0">
+      <type name="" metatype="array" size="128" arraysize="16">
+        <type name="ulong" id="0xc0000000000000c6" metatype="uint" size="8"/>
+      </type>
+    </field>
+  </type>
+  <type name="anon_union_4_4_7e1f9648_for_anon_struct_8_2_817edc44_for_anon_union_8_3_a16eda46_for_Sym_3_0_1" id="0x10000000000001f" metatype="union" size="4" alignment="4">
+    <field name="sym_scope" offset="0" id="0">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="jnext" offset="0" id="1">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="f" offset="0" id="2">
+      <typeref name="FuncAttr" id="0x100000000000020"/>
+    </field>
+    <field name="auxtype" offset="0" id="3">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+  </type>
+  <type name="TokenString" id="0x10000000000001a" metatype="struct" size="56" alignment="8">
+    <field name="str" offset="0">
+      <type name="" metatype="ptr" size="8">
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </type>
+    </field>
+    <field name="len" offset="8">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="lastlen" offset="12">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="allocated_len" offset="16">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="last_line_num" offset="20">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="save_line_num" offset="24">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="prev" offset="32">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="TokenString" id="0x10000000000001a"/>
+      </type>
+    </field>
+    <field name="prev_ptr" offset="40">
+      <type name="" metatype="ptr" size="8">
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </type>
+    </field>
+    <field name="alloc" offset="48">
+      <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+    </field>
+  </type>
+  <type name="AttributeDef" id="0x10000000000002f" metatype="struct" size="32" alignment="8">
+    <field name="a" offset="0">
+      <typeref name="SymAttr" id="0x10000000000001c"/>
+    </field>
+    <field name="f" offset="4">
+      <typeref name="FuncAttr" id="0x100000000000020"/>
+    </field>
+    <field name="section" offset="8">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Section" id="0x100000000000017"/>
+      </type>
+    </field>
+    <field name="alias_target" offset="16">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="asm_label" offset="20">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="attr_mode" offset="24">
+      <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+    </field>
+  </type>
+  <type name="_func_void_void_ptr_char_ptr" id="0x600000000000001" metatype="code" size="1">
+    <prototype extrapop="0" model="unknown" modellock="true">
+      <returnsym typelock="true">
+        <addr/>
+        <void/>
+      </returnsym>
+      <internallist>
+        <param typelock="true" namelock="false">
+          <addr/>
+          <type name="" metatype="ptr" size="8">
+            <void/>
+          </type>
+        </param>
+        <param typelock="true" namelock="false">
+          <addr/>
+          <type name="" metatype="ptr" size="8">
+            <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+          </type>
+        </param>
+      </internallist>
+    </prototype>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <type name="" metatype="ptr" size="8">
+      <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+    </type>
+  </type>
+  <type name="DLLReference" id="0x100000000000014" metatype="struct" size="24" alignment="8">
+    <field name="level" offset="0">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="handle" offset="8">
+      <type name="" metatype="ptr" size="8">
+        <void/>
+      </type>
+    </field>
+    <field name="name" offset="16">
+      <type name="" metatype="array" size="1" arraysize="1">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+  </type>
+  <type name="CachedInclude" id="0x100000000000015" metatype="struct" size="16" alignment="4">
+    <field name="ifndef_macro" offset="0">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="once" offset="4">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="hash_next" offset="8">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="filename" offset="12">
+      <type name="" metatype="array" size="1" arraysize="1">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+  </type>
+  <type name="InlineFunc" id="0x100000000000016" metatype="struct" size="24" alignment="8">
+    <field name="func_str" offset="0">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="TokenString" id="0x10000000000001a"/>
+      </type>
+    </field>
+    <field name="sym" offset="8">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Sym" id="0x10000000000001b"/>
+      </type>
+    </field>
+    <field name="filename" offset="16">
+      <type name="" metatype="array" size="1" arraysize="1">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+  </type>
+  <type name="filespec" id="0x100000000000019" metatype="struct" size="3" alignment="1">
+    <field name="type" offset="0">
+      <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+    </field>
+    <field name="alacarte" offset="1">
+      <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+    </field>
+    <field name="name" offset="2">
+      <type name="" metatype="array" size="1" arraysize="1">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+  </type>
+  <type name="TokenSym" id="0x10000000000002a" metatype="struct" size="56" alignment="8">
+    <field name="hash_next" offset="0">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="TokenSym" id="0x10000000000002a"/>
+      </type>
+    </field>
+    <field name="sym_define" offset="8">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Sym" id="0x10000000000001b"/>
+      </type>
+    </field>
+    <field name="sym_label" offset="16">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Sym" id="0x10000000000001b"/>
+      </type>
+    </field>
+    <field name="sym_struct" offset="24">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Sym" id="0x10000000000001b"/>
+      </type>
+    </field>
+    <field name="sym_identifier" offset="32">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Sym" id="0x10000000000001b"/>
+      </type>
+    </field>
+    <field name="tok" offset="40">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="len" offset="44">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="str" offset="48">
+      <type name="" metatype="array" size="1" arraysize="1">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+  </type>
+  <def name="uint8_t" id="0x50000000000001d">
+    <typeref name="__uint8_t" id="0x500000000000003"/>
+  </def>
+  <def name="__jmp_buf" id="0x500000000000019">
+    <type name="" metatype="array" size="176" arraysize="22">
+      <type name="ulonglong" id="0xc0000000000000c7" metatype="uint" size="8"/>
+    </type>
+  </def>
+  <def name="Elf64_Addr" id="0x50000000000001c">
+    <typeref name="uint64_t" id="0x50000000000001b"/>
+  </def>
+  <type name="CValue" id="0x10000000000002d" metatype="union" size="16" alignment="16">
+    <field name="ld" offset="0" id="0">
+      <typeref name="long double" id="0x500000000000000"/>
+    </field>
+    <field name="d" offset="0" id="1">
+      <typeref name="double" id="0xc000000000000082"/>
+    </field>
+    <field name="f" offset="0" id="2">
+      <typeref name="float" id="0xc00000000000008a"/>
+    </field>
+    <field name="i" offset="0" id="3">
+      <typeref name="uint64_t" id="0x50000000000001b"/>
+    </field>
+    <field name="str" offset="0" id="4">
+      <typeref name="anon_struct_16_2_3fd17462_for_str" id="0x10000000000002c"/>
+    </field>
+    <field name="tab" offset="0" id="5">
+      <type name="" metatype="array" size="16" arraysize="4">
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </type>
+    </field>
+  </type>
+  <type name="_IO_FILE" id="0x10000000000000c" metatype="struct" size="216" alignment="8">
+    <field name="_flags" offset="0">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="_IO_read_ptr" offset="8">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_IO_read_end" offset="16">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_IO_read_base" offset="24">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_IO_write_base" offset="32">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_IO_write_ptr" offset="40">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_IO_write_end" offset="48">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_IO_buf_base" offset="56">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_IO_buf_end" offset="64">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_IO_save_base" offset="72">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_IO_backup_base" offset="80">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_IO_save_end" offset="88">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_markers" offset="96">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="_IO_marker" id="0x10000000000000d"/>
+      </type>
+    </field>
+    <field name="_chain" offset="104">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="_IO_FILE" id="0x10000000000000c"/>
+      </type>
+    </field>
+    <field name="_fileno" offset="112">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <bitfield name="_flags2" id="15" offset="116" first="0" size="24">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </bitfield>
+    <field name="_short_backupbuf" offset="119">
+      <type name="" metatype="array" size="1" arraysize="1">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_old_offset" offset="120">
+      <typeref name="__off_t" id="0x500000000000009"/>
+    </field>
+    <field name="_cur_column" offset="128">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </field>
+    <field name="_vtable_offset" offset="130">
+      <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+    </field>
+    <field name="_shortbuf" offset="131">
+      <type name="" metatype="array" size="1" arraysize="1">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="_lock" offset="136">
+      <type name="" metatype="ptr" size="8">
+        <def name="_IO_lock_t" id="0x500000000000015">
+          <void/>
+        </def>
+      </type>
+    </field>
+    <field name="_offset" offset="144">
+      <typeref name="__off64_t" id="0x50000000000000a"/>
+    </field>
+    <field name="_codecvt" offset="152">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="_IO_codecvt" id="0x10000000000000e"/>
+      </type>
+    </field>
+    <field name="_wide_data" offset="160">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="_IO_wide_data" id="0x10000000000000f"/>
+      </type>
+    </field>
+    <field name="_freeres_list" offset="168">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="_IO_FILE" id="0x10000000000000c"/>
+      </type>
+    </field>
+    <field name="_freeres_buf" offset="176">
+      <type name="" metatype="ptr" size="8">
+        <void/>
+      </type>
+    </field>
+    <field name="_prevchain" offset="184">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <typeref name="_IO_FILE" id="0x10000000000000c"/>
+        </type>
+      </type>
+    </field>
+    <field name="_mode" offset="192">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="_unused2" offset="196">
+      <type name="" metatype="array" size="20" arraysize="20">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+  </type>
+  <type name="anon_struct_8_2_817edc44_for_anon_union_8_3_a16eda46_for_Sym_3_0" id="0x10000000000001e" metatype="struct" size="8" alignment="4">
+    <field name="c" offset="0">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="field_1" offset="4">
+      <typeref name="anon_union_4_4_7e1f9648_for_anon_struct_8_2_817edc44_for_anon_union_8_3_a16eda46_for_Sym_3_0_1" id="0x10000000000001f"/>
+    </field>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="_func_void_void_ptr_char_ptr" id="0x600000000000001" size="1"/>
+  </type>
+  <type name="" metatype="ptr" size="8">
+    <typeref name="uint8_t" id="0x50000000000001d"/>
+  </type>
+  <type name="__jmp_buf_tag" id="0x100000000000010" metatype="struct" size="312" alignment="8">
+    <field name="__jmpbuf" offset="0">
+      <typeref name="__jmp_buf" id="0x500000000000019"/>
+    </field>
+    <field name="__mask_was_saved" offset="176">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="__saved_mask" offset="184">
+      <typeref name="__sigset_t" id="0x100000000000009"/>
+    </field>
+  </type>
+  <type name="Section" id="0x100000000000017" metatype="struct" size="128" alignment="8">
+    <field name="data_offset" offset="0">
+      <type name="ulong" id="0xc0000000000000c6" metatype="uint" size="8"/>
+    </field>
+    <field name="data" offset="8">
+      <type name="" metatype="ptr" size="8">
+        <type name="uchar" id="0xc0000000000000be" metatype="uint" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="data_allocated" offset="16">
+      <type name="ulong" id="0xc0000000000000c6" metatype="uint" size="8"/>
+    </field>
+    <field name="sh_name" offset="24">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="sh_num" offset="28">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="sh_type" offset="32">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="sh_flags" offset="36">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="sh_info" offset="40">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="sh_addralign" offset="44">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="sh_entsize" offset="48">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="sh_size" offset="56">
+      <type name="ulong" id="0xc0000000000000c6" metatype="uint" size="8"/>
+    </field>
+    <field name="sh_addr" offset="64">
+      <typeref name="Elf64_Addr" id="0x50000000000001c"/>
+    </field>
+    <field name="sh_offset" offset="72">
+      <type name="ulong" id="0xc0000000000000c6" metatype="uint" size="8"/>
+    </field>
+    <field name="nb_hashed_syms" offset="80">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="link" offset="88">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Section" id="0x100000000000017"/>
+      </type>
+    </field>
+    <field name="reloc" offset="96">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Section" id="0x100000000000017"/>
+      </type>
+    </field>
+    <field name="hash" offset="104">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Section" id="0x100000000000017"/>
+      </type>
+    </field>
+    <field name="prev" offset="112">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Section" id="0x100000000000017"/>
+      </type>
+    </field>
+    <field name="name" offset="120">
+      <type name="" metatype="array" size="1" arraysize="1">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+  </type>
+  <type name="SValue" id="0x10000000000002e" metatype="struct" size="64" alignment="16">
+    <field name="type" offset="0">
+      <typeref name="CType" id="0x100000000000021"/>
+    </field>
+    <field name="r" offset="16">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </field>
+    <field name="r2" offset="18">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </field>
+    <field name="c" offset="32">
+      <typeref name="CValue" id="0x10000000000002d"/>
+    </field>
+    <field name="sym" offset="48">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Sym" id="0x10000000000001b"/>
+      </type>
+    </field>
+  </type>
+  <type name="anon_union_8_3_a16eda46_for_Sym_3" id="0x10000000000001d" metatype="union" size="8" alignment="8">
+    <field name="field_0" offset="0" id="0">
+      <typeref name="anon_struct_8_2_817edc44_for_anon_union_8_3_a16eda46_for_Sym_3_0" id="0x10000000000001e"/>
+    </field>
+    <field name="enum_val" offset="0" id="1">
+      <type name="longlong" id="0xc00000000000009a" metatype="int" size="8"/>
+    </field>
+    <field name="d" offset="0" id="2">
+      <type name="" metatype="ptr" size="8">
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </type>
+    </field>
+  </type>
+  <type name="BufferedFile" id="0x100000000000013" metatype="struct" size="1104" alignment="8">
+    <field name="buf_ptr" offset="0">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="uint8_t" id="0x50000000000001d"/>
+      </type>
+    </field>
+    <field name="buf_end" offset="8">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="uint8_t" id="0x50000000000001d"/>
+      </type>
+    </field>
+    <field name="fd" offset="16">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="prev" offset="24">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="BufferedFile" id="0x100000000000013"/>
+      </type>
+    </field>
+    <field name="line_num" offset="32">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="line_ref" offset="36">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="ifndef_macro" offset="40">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="ifndef_macro_saved" offset="44">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="ifdef_stack_ptr" offset="48">
+      <type name="" metatype="ptr" size="8">
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </type>
+    </field>
+    <field name="include_next_index" offset="56">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="filename" offset="60">
+      <type name="" metatype="array" size="1024" arraysize="1024">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="true_filename" offset="1088">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="unget" offset="1096">
+      <type name="" metatype="array" size="4" arraysize="4">
+        <type name="uchar" id="0xc0000000000000be" metatype="uint" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="buffer" offset="1100">
+      <type name="" metatype="array" size="1" arraysize="1">
+        <type name="uchar" id="0xc0000000000000be" metatype="uint" size="1" char="true"/>
+      </type>
+    </field>
+  </type>
+  <type name="" metatype="array" size="312" arraysize="1">
+    <typeref name="__jmp_buf_tag" id="0x100000000000010"/>
+  </type>
+  <type name="Sym" id="0x10000000000001b" metatype="struct" size="56" alignment="8">
+    <field name="v" offset="0">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="r" offset="4">
+      <type name="ushort" id="0xc0000000000000c8" metatype="uint" size="2"/>
+    </field>
+    <field name="a" offset="6">
+      <typeref name="SymAttr" id="0x10000000000001c"/>
+    </field>
+    <field name="field_3" offset="8">
+      <typeref name="anon_union_8_3_a16eda46_for_Sym_3" id="0x10000000000001d"/>
+    </field>
+    <field name="type" offset="16">
+      <typeref name="CType" id="0x100000000000021"/>
+    </field>
+    <field name="field_5" offset="32">
+      <typeref name="anon_union_8_2_ebb9b702_for_Sym_5" id="0x100000000000022"/>
+    </field>
+    <field name="prev" offset="40">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Sym" id="0x10000000000001b"/>
+      </type>
+    </field>
+    <field name="prev_tok" offset="48">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Sym" id="0x10000000000001b"/>
+      </type>
+    </field>
+  </type>
+  <def name="jmp_buf" id="0x50000000000001a">
+    <type name="" metatype="array" size="312" arraysize="1">
+      <typeref name="__jmp_buf_tag" id="0x100000000000010"/>
+    </type>
+  </def>
+  <type name="TCCState" id="0x100000000000012" metatype="struct" size="1536" alignment="8">
+    <field name="verbose" offset="0">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="nostdinc" offset="4">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="nostdlib" offset="8">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="nocommon" offset="12">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="static_link" offset="16">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="rdynamic" offset="20">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="symbolic" offset="24">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="alacarte_link" offset="28">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="tcc_lib_path" offset="32">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="soname" offset="40">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="rpath" offset="48">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="enable_new_dtags" offset="56">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="output_type" offset="60">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="output_format" offset="64">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="char_is_unsigned" offset="68">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="leading_underscore" offset="72">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="ms_extensions" offset="76">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="dollars_in_identifiers" offset="80">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="ms_bitfields" offset="84">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="warn_write_strings" offset="88">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="warn_unsupported" offset="92">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="warn_error" offset="96">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="warn_none" offset="100">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="warn_implicit_function_declaration" offset="104">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="warn_gcc_compat" offset="108">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="do_debug" offset="112">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="run_test" offset="116">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="text_addr" offset="120">
+      <typeref name="Elf64_Addr" id="0x50000000000001c"/>
+    </field>
+    <field name="has_text_addr" offset="128">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="section_align" offset="132">
+      <type name="uint" id="0xc0000000000000c4" metatype="uint" size="4"/>
+    </field>
+    <field name="init_symbol" offset="136">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="fini_symbol" offset="144">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="nosse" offset="152">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="loaded_dlls" offset="160">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <typeref name="DLLReference" id="0x100000000000014"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_loaded_dlls" offset="168">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="include_paths" offset="176">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_include_paths" offset="184">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="sysinclude_paths" offset="192">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_sysinclude_paths" offset="200">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="library_paths" offset="208">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_library_paths" offset="216">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="crt_paths" offset="224">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_crt_paths" offset="232">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="cmd_include_files" offset="240">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_cmd_include_files" offset="248">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="error_opaque" offset="256">
+      <type name="" metatype="ptr" size="8">
+        <void/>
+      </type>
+    </field>
+    <field name="error_func" offset="264">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="_func_void_void_ptr_char_ptr" id="0x600000000000001" size="1"/>
+      </type>
+    </field>
+    <field name="error_set_jmp_enabled" offset="272">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="error_jmp_buf" offset="280">
+      <typeref name="jmp_buf" id="0x50000000000001a"/>
+    </field>
+    <field name="nb_errors" offset="592">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="ppfp" offset="600">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="FILE" id="0x500000000000016"/>
+      </type>
+    </field>
+    <field name="Pflag" offset="608">
+      <typeref name="anon_enum_32" id="0x800000000000003"/>
+    </field>
+    <field name="dflag" offset="612">
+      <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+    </field>
+    <field name="target_deps" offset="616">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_target_deps" offset="624">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="include_stack" offset="632">
+      <type name="" metatype="array" size="256" arraysize="32">
+        <type name="" metatype="ptr" size="8">
+          <typeref name="BufferedFile" id="0x100000000000013"/>
+        </type>
+      </type>
+    </field>
+    <field name="include_stack_ptr" offset="888">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <typeref name="BufferedFile" id="0x100000000000013"/>
+        </type>
+      </type>
+    </field>
+    <field name="ifdef_stack" offset="896">
+      <type name="" metatype="array" size="256" arraysize="64">
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </type>
+    </field>
+    <field name="ifdef_stack_ptr" offset="1152">
+      <type name="" metatype="ptr" size="8">
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </type>
+    </field>
+    <field name="cached_includes_hash" offset="1160">
+      <type name="" metatype="array" size="128" arraysize="32">
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </type>
+    </field>
+    <field name="cached_includes" offset="1288">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <typeref name="CachedInclude" id="0x100000000000015"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_cached_includes" offset="1296">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="pack_stack" offset="1300">
+      <type name="" metatype="array" size="32" arraysize="8">
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </type>
+    </field>
+    <field name="pack_stack_ptr" offset="1336">
+      <type name="" metatype="ptr" size="8">
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </type>
+    </field>
+    <field name="pragma_libs" offset="1344">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_pragma_libs" offset="1352">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="inline_fns" offset="1360">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <typeref name="InlineFunc" id="0x100000000000016"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_inline_fns" offset="1368">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="sections" offset="1376">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <typeref name="Section" id="0x100000000000017"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_sections" offset="1384">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="priv_sections" offset="1392">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <typeref name="Section" id="0x100000000000017"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_priv_sections" offset="1400">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="got" offset="1408">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Section" id="0x100000000000017"/>
+      </type>
+    </field>
+    <field name="plt" offset="1416">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Section" id="0x100000000000017"/>
+      </type>
+    </field>
+    <field name="dynsymtab_section" offset="1424">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Section" id="0x100000000000017"/>
+      </type>
+    </field>
+    <field name="dynsym" offset="1432">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Section" id="0x100000000000017"/>
+      </type>
+    </field>
+    <field name="symtab" offset="1440">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="Section" id="0x100000000000017"/>
+      </type>
+    </field>
+    <field name="sym_attrs" offset="1448">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="sym_attr" id="0x100000000000018"/>
+      </type>
+    </field>
+    <field name="nb_sym_attrs" offset="1456">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="files" offset="1464">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <typeref name="filespec" id="0x100000000000019"/>
+        </type>
+      </type>
+    </field>
+    <field name="nb_files" offset="1472">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="nb_libraries" offset="1476">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="filetype" offset="1480">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="outfile" offset="1488">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="option_r" offset="1496">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="do_bench" offset="1500">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="gen_deps" offset="1504">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="deps_outfile" offset="1512">
+      <type name="" metatype="ptr" size="8">
+        <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+      </type>
+    </field>
+    <field name="option_pthread" offset="1520">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="argc" offset="1524">
+      <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+    </field>
+    <field name="argv" offset="1528">
+      <type name="" metatype="ptr" size="8">
+        <type name="" metatype="ptr" size="8">
+          <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+        </type>
+      </type>
+    </field>
+  </type>
+</typegrp><db scopeidbyname="false">
+<scope name="" id="0x0">
+<symbollist>
+
+<mapsym>
+  <function id="0x23d" name="struct_decl" size="1">
+    <addr space="ram" offset="0x124d60"/>
+    <localdb lock="false" main="stack">
+      <scope name="struct_decl">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0x4c0" name="ad1" typelock="true" namelock="true" merge="false" cat="-1">
+              <typeref name="AttributeDef" id="0x10000000000002f"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="32"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe00" name="local_f0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff10" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4c1" name="type1" typelock="true" namelock="true" merge="false" cat="-1">
+              <typeref name="CType" id="0x100000000000021"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff90" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe01" name="local_e0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff20" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4c2" name="btype" typelock="true" namelock="true" merge="false" cat="-1">
+              <typeref name="CType" id="0x100000000000021"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffa0" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe02" name="local_d0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff30" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4c3" name="align_1" typelock="true" namelock="true" merge="false" cat="-1">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff8c" size="4"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe03" name="local_c0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff40" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe04" name="local_b0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff50" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe05" name="local_a8" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff58" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe06" name="local_a0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff60" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe07" name="local_98" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff68" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe08" name="local_90" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined4" id="0xc0000000000000b7"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff70" size="4"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe09" name="local_8c" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined4" id="0xc0000000000000b7"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff74" size="4"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe0a" name="local_88" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff78" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe0b" name="local_50" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined4" id="0xc0000000000000b7"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffb0" size="4"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe0c" name="local_48" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffb8" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4bb" name="type" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="CType" id="0x100000000000021"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4000" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x124d5f" last="0x124d5f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4bc" name="u" typelock="true" namelock="true" merge="false" cat="0" index="0x1">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="register" offset="0x4008" size="4"/>
+            <rangelist>
+              <range space="ram" first="0x124d5f" last="0x124d5f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4bd" name="v" typelock="true" namelock="true" merge="false" cat="-1">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff84" size="4"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4be" name="align" typelock="true" namelock="true" merge="false" cat="-1">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff88" size="4"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xdfe" name="local_110" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffef0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4bf" name="ad" typelock="true" namelock="true" merge="false" cat="-1">
+              <typeref name="AttributeDef" id="0x10000000000002f"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffc0" size="32"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xdff" name="local_100" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff00" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true">
+      <returnsym typelock="true">
+        <addr/>
+        <void/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x124d60" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x1ec" name="next" size="1">
+    <addr space="ram" offset="0x119780"/>
+    <localdb lock="false" main="stack">
+      <scope name="next">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0x1018" name="local_50" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffb0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x1019" name="local_40" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffc0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x51a" name="nested_list" typelock="true" namelock="true" merge="false" cat="-1">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="Sym" id="0x10000000000001b"/>
+              </type>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff8" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x101a" name="local_30" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffd0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x101b" name="local_20" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="unknown" voidlock="true">
+      <returnsym typelock="true">
+        <addr/>
+        <void/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x119780" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x239" name="parse_attribute" size="1">
+    <addr space="ram" offset="0x123060"/>
+    <localdb lock="false" main="stack">
+      <scope name="parse_attribute">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0xca0" name="local_30" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffd0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xca1" name="local_18" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe8" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xca2" name="local_10" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xca3" name="local_8" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff8" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4c6" name="ad" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="AttributeDef" id="0x10000000000002f"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4000" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x12305f" last="0x12305f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc9c" name="local_70" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff90" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc9d" name="local_60" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffa0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc9e" name="local_50" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffb0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc9f" name="local_40" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffc0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true">
+      <returnsym typelock="true">
+        <addr/>
+        <void/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x123060" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x1a4" name="sym_push" size="1">
+    <addr space="ram" offset="0x10ca60"/>
+    <localdb lock="false" main="stack">
+      <scope name="sym_push">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0x5d0" name="v" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="register" offset="0x4000" size="4"/>
+            <rangelist>
+              <range space="ram" first="0x10ca5f" last="0x10ca5f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x5d1" name="type" typelock="true" namelock="true" merge="false" cat="0" index="0x1">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="CType" id="0x100000000000021"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4008" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x10ca5f" last="0x10ca5f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x5d2" name="r" typelock="true" namelock="true" merge="false" cat="0" index="0x2">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="register" offset="0x4010" size="4"/>
+            <rangelist>
+              <range space="ram" first="0x10ca5f" last="0x10ca5f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x5d3" name="c" typelock="true" namelock="true" merge="false" cat="0" index="0x3">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="register" offset="0x4018" size="4"/>
+            <rangelist>
+              <range space="ram" first="0x10ca5f" last="0x10ca5f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xed4" name="local_40" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffc0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xed5" name="local_30" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffd0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xed6" name="local_20" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xed7" name="local_10" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true">
+      <returnsym typelock="true">
+        <addr space="register" offset="0x4000" size="8"/>
+        <type name="" metatype="ptr" size="8">
+          <typeref name="Sym" id="0x10000000000001b"/>
+        </type>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x10ca60" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x221" name="parse_btype" size="1">
+    <addr space="ram" offset="0x125ec0"/>
+    <localdb lock="false" main="stack">
+      <scope name="parse_btype">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0x4b4" name="type" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="CType" id="0x100000000000021"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4000" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x125ebf" last="0x125ebf"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xf35" name="local_a0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff60" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4b5" name="ad" typelock="true" namelock="true" merge="false" cat="0" index="0x1">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="AttributeDef" id="0x10000000000002f"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4008" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x125ebf" last="0x125ebf"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4b6" name="type1" typelock="true" namelock="true" merge="false" cat="-1">
+              <typeref name="CType" id="0x100000000000021"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffd0" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xf36" name="local_90" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff70" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4b7" name="n" typelock="true" namelock="true" merge="false" cat="-1">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffcc" size="4"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xf37" name="local_80" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff80" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4b8" name="ad_1" typelock="true" namelock="true" merge="false" cat="-1">
+              <typeref name="AttributeDef" id="0x10000000000002f"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="32"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xf38" name="local_70" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff90" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xf39" name="local_60" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffa0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xf3a" name="local_50" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffb0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true">
+      <returnsym typelock="true">
+        <addr space="register" offset="0x4000" size="4"/>
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x125ec0" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x237" name="expr_const" size="1">
+    <addr space="ram" offset="0x122bc0"/>
+    <localdb lock="false" main="stack">
+      <scope name="expr_const">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0x1046" name="local_20" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x1047" name="local_10" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="unknown" voidlock="true">
+      <returnsym typelock="true">
+        <addr space="register" offset="0x4000" size="4"/>
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x122bc0" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0xd4" name="type_size" size="1">
+    <addr space="ram" offset="0x102640"/>
+    <localdb lock="false" main="stack">
+      <scope name="type_size">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0xea2" name="local_20" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xea3" name="local_10" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4d7" name="type" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="CType" id="0x100000000000021"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4000" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x10263f" last="0x10263f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4d8" name="a" typelock="true" namelock="true" merge="false" cat="0" index="0x1">
+              <type name="" metatype="ptr" size="8">
+                <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4008" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x10263f" last="0x10263f"/>
+            </rangelist>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true">
+      <returnsym typelock="true">
+        <addr space="register" offset="0x4000" size="4"/>
+        <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x102640" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x2e4" name="tcc_error" size="1" noreturn="true">
+    <addr space="ram" offset="0x104064"/>
+    <localdb lock="false" main="stack">
+      <scope name="tcc_error">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0xc83" name="local_120" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffee0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc84" name="local_110" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffef0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc85" name="local_100" typelock="false" namelock="true" cat="-1">
+              <type name="" metatype="array" size="16" arraysize="16">
+                <typeref name="undefined1" id="0xc0000000000000b4"/>
+              </type>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff00" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc86" name="local_f0" typelock="false" namelock="true" cat="-1">
+              <type name="" metatype="array" size="16" arraysize="16">
+                <typeref name="undefined1" id="0xc0000000000000b4"/>
+              </type>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff10" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc87" name="local_c0" typelock="false" namelock="true" cat="-1">
+              <type name="" metatype="array" size="16" arraysize="16">
+                <typeref name="undefined1" id="0xc0000000000000b4"/>
+              </type>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff40" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc88" name="local_a0" typelock="false" namelock="true" cat="-1">
+              <type name="" metatype="array" size="16" arraysize="16">
+                <typeref name="undefined1" id="0xc0000000000000b4"/>
+              </type>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff60" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc89" name="local_80" typelock="false" namelock="true" cat="-1">
+              <type name="" metatype="array" size="16" arraysize="16">
+                <typeref name="undefined1" id="0xc0000000000000b4"/>
+              </type>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff80" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x3c9" name="fmt" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="" metatype="ptr" size="8">
+                <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4000" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x104063" last="0x104063"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc8a" name="local_60" typelock="false" namelock="true" cat="-1">
+              <type name="" metatype="array" size="16" arraysize="16">
+                <typeref name="undefined1" id="0xc0000000000000b4"/>
+              </type>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffa0" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x3ca" name="ap" typelock="true" namelock="true" merge="false" cat="-1">
+              <typeref name="va_list" id="0x500000000000017"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff20" size="32"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc8b" name="local_38" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffc8" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc8c" name="local_28" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffd8" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc8d" name="local_18" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe8" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xc8e" name="local_8" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff8" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true" dotdotdot="true" noreturn="true">
+      <returnsym typelock="true">
+        <addr/>
+        <void/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x104064" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0xd6" name="struct_add_offset" size="1">
+    <addr space="ram" offset="0x102760"/>
+    <localdb lock="false" main="stack">
+      <scope name="struct_add_offset">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0x4c4" name="s" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="Sym" id="0x10000000000001b"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4000" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x10275f" last="0x10275f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4c5" name="offset" typelock="true" namelock="true" merge="false" cat="0" index="0x1">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="register" offset="0x4008" size="4"/>
+            <rangelist>
+              <range space="ram" first="0x10275f" last="0x10275f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xfed" name="local_20" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xfee" name="local_10" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true">
+      <returnsym typelock="true">
+        <addr/>
+        <void/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x102760" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x160" name="sym_push2" size="1">
+    <addr space="ram" offset="0x107e24"/>
+    <localdb lock="false" main="stack">
+      <scope name="sym_push2">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0x507" name="ps" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="" metatype="ptr" size="8">
+                <type name="" metatype="ptr" size="8">
+                  <typeref name="Sym" id="0x10000000000001b"/>
+                </type>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4000" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x107e23" last="0x107e23"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x508" name="v" typelock="true" namelock="true" merge="false" cat="0" index="0x1">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="register" offset="0x4008" size="4"/>
+            <rangelist>
+              <range space="ram" first="0x107e23" last="0x107e23"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x509" name="t" typelock="true" namelock="true" merge="false" cat="0" index="0x2">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="register" offset="0x4010" size="4"/>
+            <rangelist>
+              <range space="ram" first="0x107e23" last="0x107e23"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x50a" name="c" typelock="true" namelock="true" merge="false" cat="0" index="0x3">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="register" offset="0x4018" size="4"/>
+            <rangelist>
+              <range space="ram" first="0x107e23" last="0x107e23"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe5b" name="local_50" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffb0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe5c" name="local_40" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffc0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe5d" name="local_30" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffd0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe5e" name="local_20" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xe5f" name="local_10" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true">
+      <returnsym typelock="true">
+        <addr space="register" offset="0x4000" size="8"/>
+        <type name="" metatype="ptr" size="8">
+          <typeref name="Sym" id="0x10000000000001b"/>
+        </type>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x107e24" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x187" name="get_tok_str" size="1">
+    <addr space="ram" offset="0x10a260"/>
+    <localdb lock="false" main="stack">
+      <scope name="get_tok_str">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0xed0" name="local_40" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffc0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x5c0" name="v" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="register" offset="0x4000" size="4"/>
+            <rangelist>
+              <range space="ram" first="0x10a25f" last="0x10a25f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xed1" name="local_30" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffd0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x5c1" name="cv" typelock="true" namelock="true" merge="false" cat="0" index="0x1">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="CValue" id="0x10000000000002d"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4008" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x10a25f" last="0x10a25f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xed2" name="local_20" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xed3" name="local_10" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xecf" name="local_50" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffb0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true">
+      <returnsym typelock="true">
+        <addr space="register" offset="0x4000" size="8"/>
+        <type name="" metatype="ptr" size="8">
+          <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+        </type>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x10a260" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x223" name="type_decl" size="1">
+    <addr space="ram" offset="0x126b40"/>
+    <localdb lock="false" main="stack">
+      <scope name="type_decl">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0xfd0" name="local_8" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff8" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xfc7" name="local_70" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff90" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4a7" name="type" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="CType" id="0x100000000000021"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4000" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x126b3f" last="0x126b3f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xfc8" name="local_60" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffa0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4a8" name="ad" typelock="true" namelock="true" merge="false" cat="0" index="0x1">
+              <type name="" metatype="ptr" size="8">
+                <typeref name="AttributeDef" id="0x10000000000002f"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4008" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x126b3f" last="0x126b3f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4a9" name="v" typelock="true" namelock="true" merge="false" cat="0" index="0x2">
+              <type name="" metatype="ptr" size="8">
+                <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4010" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x126b3f" last="0x126b3f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x4aa" name="td" typelock="true" namelock="true" merge="false" cat="0" index="0x3">
+              <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+            </symbol>
+            <addr space="register" offset="0x4018" size="4"/>
+            <rangelist>
+              <range space="ram" first="0x126b3f" last="0x126b3f"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xfcc" name="local_50" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffb0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xfcd" name="local_40" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffc0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xfce" name="local_30" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffd0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xfcf" name="local_20" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true">
+      <returnsym typelock="true">
+        <addr space="register" offset="0x4000" size="8"/>
+        <type name="" metatype="ptr" size="8">
+          <typeref name="CType" id="0x100000000000021"/>
+        </type>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x126b40" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x10c" name="expect" size="1" noreturn="true">
+    <addr space="ram" offset="0x104100"/>
+    <localdb lock="false" main="stack">
+      <scope name="expect">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0x549" name="msg" typelock="true" namelock="true" merge="false" cat="0" index="0x0">
+              <type name="" metatype="ptr" size="8">
+                <type name="char" id="0xc00000000000007b" metatype="int" size="1" char="true"/>
+              </type>
+            </symbol>
+            <addr space="register" offset="0x4000" size="8"/>
+            <rangelist>
+              <range space="ram" first="0x1040ff" last="0x1040ff"/>
+            </rangelist>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xd5a" name="local_10" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="__cdecl" modellock="true" noreturn="true">
+      <returnsym typelock="true">
+        <addr/>
+        <void/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x104100" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x21d" name="expr_cond" size="1">
+    <addr space="ram" offset="0x120a40"/>
+    <localdb lock="false" main="stack">
+      <scope name="expr_cond">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0x640" name="type" typelock="true" namelock="true" merge="false" cat="-1">
+              <typeref name="CType" id="0x100000000000021"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffc0" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x641" name="cval_1" typelock="true" namelock="true" merge="false" cat="-1">
+              <typeref name="CValue" id="0x10000000000002d"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff80" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0x642" name="type_3" typelock="true" namelock="true" merge="false" cat="-1">
+              <typeref name="CType" id="0x100000000000021"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff70" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeaa" name="local_100" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff00" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeab" name="local_f0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff10" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeac" name="local_e0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff20" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xead" name="local_d0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff30" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeae" name="local_c0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff40" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeaf" name="local_b0" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff50" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeb0" name="local_94" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined4" id="0xc0000000000000b7"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff6c" size="4"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeb1" name="local_70" typelock="false" namelock="true" cat="-1">
+              <type name="" metatype="array" size="16" arraysize="16">
+                <typeref name="undefined1" id="0xc0000000000000b4"/>
+              </type>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffff90" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeb2" name="local_60" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffa0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeb3" name="local_50" typelock="false" namelock="true" cat="-1">
+              <type name="" metatype="array" size="16" arraysize="16">
+                <typeref name="undefined1" id="0xc0000000000000b4"/>
+              </type>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffb0" size="16"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeb4" name="local_30" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined2" id="0xc0000000000000b5"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffd0" size="2"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xeb5" name="local_20" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="unknown" voidlock="true">
+      <returnsym typelock="true">
+        <addr/>
+        <void/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x120a40" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <function id="0x120" name="vpop" size="1">
+    <addr space="ram" offset="0x104aac"/>
+    <localdb lock="false" main="stack">
+      <scope name="vpop">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist>
+          <mapsym>
+            <symbol id="0xee7" name="local_20" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xffffffffffffffe0" size="8"/>
+            <rangelist/>
+          </mapsym>
+          <mapsym>
+            <symbol id="0xee8" name="local_10" typelock="false" namelock="true" cat="-1">
+              <typeref name="undefined8" id="0xc0000000000000bb"/>
+            </symbol>
+            <addr space="stack" offset="0xfffffffffffffff0" size="8"/>
+            <rangelist/>
+          </mapsym>
+        </symbollist>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="unknown" voidlock="true">
+      <returnsym typelock="true">
+        <addr/>
+        <void/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x104aac" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x28b" name="tok" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </symbol>
+  <addr space="ram" offset="0x1504b8" size="4"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x285" name="anon_sym" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </symbol>
+  <addr space="ram" offset="0x150478" size="4"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x25c" name="tok_ident" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </symbol>
+  <addr space="ram" offset="0x1502e8" size="4"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x258" name="table_ident" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="" metatype="ptr" size="8">
+      <type name="" metatype="ptr" size="8">
+        <typeref name="TokenSym" id="0x10000000000002a"/>
+      </type>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x1502c8" size="8"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x283" name="local_scope" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </symbol>
+  <addr space="ram" offset="0x150460" size="4"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x282" name="local_stack" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="Sym" id="0x10000000000001b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x150458" size="8"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x270" name="nocode_wanted" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </symbol>
+  <addr space="ram" offset="0x1503d8" size="4"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x286" name="const_wanted" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="int" id="0xc000000000000095" metatype="int" size="4"/>
+  </symbol>
+  <addr space="ram" offset="0x15047c" size="4"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x25a" name="vtop" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="SValue" id="0x10000000000002e"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x1502d8" size="8"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x26c" name="tcc_state" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="TCCState" id="0x100000000000012"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x1503c0" size="8"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_redefinition_of_&apos;%s&apos;_00131e40" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="21" arraysize="21">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x131e40" size="21"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_&apos;%c&apos;_expected_(got_&quot;%s&quot;)_00132588" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="25" arraysize="25">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x132588" size="25"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_constant_expression_001332e0" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="20" arraysize="20">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x1332e0" size="20"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_identifier_00133390" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="11" arraysize="11">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x133390" size="11"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_struct/union/enum_name_001338d0" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="23" arraysize="23">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x1338d0" size="23"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_struct/union/enum_already_define_001338e8" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="34" arraysize="34">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x1338e8" size="34"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_redefinition_of_enumerator_&apos;%s&apos;_00133910" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="32" arraysize="32">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x133910" size="32"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_flexible_array_member_&apos;%s&apos;_not_a_00133930" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="52" arraysize="52">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x133930" size="52"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_field_&apos;%s&apos;_has_incomplete_type_00133968" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="31" arraysize="31">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x133968" size="31"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_invalid_type_for_&apos;%s&apos;_00133988" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="22" arraysize="22">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x133988" size="22"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_negative_width_in_bit-field_&apos;%s&apos;_001339a0" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="33" arraysize="33">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x1339a0" size="33"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_zero_width_for_bit-field_&apos;%s&apos;_001339c8" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="30" arraysize="30">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x1339c8" size="30"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_bitfields_must_have_scalar_type_001339e8" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="32" arraysize="32">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x1339e8" size="32"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_width_of_&apos;%s&apos;_exceeds_its_type_00133a08" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="31" arraysize="31">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x133a08" size="31"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="s_field_width_64_not_implemented_00133a28" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <type name="" metatype="array" size="31" arraysize="31">
+      <typeref name="char" id="0xc00000000000007b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x133a28" size="31"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x27f" name="global_stack" typelock="true" namelock="true" merge="false" cat="-1">
+    <type name="" metatype="ptr" size="8">
+      <typeref name="Sym" id="0x10000000000001b"/>
+    </type>
+  </symbol>
+  <addr space="ram" offset="0x150438" size="8"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol id="0x28c" name="tokc" typelock="true" namelock="true" merge="false" cat="-1">
+    <typeref name="CValue" id="0x10000000000002d"/>
+  </symbol>
+  <addr space="ram" offset="0x1504c0" size="16"/>
+  <rangelist/>
+</mapsym></symbollist>
+</scope>
+</db>
+<context_points>
+
+<context_pointset space="ram" offset="0x124d60">
+  <set name="ImmS_ImmR_TestSet" val="0"/>
+  <set name="ImmS_LT_ImmR" val="0"/>
+  <set name="ImmS_EQ_ImmR" val="0"/>
+  <set name="ImmS_LT_ImmR_minus_1" val="0"/>
+  <set name="ImmS_ne_1f" val="0"/>
+  <set name="ImmS_ne_3f" val="0"/>
+  <set name="ShowPAC" val="0"/>
+  <set name="PAC_clobber" val="0"/>
+  <set name="ShowBTI" val="0"/>
+  <set name="ShowMemTag" val="0"/>
+</context_pointset>
+<tracked_pointset space="ram" offset="0x124d60"/></context_points>
+
+<stringmanage>
+  <string>
+    <addr space="ram" offset="0x131e40"/>
+    <bytes trunc="false">7265646566696e6974696f6e206f662027257327
+  00
+</bytes>
+  </string>
+  <string>
+    <addr space="ram" offset="0x1339e8"/>
+    <bytes trunc="false">6269746669656c6473206d757374206861766520
+  7363616c6172207479706500
+</bytes>
+  </string>
+</stringmanage>
+<optionslist>
+  <readonly>on</readonly>
+  <setlanguage>c-language</setlanguage>
+  <protoeval>__cdecl</protoeval>
+</optionslist><flowoverridelist>
+
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x12505c"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125eb4"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125930"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125958"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125c4c"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125bb0"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125dc8"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125e00"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125914"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125bcc"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125c58"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125510"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x1258d0"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125e4c"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125e40"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125e24"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x124ec4"/>
+</flow>
+<flow type="callreturn">
+  <addr space="ram" offset="0x124d60"/>
+  <addr space="ram" offset="0x125e64"/>
+</flow></flowoverridelist>
+</save_state>
+</xml_savefile>

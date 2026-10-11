@@ -1,0 +1,323 @@
+// Shared vocabulary for every revkit.v1 service: addresses, revisions and
+// snapshot reads, provenance, fact keys and the origin of derived facts.
+//
+// Conventions that hold across the whole package (see docs/api.md):
+//   * Every enum's zero value is *_UNSPECIFIED. Clients must treat unknown
+//     enum values as UNSPECIFIED; servers add values in minor versions.
+//   * 64-bit integers appear as decimal strings in the JSON encoding
+//     (proto3 JSON rules), as numbers/bigints in typed clients.
+//   * Address ranges are inclusive [first, last] so the last byte of a 64-bit
+//     space is representable.
+//   * Lists that can grow without bound are paginated with an opaque
+//     page_token; page tokens are only valid against the same revision.
+syntax = "proto3";
+
+package revkit.v1;
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// A location in one of a program's address spaces.
+message Address {
+  // SLEIGH address-space name: "ram", "register", "stack", "const", an
+  // overlay name, ... Empty means the program's default code/data space, which
+  // is what nearly every request and response uses.
+  string space = 1;
+  // Byte offset within the space, as SLEIGH's and Ghidra's
+  // Address.getOffset() count, word-addressed spaces included: AVR's
+  // code:0x1234 (a word address) is offset 0x2468. With an empty space, a
+  // program with several memory spaces folds its other spaces' addresses
+  // into the offset at their key_base (ProgramInfo.spaces, api_minor 26):
+  // AVR's SRAM byte mem:0x100 is offset key_base + 0x100. Responses use
+  // that form; requests take either.
+  uint64 offset = 2;
+}
+
+// Inclusive range [first, last] within one space. first.space must equal
+// last.space.
+message AddressRange {
+  Address first = 1;
+  Address last = 2;
+}
+
+// A SLEIGH varnode: a sized location in an address space. Constants use the
+// "const" space with the value as offset.
+message Varnode {
+  string space = 1;
+  uint64 offset = 2;
+  uint32 size = 3;
+  // Register name when space is "register" and the varnode is exactly a
+  // named register ("RAX", "EAX"); empty otherwise. Informational.
+  string register_name = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Revisions and snapshot reads
+// ---------------------------------------------------------------------------
+
+// Every read accepts ReadOptions; every read response reports the revision it
+// was computed at. A revision is a monotonically increasing commit counter
+// scoped to a project (one fact database), shared by all its programs.
+message ReadOptions {
+  // Read the immutable snapshot at exactly this revision. 0 means the latest
+  // committed revision at the time the server starts the read. Pinning lets
+  // a client issue many requests (listing pages, decompile, xrefs) that are
+  // mutually consistent even while edits land.
+  //
+  // Servers retain a window of recent revisions (ServerInfo.retained_revisions
+  // and ProjectInfo.oldest_retained_revision). Asking for an older revision
+  // fails with FAILED_PRECONDITION and reason "REVISION_EXPIRED"; a revision
+  // newer than head fails with OUT_OF_RANGE.
+  uint64 revision = 1;
+
+  // Read-your-writes across connections: when revision is 0, wait until head
+  // is at least min_revision before reading (bounded by the call deadline,
+  // after which the call fails with DEADLINE_EXCEEDED). Ignored when revision
+  // is set.
+  uint64 min_revision = 2;
+}
+
+// Attached to every read response.
+message Snapshot {
+  // The revision the response was computed at. Clients pass this back as
+  // ReadOptions.revision to make follow-up reads consistent.
+  uint64 revision = 1;
+  // Head revision of the project when the response was produced; greater
+  // than revision when the client pinned an older snapshot.
+  uint64 head_revision = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Provenance: who said something
+// ---------------------------------------------------------------------------
+
+// Ordered by precedence when assertions on the same key conflict:
+// USER > IMPORT = MIGRATION > AGENT = PLUGIN = SCRIPT > ANALYSIS. The fact store, not the
+// client, decides which assertion wins (see Blame).
+enum ProvenanceKind {
+  PROVENANCE_KIND_UNSPECIFIED = 0;
+  // A human, through any client.
+  PROVENANCE_KIND_USER = 1;
+  // A loader or debug-info importer (DWARF, PDB, symbol tables).
+  PROVENANCE_KIND_IMPORT = 2;
+  // An automated agent (LLM, script acting on someone's behalf).
+  PROVENANCE_KIND_AGENT = 3;
+  // An analysis pass asserting a default it wants persisted.
+  PROVENANCE_KIND_ANALYSIS = 4;
+  // Facts replayed from another database or a schema migration.
+  PROVENANCE_KIND_MIGRATION = 5;
+  // A command plugin (id = its name, version = its version), when no agent
+  // invoked it. Ranks with AGENT. Added in api_minor 6 (feature "plugins").
+  PROVENANCE_KIND_PLUGIN = 6;
+  // A script (revkit.script, rk-script; docs/scripting.md): id = the
+  // script's name, version = the first 12 hex digits of its source's
+  // SHA-256, session = the run. Ranks with AGENT and PLUGIN, so a person's
+  // later edit survives running the script again; `on_behalf_of` names who
+  // ran it. Any editor may write it. Added in api_minor 29 (feature
+  // "script-provenance").
+  PROVENANCE_KIND_SCRIPT = 7;
+}
+
+// Who made an assertion. The canonical text form is "kind:id[@version]",
+// e.g. "user:alice", "import:dwarf", "agent:claude@opus-5.5". Bulk revert
+// matches on kind and id, and on version only when the filter sets one.
+message Provenance {
+  ProvenanceKind kind = 1;
+  // Principal within the kind: a user name, importer name, agent name.
+  string id = 2;
+  // Optional version of the principal (model version, importer version).
+  string version = 3;
+  // Optional grouping of related edits (an agent run, a UI session, a script
+  // invocation) so they can be listed or reverted together.
+  string session = 4;
+  // Optional free-text rationale. Agents should always fill this.
+  string reason = 5;
+  // Client software that submitted the edit, e.g. "rk-web/0.1", "revkit-py/0.1".
+  string tool = 6;
+  // Who the author acted for, as "kind:id" ("user:alice", "agent:ci"):
+  // the person who ran a SCRIPT, or the admin who wrote importer
+  // provenance. With authentication the server stamps it with the caller
+  // (send it empty; anything else is refused); without, the client's text
+  // is kept. Added in api_minor 29 (feature "script-provenance").
+  string on_behalf_of = 7;
+}
+
+// ---------------------------------------------------------------------------
+// Fact keys
+// ---------------------------------------------------------------------------
+
+// What an assertion is about. Mirrors the fact store's key kinds.
+enum FactKind {
+  FACT_KIND_UNSPECIFIED = 0;
+  // Symbol name at an address (function, label, global). Local variables use
+  // address = function entry and sub = "local:<storage>" (see docs/api.md).
+  FACT_KIND_NAME = 1;
+  // Data type applied at an address, or a function's prototype when address
+  // is a function entry. Locals: sub = "local:<storage>".
+  FACT_KIND_TYPE = 2;
+  // Comment; sub is the comment kind ("eol", "pre", "post", "plate",
+  // "repeatable", "decompiler").
+  FACT_KIND_COMMENT = 3;
+  // A function's existence and body; address is the entry point.
+  FACT_KIND_FUNCTION_BOUNDS = 4;
+  // Flow override at an instruction.
+  FACT_KIND_FLOW_OVERRIDE = 5;
+  // Free-form note; sub is the note's tag.
+  FACT_KIND_NOTE = 6;
+  // A named data type definition; sub is the type name, address unused.
+  FACT_KIND_TYPE_DEF = 7;
+  // A version-tracking match (DiffService, api_minor 16, feature "diff"):
+  // address = the function's entry in the session's program B, sub = the
+  // session id ("<session>/reject/<hex entry in A>" for a rejected pair).
+  // Written by DiffService, not by AppendAssertions.
+  FACT_KIND_MATCH = 8;
+  // A byte patch (PatchService, api_minor 27, feature "patch"): address =
+  // its first byte, sub = "", the value the new bytes (at most 256).
+  // Written by PatchService, not by AppendAssertions.
+  FACT_KIND_PATCH = 9;
+  // A memory-map edit (api_minor 24, feature "memory-map"): address 0,
+  // sub = "region:<id>" (a region the user added) or "block:<hex start>"
+  // (an edit to one of the image's blocks). Written by AddMemoryRegion,
+  // UpdateMemoryRegion and RemoveMemoryRegion, not by AppendAssertions.
+  FACT_KIND_MEMORY_REGION = 10;
+  // What bytes are, from the listing (api_minor 30, feature
+  // "listing-edit"): address = the first byte, sub = "clear:<hex
+  // length>", "code" or "data" (ListingEdit).
+  FACT_KIND_CODE_UNIT = 11;
+  // Constant or volatile memory (api_minor 30): address = the first byte,
+  // sub = the length in hex (SetMutability).
+  FACT_KIND_MUTABILITY = 12;
+  // How a scalar operand shows (api_minor 39, feature "equates"): address
+  // = the instruction, sub = "<operand>:<hex value>" or "h<hex
+  // hash>:<hex value>" (OperandDisplay).
+  FACT_KIND_EQUATE = 13;
+  // A user reference (api_minor 39, feature "user-references"): address =
+  // the instruction it is from, sub = "<operand>:<hex to>" or "i:<hex to>"
+  // (UserReference).
+  FACT_KIND_REFERENCE = 14;
+  // The program's image base (api_minor 42, feature "rebase";
+  // docs/memory-map.md, "Rebase: setting the image base"): address 0,
+  // sub "" (ImageBaseBody, written by ProjectService.SetImageBase only).
+  // Every other key of the program reads at its moved address.
+  FACT_KIND_REBASE = 15;
+  // A call-site signature override (api_minor 53, feature
+  // "call-signature-override"): address = the call instruction, sub = ""
+  // (CallSignatureOverride).
+  FACT_KIND_CALL_SIGNATURE = 16;
+  // Whether a function returns, as the user says (api_minor 66, feature
+  // "no-return"; SetNoReturn): address = the function's entry, sub = "";
+  // the value 1 (it doesn't return) or 0 (it does), over analysis's
+  // no-return functions (named and inferred).
+  FACT_KIND_NO_RETURN = 17;
+  // The program's language, changed after import (api_minor 73, feature
+  // "set-language"; ProjectService.SetProgramLanguage): address 0 in the
+  // program, sub = ""; "<language id>|<compiler spec id>", or "" for the
+  // language it was imported with.
+  FACT_KIND_LANGUAGE = 18;
+}
+
+// Identifies one assertable fact. (program_id, kind, address, sub) is the
+// unit of history and blame.
+message FactKey {
+  string program_id = 1;
+  FactKind kind = 2;
+  Address address = 3;
+  string sub = 4;
+  // A key of the project's rather than a program's: a project-wide type
+  // (TYPE_DEF) or a type archive setting (NOTE "revkit:type-archive:<name>")
+  // (api_minor 52, feature "project-types"). program_id is then empty in
+  // what the server sends, and any program of the project in requests.
+  bool project = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Where a fact came from
+// ---------------------------------------------------------------------------
+
+// A derived fact's justification: the rule that produced it, what it read,
+// and how sure it is.
+message Derivation {
+  // Rule or query that produced the fact, e.g. "disasm.linear_sweep",
+  // "functions.call_target", "decompiler.ghidra".
+  string rule = 1;
+  // Facts the rule read (assertion keys; derived inputs are summarized by
+  // the rule name). May be truncated; see inputs_truncated.
+  repeated FactKey inputs = 2;
+  bool inputs_truncated = 3;
+  // 0..1. 1 for facts that follow mechanically from bytes and assertions.
+  float confidence = 4;
+  // Revision whose snapshot the fact was computed from. Equal to or older
+  // than the read revision when the query result was reused.
+  uint64 computed_at_revision = 5;
+}
+
+// Provenance for any value a read returns: either a user/importer/agent
+// assertion won, or the value was derived by analysis.
+message FactOrigin {
+  oneof source {
+    AssertedBy asserted = 1;
+    Derivation derived = 2;
+  }
+}
+
+message AssertedBy {
+  // Sequence number of the winning assertion (see Assertion.seq).
+  uint64 seq = 1;
+  Provenance provenance = 2;
+  // Its global identity, the same on every daemon (see OpId).
+  OpId id = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Replication identity
+// ---------------------------------------------------------------------------
+
+// The global identity of an assertion-log entry (docs/collab.md). Seqs are
+// one daemon's local numbering; when daemons replicate a project, an entry
+// has a different seq on each, but the same OpId everywhere.
+message OpId {
+  // The replica that made the entry: one daemon's copy of the project.
+  fixed64 replica = 1;
+  // That replica's counter, dense from 1.
+  uint64 counter = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------------
+
+message PageRequest {
+  // Maximum items to return; the server may return fewer and caps large
+  // values (documented per RPC). 0 means a server default.
+  uint32 page_size = 1;
+  // next_page_token from a previous response, or empty for the first page.
+  // Tokens embed the revision of the first page. When ReadOptions.revision
+  // is 0, later pages are read at that revision, so a listing paged while
+  // edits land stays consistent; a different non-zero ReadOptions.revision
+  // fails with INVALID_ARGUMENT. An expired revision fails like any pinned
+  // read (FAILED_PRECONDITION, "REVISION_EXPIRED").
+  string page_token = 2;
+}
+
+message PageInfo {
+  // Empty when there are no more items.
+  string next_page_token = 1;
+  // Total matching items at this revision, when cheap to compute; -1 if
+  // unknown.
+  int64 total_count = 2;
+}
+
+// The other spellings of a name the demangler analysis gave a mangled
+// symbol (api_minor 40, feature "demangle"; docs/demangle.md). The shown
+// name is Ghidra's "short" form: the qualified name without parameters
+// ("geo::Circle::scale"). Set only where the shown name is that default
+// (not where a rename replaced it), so a client can show the others.
+message DemangledName {
+  // The symbol as the file spells it: "_ZN3geo6Circle5scaleEd".
+  string mangled = 1;
+  // The demangler's whole output, parameters included:
+  // "geo::Circle::scale(double)".
+  string full = 2;
+}

@@ -1,0 +1,7 @@
+{
+  "_doc": "Functions the projects renamed between adjacent versions of corpus/diff.json, keyed by program and version step: old name -> new name. The diff evaluation (scripts/diff_eval.py) counts a match of the old function to the new name as correct. Each is checked against the debug builds (same code, the old name gone or now a new wrapper) and the projects' sources.",
+  "lua": {
+    "5.4.5->5.4.6": {"lua_resetthread": "lua_closethread"},
+    "5.4.6->5.4.7": {"luaD_tryfuncTM": "tryfuncTM", "luaK_exp2RK": "exp2RK"}
+  }
+}

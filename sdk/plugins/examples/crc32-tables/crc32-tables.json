@@ -1,0 +1,9 @@
+{
+  "name": "crc32-tables",
+  "version": "1.0.0",
+  "kind": "analyzer",
+  "interface": 1,
+  "description": "Finds CRC-32 lookup tables (reflected 0xEDB88320 and normal 0x04C11DB7, either byte order) in initialized memory and labels them",
+  "capabilities": ["memory"],
+  "analyzer": {"scope": "program"}
+}

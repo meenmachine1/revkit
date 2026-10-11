@@ -1,0 +1,1525 @@
+{
+ "binary": "script_target",
+ "binary_sha256": "24dff4eaa86557910ee35ad3c5da2968f0e421b60c66ff1ee9d5bf854ab871b9",
+ "ghidra": "12.1.4",
+ "observations": {
+  "AddCommentToProgramScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {
+     "0x100000/plate": [
+      null,
+      "AddCommentToProgramScript - This is an added comment!"
+     ]
+    },
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    ""
+   ],
+   "status": "ok"
+  },
+  "AutoRenameSimpleLabels": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {
+     "0x1010f8": [
+      null,
+      "ret_001010F8"
+     ],
+     "0x101138": [
+      null,
+      "ret_00101138"
+     ],
+     "0x101178": [
+      null,
+      "ret_00101178"
+     ],
+     "0x1011a6": [
+      null,
+      "ret_001011A6"
+     ]
+    }
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "Renaming RET @ 001010F8: LAB_001010f8 to ret_001010F8",
+    "Renaming RET @ 00101138: LAB_00101138 to ret_00101138",
+    "Renaming RET @ 00101178: LAB_00101178 to ret_00101178",
+    "Renaming RET @ 001011A6: LAB_001011a6 to ret_001011A6",
+    "Modified a total of 4 entries",
+    ""
+   ],
+   "status": "ok"
+  },
+  "CallAnotherScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [
+    "INFO Hello World"
+   ],
+   "output": [
+    "Hello World",
+    ""
+   ],
+   "status": "ok"
+  },
+  "ClearOrphanFunctions": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    ""
+   ],
+   "status": "ok"
+  },
+  "ComputeCyclomaticComplexity": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "complexity: 2",
+    ""
+   ],
+   "status": "ok"
+  },
+  "ConvertDotToDashInAutoAnalysisLabels": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {
+     "0x10119a": [
+      "case.1",
+      "case_1"
+     ]
+    }
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    ""
+   ],
+   "status": "ok"
+  },
+  "CountSymbolsScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "__libc_start_main",
+    "strlen",
+    "__printf_chk",
+    "fwrite",
+    "__cxa_finalize",
+    "_ITM_deregisterTMCloneTable",
+    "_ITM_registerTMCloneTable",
+    "__gmon_start__",
+    "__abi_tag",
+    "__DT_GNU_HASH",
+    "__DT_SYMTAB",
+    "__DT_STRTAB",
+    "__DT_VERSYM",
+    "__DT_VERNEED",
+    "__DT_RELA",
+    "__DT_JMPREL",
+    "__DT_INIT",
+    "_init",
+    "FUN_00101020",
+    "__cxa_finalize",
+    "strlen",
+    "__printf_chk",
+    "fwrite",
+    "_start",
+    "deregister_tm_clones",
+    "register_tm_clones",
+    "__do_global_dtors_aux",
+    "frame_dummy",
+    "decrypt",
+    "parse_config",
+    "open_database",
+    "log_user",
+    "log_safe",
+    "raw_getpid",
+    "mix",
+    "main",
+    "__DT_FINI",
+    "_fini",
+    "_IO_stdin_used",
+    "unused_message",
+    "aes_sbox",
+    "sha256_iv",
+    "__GNU_EH_FRAME_HDR",
+    "cie_00102130",
+    "fde_00102148",
+    "fde_00102160",
+    "fde_00102188",
+    "fde_001021a0",
+    "fde_001021b8",
+    "fde_001021cc",
+    "fde_001021e8",
+    "fde_00102200",
+    "fde_00102218",
+    "fde_00102230",
+    "fde_00102244",
+    "fde_00102258",
+    "__FRAME_END__",
+    "__DT_INIT_ARRAY",
+    "__frame_dummy_init_array_entry",
+    "__DT_FINI_ARRAY",
+    "__do_global_dtors_aux_fini_array_entry",
+    "_DYNAMIC",
+    "__DT_PLTGOT",
+    "_GLOBAL_OFFSET_TABLE_",
+    "data_start",
+    "__data_start",
+    "__dso_handle",
+    "secret",
+    "_edata",
+    "stderr",
+    "__bss_start",
+    "__TMC_END__",
+    "stderr@GLIBC_2.2.5",
+    "completed.0",
+    "_end",
+    "__libc_start_main",
+    "_ITM_deregisterTMCloneTable",
+    "strlen",
+    "__gmon_start__",
+    "__printf_chk",
+    "fwrite",
+    "_ITM_registerTMCloneTable",
+    "__cxa_finalize",
+    "ElfComment[0]",
+    "84 symbols",
+    ""
+   ],
+   "status": "ok"
+  },
+  "CreateFunctionsFromSelection": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {
+     "0x10126d": [
+      null,
+      "mix"
+     ]
+    },
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    ""
+   ],
+   "status": "ok"
+  },
+  "DeleteFunctionDefaultPlatesScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {
+     "0x10126d/plate": [
+      " FUNCTION",
+      null
+     ],
+     "0x101295/plate": [
+      " FUNCTION",
+      null
+     ]
+    },
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "Removed 2 default plate comments.",
+    ""
+   ],
+   "status": "ok"
+  },
+  "DumpFunctionBitPatternInfoForCurrentFunctionScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "Prebytes: 488d15f20d00000fb6143a31d0c3",
+    "preInstructions: RET:1 () XOR:2 (EAX,EDX) MOVZX:4 (EDX,byte ptr [RDX + RDI*0x1]) LEA:7 (RDX,[0x102080])",
+    "Address: 00101295",
+    "firstInstructions: ENDBR64:4 () PUSH:2 (R12) PUSH:1 (RBP) PUSH:1 (RBX)",
+    "firstBytes: f30f1efa415455534189",
+    "returns:",
+    "  bytes:",
+    "   e875ffffff01d85b5d415cc3",
+    "  inst:",
+    "   RET:1 () POP:2 (R12) POP:1 (RBP) POP:1 (RBX)",
+    "",
+    ""
+   ],
+   "status": "ok"
+  },
+  "ExportFunctionInfoScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": "[\n  {\n    \"name\": \"_init\",\n    \"entry\": \"00101000\"\n  },\n  {\n    \"name\": \"FUN_00101020\",\n    \"entry\": \"00101020\"\n  },\n  {\n    \"name\": \"__cxa_finalize\",\n    \"entry\": \"00101060\"\n  },\n  {\n    \"name\": \"strlen\",\n    \"entry\": \"00101070\"\n  },\n  {\n    \"name\": \"__printf_chk\",\n    \"entry\": \"00101080\"\n  },\n  {\n    \"name\": \"fwrite\",\n    \"entry\": \"00101090\"\n  },\n  {\n    \"name\": \"_start\",\n    \"entry\": \"001010a0\"\n  },\n  {\n    \"name\": \"deregister_tm_clones\",\n    \"entry\": \"001010d0\"\n  },\n  {\n    \"name\": \"register_tm_clones\",\n    \"entry\": \"00101100\"\n  },\n  {\n    \"name\": \"__do_global_dtors_aux\",\n    \"entry\": \"00101140\"\n  },\n  {\n    \"name\": \"frame_dummy\",\n    \"entry\": \"00101180\"\n  },\n  {\n    \"name\": \"decrypt\",\n    \"entry\": \"00101189\"\n  },\n  {\n    \"name\": \"parse_config\",\n    \"entry\": \"001011a7\"\n  },\n  {\n    \"name\": \"open_database\",\n    \"entry\": \"001011e2\"\n  },\n  {\n    \"name\": \"log_user\",\n    \"entry\": \"0010121c\"\n  },\n  {\n    \"name\": \"log_safe\",\n    \"entry\": \"0010123b\"\n  },\n  {\n    \"name\": \"raw_getpid\",\n    \"entry\": \"00101261\"\n  },\n  {\n    \"name\": \"mix\",\n    \"entry\": \"0010126d\"\n  },\n  {\n    \"name\": \"main\",\n    \"entry\": \"00101295\"\n  },\n  {\n    \"name\": \"_fini\",\n    \"entry\": \"00101300\"\n  },\n  {\n    \"name\": \"__libc_start_main\",\n    \"entry\": \"00105000\"\n  },\n  {\n    \"name\": \"_ITM_deregisterTMCloneTable\",\n    \"entry\": \"00105008\"\n  },\n  {\n    \"name\": \"strlen\",\n    \"entry\": \"00105010\"\n  },\n  {\n    \"name\": \"__gmon_start__\",\n    \"entry\": \"00105018\"\n  },\n  {\n    \"name\": \"__printf_chk\",\n    \"entry\": \"00105020\"\n  },\n  {\n    \"name\": \"fwrite\",\n    \"entry\": \"00105028\"\n  },\n  {\n    \"name\": \"_ITM_registerTMCloneTable\",\n    \"entry\": \"00105030\"\n  },\n  {\n    \"name\": \"__cxa_finalize\",\n    \"entry\": \"00105038\"\n  }\n]",
+   "messages": [],
+   "output": [
+    "Wrote functions to /tmp/rk-ghidra-corpus-p3kp4cc_/ExportFunctionInfoScript.out",
+    ""
+   ],
+   "status": "ok"
+  },
+  "FindAndReplaceCommentScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {
+     "0x101189/plate": [
+      "decrypts the secret\nin place",
+      "decrypts the SECRET\nin place"
+     ],
+     "0x10126d/pre": [
+      "mixes a secret value",
+      "mixes a SECRET value"
+     ],
+     "0x101295/eol": [
+      "check the secret",
+      "check the SECRET"
+     ],
+     "0x330/eol": [
+      "secret",
+      "SECRET"
+     ]
+    },
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "",
+    "Changed Plate Comment at address 00101189.",
+    "",
+    "Changed Pre Comment at address 0010126d.",
+    "",
+    "Changed EOL Comment at address 00101295.",
+    "",
+    "Changed EOL Comment at address .symtab::00000330.",
+    ""
+   ],
+   "status": "ok"
+  },
+  "FindTextScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "Search match found at 00101261",
+    ""
+   ],
+   "status": "ok"
+  },
+  "FormatExampleScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "The cow jumped over the moon",
+    "The cow jumped over the moon 22:41:10",
+    "The cow jumped over the moon - timestamp: Wed Oct 07 22:41:10 EDT 2026",
+    "The cow jumped over the moon at 10:41 on Wednesday, October 7",
+    "Padding: 001",
+    "Hex: 0xa",
+    "Left-justified: 1         ",
+    "Right-justified:          1",
+    "String fill: '      Fill'",
+    "String fill, left justified: 'Fill      '",
+    ""
+   ],
+   "status": "ok"
+  },
+  "GraphASTScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [
+    "INFO Script is not running in GUI"
+   ],
+   "output": [
+    ""
+   ],
+   "status": "ok"
+  },
+  "HelloWorldPopupScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [
+    "INFO Hello World"
+   ],
+   "output": [
+    ""
+   ],
+   "status": "ok"
+  },
+  "HelloWorldScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "Hello World",
+    ""
+   ],
+   "status": "ok"
+  },
+  "IterateDataScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "00100000 Elf64_Ehdr None",
+    "00100040 Elf64_Phdr[13] None",
+    "00100318 ds /lib64/ld-linux-x86-64.so.2",
+    "00100338 NoteGnuProperty_4 None",
+    "00100348 NoteGnuPropertyElement_4 None",
+    "00100354 NoteGnuPropertyElement_4 None",
+    "00100368 GnuBuildId None",
+    "0010038c NoteAbiTag None",
+    "001003b0 ddw 0x2",
+    "001003b4 ddw 0x8",
+    "001003b8 ddw 0x1",
+    "001003bc ddw 0x6",
+    "001003c0 dq[1] None",
+    "001003c8 ddw[2] None",
+    "001003d0 ddw[2] None",
+    "001003d8 Elf64_Sym[10] None",
+    "001004c9 utf8 __printf_chk",
+    "001004d6 utf8 strlen",
+    "001004dd utf8 __libc_start_main",
+    "001004ef utf8 stderr",
+    "001004f6 utf8 __cxa_finalize",
+    "00100505 utf8 fwrite",
+    "0010050c utf8 libc.so.6",
+    "00100516 utf8 GLIBC_2.3.4",
+    "00100522 utf8 GLIBC_2.2.5",
+    "0010052e utf8 GLIBC_2.34",
+    "00100539 utf8 _ITM_deregisterTMCloneTable",
+    "00100555 utf8 __gmon_start__",
+    "00100564 utf8 _ITM_registerTMCloneTable",
+    "0010057e dw 0x0",
+    "00100580 dw 0x2",
+    "00100582 dw 0x1",
+    "00100584 dw 0x3",
+    "00100586 dw 0x1",
+    "00100588 dw 0x4",
+    "0010058a dw 0x3",
+    "0010058c dw 0x1",
+    "0010058e dw 0x3",
+    "00100590 dw 0x3",
+    "001005d8 Elf64_Rela[9] None",
+    "001006b0 Elf64_Rela[3] None",
+    "00102000 undefined4 0x20001",
+    "00102004 ds parse_config: missing value",
+    "",
+    "00102021 ds open_database: empty path",
+    "",
+    "0010203c ds [%s]",
+    "",
+    "00102060 ds this string is never referenced",
+    "00102080 undefined1[32] None",
+    "001020a0 undefined1[32] None",
+    "001020c0 eh_frame_hdr None",
+    "001020c4 ddw 0x6c",
+    "001020c8 ddw 0xc",
+    "001020cc fde_table_entry None",
+    "001020d4 fde_table_entry None",
+    "001020dc fde_table_entry None",
+    "001020e4 fde_table_entry None",
+    "001020ec fde_table_entry None",
+    "001020f4 fde_table_entry None",
+    "001020fc fde_table_entry None",
+    "00102104 fde_table_entry None",
+    "0010210c fde_table_entry None",
+    "00102114 fde_table_entry None",
+    "0010211c fde_table_entry None",
+    "00102124 fde_table_entry None",
+    "00102130 ddw 0x14",
+    "00102134 ddw 0x0",
+    "00102138 db 0x1",
+    "00102139 ds zR",
+    "0010213c uleb128 0x1",
+    "0010213d sleb128 -0x8",
+    "0010213e db 0x10",
+    "0010213f uleb128 0x1",
+    "00102140 dwfenc DW_EH_PE_sdata4 | DW_EH_PE_pcrel",
+    "00102141 db[7] None",
+    "00102148 ddw 0x14",
+    "0010214c ddw 0x1c",
+    "00102150 ddw 0xffffef50",
+    "00102154 ddw 0x26",
+    "00102158 uleb128 0x0",
+    "00102159 db[7] None",
+    "00102160 ddw 0x24",
+    "00102164 ddw 0x34",
+    "00102168 ddw 0xffffeeb8",
+    "0010216c ddw 0x40",
+    "00102170 uleb128 0x0",
+    "00102171 db[23] None",
+    "00102188 ddw 0x14",
+    "0010218c ddw 0x5c",
+    "00102190 ddw 0xffffeed0",
+    "00102194 dq 0x10",
+    "0010219c uleb128 0x0",
+    "0010219d db[3] None",
+    "001021a0 ddw 0x14",
+    "001021a4 ddw 0x74",
+    "001021a8 ddw 0xffffeec8",
+    "001021ac dq 0x30",
+    "001021b4 uleb128 0x0",
+    "001021b5 db[3] None",
+    "001021b8 ddw 0x10",
+    "001021bc ddw 0x8c",
+    "001021c0 ddw 0xffffefc9",
+    "001021c4 dq 0x1e",
+    "001021cc ddw 0x18",
+    "001021d0 ddw 0xa0",
+    "001021d4 ddw 0xffffefd3",
+    "001021d8 ddw 0x3b",
+    "001021dc uleb128 0x0",
+    "001021dd db[11] None",
+    "001021e8 ddw 0x14",
+    "001021ec ddw 0xbc",
+    "001021f0 ddw 0xffffeff2",
+    "001021f4 ddw 0x3a",
+    "001021f8 uleb128 0x0",
+    "001021f9 db[7] None",
+    "00102200 ddw 0x14",
+    "00102204 ddw 0xd4",
+    "00102208 ddw 0xfffff014",
+    "0010220c ddw 0x1f",
+    "00102210 uleb128 0x0",
+    "00102211 db[7] None",
+    "00102218 ddw 0x14",
+    "0010221c ddw 0xec",
+    "00102220 ddw 0xfffff01b",
+    "00102224 ddw 0x26",
+    "00102228 uleb128 0x0",
+    "00102229 db[7] None",
+    "00102230 ddw 0x10",
+    "00102234 ddw 0x104",
+    "00102238 ddw 0xfffff029",
+    "0010223c dq 0xc",
+    "00102244 ddw 0x10",
+    "00102248 ddw 0x118",
+    "0010224c ddw 0xfffff021",
+    "00102250 dq 0x28",
+    "00102258 ddw 0x28",
+    "0010225c ddw 0x12c",
+    "00102260 ddw 0xfffff035",
+    "00102264 ddw 0x6a",
+    "00102268 uleb128 0x0",
+    "00102269 db[27] None",
+    "00102284 ddw 0x0",
+    "00103da8 addr 00101180",
+    "00103db0 addr 00101140",
+    "00103db8 Elf64_Dyn[27] None",
+    "00103fa8 addr 00103db8",
+    "00103fb0 addr 00000000",
+    "00103fb8 addr 00000000",
+    "00103fc0 addr 00105010",
+    "00103fc8 addr 00105020",
+    "00103fd0 addr 00105028",
+    "00103fd8 addr 00105000",
+    "00103fe0 addr 00105008",
+    "00103fe8 addr 00105018",
+    "00103ff0 addr 00105030",
+    "00103ff8 addr 00105038",
+    "00104008 addr 00104008",
+    "00104010 undefined1[12] None",
+    "00104020 undefined8 0x0",
+    "00104028 undefined1 0x0",
+    ".comment::00000000 utf8 GCC: (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    ".shstrtab::00000001 utf8 .symtab",
+    ".shstrtab::00000009 utf8 .strtab",
+    ".shstrtab::00000011 utf8 .shstrtab",
+    ".shstrtab::0000001b utf8 .interp",
+    ".shstrtab::00000023 utf8 .note.gnu.property",
+    ".shstrtab::00000036 utf8 .note.gnu.build-id",
+    ".shstrtab::00000049 utf8 .note.ABI-tag",
+    ".shstrtab::00000057 utf8 .gnu.hash",
+    ".shstrtab::00000061 utf8 .dynsym",
+    ".shstrtab::00000069 utf8 .dynstr",
+    ".shstrtab::00000071 utf8 .gnu.version",
+    ".shstrtab::0000007e utf8 .gnu.version_r",
+    ".shstrtab::0000008d utf8 .rela.dyn",
+    ".shstrtab::00000097 utf8 .rela.plt",
+    ".shstrtab::000000a1 utf8 .init",
+    ".shstrtab::000000a7 utf8 .plt.got",
+    ".shstrtab::000000b0 utf8 .plt.sec",
+    ".shstrtab::000000b9 utf8 .text",
+    ".shstrtab::000000bf utf8 .fini",
+    ".shstrtab::000000c5 utf8 .rodata",
+    ".shstrtab::000000cd utf8 .eh_frame_hdr",
+    ".shstrtab::000000db utf8 .eh_frame",
+    ".shstrtab::000000e5 utf8 .init_array",
+    ".shstrtab::000000f1 utf8 .fini_array",
+    ".shstrtab::000000fd utf8 .dynamic",
+    ".shstrtab::00000106 utf8 .data",
+    ".shstrtab::0000010c utf8 .bss",
+    ".shstrtab::00000111 utf8 .comment",
+    ".strtab::00000001 utf8 Scrt1.o",
+    ".strtab::00000009 utf8 __abi_tag",
+    ".strtab::00000013 utf8 crtstuff.c",
+    ".strtab::0000001e utf8 deregister_tm_clones",
+    ".strtab::00000033 utf8 __do_global_dtors_aux",
+    ".strtab::00000049 utf8 completed.0",
+    ".strtab::00000055 utf8 __do_global_dtors_aux_fini_array_entry",
+    ".strtab::0000007c utf8 frame_dummy",
+    ".strtab::00000088 utf8 __frame_dummy_init_array_entry",
+    ".strtab::000000a7 utf8 script_target.c",
+    ".strtab::000000b7 utf8 unused_message",
+    ".strtab::000000c6 utf8 __FRAME_END__",
+    ".strtab::000000d4 utf8 _DYNAMIC",
+    ".strtab::000000dd utf8 __GNU_EH_FRAME_HDR",
+    ".strtab::000000f0 utf8 _GLOBAL_OFFSET_TABLE_",
+    ".strtab::00000106 utf8 sha256_iv",
+    ".strtab::00000110 utf8 decrypt",
+    ".strtab::00000118 utf8 __libc_start_main@GLIBC_2.34",
+    ".strtab::00000135 utf8 _ITM_deregisterTMCloneTable",
+    ".strtab::00000151 utf8 log_user",
+    ".strtab::0000015a utf8 _edata",
+    ".strtab::00000161 utf8 _fini",
+    ".strtab::00000167 utf8 strlen@GLIBC_2.2.5",
+    ".strtab::0000017a utf8 mix",
+    ".strtab::0000017e utf8 __data_start",
+    ".strtab::0000018b utf8 aes_sbox",
+    ".strtab::00000194 utf8 __gmon_start__",
+    ".strtab::000001a3 utf8 __dso_handle",
+    ".strtab::000001b0 utf8 _IO_stdin_used",
+    ".strtab::000001bf utf8 secret",
+    ".strtab::000001c6 utf8 log_safe",
+    ".strtab::000001cf utf8 _end",
+    ".strtab::000001d4 utf8 __bss_start",
+    ".strtab::000001e0 utf8 raw_getpid",
+    ".strtab::000001eb utf8 main",
+    ".strtab::000001f0 utf8 __printf_chk@GLIBC_2.3.4",
+    ".strtab::00000209 utf8 parse_config",
+    ".strtab::00000216 utf8 open_database",
+    ".strtab::00000224 utf8 fwrite@GLIBC_2.2.5",
+    ".strtab::00000237 utf8 __TMC_END__",
+    ".strtab::00000243 utf8 _ITM_registerTMCloneTable",
+    ".strtab::0000025d utf8 __cxa_finalize@GLIBC_2.2.5",
+    ".strtab::00000278 utf8 _init",
+    ".strtab::0000027e utf8 stderr@GLIBC_2.2.5",
+    ".symtab::00000000 Elf64_Sym[50] None",
+    "_elfSectionHeaders::00000000 Elf64_Shdr[31] None",
+    ""
+   ],
+   "status": "ok"
+  },
+  "IterateFunctionsByAddressScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "0  :  _init @ 00101000",
+    "1  :  FUN_00101020 @ 00101020",
+    "2  :  __cxa_finalize @ 00101060",
+    "3  :  strlen @ 00101070",
+    "4  :  __printf_chk @ 00101080",
+    "5  :  fwrite @ 00101090",
+    "6  :  _start @ 001010a0",
+    "7  :  deregister_tm_clones @ 001010d0",
+    "8  :  register_tm_clones @ 00101100",
+    "9  :  __do_global_dtors_aux @ 00101140",
+    "10  :  frame_dummy @ 00101180",
+    "11  :  decrypt @ 00101189",
+    "12  :  parse_config @ 001011a7",
+    "13  :  open_database @ 001011e2",
+    "14  :  log_user @ 0010121c",
+    "15  :  log_safe @ 0010123b",
+    "16  :  raw_getpid @ 00101261",
+    "17  :  mix @ 0010126d",
+    "18  :  main @ 00101295",
+    "19  :  _fini @ 00101300",
+    "20  :  __libc_start_main @ 00105000",
+    "21  :  _ITM_deregisterTMCloneTable @ 00105008",
+    "22  :  strlen @ 00105010",
+    "23  :  __gmon_start__ @ 00105018",
+    "24  :  __printf_chk @ 00105020",
+    "25  :  fwrite @ 00105028",
+    "26  :  _ITM_registerTMCloneTable @ 00105030",
+    "27  :  __cxa_finalize @ 00105038",
+    "found 28 functions ",
+    ""
+   ],
+   "status": "ok"
+  },
+  "IterateFunctionsScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "0  :  _init @ 00101000",
+    "1  :  FUN_00101020 @ 00101020",
+    "2  :  __cxa_finalize @ 00101060",
+    "3  :  strlen @ 00101070",
+    "4  :  __printf_chk @ 00101080",
+    "5  :  fwrite @ 00101090",
+    "6  :  _start @ 001010a0",
+    "7  :  deregister_tm_clones @ 001010d0",
+    "8  :  register_tm_clones @ 00101100",
+    "9  :  __do_global_dtors_aux @ 00101140",
+    "10  :  frame_dummy @ 00101180",
+    "11  :  decrypt @ 00101189",
+    "12  :  parse_config @ 001011a7",
+    "13  :  open_database @ 001011e2",
+    "14  :  log_user @ 0010121c",
+    "15  :  log_safe @ 0010123b",
+    "16  :  raw_getpid @ 00101261",
+    "17  :  mix @ 0010126d",
+    "18  :  main @ 00101295",
+    "19  :  _fini @ 00101300",
+    "20  :  __libc_start_main @ 00105000",
+    "21  :  _ITM_deregisterTMCloneTable @ 00105008",
+    "22  :  strlen @ 00105010",
+    "23  :  __gmon_start__ @ 00105018",
+    "24  :  __printf_chk @ 00105020",
+    "25  :  fwrite @ 00105028",
+    "26  :  _ITM_registerTMCloneTable @ 00105030",
+    "27  :  __cxa_finalize @ 00105038",
+    "found forward = 28",
+    ""
+   ],
+   "status": "ok"
+  },
+  "IterateInstructionsScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "00101000 ENDBR64 ",
+    "00101004 SUB RSP 0x8 ",
+    "00101008 MOV RAX qword ptr [0x00103fe8] ",
+    "0010100f TEST RAX RAX ",
+    "00101012 JZ 0x00101016 ",
+    "00101014 CALL RAX ",
+    "00101016 ADD RSP 0x8 ",
+    "0010101a RET ",
+    "00101020 PUSH qword ptr [0x00103fb0] ",
+    "00101026 JMP qword ptr [0x00103fb8] ",
+    "00101030 ENDBR64 ",
+    "00101034 PUSH 0x0 ",
+    "00101039 JMP 0x00101020 ",
+    "0010103e NOP ",
+    "00101040 ENDBR64 ",
+    "00101044 PUSH 0x1 ",
+    "00101049 JMP 0x00101020 ",
+    "0010104e NOP ",
+    "00101050 ENDBR64 ",
+    "00101054 PUSH 0x2 ",
+    "00101059 JMP 0x00101020 ",
+    "0010105e NOP ",
+    "00101060 ENDBR64 ",
+    "00101064 JMP qword ptr [0x00103ff8] ",
+    "00101070 ENDBR64 ",
+    "00101074 JMP qword ptr [0x00103fc0] ",
+    "00101080 ENDBR64 ",
+    "00101084 JMP qword ptr [0x00103fc8] ",
+    "00101090 ENDBR64 ",
+    "00101094 JMP qword ptr [0x00103fd0] ",
+    "001010a0 ENDBR64 ",
+    "001010a4 XOR EBP EBP ",
+    "001010a6 MOV R9 RDX ",
+    "001010a9 POP RSI ",
+    "001010aa MOV RDX RSP ",
+    "001010ad AND RSP -0x10 ",
+    "001010b1 PUSH RAX ",
+    "001010b2 PUSH RSP ",
+    "001010b3 XOR R8D R8D ",
+    "001010b6 XOR ECX ECX ",
+    "001010b8 LEA RDI [0x101295] ",
+    "001010bf CALL qword ptr [0x00103fd8] ",
+    "001010c5 HLT ",
+    "001010d0 LEA RDI [0x104020] ",
+    "001010d7 LEA RAX [0x104020] ",
+    "001010de CMP RAX RDI ",
+    "001010e1 JZ 0x001010f8 ",
+    "001010e3 MOV RAX qword ptr [0x00103fe0] ",
+    "001010ea TEST RAX RAX ",
+    "001010ed JZ 0x001010f8 ",
+    "001010ef JMP RAX ",
+    "001010f8 RET ",
+    "00101100 LEA RDI [0x104020] ",
+    "00101107 LEA RSI [0x104020] ",
+    "0010110e SUB RSI RDI ",
+    "00101111 MOV RAX RSI ",
+    "00101114 SHR RSI 0x3f ",
+    "00101118 SAR RAX 0x3 ",
+    "0010111c ADD RSI RAX ",
+    "0010111f SAR RSI 0x1 ",
+    "00101122 JZ 0x00101138 ",
+    "00101124 MOV RAX qword ptr [0x00103ff0] ",
+    "0010112b TEST RAX RAX ",
+    "0010112e JZ 0x00101138 ",
+    "00101130 JMP RAX ",
+    "00101138 RET ",
+    "00101140 ENDBR64 ",
+    "00101144 CMP byte ptr [0x00104028] 0x0 ",
+    "0010114b JNZ 0x00101178 ",
+    "0010114d PUSH RBP ",
+    "0010114e CMP qword ptr [0x00103ff8] 0x0 ",
+    "00101156 MOV RBP RSP ",
+    "00101159 JZ 0x00101167 ",
+    "0010115b MOV RDI qword ptr [0x00104008] ",
+    "00101162 CALL 0x00101060 ",
+    "00101167 CALL 0x001010d0 ",
+    "0010116c MOV byte ptr [0x00104028] 0x1 ",
+    "00101173 POP RBP ",
+    "00101174 RET ",
+    "00101178 RET ",
+    "00101180 ENDBR64 ",
+    "00101184 JMP 0x00101100 ",
+    "00101189 ENDBR64 ",
+    "0010118d TEST ESI ESI ",
+    "0010118f JLE 0x001011a6 ",
+    "00101191 MOV RAX RDI ",
+    "00101194 MOVSXD RSI ESI ",
+    "00101197 ADD RDI RSI ",
+    "0010119a XOR byte ptr [RAX] 0x5a ",
+    "0010119d ADD RAX 0x1 ",
+    "001011a1 CMP RAX RDI ",
+    "001011a4 JNZ 0x0010119a ",
+    "001011a6 RET ",
+    "001011a7 ENDBR64 ",
+    "001011ab SUB RSP 0x8 ",
+    "001011af TEST RDI RDI ",
+    "001011b2 JZ 0x001011be ",
+    "001011b4 CALL 0x00101070 ",
+    "001011b9 ADD RSP 0x8 ",
+    "001011bd RET ",
+    "001011be MOV RCX qword ptr [0x00104020] ",
+    "001011c5 MOV EDX 0x1c ",
+    "001011ca MOV ESI 0x1 ",
+    "001011cf LEA RDI [0x102004] ",
+    "001011d6 CALL 0x00101090 ",
+    "001011db MOV EAX 0xffffffff ",
+    "001011e0 JMP 0x001011b9 ",
+    "001011e2 ENDBR64 ",
+    "001011e6 MOVZX EAX byte ptr [RDI] ",
+    "001011e9 TEST AL AL ",
+    "001011eb JZ 0x001011f1 ",
+    "001011ed MOVSX EAX AL ",
+    "001011f0 RET ",
+    "001011f1 SUB RSP 0x8 ",
+    "001011f5 MOV RCX qword ptr [0x00104020] ",
+    "001011fc MOV EDX 0x1a ",
+    "00101201 MOV ESI 0x1 ",
+    "00101206 LEA RDI [0x102021] ",
+    "0010120d CALL 0x00101090 ",
+    "00101212 MOV EAX 0xffffffff ",
+    "00101217 ADD RSP 0x8 ",
+    "0010121b RET ",
+    "0010121c ENDBR64 ",
+    "00101220 SUB RSP 0x8 ",
+    "00101224 MOV RSI RDI ",
+    "00101227 MOV EDI 0x2 ",
+    "0010122c MOV EAX 0x0 ",
+    "00101231 CALL 0x00101080 ",
+    "00101236 ADD RSP 0x8 ",
+    "0010123a RET ",
+    "0010123b ENDBR64 ",
+    "0010123f SUB RSP 0x8 ",
+    "00101243 MOV RDX RDI ",
+    "00101246 LEA RSI [0x10203c] ",
+    "0010124d MOV EDI 0x2 ",
+    "00101252 MOV EAX 0x0 ",
+    "00101257 CALL 0x00101080 ",
+    "0010125c ADD RSP 0x8 ",
+    "00101260 RET ",
+    "00101261 ENDBR64 ",
+    "00101265 MOV EAX 0x27 ",
+    "0010126a SYSCALL ",
+    "0010126c RET ",
+    "0010126d ENDBR64 ",
+    "00101271 MOV EDX EDI ",
+    "00101273 AND EDX 0x7 ",
+    "00101276 LEA RAX [0x1020a0] ",
+    "0010127d MOV ECX EDI ",
+    "0010127f XOR ECX dword ptr [RAX + RDX*0x4] ",
+    "00101282 MOV EAX ECX ",
+    "00101284 AND EDI 0x1f ",
+    "00101287 LEA RDX [0x102080] ",
+    "0010128e MOVZX EDX byte ptr [RDX + RDI*0x1] ",
+    "00101292 XOR EAX EDX ",
+    "00101294 RET ",
+    "00101295 ENDBR64 ",
+    "00101299 PUSH R12 ",
+    "0010129b PUSH RBP ",
+    "0010129c PUSH RBX ",
+    "0010129d MOV R12D EDI ",
+    "001012a0 MOV RBP RSI ",
+    "001012a3 MOV ESI 0xc ",
+    "001012a8 LEA RBX [0x104010] ",
+    "001012af MOV RDI RBX ",
+    "001012b2 CALL 0x00101189 ",
+    "001012b7 MOV RDI qword ptr [RBP] ",
+    "001012bb CALL 0x0010121c ",
+    "001012c0 MOV RDI RBX ",
+    "001012c3 CALL 0x0010123b ",
+    "001012c8 MOV EDI 0x0 ",
+    "001012cd CMP R12D 0x1 ",
+    "001012d1 JLE 0x001012d7 ",
+    "001012d3 MOV RDI qword ptr [RBP + 0x8] ",
+    "001012d7 CALL 0x001011a7 ",
+    "001012dc MOV EBX EAX ",
+    "001012de MOV RDI qword ptr [RBP] ",
+    "001012e2 CALL 0x001011e2 ",
+    "001012e7 ADD EBX EAX ",
+    "001012e9 CALL 0x00101261 ",
+    "001012ee ADD EBX EAX ",
+    "001012f0 MOV EDI R12D ",
+    "001012f3 CALL 0x0010126d ",
+    "001012f8 ADD EAX EBX ",
+    "001012fa POP RBX ",
+    "001012fb POP RBP ",
+    "001012fc POP R12 ",
+    "001012fe RET ",
+    "00101300 ENDBR64 ",
+    "00101304 SUB RSP 0x8 ",
+    "00101308 ADD RSP 0x8 ",
+    "0010130c RET ",
+    ""
+   ],
+   "status": "ok"
+  },
+  "Lab4Script": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "0. script_target",
+    "1. script_target",
+    ""
+   ],
+   "status": "ok"
+  },
+  "Lab5Script": {
+   "bytes": {},
+   "changes": {
+    "comments": {
+     "0x101004/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x101016/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x1010ad/eol": [
+      null,
+      "[RSP]=[fffffffffffffff0]"
+     ],
+     "0x1010b8/eol": [
+      null,
+      "[RDI]=[101295]"
+     ],
+     "0x1010d0/eol": [
+      null,
+      "[RDI]=[104020]"
+     ],
+     "0x1010d7/eol": [
+      null,
+      "[RAX]=[104020]"
+     ],
+     "0x101100/eol": [
+      null,
+      "[RDI]=[104020]"
+     ],
+     "0x101107/eol": [
+      null,
+      "[RSI]=[104020]"
+     ],
+     "0x101114/eol": [
+      null,
+      "[RSI]=[3f]"
+     ],
+     "0x101118/eol": [
+      null,
+      "[RAX]=[3]"
+     ],
+     "0x10111f/eol": [
+      null,
+      "[RSI]=[1]"
+     ],
+     "0x10119a/eol": [
+      null,
+      "[RAX]=[5a]"
+     ],
+     "0x10119d/eol": [
+      null,
+      "[RAX]=[1]"
+     ],
+     "0x1011ab/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x1011b9/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x1011c5/eol": [
+      null,
+      "[EDX]=[1c]"
+     ],
+     "0x1011ca/eol": [
+      null,
+      "[ESI]=[1]"
+     ],
+     "0x1011cf/eol": [
+      null,
+      "[RDI]=[102004]"
+     ],
+     "0x1011db/eol": [
+      null,
+      "[EAX]=[ffffffff]"
+     ],
+     "0x1011f1/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x1011fc/eol": [
+      null,
+      "[EDX]=[1a]"
+     ],
+     "0x101201/eol": [
+      null,
+      "[ESI]=[1]"
+     ],
+     "0x101206/eol": [
+      null,
+      "[RDI]=[102021]"
+     ],
+     "0x101212/eol": [
+      null,
+      "[EAX]=[ffffffff]"
+     ],
+     "0x101217/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x101220/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x101227/eol": [
+      null,
+      "[EDI]=[2]"
+     ],
+     "0x10122c/eol": [
+      null,
+      "[EAX]=[0]"
+     ],
+     "0x101236/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x10123f/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x101246/eol": [
+      null,
+      "[RSI]=[10203c]"
+     ],
+     "0x10124d/eol": [
+      null,
+      "[EDI]=[2]"
+     ],
+     "0x101252/eol": [
+      null,
+      "[EAX]=[0]"
+     ],
+     "0x10125c/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x101265/eol": [
+      null,
+      "[EAX]=[27]"
+     ],
+     "0x101273/eol": [
+      null,
+      "[EDX]=[7]"
+     ],
+     "0x101276/eol": [
+      null,
+      "[RAX]=[1020a0]"
+     ],
+     "0x101284/eol": [
+      null,
+      "[EDI]=[1f]"
+     ],
+     "0x101287/eol": [
+      null,
+      "[RDX]=[102080]"
+     ],
+     "0x1012a3/eol": [
+      null,
+      "[ESI]=[c]"
+     ],
+     "0x1012a8/eol": [
+      null,
+      "[RBX]=[104010]"
+     ],
+     "0x1012c8/eol": [
+      null,
+      "[EDI]=[0]"
+     ],
+     "0x1012cd/eol": [
+      null,
+      "[R12D]=[1]"
+     ],
+     "0x101304/eol": [
+      null,
+      "[RSP]=[8]"
+     ],
+     "0x101308/eol": [
+      null,
+      "[RSP]=[8]"
+     ]
+    },
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    ""
+   ],
+   "status": "ok"
+  },
+  "LocateMemoryAddressesForFileOffset": {
+   "bytes": {},
+   "changes": {
+    "comments": {
+     "0x102004/eol": [
+      null,
+      "LocateMemoryAddressesForFileOffset.py: File offset: 0x2004, Memory block:address .rodata:00102004"
+     ]
+    },
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "File offset 0x2004 is associated with memory block:address .rodata:00102004",
+    ""
+   ],
+   "status": "ok"
+  },
+  "MakeFunctionsScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {
+     "0x101030": [
+      null,
+      "FUN_00101030"
+     ],
+     "0x101040": [
+      null,
+      "FUN_00101040"
+     ],
+     "0x101050": [
+      null,
+      "FUN_00101050"
+     ]
+    },
+    "names": {
+     "0x101030": [
+      null,
+      "FUN_00101030"
+     ],
+     "0x101040": [
+      null,
+      "FUN_00101040"
+     ],
+     "0x101050": [
+      null,
+      "FUN_00101050"
+     ]
+    }
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "Searching for f3 0f 1e fa . . .",
+    "Function already exists at address: 00101000",
+    "Made function at address: 00101030",
+    "Made function at address: 00101040",
+    "Made function at address: 00101050",
+    "Function already exists at address: 00101060",
+    "Function already exists at address: 00101070",
+    "Function already exists at address: 00101080",
+    "Function already exists at address: 00101090",
+    "Function already exists at address: 001010a0",
+    "Function already exists at address: 00101140",
+    "Function already exists at address: 00101180",
+    "Function already exists at address: 00101189",
+    "Function already exists at address: 001011a7",
+    "Function already exists at address: 001011e2",
+    "Function already exists at address: 0010121c",
+    "Function already exists at address: 0010123b",
+    "Function already exists at address: 00101261",
+    "Function already exists at address: 0010126d",
+    "Function already exists at address: 00101295",
+    "Function already exists at address: 00101300",
+    ""
+   ],
+   "status": "ok"
+  },
+  "PrintFunctionCallTreesScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "",
+    "",
+    "Outgoing Function Call: decrypt @ 00101189",
+    "Outgoing Function Call: parse_config @ 001011a7",
+    "Outgoing Function Call: open_database @ 001011e2",
+    "Outgoing Function Call: log_user @ 0010121c",
+    "Outgoing Function Call: log_safe @ 0010123b",
+    "Outgoing Function Call: raw_getpid @ 00101261",
+    "Outgoing Function Call: mix @ 0010126d",
+    ""
+   ],
+   "status": "ok"
+  },
+  "PyGhidraBasics": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "linked list object class: <java class 'java.util.LinkedList'>",
+    "max references to a flat program api: 4096",
+    "first element of the list: 1",
+    "first two elements of the list: [1, 2]",
+    "list comprehension result: [2, 4, 6]",
+    "current program name: script_target",
+    "current program memory blocks:",
+    "",
+    "segment_2.1",
+    ".interp",
+    ".note.gnu.property",
+    ".note.gnu.build-id",
+    ".note.ABI-tag",
+    ".gnu.hash",
+    ".dynsym",
+    ".dynstr",
+    ".gnu.version",
+    ".gnu.version_r",
+    ".rela.dyn",
+    ".rela.plt",
+    ".init",
+    ".plt",
+    ".plt.got",
+    ".plt.sec",
+    ".text",
+    ".fini",
+    ".rodata",
+    ".eh_frame_hdr",
+    ".eh_frame",
+    ".init_array",
+    ".fini_array",
+    ".dynamic",
+    ".got",
+    ".data",
+    ".bss",
+    "EXTERNAL",
+    ".comment",
+    ".shstrtab",
+    ".strtab",
+    ".symtab",
+    "_elfSectionHeaders",
+    "array class: <java class 'byte[]'>",
+    "array length: 10",
+    "first 10 bytes of .text: ['0xf3', '0xf', '0x1e', '0xfa', '0x31', '0xed', '0x49', '0x89', '0xd1', '0x5e']",
+    ""
+   ],
+   "status": "ok"
+  },
+  "RecursiveStringFinder": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "Processing None -> 00101295",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "Processing 001012b2 -> 00101189",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "Processing 001012bb -> 0010121c",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "Processing 00101231 -> 00101080",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "Processing 001012c3 -> 0010123b",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "Processing 00101257 -> 00101080",
+    "Processing 001012d7 -> 001011a7",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "Processing 001011b4 -> 00101070",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "Processing 001011d6 -> 00101090",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "Processing 001012e2 -> 001011e2",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "Processing 0010120d -> 00101090",
+    "Processing 001012e9 -> 00101261",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "Processing 001012f3 -> 0010126d",
+    "<java class 'ghidra.program.model.address.AddressSet.MyAddressIterator'>",
+    "main()",
+    "   @001012c3 - log_safe()",
+    "      @00101246 - ds \"[%s]\\n\"",
+    "   @001012d7 - parse_config()",
+    "      @001011cf - ds \"parse_config: missing value\\n\"",
+    "   @001012e2 - open_database()",
+    "      @00101206 - ds \"open_database: empty path\\n\"",
+    "",
+    "Done!",
+    ""
+   ],
+   "status": "ok"
+  },
+  "RemoveSymbolQuotesScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {
+     "0x1020a0": [
+      "`sha256'iv",
+      "sha256iv"
+     ]
+    }
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    ""
+   ],
+   "status": "ok"
+  },
+  "ReportPercentDisassembled": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [
+    "INFO REPORT DISASSEMBLY EXTENT: script_target: 90.32258064516128% disassembled."
+   ],
+   "output": [
+    ""
+   ],
+   "status": "ok"
+  },
+  "SelectFunctionsScript": {
+   "bytes": {},
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    "Function Entry: 00101000",
+    "Function Entry: 00101020",
+    "Function Entry: 00101030",
+    "Function Entry: 00101040",
+    "Function Entry: 00101050",
+    "Function Entry: 00101060",
+    "Function Entry: 00101070",
+    "Function Entry: 00101080",
+    "Function Entry: 00101090",
+    "Function Entry: 001010a0",
+    "Function Entry: 001010d0",
+    "Function Entry: 00101100",
+    "Function Entry: 00101140",
+    "Function Entry: 00101180",
+    "Function Entry: 00101189",
+    "Function Entry: 001011a7",
+    "Function Entry: 001011e2",
+    "Function Entry: 0010121c",
+    "Function Entry: 0010123b",
+    "Function Entry: 00101261",
+    "Function Entry: 0010126d",
+    "Function Entry: 00101295",
+    "Function Entry: 00101300",
+    "Function Entry: 00105000",
+    "Function Entry: 00105008",
+    "Function Entry: 00105010",
+    "Function Entry: 00105018",
+    "Function Entry: 00105020",
+    "Function Entry: 00105028",
+    "Function Entry: 00105030",
+    "Function Entry: 00105038",
+    "Function Count: 31",
+    ""
+   ],
+   "status": "ok"
+  },
+  "XorMemoryScript": {
+   "bytes": {
+    "secret": "68656c6c6f20736563726574"
+   },
+   "changes": {
+    "comments": {},
+    "functions": {},
+    "names": {}
+   },
+   "error": "",
+   "file": null,
+   "messages": [],
+   "output": [
+    ""
+   ],
+   "status": "ok"
+  }
+ },
+ "program": "fixture"
+}

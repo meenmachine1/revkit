@@ -1,0 +1,177 @@
+// Change notification. Clients cache query results keyed by request and
+// revision; a subscription tells them which cached results a new revision
+// invalidates, so they refetch only what changed.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "revkit/v1/analysis.proto";
+import "revkit/v1/assertion.proto";
+import "revkit/v1/common.proto";
+import "revkit/v1/listing.proto";
+import "revkit/v1/presence.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// Revision change notifications for cache invalidation.
+service SubscriptionService {
+  // Streams one event per committed revision, in revision order, without
+  // gaps, starting after from_revision. The stream stays open until the
+  // client cancels, the project closes (CANCELLED) or the server shuts down
+  // (UNAVAILABLE). Heartbeats are sent every heartbeat_seconds so clients
+  // and proxies can detect dead connections.
+  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
+}
+
+message SubscribeRequest {
+  // Project to watch; every program in it.
+  string project_id = 1;
+  // Only report invalidations for these programs (empty = all).
+  repeated string program_ids = 2;
+  // Resume point: the last revision the client has fully applied. The
+  // stream replays every later revision. 0 means "from now": the first
+  // event is a Hello with the current head and no replay.
+  // If the server no longer retains from_revision's change log, the stream
+  // starts with a Hello whose resync_required is true.
+  uint64 from_revision = 3;
+  // Include the full assertion entries in each RevisionEvent (otherwise
+  // only their seqs).
+  bool include_assertions = 4;
+  // Seconds between heartbeats; 0 = server default (15), min 1.
+  uint32 heartbeat_seconds = 5;
+  // Also stream presence: who is viewing which program where (feature
+  // "presence"). The stream starts with every current entry.
+  bool include_presence = 6;
+}
+
+message SubscribeResponse {
+  oneof event {
+    Hello hello = 1;
+    RevisionEvent revision = 2;
+    Heartbeat heartbeat = 3;
+    AnalysisProgress analysis = 4;
+    // Only with include_presence: an entry that appeared, moved or left.
+    Presence presence = 5;
+  }
+}
+
+// First event on every stream.
+message Hello {
+  uint64 head_revision = 1;
+  // The client's caches cannot be brought up to date incrementally: drop
+  // everything and re-read at head_revision.
+  bool resync_required = 2;
+}
+
+message Heartbeat {
+  uint64 head_revision = 1;
+}
+
+// What caused a revision.
+enum ChangeCause {
+  CHANGE_CAUSE_UNSPECIFIED = 0;
+  CHANGE_CAUSE_ASSERTION = 1;
+  CHANGE_CAUSE_RETRACTION = 2;
+  CHANGE_CAUSE_IMPORT = 3;
+  CHANGE_CAUSE_ANALYSIS = 4;
+  // Entries from another daemon sharing the project (docs/collab.md).
+  CHANGE_CAUSE_REPLICATION = 5;
+}
+
+// Derived results a revision may have changed. Clients map these onto their
+// cached queries; the mapping for each RPC is in docs/api.md.
+enum QueryKind {
+  QUERY_KIND_UNSPECIFIED = 0;
+  // ProgramSummary, ListPrograms.
+  QUERY_KIND_PROGRAM = 1;
+  // GetMemoryMap, ReadMemory.
+  QUERY_KIND_MEMORY = 2;
+  // ListFunctions: the set of functions or any function's listed fields.
+  QUERY_KIND_FUNCTION_LIST = 3;
+  // GetFunction for the function at `address` (entry).
+  QUERY_KIND_FUNCTION = 4;
+  // GetListing rows overlapping `range`. Where code or data were (un)defined,
+  // `rows` and `previous_rows` give the row windows the range covers; rows
+  // after it shift by the difference. A change whose rows the server can't
+  // tell leaves range unset: the whole program, numbering included.
+  QUERY_KIND_LISTING = 5;
+  // GetInstruction at addresses in `range`.
+  QUERY_KIND_INSTRUCTION = 6;
+  // GetXrefs touching `range`.
+  QUERY_KIND_XREFS = 7;
+  // Decompile of the function whose entry is `address`.
+  QUERY_KIND_DECOMPILE = 8;
+  // FindTypes (GetTypes is immutable by hash and never invalidated).
+  QUERY_KIND_TYPES = 9;
+  // ListAssertions, GetHistory and Blame for the changed fact keys.
+  QUERY_KIND_ASSERTIONS = 10;
+  // GetPluginFacts over `range` (unset: the whole program): what analyzer
+  // plugins read (names, functions, memory) changed. Sent only by daemons
+  // with analyzer plugins loaded (api_minor 11, feature
+  // "plugin-facts-invalidation").
+  QUERY_KIND_PLUGIN_FACTS = 11;
+  // DiffService reads of the session `diff_session_id` (ListMatches,
+  // ListUnmatched, GetFunctionDiff, ListDiffSessions): either program's
+  // functions or names changed, or the session's Match assertions or its
+  // record. Sent once for each of the session's programs (program_id).
+  // Added in api_minor 16 (feature "diff").
+  QUERY_KIND_DIFF_SESSION = 12;
+  // PatchService.ListPatches and GetExportSettings: a patch or the export
+  // settings changed (api_minor 27, feature "patch").
+  QUERY_KIND_PATCHES = 40;
+  // ListPrograms' folders and the programs' places in them: a folder was
+  // created, renamed, moved or deleted, or a program moved (api_minor 37,
+  // feature "project-folders"). program_id is empty for a folder, the
+  // program's for a move.
+  QUERY_KIND_PROJECT_TREE = 41;
+}
+
+message InvalidatedQuery {
+  string program_id = 1;
+  QueryKind kind = 2;
+  // Point invalidations (FUNCTION, DECOMPILE).
+  Address address = 3;
+  // Range invalidations (LISTING, INSTRUCTION, XREFS). Unset means the whole
+  // program for that kind.
+  AddressRange range = 4;
+  // LISTING ranges whose rows were rebuilt (code or data defined there): the
+  // rows the range covers at this revision and at previous_revision. Rows
+  // before it keep their numbers; rows after it move by
+  // rows.row_count - previous_rows.row_count. Unset when numbering didn't
+  // change.
+  RowWindow rows = 5;
+  RowWindow previous_rows = 6;
+  // The same for clients reading GetListing with header_rows: the windows
+  // in that numbering, set wherever it changed in `range` (code or data
+  // (un)defined, or header lines came or went: a label, a plate or
+  // pre-comment, a function entry). Such clients use these, not `rows`.
+  // Sent once some client has read the program's listing with header rows.
+  RowWindow header_rows = 7;
+  RowWindow previous_header_rows = 8;
+  // DIFF_SESSION: the session.
+  string diff_session_id = 9;
+}
+
+message RevisionEvent {
+  uint64 revision = 1;
+  // Always revision - 1 within one project; included so clients can assert
+  // there was no gap.
+  uint64 previous_revision = 2;
+  ChangeCause cause = 3;
+  // Provenance of the commit (the batch's provenance).
+  Provenance provenance = 4;
+  // Seqs appended by this revision.
+  repeated uint64 assertion_seqs = 5;
+  // Full entries when SubscribeRequest.include_assertions.
+  repeated Assertion assertions = 6;
+  // Assertion-level keys whose effective value changed.
+  repeated FactKey changed_keys = 7;
+  // Derived queries whose results may differ from previous_revision.
+  // Conservative: may over-invalidate, never under-invalidates.
+  repeated InvalidatedQuery invalidated = 8;
+  // Too many to list: treat every cached result of these programs as stale.
+  repeated string invalidate_all_programs = 9;
+}

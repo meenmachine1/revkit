@@ -1,0 +1,150 @@
+<xml_savefile name="FUN_000001b8" target="default" adjustvma="0">
+<binaryimage arch="ARM:LE:32:v4t:default">
+<bytechunk space="ram" offset="0x1b8" readonly="true">
+                08109fe5001091e5
+000081e51eff2fe1c0030000
+</bytechunk>
+<bytechunk space="ram" offset="0x3c0" readonly="true">
+ffffffff
+</bytechunk>
+</binaryimage>
+
+<coretypes>
+  <type name="uint3" size="3" metatype="uint" id="0xc0000000000000c0"/>
+  <type name="uint5" size="5" metatype="uint" id="0xc0000000000000c1"/>
+  <type name="code" size="1" metatype="code" id="0xe000000000000001"/>
+  <type name="uint6" size="6" metatype="uint" id="0xc0000000000000c2"/>
+  <type name="double" size="8" metatype="float" id="0xc000000000000082"/>
+  <type name="uint7" size="7" metatype="uint" id="0xc0000000000000c3"/>
+  <type name="uint" size="4" metatype="uint" id="0xc0000000000000c4"/>
+  <type name="float10" size="10" metatype="float" id="0xc000000000000084"/>
+  <type name="float16" size="16" metatype="float" id="0xc000000000000085"/>
+  <type name="float2" size="2" metatype="float" id="0xc000000000000086"/>
+  <type name="ulonglong" size="8" metatype="uint" id="0xc0000000000000c7"/>
+  <type name="ushort" size="2" metatype="uint" id="0xc0000000000000c8"/>
+  <type name="void" size="0" metatype="void" id="0xc0000000000000c9"/>
+  <type name="float" size="4" metatype="float" id="0xc00000000000008a"/>
+  <type name="wchar16" size="2" metatype="int" utf="true" id="0xc0000000000000cb"/>
+  <type name="wchar_t" size="4" metatype="int" utf="true" id="0xc0000000000000cd"/>
+  <type name="int16" size="16" metatype="int" id="0xc000000000000090"/>
+  <type name="int3" size="3" metatype="int" id="0xc000000000000091"/>
+  <type name="int5" size="5" metatype="int" id="0xc000000000000092"/>
+  <type name="int6" size="6" metatype="int" id="0xc000000000000093"/>
+  <type name="int7" size="7" metatype="int" id="0xc000000000000094"/>
+  <type name="int" size="4" metatype="int" id="0xc000000000000095"/>
+  <type name="longlong" size="8" metatype="int" id="0xc00000000000009a"/>
+  <type name="short" size="2" metatype="int" id="0xc0000000000000a8"/>
+  <type name="sbyte" size="1" metatype="int" id="0xc0000000000000a9"/>
+  <type name="undefined1" size="1" metatype="unknown" id="0xc0000000000000b4"/>
+  <type name="undefined2" size="2" metatype="unknown" id="0xc0000000000000b5"/>
+  <type name="undefined3" size="3" metatype="unknown" id="0xc0000000000000b6"/>
+  <type name="undefined4" size="4" metatype="unknown" id="0xc0000000000000b7"/>
+  <type name="undefined5" size="5" metatype="unknown" id="0xc0000000000000b8"/>
+  <type name="undefined6" size="6" metatype="unknown" id="0xc0000000000000b9"/>
+  <type name="bool" size="1" metatype="bool" id="0xc000000000000079"/>
+  <type name="undefined7" size="7" metatype="unknown" id="0xc0000000000000ba"/>
+  <type name="byte" size="1" metatype="uint" id="0xc00000000000007a"/>
+  <type name="undefined8" size="8" metatype="unknown" id="0xc0000000000000bb"/>
+  <type name="char" size="1" metatype="int" char="true" id="0xc00000000000007b"/>
+  <type name="uint16" size="16" metatype="uint" id="0xc0000000000000bf"/>
+</coretypes><save_state>
+
+<typegrp structalign="4"/><db scopeidbyname="false">
+<scope name="" id="0x0">
+<symbollist>
+
+<mapsym>
+  <function id="0x11" name="FUN_000001b8" size="1">
+    <addr space="ram" offset="0x1b8"/>
+    <localdb lock="false" main="stack">
+      <scope name="FUN_000001b8">
+        <parent id="0x0"/>
+        <rangelist/>
+        <symbollist/>
+      </scope>
+    </localdb>
+    <prototype extrapop="0" model="unknown">
+      <returnsym>
+        <addr/>
+        <void/>
+      </returnsym>
+    </prototype>
+  </function>
+  <addr space="ram" offset="0x1b8" size="1"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="DAT_000001c8" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <typeref name="undefined4" id="0xc0000000000000b7"/>
+  </symbol>
+  <addr space="ram" offset="0x1c8" size="4"/>
+  <rangelist/>
+</mapsym>
+<mapsym>
+  <symbol name="DAT_000003c0" typelock="true" namelock="true" readonly="true" merge="false" cat="-1">
+    <typeref name="undefined4" id="0xc0000000000000b7"/>
+  </symbol>
+  <addr space="ram" offset="0x3c0" size="4"/>
+  <rangelist/>
+</mapsym></symbollist>
+</scope>
+</db>
+<context_points>
+
+<context_pointset space="ram" offset="0x4c">
+  <set name="TMode" val="0"/>
+  <set name="T" val="0"/>
+  <set name="LowBitCodeMode" val="0"/>
+  <set name="ISA_MODE" val="0"/>
+  <set name="LRset" val="0"/>
+  <set name="REToverride" val="0"/>
+  <set name="CALLoverride" val="0"/>
+  <set name="counter" val="0"/>
+  <set name="regNum" val="0"/>
+  <set name="sdOv" val="0"/>
+  <set name="counter2" val="0"/>
+  <set name="reg2Num" val="0"/>
+  <set name="regInc" val="0"/>
+  <set name="ARMcond" val="0"/>
+  <set name="ARMcondCk" val="0"/>
+</context_pointset>
+<context_pointset space="ram" offset="0x27c">
+  <set name="TMode" val="0"/>
+  <set name="T" val="0"/>
+  <set name="LowBitCodeMode" val="0"/>
+  <set name="ISA_MODE" val="0"/>
+  <set name="LRset" val="1"/>
+  <set name="REToverride" val="0"/>
+  <set name="CALLoverride" val="0"/>
+  <set name="counter" val="0"/>
+  <set name="regNum" val="0"/>
+  <set name="sdOv" val="0"/>
+  <set name="counter2" val="0"/>
+  <set name="reg2Num" val="0"/>
+  <set name="regInc" val="0"/>
+  <set name="ARMcond" val="0"/>
+  <set name="ARMcondCk" val="0"/>
+</context_pointset>
+<tracked_pointset space="ram" offset="0x1b8">
+  <set space="register" offset="0x74" size="4" val="0x0"/>
+</tracked_pointset></context_points>
+
+<optionslist>
+  <readonly>on</readonly>
+  <setlanguage>c-language</setlanguage>
+  <protoeval>__stdcall</protoeval>
+</optionslist><injectdebug>
+
+<inject name="setISAMode" type="2">
+  <addr space="ram" offset="0x1c4"/>
+  <payload>
+&lt;inst offset=&quot;4&quot;&gt;
+  &lt;addr space=&quot;ram&quot; offset=&quot;0x1c4&quot;/&gt;
+  &lt;op code=&quot;COPY&quot; size=&quot;1&quot;&gt;
+    &lt;addr space=&quot;register&quot; offset=&quot;0x20&quot; size=&quot;4&quot;/&gt;
+    &lt;addr space=&quot;register&quot; offset=&quot;0x20&quot; size=&quot;4&quot;/&gt;
+  &lt;/op&gt;
+&lt;/inst&gt;</payload>
+</inject></injectdebug>
+</save_state>
+</xml_savefile>

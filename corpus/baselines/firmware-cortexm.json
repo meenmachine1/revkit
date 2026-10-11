@@ -1,0 +1,44 @@
+{
+ "arch": "cortexm",
+ "counts": {
+  "c_alpha": 1624,
+  "c_ast": 1375,
+  "c_both": 2736,
+  "c_flow": 2519,
+  "c_ghidra_only": 0,
+  "c_revkit_only": 0,
+  "c_shape": 1670,
+  "c_shape_dwarf": 1738,
+  "common": 2736,
+  "dwarf": 3811,
+  "dwarf_ghidra": 2737,
+  "dwarf_revkit": 3448,
+  "ghidra": 2749,
+  "insn_both": 150390,
+  "insn_ghidra": 151580,
+  "insn_revkit": 175389,
+  "revkit": 3487,
+  "truth_ghidra": 2745,
+  "truth_revkit": 3473
+ },
+ "images": [
+  "cortexm/fwkit-cortexm3-O2",
+  "cortexm/fwkit-cortexm4-Os",
+  "cortexm/uboot-stm32f429-discovery",
+  "cortexm/uboot-stm32f746-disco"
+ ],
+ "rates": {
+  "c_alpha": 0.593567,
+  "c_ast": 0.502558,
+  "c_flow": 0.920687,
+  "c_shape": 0.61038,
+  "c_shape_dwarf": 0.635234,
+  "dwarf_recall": 0.904749,
+  "ghidra_dwarf_recall": 0.718184,
+  "ghidra_truth_precision": 0.998545,
+  "listing_both": 0.992149,
+  "precision": 0.784629,
+  "recall": 0.995271,
+  "truth_precision": 0.995985
+ }
+}

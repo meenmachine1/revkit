@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Mon, 5 Oct 2026 17:31:58 -0400
+Subject: [PATCH] SLEIGH: expose the decision tree's constructor patterns
+
+A loaded .sla carries constructor patterns only in each subtable's
+decision tree (Constructor::decode leaves Constructor::pattern null), as
+(DisjointPattern, Constructor) pairs in DecisionNode::list. An assembler
+needs those pairs to know which instruction and context bits select each
+constructor; Ghidra's Java assembler walks the same tree
+(SleighLanguages.traverseConstructors).
+
+Add read-only accessors: SubtableSymbol::getDecisionNode and
+DecisionNode::getPairs and getChildren. No behaviour changes.
+
+Seen in: revkit's SLEIGH assembler (src/asm). Ghidra 12.1.4.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
+index 3903fbb..d69eac2 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
+@@ -580,6 +580,8 @@ public:
+   void orderPatterns(DecisionProperties &props);
+   void encode(Encoder &encoder) const;
+   void decode(Decoder &decoder,DecisionNode *par,SubtableSymbol *sub);
++  const vector<pair<DisjointPattern *,Constructor *> > &getPairs(void) const { return list; }	///< (pattern, constructor) pairs held here
++  const vector<DecisionNode *> &getChildren(void) const { return children; }	///< Sub-decisions
+ };
+ 
+ class SubtableSymbol : public TripleSymbol {
+@@ -599,6 +601,7 @@ public:
+   TokenPattern *getPattern(void) const { return pattern; }
+   int4 getNumConstructors(void) const { return construct.size(); }
+   Constructor *getConstructor(uintm id) const { return construct[id]; }
++  const DecisionNode *getDecisionNode(void) const { return decisiontree; }	///< Root of the decision tree
+   virtual Constructor *resolve(ParserWalker &walker) { return decisiontree->resolve(walker); }
+   virtual PatternExpression *getPatternExpression(void) const { throw SleighError("Cannot use subtable in expression"); }
+   virtual void getFixedHandle(FixedHandle &hand,ParserWalker &walker) const {

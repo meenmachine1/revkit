@@ -1,0 +1,600 @@
+{
+ "binaries": {
+  "elf-aarch64/clang-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/clang-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/clang-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/clang-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/clang-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/clang-O2/debug/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/clang-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.99858,
+   "c_ast": 0.99858,
+   "c_tokens": 0.99858
+  },
+  "elf-aarch64/clang-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/clang-O2/stripped/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/clang-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/gcc-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/gcc-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/gcc-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/gcc-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/gcc-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/gcc-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.980418,
+   "c_ast": 0.980418,
+   "c_tokens": 0.980418
+  },
+  "elf-aarch64/gcc-O2/debug/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/gcc-O2/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.9975,
+   "c_ast": 0.9975,
+   "c_tokens": 0.9975
+  },
+  "elf-aarch64/gcc-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/gcc-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/gcc-O2/stripped/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-aarch64/gcc-O2/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O2/debug/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 0.998527,
+   "c_ast": 0.998527,
+   "c_tokens": 0.998527
+  },
+  "elf-riscv64/clang-O2/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O2/stripped/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/clang-O2/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/gcc-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/gcc-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/gcc-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/gcc-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/gcc-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/gcc-O2/debug/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/gcc-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/gcc-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/gcc-O2/stripped/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-riscv64/gcc-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O0/debug/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O0/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O0/stripped/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O0/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O2/debug/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 0.999014,
+   "c_ast": 0.999014,
+   "c_tokens": 0.999014
+  },
+  "elf-x86_64/clang-O2/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.994326,
+   "c_ast": 0.994326,
+   "c_tokens": 0.994326
+  },
+  "elf-x86_64/clang-O2/stripped/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/clang-O2/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.997214,
+   "c_ast": 0.997214,
+   "c_tokens": 0.997214
+  },
+  "elf-x86_64/gcc-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O0/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O0/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O2/debug/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O2/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O2/stripped/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "elf-x86_64/gcc-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.998596,
+   "c_ast": 0.998596,
+   "c_tokens": 0.998596
+  },
+  "elf-x86_64/gcc-O2/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.994962,
+   "c_ast": 0.994962,
+   "c_tokens": 0.994962
+  },
+  "pe-x86_64/clang-O0/debug/bzip2.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O0/debug/mbedtls.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O0/debug/mujs.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O0/stripped/bzip2.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O0/stripped/mbedtls.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O0/stripped/mujs.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O2/debug/bzip2.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O2/debug/mujs.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O2/debug/sqlite.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.999531,
+   "c_ast": 0.999531,
+   "c_tokens": 0.999531
+  },
+  "pe-x86_64/clang-O2/debug/tcc.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O2/stripped/bzip2.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O2/stripped/mujs.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O2/stripped/sqlite.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  },
+  "pe-x86_64/clang-O2/stripped/tcc.exe": {
+   "binaries": 1.0,
+   "c_alpha": 1.0,
+   "c_ast": 1.0,
+   "c_tokens": 1.0
+  }
+ },
+ "refdiff_baseline": 1,
+ "total": {
+  "binaries": {
+   "agree": 88,
+   "rate": 1.0,
+   "total": 88
+  },
+  "bodies": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "c_alpha": {
+   "agree": 64644,
+   "rate": 0.999521,
+   "total": 64675
+  },
+  "c_ast": {
+   "agree": 64644,
+   "rate": 0.999521,
+   "total": 64675
+  },
+  "c_tokens": {
+   "agree": 64644,
+   "rate": 0.999521,
+   "total": 64675
+  },
+  "decompiled_c": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "functions": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "instructions": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "memory": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "names": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "pcode": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "pcode_shared": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "prototypes": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  }
+ }
+}

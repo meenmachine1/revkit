@@ -1,0 +1,646 @@
+{
+ "binaries": {
+  "elf-aarch64/clang-O0/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.636905,
+   "decompiled_c": 0.0,
+   "functions": 0.636905,
+   "instructions": 0.983817,
+   "memory": 0.964286,
+   "names": 0.613095,
+   "pcode": 0.983817,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/clang-O0/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.630952,
+   "decompiled_c": 0.0,
+   "functions": 0.630952,
+   "instructions": 0.983194,
+   "memory": 0.964286,
+   "names": 0.613095,
+   "pcode": 0.983194,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/clang-O2/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.435644,
+   "decompiled_c": 0.0,
+   "functions": 0.435644,
+   "instructions": 0.978649,
+   "memory": 0.964286,
+   "names": 0.39604,
+   "pcode": 0.978649,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/clang-O2/debug/lua": {
+   "binaries": 1.0,
+   "bodies": 0.787621,
+   "decompiled_c": 0.001214,
+   "functions": 0.787621,
+   "instructions": 0.99281,
+   "memory": 0.964286,
+   "names": 0.782767,
+   "pcode": 0.99281,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/clang-O2/debug/zlib": {
+   "binaries": 1.0,
+   "bodies": 0.658416,
+   "decompiled_c": 0.0,
+   "functions": 0.658416,
+   "instructions": 0.990612,
+   "memory": 0.964286,
+   "names": 0.638614,
+   "pcode": 0.990612,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/clang-O2/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.425743,
+   "decompiled_c": 0.0,
+   "functions": 0.425743,
+   "instructions": 0.977774,
+   "memory": 0.964286,
+   "names": 0.39604,
+   "pcode": 0.977774,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/clang-O2/stripped/lua": {
+   "binaries": 1.0,
+   "bodies": 0.786408,
+   "decompiled_c": 0.001214,
+   "functions": 0.786408,
+   "instructions": 0.99271,
+   "memory": 0.964286,
+   "names": 0.781553,
+   "pcode": 0.99271,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/clang-O2/stripped/zlib": {
+   "binaries": 1.0,
+   "bodies": 0.653465,
+   "decompiled_c": 0.0,
+   "functions": 0.653465,
+   "instructions": 0.99029,
+   "memory": 0.964286,
+   "names": 0.633663,
+   "pcode": 0.99029,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/gcc-O0/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.629412,
+   "decompiled_c": 0.0,
+   "functions": 0.629412,
+   "instructions": 0.982642,
+   "memory": 0.964286,
+   "names": 0.605882,
+   "pcode": 0.982642,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/gcc-O0/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.623529,
+   "decompiled_c": 0.0,
+   "functions": 0.623529,
+   "instructions": 0.981995,
+   "memory": 0.964286,
+   "names": 0.605882,
+   "pcode": 0.981995,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/gcc-O2/debug/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.676056,
+   "decompiled_c": 0.0,
+   "functions": 0.676056,
+   "instructions": 0.978497,
+   "memory": 0.962963,
+   "names": 0.633803,
+   "pcode": 0.978497,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/gcc-O2/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.472222,
+   "decompiled_c": 0.0,
+   "functions": 0.472222,
+   "instructions": 0.981368,
+   "memory": 0.964286,
+   "names": 0.388889,
+   "pcode": 0.981368,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/gcc-O2/stripped/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.669014,
+   "decompiled_c": 0.0,
+   "functions": 0.669014,
+   "instructions": 0.977365,
+   "memory": 0.962963,
+   "names": 0.633803,
+   "pcode": 0.977365,
+   "prototypes": 0.0
+  },
+  "elf-aarch64/gcc-O2/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.462963,
+   "decompiled_c": 0.0,
+   "functions": 0.462963,
+   "instructions": 0.980605,
+   "memory": 0.964286,
+   "names": 0.435185,
+   "pcode": 0.980605,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/clang-O0/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.62963,
+   "decompiled_c": 0.0,
+   "functions": 0.62963,
+   "instructions": 0.986012,
+   "memory": 0.931034,
+   "names": 0.62963,
+   "pcode": 0.986012,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/clang-O0/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.62963,
+   "decompiled_c": 0.0,
+   "functions": 0.62963,
+   "instructions": 0.986012,
+   "memory": 0.931034,
+   "names": 0.006173,
+   "pcode": 0.986012,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/clang-O2/debug/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.70229,
+   "decompiled_c": 0.0,
+   "functions": 0.70229,
+   "instructions": 0.982892,
+   "memory": 0.933333,
+   "names": 0.70229,
+   "pcode": 0.982892,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/clang-O2/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.402062,
+   "decompiled_c": 0.0,
+   "functions": 0.402062,
+   "instructions": 0.981434,
+   "memory": 0.931034,
+   "names": 0.402062,
+   "pcode": 0.981434,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/clang-O2/stripped/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.694656,
+   "decompiled_c": 0.0,
+   "functions": 0.70229,
+   "instructions": 0.98235,
+   "memory": 0.933333,
+   "names": 0.007634,
+   "pcode": 0.98235,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/clang-O2/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.402062,
+   "decompiled_c": 0.0,
+   "functions": 0.402062,
+   "instructions": 0.981434,
+   "memory": 0.931034,
+   "names": 0.010309,
+   "pcode": 0.981434,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/gcc-O0/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.614458,
+   "decompiled_c": 0.0,
+   "functions": 0.614458,
+   "instructions": 0.986352,
+   "memory": 0.928571,
+   "names": 0.614458,
+   "pcode": 0.986352,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/gcc-O0/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.614458,
+   "decompiled_c": 0.0,
+   "functions": 0.614458,
+   "instructions": 0.986352,
+   "memory": 0.928571,
+   "names": 0.006024,
+   "pcode": 0.986352,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/gcc-O2/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.424528,
+   "decompiled_c": 0.0,
+   "functions": 0.433962,
+   "instructions": 0.947005,
+   "memory": 0.928571,
+   "names": 0.386792,
+   "pcode": 0.947005,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/gcc-O2/debug/zlib": {
+   "binaries": 1.0,
+   "bodies": 0.674877,
+   "decompiled_c": 0.0,
+   "functions": 0.674877,
+   "instructions": 0.991394,
+   "memory": 0.928571,
+   "names": 0.660099,
+   "pcode": 0.991394,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/gcc-O2/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.424528,
+   "decompiled_c": 0.0,
+   "functions": 0.433962,
+   "instructions": 0.947005,
+   "memory": 0.928571,
+   "names": 0.009434,
+   "pcode": 0.947005,
+   "prototypes": 0.0
+  },
+  "elf-riscv64/gcc-O2/stripped/zlib": {
+   "binaries": 1.0,
+   "bodies": 0.674877,
+   "decompiled_c": 0.0,
+   "functions": 0.674877,
+   "instructions": 0.991394,
+   "memory": 0.928571,
+   "names": 0.004926,
+   "pcode": 0.991394,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/clang-O0/debug/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.734177,
+   "decompiled_c": 0.0,
+   "functions": 0.746835,
+   "instructions": 0.987199,
+   "memory": 0.965517,
+   "names": 0.740506,
+   "pcode": 0.987199,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/clang-O0/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.596273,
+   "decompiled_c": 0.0,
+   "functions": 0.608696,
+   "instructions": 0.979572,
+   "memory": 0.965517,
+   "names": 0.602484,
+   "pcode": 0.979572,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/clang-O0/debug/zlib": {
+   "binaries": 1.0,
+   "bodies": 0.697368,
+   "decompiled_c": 0.0,
+   "functions": 0.70614,
+   "instructions": 0.995053,
+   "memory": 0.965517,
+   "names": 0.701754,
+   "pcode": 0.995053,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/clang-O0/stripped/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.734177,
+   "decompiled_c": 0.0,
+   "functions": 0.746835,
+   "instructions": 0.987199,
+   "memory": 0.965517,
+   "names": 0.734177,
+   "pcode": 0.987199,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/clang-O0/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.596273,
+   "decompiled_c": 0.0,
+   "functions": 0.608696,
+   "instructions": 0.979572,
+   "memory": 0.965517,
+   "names": 0.596273,
+   "pcode": 0.979572,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/clang-O0/stripped/zlib": {
+   "binaries": 1.0,
+   "bodies": 0.697368,
+   "decompiled_c": 0.0,
+   "functions": 0.70614,
+   "instructions": 0.995053,
+   "memory": 0.965517,
+   "names": 0.697368,
+   "pcode": 0.995053,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/clang-O2/debug/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.604478,
+   "decompiled_c": 0.0,
+   "functions": 0.701493,
+   "instructions": 0.983125,
+   "memory": 0.965517,
+   "names": 0.69403,
+   "pcode": 0.983125,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/clang-O2/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.223404,
+   "decompiled_c": 0.0,
+   "functions": 0.37234,
+   "instructions": 0.970723,
+   "memory": 0.965517,
+   "names": 0.361702,
+   "pcode": 0.970723,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/clang-O2/stripped/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.604478,
+   "decompiled_c": 0.0,
+   "functions": 0.701493,
+   "instructions": 0.983125,
+   "memory": 0.965517,
+   "names": 0.671642,
+   "pcode": 0.983125,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/clang-O2/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.223404,
+   "decompiled_c": 0.0,
+   "functions": 0.37234,
+   "instructions": 0.970723,
+   "memory": 0.965517,
+   "names": 0.351064,
+   "pcode": 0.970723,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O0/debug/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.725,
+   "decompiled_c": 0.0,
+   "functions": 0.7375,
+   "instructions": 0.987362,
+   "memory": 0.964286,
+   "names": 0.73125,
+   "pcode": 0.987362,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O0/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.596273,
+   "decompiled_c": 0.0,
+   "functions": 0.608696,
+   "instructions": 0.980272,
+   "memory": 0.965517,
+   "names": 0.602484,
+   "pcode": 0.980272,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O0/stripped/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.725,
+   "decompiled_c": 0.0,
+   "functions": 0.7375,
+   "instructions": 0.987362,
+   "memory": 0.964286,
+   "names": 0.725,
+   "pcode": 0.987362,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O0/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.596273,
+   "decompiled_c": 0.0,
+   "functions": 0.608696,
+   "instructions": 0.980272,
+   "memory": 0.965517,
+   "names": 0.596273,
+   "pcode": 0.980272,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O2/debug/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.206107,
+   "decompiled_c": 0.0,
+   "functions": 0.709924,
+   "instructions": 0.945072,
+   "memory": 0.965517,
+   "names": 0.687023,
+   "pcode": 0.945072,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O2/debug/features": {
+   "binaries": 1.0,
+   "bodies": 0.26,
+   "decompiled_c": 0.0,
+   "functions": 0.45,
+   "instructions": 0.965295,
+   "memory": 0.965517,
+   "names": 0.39,
+   "pcode": 0.965295,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O2/debug/lua": {
+   "binaries": 1.0,
+   "bodies": 0.267202,
+   "decompiled_c": 0.0,
+   "functions": 0.801606,
+   "instructions": 0.959819,
+   "memory": 0.965517,
+   "names": 0.779817,
+   "pcode": 0.959819,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O2/debug/zlib": {
+   "binaries": 1.0,
+   "bodies": 0.171429,
+   "decompiled_c": 0.0,
+   "functions": 0.680952,
+   "instructions": 0.96322,
+   "memory": 0.965517,
+   "names": 0.661905,
+   "pcode": 0.96322,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O2/stripped/cjson": {
+   "binaries": 1.0,
+   "bodies": 0.206107,
+   "decompiled_c": 0.0,
+   "functions": 0.709924,
+   "instructions": 0.945072,
+   "memory": 0.965517,
+   "names": 0.679389,
+   "pcode": 0.945072,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O2/stripped/features": {
+   "binaries": 1.0,
+   "bodies": 0.26,
+   "decompiled_c": 0.0,
+   "functions": 0.45,
+   "instructions": 0.965295,
+   "memory": 0.965517,
+   "names": 0.4,
+   "pcode": 0.965295,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O2/stripped/lua": {
+   "binaries": 1.0,
+   "bodies": 0.267202,
+   "decompiled_c": 0.0,
+   "functions": 0.801606,
+   "instructions": 0.959887,
+   "memory": 0.965517,
+   "names": 0.792431,
+   "pcode": 0.959887,
+   "prototypes": 0.0
+  },
+  "elf-x86_64/gcc-O2/stripped/zlib": {
+   "binaries": 1.0,
+   "bodies": 0.171429,
+   "decompiled_c": 0.0,
+   "functions": 0.680952,
+   "instructions": 0.96322,
+   "memory": 0.965517,
+   "names": 0.666667,
+   "pcode": 0.96322,
+   "prototypes": 0.0
+  },
+  "pe-x86_64/clang-O0/debug/features.exe": {
+   "binaries": 1.0,
+   "bodies": 0.51145,
+   "decompiled_c": 0.0,
+   "functions": 0.778626,
+   "instructions": 0.965664,
+   "memory": 0.944444,
+   "names": 0.0,
+   "pcode": 0.965664,
+   "prototypes": 0.0
+  },
+  "pe-x86_64/clang-O0/stripped/features.exe": {
+   "binaries": 1.0,
+   "bodies": 0.542857,
+   "decompiled_c": 0.0,
+   "functions": 0.828571,
+   "instructions": 0.966316,
+   "memory": 0.875,
+   "names": 0.816327,
+   "pcode": 0.966316,
+   "prototypes": 0.0
+  },
+  "pe-x86_64/clang-O2/debug/cjson.exe": {
+   "binaries": 1.0,
+   "bodies": 0.408088,
+   "decompiled_c": 0.0,
+   "functions": 0.772059,
+   "instructions": 0.972006,
+   "memory": 0.944444,
+   "names": 0.286765,
+   "pcode": 0.972006,
+   "prototypes": 0.0
+  },
+  "pe-x86_64/clang-O2/debug/features.exe": {
+   "binaries": 1.0,
+   "bodies": 0.265306,
+   "decompiled_c": 0.0,
+   "functions": 0.678571,
+   "instructions": 0.956716,
+   "memory": 0.944444,
+   "names": 0.0,
+   "pcode": 0.956716,
+   "prototypes": 0.0
+  },
+  "pe-x86_64/clang-O2/stripped/cjson.exe": {
+   "binaries": 1.0,
+   "bodies": 0.422481,
+   "decompiled_c": 0.0,
+   "functions": 0.806202,
+   "instructions": 0.971528,
+   "memory": 0.875,
+   "names": 0.794574,
+   "pcode": 0.971528,
+   "prototypes": 0.0
+  },
+  "pe-x86_64/clang-O2/stripped/features.exe": {
+   "binaries": 1.0,
+   "bodies": 0.294798,
+   "decompiled_c": 0.0,
+   "functions": 0.763006,
+   "instructions": 0.959573,
+   "memory": 0.875,
+   "names": 0.745665,
+   "pcode": 0.959573,
+   "prototypes": 0.0
+  }
+ },
+ "refdiff_baseline": 1,
+ "total": {
+  "binaries": {
+   "agree": 54,
+   "rate": 1.0,
+   "total": 54
+  },
+  "bodies": {
+   "agree": 6004,
+   "rate": 0.527407,
+   "total": 11384
+  },
+  "decompiled_c": {
+   "agree": 2,
+   "rate": 0.000176,
+   "total": 11384
+  },
+  "functions": {
+   "agree": 7897,
+   "rate": 0.693693,
+   "total": 11384
+  },
+  "instructions": {
+   "agree": 629372,
+   "rate": 0.97765,
+   "total": 643760
+  },
+  "memory": {
+   "agree": 1382,
+   "rate": 0.95442,
+   "total": 1448
+  },
+  "names": {
+   "agree": 6764,
+   "rate": 0.594167,
+   "total": 11384
+  },
+  "pcode": {
+   "agree": 629372,
+   "rate": 0.97765,
+   "total": 643760
+  },
+  "prototypes": {
+   "agree": 0,
+   "rate": 0.0,
+   "total": 11384
+  }
+ }
+}

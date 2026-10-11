@@ -1,0 +1,9 @@
+{
+  "name": "tick-timer",
+  "version": "1.0.0",
+  "kind": "peripheral",
+  "interface": 1,
+  "description": "A periodic timer with an interrupt, and a transmit register (an example peripheral plugin)",
+  "capabilities": ["irq", "output"],
+  "peripheral": {"outputs": ["irq"], "size": 256}
+}

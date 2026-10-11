@@ -1,0 +1,291 @@
+syntax = "proto3";
+
+package revkit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "revkit/v1/common.proto";
+
+// BSim signature databases (docs/bsim.md; api_minor 69, feature "bsim"):
+// persistent stores of executables' functions with their BSim feature
+// vectors (Ghidra's, bit for bit, for the same decompiler), for finding
+// functions similar to a given one across every program ingested.
+//
+// A database is a directory on the daemon's host (NAME.rkbsim). A project
+// attaches databases; the other calls name an attached one by its id (its
+// path). Creating one in the project's directory by name, ingesting
+// programs and deleting executables need edit rights; creating or
+// attaching one at a host path needs admin.
+service BSimService {
+  // Creates a database and attaches it to the project.
+  rpc CreateBSimDatabase(CreateBSimDatabaseRequest) returns (CreateBSimDatabaseResponse);
+  // Attaches an existing database (a host path) to the project.
+  rpc AttachBSimDatabase(AttachBSimDatabaseRequest) returns (AttachBSimDatabaseResponse);
+  // Detaches a database from the project (its files stay).
+  rpc DetachBSimDatabase(DetachBSimDatabaseRequest) returns (DetachBSimDatabaseResponse);
+  // The project's databases, with their sizes.
+  rpc ListBSimDatabases(ListBSimDatabasesRequest) returns (ListBSimDatabasesResponse);
+  // Signs every function of each program (the decompiler's BSim features
+  // under the database's settings, the work a diff shares) and stores it as
+  // one executable, replacing an earlier ingest of the same file (by sha256).
+  rpc IngestBSim(IngestBSimRequest) returns (IngestBSimResponse);
+  rpc ListBSimExecutables(ListBSimExecutablesRequest) returns (ListBSimExecutablesResponse);
+  rpc ListBSimFunctions(ListBSimFunctionsRequest) returns (ListBSimFunctionsResponse);
+  // Changes an executable's name or categories.
+  rpc UpdateBSimExecutable(UpdateBSimExecutableRequest) returns (UpdateBSimExecutableResponse);
+  rpc DeleteBSimExecutables(DeleteBSimExecutablesRequest) returns (DeleteBSimExecutablesResponse);
+  // Functions similar to a program's (some, or all), from the database
+  // (api_minor 72, feature "bsim-search"): per function its best matches by
+  // similarity, with confidence, above the thresholds and through the
+  // filters; or, as an overview, only how many there are.
+  rpc SearchBSim(SearchBSimRequest) returns (SearchBSimResponse);
+}
+
+// A database's weights: Ghidra's templates' tables. 64 and 32 sign with
+// settings 0x49; NOSIZE (programs of different pointer sizes) with 0x4d.
+enum BSimTemplate {
+  BSIM_TEMPLATE_UNSPECIFIED = 0;  // by the first program's size, else 64
+  BSIM_TEMPLATE_64 = 1;
+  BSIM_TEMPLATE_32 = 2;
+  BSIM_TEMPLATE_NOSIZE = 3;
+}
+
+message BSimDatabase {
+  // Its path on the daemon's host: the id the other calls take.
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  BSimTemplate template = 4;
+  uint32 settings = 5;
+  uint32 lsh_k = 6;
+  uint32 lsh_l = 7;
+  uint32 executables = 8;
+  uint64 functions = 9;
+  google.protobuf.Timestamp created = 10;
+  // Why it can't be opened now (moved, damaged); empty when it can.
+  string error = 11;
+}
+
+message CreateBSimDatabaseRequest {
+  string project_id = 1;
+  // A new directory on the daemon's host (admin), or empty: NAME.rkbsim in
+  // the project's directory (bsim/), which a persistent project has.
+  string path = 2;
+  string name = 3;
+  string description = 4;
+  BSimTemplate template = 5;
+  // LSH parameters; 0: the defaults (k 10, l 64).
+  uint32 lsh_k = 6;
+  uint32 lsh_l = 7;
+  Provenance provenance = 8;
+}
+
+message CreateBSimDatabaseResponse {
+  BSimDatabase database = 1;
+}
+
+message AttachBSimDatabaseRequest {
+  string project_id = 1;
+  string path = 2;
+  Provenance provenance = 3;
+}
+
+message AttachBSimDatabaseResponse {
+  BSimDatabase database = 1;
+}
+
+message DetachBSimDatabaseRequest {
+  string project_id = 1;
+  string database = 2;
+  Provenance provenance = 3;
+}
+
+message DetachBSimDatabaseResponse {}
+
+message ListBSimDatabasesRequest {
+  string project_id = 1;
+}
+
+message ListBSimDatabasesResponse {
+  repeated BSimDatabase databases = 1;
+}
+
+message IngestBSimRequest {
+  string project_id = 1;
+  string database = 2;
+  repeated string program_ids = 3;
+  // Executable categories for every program ingested ("vendor" -> "acme").
+  map<string, string> categories = 4;
+  // Decompiler threads (0: the daemon's choice).
+  uint32 threads = 5;
+  // What ingested it, as BSimExecutable.source records it (empty:
+  // "daemon:<program id>").
+  string source = 6;
+}
+
+message BSimIngested {
+  string program_id = 1;
+  BSimExecutable executable = 2;
+  bool replaced = 3;
+  // Functions stored, and left out: no body or a thunk ("thunk",
+  // "external"), the decompiler failed ("failed"), no features ("empty").
+  uint32 functions = 4;
+  map<string, uint32> excluded = 5;
+  double seconds = 6;
+  // The program's pointer size differs from the database's template.
+  string warning = 7;
+}
+
+message IngestBSimResponse {
+  repeated BSimIngested programs = 1;
+}
+
+message BSimExecutable {
+  // The file's sha256 (lowercase hex).
+  string id = 1;
+  string name = 2;
+  string path = 3;
+  string language = 4;
+  string compiler = 5;
+  string md5 = 6;
+  google.protobuf.Timestamp ingested = 7;
+  // What ingested it: "rk-bsim", "daemon:<program id>".
+  string source = 8;
+  map<string, string> categories = 9;
+  uint32 function_count = 10;
+}
+
+message ListBSimExecutablesRequest {
+  string project_id = 1;
+  string database = 2;
+  // Name or id containing this (case-insensitive); language prefix.
+  string filter = 3;
+  string language = 4;
+}
+
+message ListBSimExecutablesResponse {
+  repeated BSimExecutable executables = 1;
+}
+
+message BSimFunction {
+  string name = 1;
+  Address entry = 2;
+  string prototype = 3;
+  uint32 size = 4;
+  // An analysis name (FUN_...), not from symbols or a user.
+  bool default_name = 5;
+  uint32 feature_count = 6;
+  string executable_id = 7;
+}
+
+message ListBSimFunctionsRequest {
+  string project_id = 1;
+  string database = 2;
+  // An executable's id (or unique id prefix or name).
+  string executable = 3;
+  string name_contains = 4;
+  uint32 offset = 5;
+  uint32 limit = 6;  // 0: 1000
+}
+
+message ListBSimFunctionsResponse {
+  repeated BSimFunction functions = 1;
+  uint32 total = 2;
+}
+
+message UpdateBSimExecutableRequest {
+  string project_id = 1;
+  string database = 2;
+  string executable = 3;
+  string name = 4;  // empty: unchanged
+  // Replaces the categories when set_categories.
+  map<string, string> categories = 5;
+  bool set_categories = 6;
+}
+
+message UpdateBSimExecutableResponse {
+  BSimExecutable executable = 1;
+}
+
+message DeleteBSimExecutablesRequest {
+  string project_id = 1;
+  string database = 2;
+  repeated string executables = 3;
+}
+
+message DeleteBSimExecutablesResponse {
+  uint32 deleted = 1;
+  // Ids (or names) with no executable.
+  repeated string missing = 2;
+}
+
+message SearchBSimRequest {
+  string project_id = 1;
+  string database = 2;
+  string program_id = 3;
+  // The functions to search for (entries); empty with all_functions: every
+  // function of the program with a body.
+  repeated Address functions = 4;
+  bool all_functions = 5;
+  // Thresholds: cosine (default 0.7; any value below 0 means 0), BSim's
+  // significance (default 0), matches per function (default 10, at most
+  // 1000).
+  optional double min_similarity = 6;
+  optional double min_confidence = 7;
+  uint32 max_matches = 8;
+  // Filters: executables by id, id prefix or name (any of them); the
+  // query's own file is left out unless include_self; languages by prefix
+  // ("x86:LE:64"); a function name containing this (case-insensitive);
+  // executable categories that must all match; analysis names (FUN_...)
+  // left out.
+  repeated string executables = 9;
+  repeated string exclude_executables = 10;
+  bool include_self = 11;
+  repeated string languages = 12;
+  string name_contains = 13;
+  map<string, string> categories = 14;
+  bool exclude_default_names = 15;
+  // Only hit counts per function, no matches (Ghidra's overview).
+  bool overview = 16;
+  // Score every function of the database, not the LSH candidates.
+  bool exhaustive = 17;
+  // Decompiler threads for signing (0: the daemon's choice).
+  uint32 threads = 18;
+  // Only the LSH index's candidates, however small the database (faster on
+  // big ones; misses pairs far below 0.7). Ignored with exhaustive.
+  bool index_only = 19;
+}
+
+message BSimMatch {
+  BSimExecutable executable = 1;
+  BSimFunction function = 2;
+  double similarity = 3;
+  double confidence = 4;
+  // The program of this project whose file this executable is (by
+  // sha256), for comparing side by side and porting markup; empty when
+  // the project has none.
+  string program_id = 5;
+}
+
+message BSimQueryResult {
+  Address function = 1;
+  string name = 2;
+  uint32 feature_count = 3;
+  // BSim's self-significance of the function's vector: how much a match
+  // can mean (small functions say little).
+  double self_significance = 4;
+  // Matches above the thresholds through the filters, before
+  // max_matches; the matches themselves, best first (none in an overview).
+  uint32 hit_count = 5;
+  repeated BSimMatch matches = 6;
+  // Why it has no vector: "thunk", "external", "failed: ...", "empty".
+  string skipped = 7;
+}
+
+message SearchBSimResponse {
+  repeated BSimQueryResult results = 1;
+  // Functions of the database scored, summed over the queries, and the
+  // database's size.
+  uint64 scored = 2;
+  uint64 total = 3;
+  double seconds = 4;
+}

@@ -1,0 +1,24 @@
+/* The emulator view (emu/panel.ts), docked like the other views. */
+#emu { flex: 1; min-height: 0; }
+#emu:not(.live) .emu-body { display: none; }
+#emu.live .emu-empty { display: none; }
+#emu .panel-head { flex-wrap: wrap; height: auto; min-height: 26px; }
+#emu .emu-tools { display: flex; gap: 4px; margin-left: 8px; }
+#emu .emu-btn { padding: 2px 8px; line-height: 16px; font-size: 12px; }
+#emu .emu-btn:disabled { opacity: 0.45; cursor: default; }
+#emu .emu-status { margin-left: auto; font-size: 12px; white-space: nowrap; }
+#emu .emu-status.fault { color: var(--error); }
+#emu .emu-body { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+#emu .emu-regs { flex: none; overflow: auto; padding: 6px 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); align-content: start; gap: 1px 14px; font-size: 12px; }
+#emu .emu-reg { display: flex; gap: 6px; white-space: nowrap; }
+#emu .emu-name { color: var(--dim); min-width: 6.5em; }
+#emu .emu-reg.changed .emu-val { color: var(--warn); font-weight: 600; }
+#emu .emu-val { cursor: text; }
+#emu .emu-edit { width: 12em; font-size: 12px; background: var(--bg); color: var(--fg); border: 1px solid var(--accent); border-radius: 3px; padding: 0 3px; }
+#emu .emu-memwrap { flex: none; display: flex; flex-direction: column; min-width: 0; border-top: 1px solid var(--border); }
+#emu .emu-memhead { display: flex; align-items: center; gap: 8px; padding: 4px 10px 0; font-size: 12px; }
+#emu .emu-mem-input { flex: 1; max-width: 18em; font-size: 12px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
+#emu .emu-mem, #emu .emu-out { margin: 0; padding: 4px 10px; overflow: auto; font-size: 12px; line-height: 1.35; }
+#emu .emu-out { flex: none; border-top: 1px solid var(--border); white-space: pre-wrap; color: var(--dim); }
+#emu .emu-out[hidden] { display: none; }
+#cm .cm-pc-line { background: rgba(63, 185, 80, 0.16); box-shadow: inset 3px 0 0 #3fb950; }

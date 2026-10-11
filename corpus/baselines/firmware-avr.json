@@ -1,0 +1,43 @@
+{
+ "arch": "avr",
+ "counts": {
+  "c_alpha": 150,
+  "c_ast": 150,
+  "c_both": 233,
+  "c_flow": 193,
+  "c_ghidra_only": 1,
+  "c_revkit_only": 0,
+  "c_shape": 178,
+  "c_shape_dwarf": 178,
+  "common": 234,
+  "dwarf": 226,
+  "dwarf_ghidra": 179,
+  "dwarf_revkit": 154,
+  "ghidra": 281,
+  "insn_both": 8123,
+  "insn_ghidra": 15338,
+  "insn_revkit": 8602,
+  "revkit": 256,
+  "truth_ghidra": 223,
+  "truth_revkit": 193
+ },
+ "images": [
+  "avr/grbl-atmega328p-Os",
+  "avr/mcukit-atmega328p-O2",
+  "avr/mcukit-atmega328p-Os"
+ ],
+ "rates": {
+  "c_alpha": 0.643777,
+  "c_ast": 0.643777,
+  "c_flow": 0.828326,
+  "c_shape": 0.763948,
+  "c_shape_dwarf": 0.763948,
+  "dwarf_recall": 0.681416,
+  "ghidra_dwarf_recall": 0.792035,
+  "ghidra_truth_precision": 0.793594,
+  "listing_both": 0.5296,
+  "precision": 0.914062,
+  "recall": 0.83274,
+  "truth_precision": 0.753906
+ }
+}

@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Thu, 8 Oct 2026 13:57:58 -0400
+Subject: [PATCH] SLEIGH: expose a decision node's field
+
+Ghidra's Java disassembler records, for each instruction, the bits that
+selected its constructors (SleighDebugLogger: the instruction mask and
+the operand masks an InstructionPrototype reports). Each DecisionNode
+on the way to a constructor contributes the field it decides on. A tool
+that computes the same masks over the C++ engine (Function ID hashes,
+which mask operands out of instructions) needs the field each node reads.
+
+Add read-only accessors: DecisionNode::isContextDecision, getStartBit and
+getBitSize. No behaviour changes.
+
+Seen in: revkit's Function ID (src/fid). Ghidra 12.1.4.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
+index eb5a963..682679c 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
+@@ -585,6 +585,9 @@ public:
+   void decode(Decoder &decoder,DecisionNode *par,SubtableSymbol *sub);
+   const vector<pair<DisjointPattern *,Constructor *> > &getPairs(void) const { return list; }	///< (pattern, constructor) pairs held here
+   const vector<DecisionNode *> &getChildren(void) const { return children; }	///< Sub-decisions
++  bool isContextDecision(void) const { return contextdecision; }	///< Whether the decision reads context bits rather than instruction bits
++  int4 getStartBit(void) const { return startbit; }	///< First bit the decision reads
++  int4 getBitSize(void) const { return bitsize; }	///< Bits the decision reads (0: a leaf, decided by its patterns)
+ };
+ 
+ class SubtableSymbol : public TripleSymbol {

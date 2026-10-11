@@ -1,0 +1,1230 @@
+{
+ "all": {
+  "answered": {
+   "of": 121,
+   "right": 120
+  },
+  "base": {
+   "of": 121,
+   "right": 116
+  },
+  "cases": 137,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 121,
+   "right": 121
+  },
+  "family_top3": {
+   "of": 121,
+   "right": 121
+  },
+  "language": {
+   "of": 121,
+   "right": 121
+  },
+  "load": {
+   "of": 121,
+   "right": 116
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 70,
+   "right": 70
+  },
+  "mmio_size": {
+   "of": 70,
+   "right": 70
+  },
+  "mmio_start": {
+   "of": 70,
+   "right": 70
+  },
+  "mmio_window_found": {
+   "of": 45,
+   "right": 40
+  },
+  "offset": {
+   "of": 121,
+   "right": 119
+  },
+  "ram_end": {
+   "of": 70,
+   "right": 70
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 70,
+   "right": 70
+  },
+  "ram_size": {
+   "of": 70,
+   "right": 70
+  },
+  "ram_start": {
+   "of": 70,
+   "right": 70
+  },
+  "ram_window_found": {
+   "of": 45,
+   "right": 35
+  },
+  "refused": {
+   "of": 5,
+   "right": 5
+  },
+  "region_confident_wrong": 0,
+  "unconfident": {
+   "of": 11,
+   "right": 11
+  },
+  "unknown_false": 0,
+  "variant": {
+   "of": 121,
+   "right": 111
+  }
+ },
+ "arch aarch64": {
+  "answered": {
+   "of": 2,
+   "right": 2
+  },
+  "base": {
+   "of": 2,
+   "right": 2
+  },
+  "cases": 2,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 2,
+   "right": 2
+  },
+  "family_top3": {
+   "of": 2,
+   "right": 2
+  },
+  "language": {
+   "of": 2,
+   "right": 2
+  },
+  "load": {
+   "of": 2,
+   "right": 2
+  },
+  "offset": {
+   "of": 2,
+   "right": 2
+  },
+  "variant": {
+   "of": 2,
+   "right": 2
+  }
+ },
+ "arch cortexm": {
+  "answered": {
+   "of": 20,
+   "right": 20
+  },
+  "base": {
+   "of": 20,
+   "right": 20
+  },
+  "cases": 20,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 20,
+   "right": 20
+  },
+  "family_top3": {
+   "of": 20,
+   "right": 20
+  },
+  "language": {
+   "of": 20,
+   "right": 20
+  },
+  "load": {
+   "of": 20,
+   "right": 20
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_size": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_start": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_window_found": {
+   "of": 10,
+   "right": 10
+  },
+  "offset": {
+   "of": 20,
+   "right": 20
+  },
+  "ram_end": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_size": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_start": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_window_found": {
+   "of": 10,
+   "right": 10
+  },
+  "region_confident_wrong": 0,
+  "unknown_false": 0,
+  "variant": {
+   "of": 20,
+   "right": 20
+  }
+ },
+ "arch m68k": {
+  "answered": {
+   "of": 20,
+   "right": 20
+  },
+  "base": {
+   "of": 20,
+   "right": 20
+  },
+  "cases": 20,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 20,
+   "right": 20
+  },
+  "family_top3": {
+   "of": 20,
+   "right": 20
+  },
+  "language": {
+   "of": 20,
+   "right": 20
+  },
+  "load": {
+   "of": 20,
+   "right": 20
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_size": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_start": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_window_found": {
+   "of": 10,
+   "right": 10
+  },
+  "offset": {
+   "of": 20,
+   "right": 20
+  },
+  "ram_end": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_size": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_start": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_window_found": {
+   "of": 10,
+   "right": 10
+  },
+  "region_confident_wrong": 0,
+  "unknown_false": 0,
+  "variant": {
+   "of": 20,
+   "right": 10
+  }
+ },
+ "arch mips": {
+  "answered": {
+   "of": 20,
+   "right": 20
+  },
+  "base": {
+   "of": 20,
+   "right": 20
+  },
+  "cases": 24,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 20,
+   "right": 20
+  },
+  "family_top3": {
+   "of": 20,
+   "right": 20
+  },
+  "language": {
+   "of": 20,
+   "right": 20
+  },
+  "load": {
+   "of": 20,
+   "right": 20
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_size": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_start": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_window_found": {
+   "of": 10,
+   "right": 10
+  },
+  "offset": {
+   "of": 20,
+   "right": 20
+  },
+  "ram_end": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_size": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_start": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_window_found": {
+   "of": 10,
+   "right": 10
+  },
+  "region_confident_wrong": 0,
+  "unconfident": {
+   "of": 4,
+   "right": 4
+  },
+  "unknown_false": 0,
+  "variant": {
+   "of": 20,
+   "right": 20
+  }
+ },
+ "arch ppc": {
+  "answered": {
+   "of": 20,
+   "right": 20
+  },
+  "base": {
+   "of": 20,
+   "right": 20
+  },
+  "cases": 24,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 20,
+   "right": 20
+  },
+  "family_top3": {
+   "of": 20,
+   "right": 20
+  },
+  "language": {
+   "of": 20,
+   "right": 20
+  },
+  "load": {
+   "of": 20,
+   "right": 20
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_size": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_start": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_window_found": {
+   "of": 10,
+   "right": 5
+  },
+  "offset": {
+   "of": 20,
+   "right": 20
+  },
+  "ram_end": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_size": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_start": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_window_found": {
+   "of": 10,
+   "right": 5
+  },
+  "region_confident_wrong": 0,
+  "unconfident": {
+   "of": 4,
+   "right": 4
+  },
+  "unknown_false": 0,
+  "variant": {
+   "of": 20,
+   "right": 20
+  }
+ },
+ "arch riscv64": {
+  "answered": {
+   "of": 2,
+   "right": 2
+  },
+  "base": {
+   "of": 2,
+   "right": 2
+  },
+  "cases": 2,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 2,
+   "right": 2
+  },
+  "family_top3": {
+   "of": 2,
+   "right": 2
+  },
+  "language": {
+   "of": 2,
+   "right": 2
+  },
+  "load": {
+   "of": 2,
+   "right": 2
+  },
+  "offset": {
+   "of": 2,
+   "right": 2
+  },
+  "variant": {
+   "of": 2,
+   "right": 2
+  }
+ },
+ "arch sh4": {
+  "answered": {
+   "of": 15,
+   "right": 14
+  },
+  "base": {
+   "of": 15,
+   "right": 10
+  },
+  "cases": 18,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 15,
+   "right": 15
+  },
+  "family_top3": {
+   "of": 15,
+   "right": 15
+  },
+  "language": {
+   "of": 15,
+   "right": 15
+  },
+  "load": {
+   "of": 15,
+   "right": 10
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_size": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_start": {
+   "of": 10,
+   "right": 10
+  },
+  "mmio_window_found": {
+   "of": 5,
+   "right": 5
+  },
+  "offset": {
+   "of": 15,
+   "right": 13
+  },
+  "ram_end": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_size": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_start": {
+   "of": 10,
+   "right": 10
+  },
+  "ram_window_found": {
+   "of": 5,
+   "right": 0
+  },
+  "region_confident_wrong": 0,
+  "unconfident": {
+   "of": 3,
+   "right": 3
+  },
+  "unknown_false": 0,
+  "variant": {
+   "of": 15,
+   "right": 15
+  }
+ },
+ "arch thumb": {
+  "answered": {
+   "of": 2,
+   "right": 2
+  },
+  "base": {
+   "of": 2,
+   "right": 2
+  },
+  "cases": 2,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 2,
+   "right": 2
+  },
+  "family_top3": {
+   "of": 2,
+   "right": 2
+  },
+  "language": {
+   "of": 2,
+   "right": 2
+  },
+  "load": {
+   "of": 2,
+   "right": 2
+  },
+  "offset": {
+   "of": 2,
+   "right": 2
+  },
+  "variant": {
+   "of": 2,
+   "right": 2
+  }
+ },
+ "arch xtensa": {
+  "answered": {
+   "of": 20,
+   "right": 20
+  },
+  "base": {
+   "of": 20,
+   "right": 20
+  },
+  "cases": 20,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 20,
+   "right": 20
+  },
+  "family_top3": {
+   "of": 20,
+   "right": 20
+  },
+  "language": {
+   "of": 20,
+   "right": 20
+  },
+  "load": {
+   "of": 20,
+   "right": 20
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 20,
+   "right": 20
+  },
+  "mmio_size": {
+   "of": 20,
+   "right": 20
+  },
+  "mmio_start": {
+   "of": 20,
+   "right": 20
+  },
+  "offset": {
+   "of": 20,
+   "right": 20
+  },
+  "ram_end": {
+   "of": 20,
+   "right": 20
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 20,
+   "right": 20
+  },
+  "ram_size": {
+   "of": 20,
+   "right": 20
+  },
+  "ram_start": {
+   "of": 20,
+   "right": 20
+  },
+  "region_confident_wrong": 0,
+  "unknown_false": 0,
+  "variant": {
+   "of": 20,
+   "right": 20
+  }
+ },
+ "kind blob": {
+  "answered": {
+   "of": 23,
+   "right": 23
+  },
+  "base": {
+   "of": 23,
+   "right": 22
+  },
+  "cases": 23,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 23,
+   "right": 23
+  },
+  "family_top3": {
+   "of": 23,
+   "right": 23
+  },
+  "language": {
+   "of": 23,
+   "right": 23
+  },
+  "load": {
+   "of": 23,
+   "right": 22
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_size": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_start": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_window_found": {
+   "of": 9,
+   "right": 8
+  },
+  "offset": {
+   "of": 23,
+   "right": 23
+  },
+  "ram_end": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_size": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_start": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_window_found": {
+   "of": 9,
+   "right": 7
+  },
+  "region_confident_wrong": 0,
+  "unknown_false": 0,
+  "variant": {
+   "of": 23,
+   "right": 21
+  }
+ },
+ "kind hdr-fields": {
+  "answered": {
+   "of": 23,
+   "right": 23
+  },
+  "base": {
+   "of": 23,
+   "right": 22
+  },
+  "cases": 23,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 23,
+   "right": 23
+  },
+  "family_top3": {
+   "of": 23,
+   "right": 23
+  },
+  "language": {
+   "of": 23,
+   "right": 23
+  },
+  "load": {
+   "of": 23,
+   "right": 22
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_size": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_start": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_window_found": {
+   "of": 9,
+   "right": 8
+  },
+  "offset": {
+   "of": 23,
+   "right": 22
+  },
+  "ram_end": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_size": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_start": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_window_found": {
+   "of": 9,
+   "right": 7
+  },
+  "region_confident_wrong": 0,
+  "unknown_false": 0,
+  "variant": {
+   "of": 23,
+   "right": 21
+  }
+ },
+ "kind hdr-opaque": {
+  "answered": {
+   "of": 23,
+   "right": 22
+  },
+  "base": {
+   "of": 23,
+   "right": 22
+  },
+  "cases": 23,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 23,
+   "right": 23
+  },
+  "family_top3": {
+   "of": 23,
+   "right": 23
+  },
+  "language": {
+   "of": 23,
+   "right": 23
+  },
+  "load": {
+   "of": 23,
+   "right": 22
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_size": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_start": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_window_found": {
+   "of": 9,
+   "right": 8
+  },
+  "offset": {
+   "of": 23,
+   "right": 22
+  },
+  "ram_end": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_size": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_start": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_window_found": {
+   "of": 9,
+   "right": 7
+  },
+  "region_confident_wrong": 0,
+  "unknown_false": 0,
+  "variant": {
+   "of": 23,
+   "right": 21
+  }
+ },
+ "kind near-miss": {
+  "cases": 11,
+  "confident_wrong": 0,
+  "errors": 0,
+  "unconfident": {
+   "of": 11,
+   "right": 11
+  }
+ },
+ "kind negative": {
+  "cases": 5,
+  "confident_wrong": 0,
+  "errors": 0,
+  "mmio_false": 0,
+  "ram_false": 0,
+  "refused": {
+   "of": 5,
+   "right": 5
+  },
+  "region_confident_wrong": 0,
+  "unknown_false": 0
+ },
+ "kind pad": {
+  "answered": {
+   "of": 23,
+   "right": 23
+  },
+  "base": {
+   "of": 23,
+   "right": 22
+  },
+  "cases": 23,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 23,
+   "right": 23
+  },
+  "family_top3": {
+   "of": 23,
+   "right": 23
+  },
+  "language": {
+   "of": 23,
+   "right": 23
+  },
+  "load": {
+   "of": 23,
+   "right": 22
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_size": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_start": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_window_found": {
+   "of": 9,
+   "right": 8
+  },
+  "offset": {
+   "of": 23,
+   "right": 23
+  },
+  "ram_end": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_size": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_start": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_window_found": {
+   "of": 9,
+   "right": 7
+  },
+  "region_confident_wrong": 0,
+  "unknown_false": 0,
+  "variant": {
+   "of": 23,
+   "right": 21
+  }
+ },
+ "kind pic": {
+  "answered": {
+   "of": 4,
+   "right": 4
+  },
+  "base": {
+   "of": 4,
+   "right": 4
+  },
+  "cases": 4,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 4,
+   "right": 4
+  },
+  "family_top3": {
+   "of": 4,
+   "right": 4
+  },
+  "language": {
+   "of": 4,
+   "right": 4
+  },
+  "load": {
+   "of": 4,
+   "right": 4
+  },
+  "offset": {
+   "of": 4,
+   "right": 4
+  },
+  "variant": {
+   "of": 4,
+   "right": 4
+  }
+ },
+ "kind plain": {
+  "answered": {
+   "of": 23,
+   "right": 23
+  },
+  "base": {
+   "of": 23,
+   "right": 22
+  },
+  "cases": 23,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 23,
+   "right": 23
+  },
+  "family_top3": {
+   "of": 23,
+   "right": 23
+  },
+  "language": {
+   "of": 23,
+   "right": 23
+  },
+  "load": {
+   "of": 23,
+   "right": 22
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_size": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_start": {
+   "of": 14,
+   "right": 14
+  },
+  "mmio_window_found": {
+   "of": 9,
+   "right": 8
+  },
+  "offset": {
+   "of": 23,
+   "right": 23
+  },
+  "ram_end": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_size": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_start": {
+   "of": 14,
+   "right": 14
+  },
+  "ram_window_found": {
+   "of": 9,
+   "right": 7
+  },
+  "region_confident_wrong": 0,
+  "unknown_false": 0,
+  "variant": {
+   "of": 23,
+   "right": 21
+  }
+ },
+ "kind thumb": {
+  "answered": {
+   "of": 2,
+   "right": 2
+  },
+  "base": {
+   "of": 2,
+   "right": 2
+  },
+  "cases": 2,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 2,
+   "right": 2
+  },
+  "family_top3": {
+   "of": 2,
+   "right": 2
+  },
+  "language": {
+   "of": 2,
+   "right": 2
+  },
+  "load": {
+   "of": 2,
+   "right": 2
+  },
+  "offset": {
+   "of": 2,
+   "right": 2
+  },
+  "variant": {
+   "of": 2,
+   "right": 2
+  }
+ },
+ "split kit": {
+  "answered": {
+   "of": 121,
+   "right": 120
+  },
+  "base": {
+   "of": 121,
+   "right": 116
+  },
+  "cases": 137,
+  "confident_wrong": 0,
+  "errors": 0,
+  "family": {
+   "of": 121,
+   "right": 121
+  },
+  "family_top3": {
+   "of": 121,
+   "right": 121
+  },
+  "language": {
+   "of": 121,
+   "right": 121
+  },
+  "load": {
+   "of": 121,
+   "right": 116
+  },
+  "mmio_false": 0,
+  "mmio_found": {
+   "of": 70,
+   "right": 70
+  },
+  "mmio_size": {
+   "of": 70,
+   "right": 70
+  },
+  "mmio_start": {
+   "of": 70,
+   "right": 70
+  },
+  "mmio_window_found": {
+   "of": 45,
+   "right": 40
+  },
+  "offset": {
+   "of": 121,
+   "right": 119
+  },
+  "ram_end": {
+   "of": 70,
+   "right": 70
+  },
+  "ram_false": 0,
+  "ram_found": {
+   "of": 70,
+   "right": 70
+  },
+  "ram_size": {
+   "of": 70,
+   "right": 70
+  },
+  "ram_start": {
+   "of": 70,
+   "right": 70
+  },
+  "ram_window_found": {
+   "of": 45,
+   "right": 35
+  },
+  "refused": {
+   "of": 5,
+   "right": 5
+  },
+  "region_confident_wrong": 0,
+  "unconfident": {
+   "of": 11,
+   "right": 11
+  },
+  "unknown_false": 0,
+  "variant": {
+   "of": 121,
+   "right": 111
+  }
+ }
+}

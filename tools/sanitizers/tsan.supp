@@ -1,0 +1,81 @@
+# ThreadSanitizer suppressions for system libraries that aren't built with
+# TSan instrumentation. Their internal synchronization is invisible to TSan,
+# so it reports races that aren't real. Races with both accesses in our own
+# code are never suppressed here.
+called_from_lib:libabsl_bad_optional_access.so
+called_from_lib:libabsl_bad_variant_access.so
+called_from_lib:libabsl_base.so
+called_from_lib:libabsl_city.so
+called_from_lib:libabsl_civil_time.so
+called_from_lib:libabsl_cord_internal.so
+called_from_lib:libabsl_cord.so
+called_from_lib:libabsl_cordz_functions.so
+called_from_lib:libabsl_cordz_handle.so
+called_from_lib:libabsl_cordz_info.so
+called_from_lib:libabsl_debugging_internal.so
+called_from_lib:libabsl_demangle_internal.so
+called_from_lib:libabsl_exponential_biased.so
+called_from_lib:libabsl_graphcycles_internal.so
+called_from_lib:libabsl_hash.so
+called_from_lib:libabsl_hashtablez_sampler.so
+called_from_lib:libabsl_int128.so
+called_from_lib:libabsl_log_severity.so
+called_from_lib:libabsl_low_level_hash.so
+called_from_lib:libabsl_malloc_internal.so
+called_from_lib:libabsl_random_distributions.so
+called_from_lib:libabsl_random_internal_platform.so
+called_from_lib:libabsl_random_internal_pool_urbg.so
+called_from_lib:libabsl_random_internal_randen_hwaes_impl.so
+called_from_lib:libabsl_random_internal_randen_hwaes.so
+called_from_lib:libabsl_random_internal_randen_slow.so
+called_from_lib:libabsl_random_internal_randen.so
+called_from_lib:libabsl_random_internal_seed_material.so
+called_from_lib:libabsl_random_seed_gen_exception.so
+called_from_lib:libabsl_random_seed_sequences.so
+called_from_lib:libabsl_raw_hash_set.so
+called_from_lib:libabsl_raw_logging_internal.so
+called_from_lib:libabsl_spinlock_wait.so
+called_from_lib:libabsl_stacktrace.so
+called_from_lib:libabsl_statusor.so
+called_from_lib:libabsl_status.so
+called_from_lib:libabsl_strerror.so
+called_from_lib:libabsl_str_format_internal.so
+called_from_lib:libabsl_strings_internal.so
+called_from_lib:libabsl_strings.so
+called_from_lib:libabsl_symbolize.so
+called_from_lib:libabsl_synchronization.so
+called_from_lib:libabsl_throw_delegate.so
+called_from_lib:libabsl_time.so
+called_from_lib:libabsl_time_zone.so
+called_from_lib:libaddress_sorting.so
+called_from_lib:libcares.so
+# OpenSSL (TLS for gRPC and the HTTP gateway, docs/security.md): gRPC's
+# transport hands its buffers to libssl/libcrypto on its own threads.
+called_from_lib:libcrypto.so.3
+called_from_lib:libssl.so.3
+called_from_lib:libgpr.so
+called_from_lib:libgrpc++_reflection.so
+called_from_lib:libgrpc++.so
+called_from_lib:libgrpc.so
+called_from_lib:libprotobuf.so
+called_from_lib:libre2.so
+called_from_lib:libupb.so
+# Stacks that run through gRPC/Abseil internals (including their own threads).
+race:absl::
+race:grpc_core::
+race:grpc_event_engine::
+race:grpc::
+deadlock:absl::
+# gRPC's own threads (timers, the executor) may still be finishing when a
+# short test process exits: TSan reports them as leaked, now and then
+# (AuthTest.GrpcServesTlsOnly once in a full run, never in ten alone).
+thread:grpc_core::Thread::Thread
+thread:libgpr.so
+race:libgrpc.so
+race:libgrpc++.so
+race:libgpr.so
+race:libabsl_
+race:libupb.so
+race:libprotobuf.so
+race:libcrypto.so
+race:libssl.so

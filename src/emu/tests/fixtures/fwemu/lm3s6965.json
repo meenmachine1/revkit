@@ -1,0 +1,17 @@
+// The Stellaris LM3S6965 evaluation board as qemu-system-arm -M lm3s6965evb
+// has it: a Cortex-M3 (NVIC, SysTick) with flash at 0, SRAM and UART0.
+{
+  "machine": 1,
+  "name": "lm3s6965evb",
+  "description": "Stellaris LM3S6965 (Cortex-M3): flash, SRAM, UART0",
+  "language": "ARM:LE:32:Cortex",
+  "cpu": {"model": "cortex-m", "semihosting": true, "nvic_irqs": 64, "priority_bits": 3},
+  "memory": [
+    {"name": "flash", "start": "0x0", "size": "256K", "kind": "rom"},
+    {"name": "sram", "start": "0x20000000", "size": "64K", "kind": "ram"}
+  ],
+  "image": {"load": "0x0", "perms": "r-x"},
+  "peripherals": [
+    {"name": "uart0", "kind": "pl011", "base": "0x4000c000", "irq": "nvic.5"}
+  ]
+}

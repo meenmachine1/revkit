@@ -1,0 +1,75 @@
+{
+  "description": "Large real binaries for scale measurements (docs/scale.md, scripts/bench-large.sh). Not committed: each is a file on the measuring host, identified by path and sha256; code_bytes is the size of .text.",
+  "binaries": [
+    {
+      "id": "bash",
+      "path": "/usr/bin/bash",
+      "sha256": "bc5945feb8bd26203ebfafea5ce1878bb2e32cb8fb50ab7ae395cfb1e1aaaef1",
+      "bytes": 1446024,
+      "code_bytes": 968381,
+      "format": "elf-x86_64",
+      "package": "bash 5.2.21-2ubuntu4 (Ubuntu 24.04)",
+      "size_class": "1 MB"
+    },
+    {
+      "id": "cmake",
+      "path": "/usr/bin/cmake",
+      "sha256": "1c5227af4edd22d8d689def545e18ee458260c0fd579eba2187967f38817e638",
+      "bytes": 11796472,
+      "code_bytes": 9542494,
+      "format": "elf-x86_64",
+      "package": "cmake 3.28.3-1build7 (Ubuntu 24.04)",
+      "size_class": "10 MB"
+    },
+    {
+      "id": "libclang-cpp",
+      "path": "/usr/lib/llvm-18/lib/libclang-cpp.so.18.1",
+      "sha256": "b9592746f7f8ff1156680fb1fad5faf5486df7a67aca8327cc959463416c6718",
+      "bytes": 64796088,
+      "code_bytes": 41594432,
+      "format": "elf-x86_64",
+      "package": "libclang-cpp18 1:18.1.3-1ubuntu1 (Ubuntu 24.04)",
+      "size_class": "50 MB"
+    },
+    {
+      "id": "libLLVM",
+      "path": "/usr/lib/x86_64-linux-gnu/libLLVM.so.20.1",
+      "sha256": "4b93481bd1c9d42c0951275dd275d4a9d30db78c309ae2cc0405669bc6dbbf8a",
+      "bytes": 143545784,
+      "code_bytes": 63048722,
+      "format": "elf-x86_64",
+      "package": "libllvm20 1:20.1.2-0ubuntu1~24.04.3 (Ubuntu 24.04)",
+      "size_class": "100 MB file"
+    },
+    {
+      "id": "chrome",
+      "path": "/opt/google/chrome/chrome",
+      "sha256": "ac7f9884974b551d29c89f24d0c697f373ce595a920ddafced441dd2554142db",
+      "bytes": 293199168,
+      "code_bytes": 227270568,
+      "format": "elf-x86_64",
+      "package": "google-chrome-stable 153.0.8010.36-1",
+      "size_class": "200+ MB code"
+    },
+    {
+      "id": "libstdc++-aarch64",
+      "path": "/usr/aarch64-linux-gnu/lib/libstdc++.so.6.0.33",
+      "sha256": "00866ee20d5bfa56406e9e155acc2109aa8a7250006d5c7c5d86716794ef6d61",
+      "bytes": 3298296,
+      "code_bytes": 1726124,
+      "format": "elf-aarch64",
+      "package": "libstdc++6-arm64-cross 14.2.0-4ubuntu2~24.04.1cross1 (Ubuntu 24.04)",
+      "size_class": "1 MB"
+    },
+    {
+      "id": "libstdc++-mingw",
+      "path": "/usr/lib/gcc/x86_64-w64-mingw32/13-win32/libstdc++-6.dll",
+      "sha256": "716df4898fdbfb0c58c6e83918f803dd9d2bf6b2e26734f73d4c96f5423f435b",
+      "bytes": 26831735,
+      "code_bytes": 1306760,
+      "format": "pe-x86_64",
+      "package": "gcc-mingw-w64-x86-64-win32-runtime 13.2.0-6ubuntu1+26.1 (Ubuntu 24.04)",
+      "size_class": "1 MB code, 26 MB with DWARF"
+    }
+  ]
+}

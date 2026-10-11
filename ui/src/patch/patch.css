@@ -1,0 +1,63 @@
+/* Patching: the inline editor, the bytes editor, the Patches view, export. */
+
+.patch-editor {
+  position: fixed;
+  z-index: 40;
+  background: var(--panel);
+  border: 1px solid var(--patch);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 6px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.patch-editor.busy { opacity: 0.7; }
+.patch-editor[data-error="1"] { border-color: var(--error); }
+.pe-head { display: flex; align-items: baseline; gap: 10px; }
+.pe-title { font-weight: 600; color: var(--patch); }
+.pe-ctx { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-opt { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.pe-input {
+  font-size: 13px;
+  padding: 4px 6px;
+  background: var(--bg);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+.pe-input:focus { border-color: var(--patch); }
+.pe-error { color: var(--error); white-space: pre; min-height: 0; }
+.pe-caret { color: var(--error); padding-left: 7px; }
+.pe-list { max-height: 220px; overflow-y: auto; }
+.pe-item { display: flex; gap: 14px; padding: 2px 6px; border-radius: 3px; cursor: pointer; }
+.pe-item.active { background: var(--patch-bg); }
+.pe-item.current .pe-label::after { content: "  ●"; color: var(--ok); }
+.pe-label { min-width: 40%; }
+.pe-foot { display: flex; justify-content: space-between; gap: 10px; }
+
+.pb .pb-area { width: 100%; min-width: 520px; }
+.pb-preview { margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.pp-head { display: flex; align-items: center; gap: 8px; }
+.pp-head .grow { flex: 1; }
+.pp-table { overflow: auto; padding: 4px 6px; font-size: 12px; }
+.pp-row { padding: 4px 0; border-bottom: 1px solid var(--border-soft); }
+.pp-main { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.pp-main > span, .pp-sub > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-sub { display: flex; gap: 12px; font-size: 11px; padding-top: 1px; }
+.pp-was { text-decoration: line-through; opacity: 0.65; }
+.pp-now { color: var(--patch); }
+
+.modal.ex { width: min(860px, 94vw); max-height: 90vh; overflow-y: auto; }
+.ex-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+.ex-line .ask-input { flex: 1; }
+.ex-small { width: 12ch; }
+.ex-section { margin-top: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.ex-fixups, .ex-hits { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px; }
+.ex-fixup, .ex-hit { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.ex-result { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+.ex-ok { color: var(--ok); }
+.ex-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }

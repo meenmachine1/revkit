@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "The UI talks to the daemon over HTTP (Connect), not Tauri IPC. The only commands are the shell's daemon controls (src/main.rs: status, start, stop, restart, log) for the status chip, granted to the bundled page of the main window; remote content gets none.",
+  "windows": ["main"],
+  "local": true,
+  "permissions": [
+    "allow-daemon-status",
+    "allow-daemon-start",
+    "allow-daemon-stop",
+    "allow-daemon-restart",
+    "allow-daemon-log"
+  ]
+}

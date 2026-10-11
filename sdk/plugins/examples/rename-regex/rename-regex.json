@@ -1,0 +1,15 @@
+{
+  "name": "rename-regex",
+  "version": "1.0.0",
+  "kind": "command",
+  "interface": 1,
+  "description": "Renames every function whose name matches a regular expression, substituting \\1..\\9 (or $1..$9) from its groups",
+  "capabilities": ["code"],
+  "command": {
+    "args": [
+      {"name": "pattern", "required": true, "description": "Regular expression (. [] [^] \\d \\w \\s * + ? {m,n} | () ^ $), searched in each function name"},
+      {"name": "replace", "required": true, "description": "Replacement for each match; \\0 or $0 is the whole match, \\1..\\9 or $1..$9 a group"},
+      {"name": "limit", "description": "Rename at most this many functions (default: all)"}
+    ]
+  }
+}

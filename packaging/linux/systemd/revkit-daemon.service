@@ -1,0 +1,26 @@
+# rk-daemon, started by revkit-daemon.socket on the first connection to its
+# HTTP port (docs/packaging.md, "Start the daemon on first use"). Not
+# enabled by itself: enable the socket.
+#
+# Accounts are on, as for any rk-daemon started without --no-auth
+# (docs/security.md). Make yours once before the first sign-in:
+#
+#   rk-daemon user add "$USER" --role admin --project-dir ~/.local/share/revkit/projects
+#
+# Other flags: systemctl --user edit revkit-daemon.service, then
+#   [Service]
+#   ExecStart=
+#   ExecStart=/usr/bin/rk-daemon --project-dir %h/rk ...
+[Unit]
+Description=revkit daemon (rk-daemon)
+Documentation=file:///usr/share/doc/revkit/getting-started.md
+Requires=revkit-daemon.socket
+After=revkit-daemon.socket
+
+[Service]
+Type=simple
+# The HTTP listener is the socket systemd passes (LISTEN_FDS); gRPC binds
+# its own loopback port when the daemon starts.
+ExecStart=/usr/bin/rk-daemon --project-dir %h/.local/share/revkit/projects --browse-root %h --grpc 127.0.0.1:50051
+Restart=on-failure
+RestartSec=2

@@ -1,0 +1,8 @@
+{
+  "name": "rkraw-loader",
+  "version": "1.0.0",
+  "kind": "loader",
+  "interface": 1,
+  "description": "Loads RKRAW files: raw code and data blocks behind a small header naming the language, blocks, entry point and symbols",
+  "loader": {"magic": "524b52415701", "offset": 0}
+}

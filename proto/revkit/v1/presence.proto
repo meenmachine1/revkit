@@ -1,0 +1,77 @@
+// Presence: who is looking at what, for collaborators' cursors in the UI.
+// Presence is ephemeral: it is never written to the assertion log or to
+// disk, entries expire unless refreshed, and daemons sharing a project
+// relay it to each other over the sync channel (docs/collab.md).
+syntax = "proto3";
+
+package revkit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// Publishes and lists presence. Changes also stream on
+// SubscriptionService.Subscribe with include_presence.
+service PresenceService {
+  // Announces or moves a client's cursor, or (left = true) removes it.
+  // Clients refresh it before it expires (every ttl/2 is plenty).
+  rpc UpdatePresence(UpdatePresenceRequest) returns (UpdatePresenceResponse);
+  // The project's live entries, from this daemon and its peers.
+  rpc ListPresence(ListPresenceRequest) returns (ListPresenceResponse);
+}
+
+// One client's position. The newest entry per client_id wins: an update
+// with a sequence not above the stored one is ignored, which is also what
+// stops a relayed entry from bouncing between daemons.
+message Presence {
+  // Stable for one client session: a browser tab, an agent run. Required.
+  string client_id = 1;
+  // Who it is ("user:alice", "agent:claude@opus-5.5").
+  Provenance who = 2;
+  // Optional display name for the cursor label.
+  string display_name = 3;
+  // The program being viewed; empty while not in one.
+  string program_id = 4;
+  // Cursor address, and optionally a selection.
+  Address address = 5;
+  AddressRange selection = 6;
+  // Which view: "listing", "decompiler", "functions", free-form.
+  string view = 7;
+  // Increases with every update from this client. 0 in a request: the
+  // server assigns one above the stored entry's.
+  uint64 sequence = 8;
+  // When the entry lapses unless refreshed (set by the server that first
+  // received it; daemons' clocks should roughly agree).
+  google.protobuf.Timestamp expires_at = 9;
+  // The client has gone: the entry is removed everywhere.
+  bool left = 10;
+  // Replica id of the daemon the client is connected to (set by it).
+  fixed64 origin_replica = 11;
+}
+
+message UpdatePresenceRequest {
+  string project_id = 1;
+  Presence presence = 2;
+  // How long the entry lives without a refresh; 0 = 30 s, at most 600.
+  uint32 ttl_seconds = 3;
+}
+
+message UpdatePresenceResponse {
+  // The entry as stored (sequence, expires_at and origin_replica set).
+  Presence presence = 1;
+}
+
+message ListPresenceRequest {
+  string project_id = 1;
+  // Only entries in this program (empty = all).
+  string program_id = 2;
+}
+
+message ListPresenceResponse {
+  // Unexpired entries, by client_id.
+  repeated Presence presence = 1;
+}

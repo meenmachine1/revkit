@@ -1,0 +1,275 @@
+// Decompiler output as structure, not text: a stream of typed tokens, each
+// mapped back to the instructions and varnodes it came from, plus the
+// function's prototype and variables.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// A data type as it appears in decompiler output.
+message TypeRef {
+  // TypeDefinition.hash; resolve with QueryService.GetTypes. Empty for
+  // types the decompiler synthesized without a definition.
+  string hash = 1;
+  // C spelling at the use site: "uint32_t", "char *", "struct foo".
+  string display = 2;
+}
+
+enum VariableKind {
+  VARIABLE_KIND_UNSPECIFIED = 0;
+  VARIABLE_KIND_PARAMETER = 1;
+  VARIABLE_KIND_LOCAL = 2;
+  // Global referenced from this function (included so tokens can index it).
+  VARIABLE_KIND_GLOBAL = 3;
+}
+
+message Variable {
+  // Position in DecompiledFunction.variables; what CodeToken.variable_index
+  // refers to.
+  uint32 index = 1;
+  VariableKind kind = 2;
+  string name = 3;
+  FactOrigin name_origin = 4;
+  TypeRef type = 5;
+  FactOrigin type_origin = 6;
+  // Stable identity for LocalVariableRef.storage_key and FactKey.sub
+  // ("local:<storage_key>"): "param:0", "stack:-0x14", "register:RDI",
+  // "unique:0x1a0@0x401136". Survives renames and retypes.
+  string storage_key = 7;
+  // Where the variable lives (several varnodes for split variables).
+  repeated Varnode storage = 8;
+  // For parameters: 0-based position.
+  optional uint32 parameter_index = 9;
+  // For globals: the variable's address.
+  Address address = 10;
+}
+
+message FunctionPrototype {
+  // Full C declaration: "uint32_t checksum(uint8_t *p, size_t n)".
+  string c_declaration = 1;
+  TypeRef return_type = 2;
+  // Indexes into DecompiledFunction.variables, in parameter order.
+  repeated uint32 parameter_indices = 3;
+  string calling_convention = 4;
+  bool varargs = 5;
+  bool no_return = 6;
+  FactOrigin origin = 7;
+}
+
+// Mirrors Ghidra's syntax-highlight classes so existing themes map 1:1.
+enum CodeTokenKind {
+  CODE_TOKEN_KIND_UNSPECIFIED = 0;
+  CODE_TOKEN_KIND_KEYWORD = 1;
+  CODE_TOKEN_KIND_TYPE = 2;
+  CODE_TOKEN_KIND_FUNCTION_NAME = 3;
+  CODE_TOKEN_KIND_LOCAL_VARIABLE = 4;
+  CODE_TOKEN_KIND_PARAMETER = 5;
+  CODE_TOKEN_KIND_GLOBAL_VARIABLE = 6;
+  CODE_TOKEN_KIND_CONSTANT = 7;
+  CODE_TOKEN_KIND_STRING = 8;
+  // Arithmetic, comparison, assignment, dereference operators.
+  CODE_TOKEN_KIND_OPERATOR = 9;
+  // Parentheses, braces, commas, semicolons.
+  CODE_TOKEN_KIND_PUNCTUATION = 10;
+  CODE_TOKEN_KIND_COMMENT = 11;
+  CODE_TOKEN_KIND_LABEL = 12;
+  // Structure field names.
+  CODE_TOKEN_KIND_FIELD = 13;
+  CODE_TOKEN_KIND_WHITESPACE = 14;
+  // Decompiler warnings/errors inline in the code.
+  CODE_TOKEN_KIND_ERROR = 15;
+}
+
+message CodeToken {
+  CodeTokenKind kind = 1;
+  string text = 2;
+  // Instruction address of the p-code op this token was printed from; unset
+  // for tokens with no single source (keywords, braces, declarations).
+  Address address = 3;
+  // For variable and parameter tokens: index into
+  // DecompiledFunction.variables.
+  optional uint32 variable_index = 4;
+  // Varnodes this token reads or writes, as indexes into
+  // DecompiledFunction.varnodes.
+  repeated uint32 varnode_indices = 5;
+  // For FUNCTION_NAME and GLOBAL_VARIABLE tokens: the referenced address
+  // (navigation target, and what a rename on this token should target).
+  Address target = 6;
+  // For TYPE tokens: the type named, by hash. Set for a struct or union
+  // (a typedef of one too) of the program's types from api_minor 53
+  // (feature "type-uses"); empty where a retype replaced the declaration's
+  // type, and for other types.
+  string type_hash = 7;
+  // For CONSTANT tokens: the value as an unsigned 64-bit pattern.
+  optional uint64 value = 8;
+  // For FIELD tokens (api_minor 38, feature "field-tokens"): the struct or
+  // union the field is a member of, by type hash (GetTypes), and the
+  // field's byte offset in it (0 for a union's members, which the token's
+  // text tells apart). The hash is empty where the decompiler's type has no
+  // definition among the program's named types (an anonymous member's
+  // type); the offset is set whenever the parent is a struct or union, also
+  // for a gap no field covers (`field_0x10`).
+  string parent_type_hash = 9;
+  optional uint64 field_offset = 10;
+  // For CONSTANT tokens (api_minor 39, feature "equates"): the
+  // decompiler's dynamic hash of the constant (Ghidra's DynamicHash), which
+  // an OperandDisplay needs (constant_hash) to name a constant no operand
+  // of the instruction at `address` holds.
+  optional uint64 constant_hash = 11;
+  // The constant shows as an assertion says (OperandDisplay: a
+  // conversion, an equate or an enum member): `text` is how; `value` is
+  // the constant's (api_minor 39).
+  bool display_set = 12;
+  // For a FUNCTION_NAME or GLOBAL_VARIABLE token naming a symbol by its
+  // demangled name (api_minor 40, feature "demangle"; docs/demangle.md):
+  // its other spellings. The token's text is the name as the decompiler
+  // prints it from where it is used (its namespaces minimally qualified).
+  DemangledName demangled = 13;
+  // For a FUNCTION_NAME token of a call with a signature override
+  // (CallSignatureOverride; api_minor 53, feature
+  // "call-signature-override"): the override's prototype as C, which the
+  // decompiler took for this call.
+  string call_signature = 14;
+  // The p-code op this token was printed from, as an index into
+  // DecompiledFunction.dataflow.ops (api_minor 57, feature
+  // "decompile-slices"); only with DecompileOptions.include_dataflow.
+  optional uint32 op_index = 15;
+}
+
+message CodeLine {
+  // Nesting depth; clients choose the indent width.
+  uint32 indent = 1;
+  repeated CodeToken tokens = 2;
+  // Lowest instruction address among the line's tokens, for synchronizing
+  // the listing and decompiler views. Unset for lines with no mapping.
+  Address address = 3;
+}
+
+// A varnode in the decompiler's SSA graph that some token maps to.
+message MappedVarnode {
+  Varnode varnode = 1;
+  // The high-level variable this varnode belongs to.
+  optional uint32 variable_index = 2;
+  // Address of the instruction whose p-code defines it; unset for inputs.
+  Address defined_at = 3;
+}
+
+// The decompiler's data-flow graph of a function (api_minor 57, feature
+// "decompile-slices"): every varnode of its SSA form and every live p-code
+// op, which slices and def-use chains walk (QueryService.SliceDecompiled
+// computes them). Only with DecompileOptions.include_dataflow.
+message DataFlowNode {
+  // The op that defines it, as an index into DataFlow.ops; unset for the
+  // function's inputs and constants.
+  optional uint32 def = 1;
+  // For nodes past DecompiledFunction.varnodes (ones no token prints):
+  // where the value lives. Nodes below that count are the varnodes table's
+  // own, at the same index.
+  Varnode varnode = 2;
+  // A constant (its value is varnode.offset).
+  bool constant = 3;
+}
+
+message DataFlowOp {
+  // The instruction the op belongs to.
+  Address address = 1;
+  // Ghidra's p-code opcode name ("INT_ADD", "MULTIEQUAL", "CALL").
+  string opcode = 2;
+  // The node it writes, and the nodes it reads, as indexes into
+  // DataFlow.nodes.
+  optional uint32 output = 3;
+  repeated uint32 inputs = 4;
+}
+
+message DataFlow {
+  repeated DataFlowNode nodes = 1;
+  repeated DataFlowOp ops = 2;
+}
+
+message DecompiledFunction {
+  Address entry = 1;
+  string name = 2;
+  FunctionPrototype prototype = 3;
+  // Parameters first (in order), then locals, then referenced globals.
+  repeated Variable variables = 4;
+  repeated CodeLine lines = 5;
+  repeated MappedVarnode varnodes = 6;
+  // Plain C text, when DecompileOptions.include_text is set. Equals the
+  // tokens joined with indentation applied.
+  string text = 7;
+  repeated string warnings = 8;
+  // Rule ("decompiler.ghidra"), inputs, confidence.
+  Derivation origin = 9;
+  // The data-flow graph (DecompileOptions.include_dataflow; api_minor 57).
+  DataFlow dataflow = 10;
+}
+
+message DecompileOptions {
+  // Also return DecompiledFunction.text.
+  bool include_text = 1;
+  // Upper bound on decompiler work; 0 = server default. Servers before
+  // api_minor 8 fail a run past it with DEADLINE_EXCEEDED; from api_minor 8
+  // (feature "decompile-failures") it is a TIMEOUT failure
+  // (DecompileResponse.failure). The call deadline also applies.
+  uint32 timeout_ms = 2;
+  // Retry a function whose decompilation timed out, once, with timeout_ms
+  // (default: four times the deadline it failed at). A timeout allows one
+  // such escalation per input bundle; asking again, or for another kind of
+  // failure, fails with FAILED_PRECONDITION. api_minor 8.
+  bool escalate = 3;
+  // Return DecompileFailure.bundle when the decompilation failed. api_minor 8.
+  bool include_bundle = 4;
+  // Also return DecompiledFunction.dataflow and each token's op_index
+  // (api_minor 57, feature "decompile-slices"): the graph a client walks
+  // for its own slices. QueryService.SliceDecompiled computes them instead.
+  bool include_dataflow = 5;
+}
+
+// Why the decompiler produced nothing for a function (api_minor 8,
+// feature "decompile-failures").
+enum DecompileFailureKind {
+  DECOMPILE_FAILURE_KIND_UNSPECIFIED = 0;
+  // The decompiler crashed with a segmentation fault (or a bus error).
+  DECOMPILE_FAILURE_KIND_SEGV = 1;
+  // An arithmetic exception (a division by zero).
+  DECOMPILE_FAILURE_KIND_FPE = 2;
+  // It aborted: an assertion, an uncaught exception, another signal.
+  DECOMPILE_FAILURE_KIND_ABORT = 3;
+  // It ran past its deadline, and stopped or was killed.
+  DECOMPILE_FAILURE_KIND_TIMEOUT = 4;
+  // It ran out of memory, or past the server's bound on its size.
+  DECOMPILE_FAILURE_KIND_OOM = 5;
+}
+
+// A decompilation that failed. Ghidra's decompiler runs in worker
+// processes, so a failure costs only its function. The server keeps the
+// failure as the decompilation's result and decompiles again only when the
+// function's inputs (its bundle) or the decompiler change, or once with a
+// longer deadline on request (DecompileOptions.escalate).
+message DecompileFailure {
+  DecompileFailureKind kind = 1;
+  // Hash of the self-contained input bundle the decompiler ran on: equal
+  // hashes are equal inputs.
+  string bundle_hash = 2;
+  // The decompiler it failed in ("ghidra-12.1.4+<hash of its sources>").
+  string decompiler_build = 3;
+  // The deadline in force, in milliseconds (0: none).
+  uint32 deadline_ms = 4;
+  // The end of the worker's error output.
+  string stderr_tail = 5;
+  // "SIGSEGV", "killed at the 39.5 s deadline", ...
+  string detail = 6;
+  // A timeout that may still be retried with a longer deadline.
+  bool can_escalate = 7;
+  // This failure is the escalated retry's.
+  bool escalated = 8;
+  // The bundle (DecompileOptions.include_bundle): `rk-decompd --bundle
+  // FILE` decompiles it alone and reproduces the failure.
+  bytes bundle = 9;
+}

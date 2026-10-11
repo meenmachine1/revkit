@@ -1,0 +1,18 @@
+add_library(revkit_demangle STATIC demangle.cc structured.cc)
+add_library(revkit::demangle ALIAS revkit_demangle)
+target_include_directories(revkit_demangle PUBLIC include)
+target_link_libraries(revkit_demangle PRIVATE llvm_demangle)
+target_compile_options(revkit_demangle PRIVATE -Wall -Wextra)
+
+if(REVKIT_BUILD_TESTS)
+  add_executable(revkit_demangle_test tests/demangle_test.cc)
+  target_link_libraries(revkit_demangle_test PRIVATE revkit::demangle GTest::gtest_main)
+  target_compile_options(revkit_demangle_test PRIVATE -Wall -Wextra)
+  gtest_discover_tests(revkit_demangle_test)
+endif()
+
+if(REVKIT_FUZZ)
+  add_executable(demangle_fuzzer fuzz/demangle_fuzzer.cc)
+  target_link_libraries(demangle_fuzzer PRIVATE revkit::demangle)
+  target_link_options(demangle_fuzzer PRIVATE -fsanitize=fuzzer)
+endif()

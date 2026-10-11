@@ -1,0 +1,162 @@
+// WebAssembly plugins: the ones the daemon loaded, the facts analyzer
+// plugins derive, and running command plugins (docs/plugins.md).
+//
+// Added in api_minor 6 (feature "plugins"); older daemons answer
+// UNIMPLEMENTED.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "revkit/v1/assertion.proto";
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// Plugins loaded by the daemon (rk-daemon --plugin-dir).
+service PluginService {
+  // Every plugin the daemon found, loaded or rejected.
+  rpc ListPlugins(ListPluginsRequest) returns (ListPluginsResponse);
+  // Runs a command plugin on a program. Its edits are appended as one batch
+  // of assertions (one revision) with provenance plugin:<name>@<version>,
+  // or the caller's when the caller is an agent, so they can be blamed and
+  // reverted like any other edit.
+  rpc RunCommand(RunCommandRequest) returns (RunCommandResponse);
+  // What analyzer plugins derive for a program: labels, comments, data types
+  // and notes at addresses, each with its rule (plugin:<name>@<version>).
+  // Results are memoized fact-store queries, recomputed only when a fact the
+  // plugin read changes.
+  rpc GetPluginFacts(GetPluginFactsRequest) returns (GetPluginFactsResponse);
+}
+
+enum PluginKind {
+  PLUGIN_KIND_UNSPECIFIED = 0;
+  PLUGIN_KIND_ANALYZER = 1;
+  PLUGIN_KIND_LOADER = 2;
+  PLUGIN_KIND_COMMAND = 3;
+  // A machine peripheral for firmware emulation (api_minor 20, feature
+  // "peripheral-plugins"; docs/firmware-emulation.md).
+  PLUGIN_KIND_PERIPHERAL = 4;
+}
+
+message PluginArg {
+  string name = 1;
+  string description = 2;
+  bool required = 3;
+}
+
+message Plugin {
+  string name = 1;
+  // Semantic version; name@version is the rule of an analyzer's facts and
+  // the provenance id of a command's edits.
+  string version = 2;
+  PluginKind kind = 3;
+  // The plugin interface major version it was built for.
+  uint32 interface_version = 4;
+  string description = 5;
+  // What it may read beyond its input: "memory", "code", "file"; peripherals
+  // "irq", "output", "bus".
+  repeated string capabilities = 6;
+  // False when the daemon rejected it; `error` says why.
+  bool loaded = 7;
+  string error = 8;
+  // Analyzers: true when they run once per function, else once per program.
+  bool function_scope = 9;
+  // Commands: their arguments.
+  repeated PluginArg args = 10;
+  // Loaders: the magic they recognise, hex, at magic_offset.
+  string magic = 11;
+  uint64 magic_offset = 12;
+  // Identity of the module's bytes.
+  string module_fingerprint = 13;
+  // The limits each call runs under.
+  uint64 fuel = 14;
+  uint64 memory_bytes = 15;
+  // Peripherals: interrupt outputs, interrupt inputs (controllers), and the
+  // register block's default size.
+  repeated string peripheral_outputs = 16;
+  uint32 peripheral_inputs = 17;
+  uint64 peripheral_size = 18;
+}
+
+message ListPluginsRequest {}
+
+message ListPluginsResponse {
+  repeated Plugin plugins = 1;
+  // The plugin interface major version the daemon speaks.
+  uint32 interface_version = 2;
+}
+
+message RunCommandRequest {
+  string program_id = 1;
+  // The command plugin's name.
+  string plugin = 2;
+  map<string, string> args = 3;
+  // Who is asking. An AGENT caller's provenance is kept (with tool set to
+  // plugin:<name>@<version>); otherwise the edits are recorded as
+  // PLUGIN <name>@<version>, with the caller's session, reason and tool.
+  Provenance provenance = 4;
+  // Run the plugin and validate its edits without committing them.
+  bool dry_run = 5;
+  // Optimistic concurrency, as AppendAssertionsRequest.expected_head_revision.
+  uint64 expected_head_revision = 6;
+}
+
+message RunCommandResponse {
+  // The revision the edits landed in (head for a dry run or no edits).
+  Snapshot snapshot = 1;
+  // The assertions committed (or, for a dry run, that would be).
+  repeated Assertion assertions = 2;
+  // Lines the plugin logged.
+  repeated string log = 3;
+  uint64 fuel_consumed = 4;
+}
+
+enum PluginFactKind {
+  PLUGIN_FACT_KIND_UNSPECIFIED = 0;
+  PLUGIN_FACT_KIND_LABEL = 1;
+  // `sub` is the comment kind: eol, pre, post, plate.
+  PLUGIN_FACT_KIND_COMMENT = 2;
+  // `text` is a C type.
+  PLUGIN_FACT_KIND_DATA_TYPE = 3;
+  // `sub` is a tag.
+  PLUGIN_FACT_KIND_NOTE = 4;
+}
+
+message PluginFact {
+  Address address = 1;
+  PluginFactKind kind = 2;
+  string text = 3;
+  string sub = 4;
+  // derived.rule is "plugin:<name>@<version>".
+  FactOrigin origin = 5;
+}
+
+message PluginRunError {
+  string plugin = 1;
+  // The function, for function-scope analyzers.
+  Address scope = 2;
+  // "out of fuel", "trap", "timeout", ...
+  string failure = 3;
+  string message = 4;
+}
+
+message GetPluginFactsRequest {
+  string program_id = 1;
+  // Analyzer plugin names; empty means every loaded analyzer.
+  repeated string plugins = 2;
+  // Facts at addresses in this range; function-scope analyzers run for the
+  // functions whose entry is in it. Unset means the whole program.
+  AddressRange range = 3;
+  ReadOptions read = 4;
+}
+
+message GetPluginFactsResponse {
+  Snapshot snapshot = 1;
+  // By address, then plugin.
+  repeated PluginFact facts = 2;
+  // Runs that failed (deterministic failures are memoized like results).
+  repeated PluginRunError errors = 3;
+}

@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Sun, 4 Oct 2026 21:41:13 -0400
+Subject: [PATCH] Decompiler: fail cleanly when a bitfield pull's reading op
+ was already removed
+
+BitFieldPullTransform::apply processes its PullRecords in order. Each
+applyRecord may delete the op that defined the pulled value
+(opDestroyRecursive on modOp once its output has no reads left). When a
+later record's readOp is one of the ops deleted that way (an INT_AND in
+the cases below), applyRecord works on a dead op: getSlot() doesn't find readVn
+among its now-null inputs, returns numInput(), and opSetInput then reads
+past the end of the input vector and dereferences garbage in
+Varnode::eraseDescend. The decompiler segfaults.
+
+Check that each record's readOp is still alive before applying it and throw
+a LowlevelError otherwise, so the function fails with an error and the
+process survives. Only functions that crashed before are affected.
+(Skipping the record would likely also be correct, as the read no longer
+exists, but that is left to the bitfield code's owners.)
+
+Seen on: tcc 0.9.27 struct_decl, debug builds for x86-64 clang -O2,
+AArch64 gcc -O2 and x86-64 Windows clang -O2 (DWARF/PDB types with
+bitfields). Ghidra 12.1.4's decompiler process dies on all three.
+Repro: decomp_dbg, restore the attached debug XML, load function
+struct_decl, decompile.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/bitfield.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/bitfield.cc
+index 5d7d650..e369991 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/bitfield.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/bitfield.cc
+@@ -1654,6 +1654,8 @@ void BitFieldPullTransform::apply(void)
+   state.partialType = buildPartialType();
+   while(!pullList.empty()) {
+     PullRecord &rec(pullList.front());
++    if (rec.readOp != (PcodeOp *)0 && rec.readOp->isDead())
++      throw LowlevelError("Bitfield pull: op reading the field was removed by an earlier pull");
+     if (rec.type == PullRecord::equal) {
+       applyCompareRecord(rec);
+     }

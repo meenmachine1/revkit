@@ -1,0 +1,42 @@
+{
+ "arch": "mcs51",
+ "counts": {
+  "c_alpha": 26,
+  "c_ast": 26,
+  "c_both": 42,
+  "c_flow": 38,
+  "c_ghidra_only": 0,
+  "c_revkit_only": 0,
+  "c_shape": 38,
+  "c_shape_dwarf": 38,
+  "common": 42,
+  "dwarf": 110,
+  "dwarf_ghidra": 32,
+  "dwarf_revkit": 32,
+  "ghidra": 46,
+  "insn_both": 1688,
+  "insn_ghidra": 1688,
+  "insn_revkit": 1734,
+  "revkit": 44,
+  "truth_ghidra": 36,
+  "truth_revkit": 36
+ },
+ "images": [
+  "mcs51/mcukit-8051-O2",
+  "mcs51/mcukit-8051-Os"
+ ],
+ "rates": {
+  "c_alpha": 0.619048,
+  "c_ast": 0.619048,
+  "c_flow": 0.904762,
+  "c_shape": 0.904762,
+  "c_shape_dwarf": 0.904762,
+  "dwarf_recall": 0.290909,
+  "ghidra_dwarf_recall": 0.290909,
+  "ghidra_truth_precision": 0.782609,
+  "listing_both": 1.0,
+  "precision": 0.954545,
+  "recall": 0.913043,
+  "truth_precision": 0.818182
+ }
+}

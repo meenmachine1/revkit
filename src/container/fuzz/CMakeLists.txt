@@ -1,0 +1,11 @@
+# libFuzzer targets for the container formats (REVKIT_FUZZ=ON, clang): one
+# per format, from one source naming its format, and one for the LZ4 and
+# LZO1X block decoders (docs/filesystems.md, "Fuzzing"; docs/roadmap.md,
+# "Bug scrub").
+foreach(format zip tar cpio ar iso9660 gzip bzip2 xz lzma zstd lz4 squashfs ext cramfs fat uimage android-boot uf2 partitions codecs)
+  string(REPLACE "-" "_" name "${format}")
+  add_executable(container_${name}_fuzzer container_fuzzer.cc)
+  target_compile_definitions(container_${name}_fuzzer PRIVATE RK_FUZZ_FORMAT="${format}")
+  target_link_libraries(container_${name}_fuzzer PRIVATE revkit::container)
+  target_link_options(container_${name}_fuzzer PRIVATE -fsanitize=fuzzer)
+endforeach()

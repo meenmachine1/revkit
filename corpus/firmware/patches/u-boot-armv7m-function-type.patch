@@ -1,0 +1,13 @@
+U-Boot 2025.01's ARMv7-M start.S doesn't mark c_runtime_cpu_setup as a
+function, which binutils 2.43's ld rejects ("Unknown destination type
+(ARM/Thumb)") for the Thumb call from crt0.S.
+
+--- a/arch/arm/cpu/armv7m/start.S
++++ b/arch/arm/cpu/armv7m/start.S
+@@ -12,5 +12,6 @@
+ 	W(b)	_main
+ 
+ .globl	c_runtime_cpu_setup
++.type	c_runtime_cpu_setup, %function
+ c_runtime_cpu_setup:
+ 	mov	pc, lr

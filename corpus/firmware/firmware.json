@@ -1,0 +1,227 @@
+{
+  "_doc": "The firmware corpus (corpus/README.md, docs/firmware.md): raw firmware images for several processors, built from source by corpus/firmware/build.py in the toolchain image (corpus/firmware/docker/Dockerfile). Each image is a flat binary (objcopy -O binary) with a known load address and entry, kept beside its ELF (DWARF) as ground truth. 'targets' are fwkit's per-processor build settings; 'images' are what gets built.",
+  "externals": {
+    "u-boot": {
+      "url": "https://ftp.denx.de/pub/u-boot/u-boot-2025.01.tar.bz2",
+      "sha256": "cdef7d507c93f1bbd9f015ea9bc21fa074268481405501945abc6f854d5b686f",
+      "strip_components": 1,
+      "license": "GPL-2.0-or-later",
+      "patches": ["patches/u-boot-armv7m-function-type.patch"]
+    },
+    "freertos-kernel": {
+      "url": "https://github.com/FreeRTOS/FreeRTOS-Kernel/releases/download/V11.1.0/FreeRTOS-KernelV11.1.0.zip",
+      "sha256": "eebd58aa71a623c9381f25f77b708c0ed14ef995a8913e2460fe9f286bb271eb",
+      "strip_components": 1,
+      "license": "MIT"
+    },
+    "lwip": {
+      "url": "https://download.savannah.nongnu.org/releases/lwip/lwip-2.2.0.zip",
+      "sha256": "e12c769be5a1da9a1edf1b8f38d645c6c87d52a26a636172cea4b8c63ec04994",
+      "strip_components": 1,
+      "license": "BSD-3-Clause"
+    },
+    "littlefs": {
+      "url": "https://github.com/littlefs-project/littlefs/archive/refs/tags/v2.10.1.tar.gz",
+      "file": "littlefs-2.10.1.tar.gz",
+      "sha256": "620691695d65ad161eed1247122b63ad03e0251d8617864ba086a563afe98216",
+      "strip_components": 1,
+      "license": "BSD-3-Clause"
+    },
+    "monocypher": {
+      "url": "https://monocypher.org/download/monocypher-4.0.2.tar.gz",
+      "sha256": "38d07179738c0c90677dba3ceb7a7b8496bcfea758ba1a53e803fed30ae0879c",
+      "strip_components": 1,
+      "license": "BSD-2-Clause OR CC0-1.0"
+    },
+    "heatshrink": {
+      "url": "https://github.com/atomicobject/heatshrink/archive/refs/tags/v0.4.1.tar.gz",
+      "file": "heatshrink-0.4.1.tar.gz",
+      "sha256": "7529a1c8ac501191ad470b166773364e66d9926aad632690c72c63a1dea7e9a6",
+      "strip_components": 1,
+      "license": "ISC"
+    },
+    "printf": {
+      "url": "https://github.com/mpaland/printf/archive/refs/tags/v4.0.0.tar.gz",
+      "file": "printf-4.0.0.tar.gz",
+      "sha256": "84ba639fd8b09a8195dd848923a9c43459334a2fecee36b0bd8003fb89ff0158",
+      "strip_components": 1,
+      "license": "MIT"
+    },
+    "grbl": {
+      "url": "https://github.com/gnea/grbl/archive/refs/tags/v1.1h.20190825.tar.gz",
+      "file": "grbl-1.1h.20190825.tar.gz",
+      "sha256": "a138a999e891829b01adf68dc2b374fd4b94c639a02a0444afdbf9952fbdbb9b",
+      "strip_components": 1,
+      "license": "GPL-3.0-or-later"
+    },
+    "msp430-gcc": {
+      "url": "https://dr-download.ti.com/software-development/ide-configuration-compiler-or-debugger/MD-LlCjWuAbzH/9.3.1.2/msp430-gcc-9.3.1.11_linux64.tar.bz2",
+      "sha256": "b60851b61565e3ddd2193298a3fac5120c2402597174106cc5f8482b9e9986e6",
+      "strip_components": 1,
+      "license": "GPL-3.0-or-later (GCC), toolchain only",
+      "toolchain": true
+    },
+    "xtensa-esp-elf": {
+      "url": "https://github.com/espressif/crosstool-NG/releases/download/esp-14.2.0_20241119/xtensa-esp-elf-14.2.0_20241119-x86_64-linux-gnu.tar.xz",
+      "sha256": "e3e6dcf3d275c3c9ab0e4c8a9d93fd10e7efc035d435460576c9d95b4140c676",
+      "strip_components": 1,
+      "license": "GPL-3.0-or-later (GCC), toolchain only",
+      "toolchain": true
+    }
+  },
+  "targets": {
+    "mips": {
+      "cc": "mips-linux-gnu-gcc",
+      "cflags": ["-EB", "-march=mips32r2", "-mno-abicalls", "-fno-pic", "-G0", "-msoft-float"],
+      "start": "mips.S", "rom": "0xbfc00000", "romsize": "0x400000", "ram": "0x80000000", "ramsize": "0x100000",
+      "mmio": "0xbf000000", "language": "MIPS:BE:32:default:default"
+    },
+    "mipsel": {
+      "cc": "mipsel-linux-gnu-gcc",
+      "cflags": ["-EL", "-march=mips32r2", "-mno-abicalls", "-fno-pic", "-G0", "-msoft-float"],
+      "start": "mips.S", "rom": "0xbfc00000", "romsize": "0x400000", "ram": "0x80000000", "ramsize": "0x100000",
+      "mmio": "0xbf000000", "language": "MIPS:LE:32:default:default"
+    },
+    "ppc": {
+      "cc": "powerpc-linux-gnu-gcc",
+      "cflags": ["-mcpu=603e", "-msoft-float", "-fno-pic", "-msdata=none", "-G0"],
+      "start": "ppc.S", "rom": "0xfff00000", "romsize": "0x100000", "ram": "0x00100000", "ramsize": "0x100000",
+      "mmio": "0xf0000000", "language": "PowerPC:BE:32:default:default"
+    },
+    "sh4": {
+      "cc": "sh4-linux-gnu-gcc",
+      "cflags": ["-m4", "-ml", "-fno-pic"],
+      "start": "sh4.S", "rom": "0xa0000000", "romsize": "0x400000", "ram": "0x8c000000", "ramsize": "0x100000",
+      "mmio": "0xb8000000", "language": "SuperH4:LE:32:default:default"
+    },
+    "m68k": {
+      "cc": "m68k-linux-gnu-gcc",
+      "cflags": ["-m68020", "-fno-pic"],
+      "start": "m68k.S", "rom": "0x00000000", "romsize": "0x400000", "ram": "0x00800000", "ramsize": "0x100000",
+      "mmio": "0x00f00000", "language": "68000:BE:32:default:default"
+    },
+    "cortexm3": {
+      "cc": "arm-none-eabi-gcc",
+      "cflags": ["-mcpu=cortex-m3", "-mthumb"],
+      "start": "cortexm.c", "freertos_port": "GCC/ARM_CM3", "rom": "0x08000000", "romsize": "0x100000",
+      "ram": "0x20000000", "ramsize": "0x40000", "mmio": "0x40010000", "language": "ARM:LE:32:Cortex:default"
+    },
+    "cortexm4": {
+      "cc": "arm-none-eabi-gcc",
+      "cflags": ["-mcpu=cortex-m4", "-mthumb", "-mfloat-abi=soft"],
+      "start": "cortexm.c", "freertos_port": "GCC/ARM_CM3", "rom": "0x08000000", "romsize": "0x100000",
+      "ram": "0x20000000", "ramsize": "0x40000", "mmio": "0x40010000", "language": "ARM:LE:32:Cortex:default"
+    },
+    "esp32": {
+      "cc": "xtensa-esp-elf/bin/xtensa-esp32-elf-gcc",
+      "cflags": ["-mlongcalls"],
+      "start": "esp32.S", "rom": "0x400d0000", "romsize": "0x300000", "ram": "0x3ffb0000", "ramsize": "0x50000",
+      "mmio": "0x3ff40000", "language": "Xtensa:LE:32:default:default"
+    },
+    "lx106": {
+      "cc": "xtensa-lx106-elf-gcc",
+      "cflags": ["-mlongcalls"],
+      "start": "lx106.S", "extra_srcs": ["arch/lx106_libgcc.c"], "rom": "0x40200000", "romsize": "0x100000", "ram": "0x3ffc0000", "ramsize": "0x40000",
+      "mmio": "0x60000000", "language": "Xtensa:LE:32:default:default"
+    },
+    "riscv32": {
+      "cc": "riscv64-unknown-elf-gcc",
+      "cflags": ["-march=rv32imac", "-mabi=ilp32", "-Wa,-march=rv32imac_zicsr", "-mno-relax", "-msmall-data-limit=0"],
+      "start": "rv32.S", "rom": "0x20000000", "romsize": "0x400000", "ram": "0x80000000", "ramsize": "0x20000",
+      "mmio": "0x10010000", "language": "RISCV:LE:32:default:gcc"
+    },
+    "sparc": {
+      "cc": "sparc64-linux-gnu-gcc",
+      "cflags": ["-m32", "-mcpu=v8", "-fno-pic"],
+      "start": "sparc.S", "rom": "0x00000000", "romsize": "0x400000", "ram": "0x40000000", "ramsize": "0x100000",
+      "mmio": "0x80000000", "language": "sparc:BE:32:default:default"
+    },
+    "msp430x": {
+      "cc": "msp430-gcc/bin/msp430-elf-gcc",
+      "cflags": ["-mcpu=msp430x", "-mlarge", "-mhwmult=none", "-mcode-region=none", "-mdata-region=none"],
+      "start": "msp430x.S", "rom": "0x10000", "romsize": "0x60000", "ram": "0x80000", "ramsize": "0x20000",
+      "mmio": "0x0100", "min_paddr": "0x10000", "build_id": false, "ldlibs": ["-lmul_none", "-lgcc"], "language": "TI_MSP430X:LE:32:default:default"
+    },
+    "avr-grbl": {
+      "family": "gcc", "cc": "avr-gcc", "cflags": ["-mmcu=atmega328p"], "ldscript": "default", "max_paddr": "0x800000",
+      "language": "avr8:LE:16:default:gcc"
+    },
+    "avr-mcukit": {
+      "family": "gcc", "cc": "avr-gcc", "cflags": ["-mmcu=atmega328p", "-DF_CPU=16000000UL"], "arch": "avr.c",
+      "ldscript": "default", "max_paddr": "0x800000", "language": "avr8:LE:16:default:gcc"
+    },
+    "msp430-mcukit": {
+      "family": "gcc", "cc": "msp430-gcc/bin/msp430-elf-gcc", "cflags": ["-mcpu=msp430", "-mhwmult=none"], "arch": "msp430.c",
+      "ldlibs": ["-lmul_none", "-lgcc"],
+      "ldscript": "mcukit/arch/msp430.ld", "min_paddr": "0xc000", "regions": ["sfr:0:200:rw-:volatile", "ram:200:200", "info:1000:100:rw-"],
+      "language": "TI_MSP430:LE:16:default:default"
+    },
+    "mcs51-mcukit": {
+      "family": "sdcc", "cflags": ["-mmcs51", "--model-large"], "arch": "mcs51.c",
+      "regions": ["xram:0:ff00:rw-:space=EXTMEM", "xio:ff00:100:rw-:volatile:space=EXTMEM"],
+      "language": "8051:BE:16:default:default"
+    },
+    "z80-mcukit": {
+      "family": "sdcc", "cflags": ["-mz80"], "ldflags": ["--code-loc", "0x0200", "--data-loc", "0x8000"], "arch": "z80.c",
+      "regions": ["ram:8000:8000"], "language": "z80:LE:16:default:default"
+    }
+  },
+  "images": [
+    {"name": "mips/uboot-malta", "kind": "uboot", "defconfig": "malta_defconfig", "cross": "mips-linux-gnu-",
+     "language": "MIPS:BE:32:default:default"},
+    {"name": "mips/uboot-maltael", "kind": "uboot", "defconfig": "maltael_defconfig", "cross": "mipsel-linux-gnu-",
+     "language": "MIPS:LE:32:default:default"},
+    {"name": "mips/fwkit-mips-O2", "kind": "fwkit", "target": "mips", "opt": "O2"},
+    {"name": "mips/fwkit-mipsel-Os", "kind": "fwkit", "target": "mipsel", "opt": "Os"},
+
+    {"name": "ppc/uboot-MPC837XERDB", "kind": "uboot", "defconfig": "MPC837XERDB_defconfig",
+     "cross": "powerpc-linux-gnu-", "language": "PowerPC:BE:32:default:default"},
+    {"name": "ppc/uboot-MCR3000", "kind": "uboot", "defconfig": "MCR3000_defconfig", "cross": "powerpc-linux-gnu-",
+     "language": "PowerPC:BE:32:default:default"},
+    {"name": "ppc/fwkit-ppc-O2", "kind": "fwkit", "target": "ppc", "opt": "O2"},
+    {"name": "ppc/fwkit-ppc-Os", "kind": "fwkit", "target": "ppc", "opt": "Os"},
+
+    {"name": "sh4/uboot-r2dplus", "kind": "uboot", "defconfig": "r2dplus_defconfig", "cross": "sh4-linux-gnu-",
+     "language": "SuperH4:LE:32:default:default"},
+    {"name": "sh4/fwkit-sh4-O2", "kind": "fwkit", "target": "sh4", "opt": "O2"},
+    {"name": "sh4/fwkit-sh4-Os", "kind": "fwkit", "target": "sh4", "opt": "Os"},
+
+    {"name": "m68k/uboot-M5208EVBE", "kind": "uboot", "defconfig": "M5208EVBE_defconfig", "cross": "m68k-linux-gnu-",
+     "language": "68000:BE:32:Coldfire:default"},
+    {"name": "m68k/uboot-M5373EVB", "kind": "uboot", "defconfig": "M5373EVB_defconfig", "cross": "m68k-linux-gnu-",
+     "language": "68000:BE:32:Coldfire:default"},
+    {"name": "m68k/fwkit-m68k-O2", "kind": "fwkit", "target": "m68k", "opt": "O2"},
+    {"name": "m68k/fwkit-m68k-Os", "kind": "fwkit", "target": "m68k", "opt": "Os"},
+
+    {"name": "cortexm/uboot-stm32f429-discovery", "kind": "uboot", "defconfig": "stm32f429-discovery_defconfig",
+     "cross": "arm-none-eabi-", "language": "ARM:LE:32:Cortex:default"},
+    {"name": "cortexm/uboot-stm32f746-disco", "kind": "uboot", "defconfig": "stm32f746-disco_defconfig",
+     "cross": "arm-none-eabi-", "language": "ARM:LE:32:Cortex:default"},
+    {"name": "cortexm/fwkit-cortexm3-O2", "kind": "fwkit", "target": "cortexm3", "opt": "O2"},
+    {"name": "cortexm/fwkit-cortexm4-Os", "kind": "fwkit", "target": "cortexm4", "opt": "Os"},
+
+    {"name": "xtensa/fwkit-esp32-O2", "kind": "fwkit", "target": "esp32", "opt": "O2"},
+    {"name": "xtensa/fwkit-esp32-Os", "kind": "fwkit", "target": "esp32", "opt": "Os"},
+    {"name": "xtensa/fwkit-lx106-O2", "kind": "fwkit", "target": "lx106", "opt": "O2"},
+    {"name": "xtensa/fwkit-lx106-Os", "kind": "fwkit", "target": "lx106", "opt": "Os"},
+
+    {"name": "avr/grbl-atmega328p-Os", "kind": "grbl", "target": "avr-grbl", "opt": "Os"},
+    {"name": "avr/mcukit-atmega328p-Os", "kind": "mcukit", "target": "avr-mcukit", "opt": "Os"},
+    {"name": "avr/mcukit-atmega328p-O2", "kind": "mcukit", "target": "avr-mcukit", "opt": "O2"},
+
+    {"name": "msp430/mcukit-msp430-Os", "kind": "mcukit", "target": "msp430-mcukit", "opt": "Os"},
+    {"name": "msp430/mcukit-msp430-O2", "kind": "mcukit", "target": "msp430-mcukit", "opt": "O2"},
+    {"name": "msp430/fwkit-msp430x-Os", "kind": "fwkit", "target": "msp430x", "opt": "Os"},
+
+    {"name": "mcs51/mcukit-8051-Os", "kind": "mcukit", "target": "mcs51-mcukit", "opt": "Os"},
+    {"name": "mcs51/mcukit-8051-O2", "kind": "mcukit", "target": "mcs51-mcukit", "opt": "O2"},
+
+    {"name": "z80/mcukit-z80-Os", "kind": "mcukit", "target": "z80-mcukit", "opt": "Os"},
+
+    {"name": "riscv32/fwkit-rv32-O2", "kind": "fwkit", "target": "riscv32", "opt": "O2"},
+    {"name": "riscv32/fwkit-rv32-Os", "kind": "fwkit", "target": "riscv32", "opt": "Os"},
+
+    {"name": "sparc/fwkit-sparc-O2", "kind": "fwkit", "target": "sparc", "opt": "O2"},
+    {"name": "sparc/fwkit-sparc-Os", "kind": "fwkit", "target": "sparc", "opt": "Os"}
+  ]
+}

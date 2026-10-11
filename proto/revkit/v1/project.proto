@@ -1,0 +1,1493 @@
+// Projects (one fact database each) and the programs inside them.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "revkit/v1/assertion.proto";
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// Projects (fact databases) and the programs imported into them.
+service ProjectService {
+  // Projects the daemon knows about: open ones plus recently used ones.
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  // Opens (optionally creating) a project. Idempotent: opening an open
+  // project returns it unchanged.
+  rpc OpenProject(OpenProjectRequest) returns (OpenProjectResponse);
+  // Releases the daemon's handle. Subscriptions on the project end with
+  // status CANCELLED.
+  rpc CloseProject(CloseProjectRequest) returns (CloseProjectResponse);
+  // Programs in a project.
+  rpc ListPrograms(ListProgramsRequest) returns (ListProgramsResponse);
+  // Loads a binary into a project, creating a program, and optionally starts
+  // auto-analysis. Commits a new revision (the importer's assertions carry
+  // IMPORT provenance).
+  rpc ImportProgram(ImportProgramRequest) returns (ImportProgramResponse);
+  // Language, image base, memory map and counts for one program.
+  rpc GetProgramSummary(GetProgramSummaryRequest) returns (GetProgramSummaryResponse);
+  // Lists a directory on the daemon's host, so a client can pick a file to
+  // import by path without uploading it. Only directories under the roots
+  // the daemon was started with (rk-daemon --browse-root) are listed;
+  // without any it fails FAILED_PRECONDITION. Added in api_minor 10
+  // (feature "host-files").
+  rpc ListHostFiles(ListHostFilesRequest) returns (ListHostFilesResponse);
+  // The processor languages the daemon can load, e.g. to import a raw binary
+  // (ImportOptions.language). Added in api_minor 15 (feature "languages").
+  rpc ListLanguages(ListLanguagesRequest) returns (ListLanguagesResponse);
+  // Deletes a program softly: ListPrograms stops listing it (unless asked
+  // for deleted ones), but its data stays in the project's log, its id
+  // keeps answering reads, and the deletion is an assertion like any edit:
+  // RetractAssertions on the returned seq restores the program. Nothing is
+  // reclaimed until a purge (not offered yet; docs/api.md). Added in
+  // api_minor 19 (feature "program-management").
+  rpc DeleteProgram(DeleteProgramRequest) returns (DeleteProgramResponse);
+  // Gives a program a new display name; its program_id doesn't change. An
+  // assertion too: undone by RetractAssertions, blamed like a rename.
+  // Added in api_minor 19 (feature "program-management").
+  rpc RenameProgram(RenameProgramRequest) returns (RenameProgramResponse);
+  // How far an ImportProgram call that sent ImportProgramRequest.import_id
+  // has got: its phase, a line describing it and an estimated fraction.
+  // Only the caller that started the import can read it (another caller,
+  // admins included, gets NOT_FOUND, as does an id the daemon hasn't seen
+  // yet: poll again). Kept for a few minutes after the import ends. Added
+  // in api_minor 22 (feature "import-progress").
+  rpc GetImportProgress(GetImportProgressRequest) returns (GetImportProgressResponse);
+  // For a file with no header that says what it is (raw firmware, a dump):
+  // suggests what a raw import needs (ImportOptions format "raw"): the
+  // language, the load address, the image's offset in the file and extra
+  // memory regions, each with a confidence and the evidence for it, or
+  // refuses with the reason and its closest guesses. The file is named as
+  // ImportProgram names one (a host path or the bytes) and nothing is
+  // imported or stored: the caller decides what to import. One blocking
+  // call of a few seconds; with a detect_id it can be followed
+  // (GetRawDetectProgress) and stopped (CancelRawDetect). Needs what
+  // ImportProgram needs. Added in api_minor 23 (feature "raw-detect";
+  // docs/api.md, "Raw layout detection").
+  rpc DetectRawLayout(DetectRawLayoutRequest) returns (DetectRawLayoutResponse);
+  // How far a DetectRawLayout call that sent a detect_id has got. As
+  // GetImportProgress: only the caller that started it can read it
+  // (anyone else, and an id not seen yet, gets NOT_FOUND), and it is kept
+  // for a few minutes after the detection ends. Added in api_minor 23
+  // (feature "raw-detect").
+  rpc GetRawDetectProgress(GetRawDetectProgressRequest) returns (GetRawDetectProgressResponse);
+  // Stops a running DetectRawLayout of the same caller: that call then
+  // answers CANCELLED. One that has already ended is left as it is. Added
+  // in api_minor 23 (feature "raw-detect").
+  rpc CancelRawDetect(CancelRawDetectRequest) returns (CancelRawDetectResponse);
+
+  // The memory map after import (api_minor 24, feature "memory-map";
+  // docs/memory-map.md). QueryService.GetMemoryMap lists it. Each edit is
+  // a FACT_KIND_MEMORY_REGION assertion (address 0, sub "region:<id>" or
+  // "block:<hex start>") with provenance and blame, undone by
+  // RetractAssertions on the returned seq; analysis, the listing, xrefs,
+  // data, the decompiler and the emulator follow it.
+  //
+  // Adds a region: uninitialized RAM, zero-filled memory, memory-mapped I/O
+  // (is_volatile), or bytes from another file at an address, as Ghidra's
+  // "Add To Program" does. It may not overlap a block or wrap the address
+  // space (INVALID_ARGUMENT says which block it overlaps). Reading a host
+  // path needs admin, as ImportProgram does; uploaded bytes and the other
+  // kinds are an editor's edit.
+  rpc AddMemoryRegion(AddMemoryRegionRequest) returns (AddMemoryRegionResponse);
+  // Changes a region the user added (name, start, size, permissions,
+  // initialized, volatile; never its bytes), or one of the image's own
+  // blocks (name, permissions and volatile only).
+  rpc UpdateMemoryRegion(UpdateMemoryRegionRequest) returns (UpdateMemoryRegionResponse);
+  // Removes a region the user added, or reverts an image block's edits.
+  // The image's own blocks can't be removed.
+  rpc RemoveMemoryRegion(RemoveMemoryRegionRequest) returns (RemoveMemoryRegionResponse);
+  // Moves the whole program to a new image base (api_minor 42, feature
+  // "rebase"; docs/memory-map.md, "Rebase: setting the image base"), as
+  // Ghidra's Set Image Base does: the blocks of its default memory space
+  // (the image's and the user's), its functions and symbols, every fact
+  // recorded about it (names, comments, types, listing edits, patches,
+  // notes, memory regions, references, function bounds) and their history.
+  // One FACT_KIND_REBASE assertion, replicated like any edit:
+  // RetractAssertions on its seq moves the program back. The program is
+  // loaded as an import at that base would load it (a PIE's relocations
+  // follow). An editor's edit. INVALID_ARGUMENT when a block wouldn't fit
+  // the address space; FAILED_PRECONDITION for a program a loader plugin
+  // loaded.
+  rpc SetImageBase(SetImageBaseRequest) returns (SetImageBaseResponse);
+  // Changes the language (and compiler spec) the program is decoded and
+  // analyzed in (api_minor 73, feature "set-language"; docs/api.md,
+  // "Changing a program's language"), as Ghidra's Set Language does: the
+  // same bytes at the same addresses, so every name, comment, type and
+  // other edit stays where it is, and analysis runs again in the new
+  // language. One FACT_KIND_LANGUAGE assertion, replicated like any edit:
+  // RetractAssertions on its seq goes back. An editor's edit.
+  // INVALID_ARGUMENT for an unknown language; FAILED_PRECONDITION when the
+  // new language lays memory out differently (other address spaces or
+  // sizes: import the file again instead) or for a program a loader plugin
+  // loaded.
+  rpc SetProgramLanguage(SetProgramLanguageRequest) returns (SetProgramLanguageResponse);
+  // How well each language of the program's processor decodes its code
+  // (api_minor 73, feature "set-language"): a linear sweep of samples of
+  // the program's executable bytes in each variant (ARM v4T to v8, Thumb
+  // and ARM, both byte orders), with the counts that tell them apart, and
+  // the one auto-detection would pick. Reads only.
+  rpc CompareLanguages(CompareLanguagesRequest) returns (CompareLanguagesResponse);
+
+  // PDBs (api_minor 49, feature "pdb-load"; docs/pdb.md): loads a PDB into
+  // an open program (Ghidra's Load PDB File): a file on the daemon's host,
+  // an upload, or the one the program's CodeView record names, found on
+  // the symbol path. Its names, prototypes, globals' types and type records
+  // become import:pdb assertions in one revision. A PDB of another build
+  // (GUID or age not the program's, or a program without a CodeView
+  // record) is refused unless `force`, which loads it with a warning.
+  rpc LoadPdb(LoadPdbRequest) returns (LoadPdbResponse);
+  // Where PDBs are looked for (_NT_SYMBOL_PATH syntax), whether symbol
+  // servers may be contacted (off by default: network access, see
+  // docs/security.md) and the download cache. An admin's.
+  rpc GetSymbolSettings(GetSymbolSettingsRequest) returns (GetSymbolSettingsResponse);
+  rpc SetSymbolSettings(SetSymbolSettingsRequest) returns (SetSymbolSettingsResponse);
+
+  // Folders (api_minor 37, feature "project-folders"; docs/api.md,
+  // "Folders"): programs live in a tree of folders, as in Ghidra's project
+  // window. A folder and a program's place in the tree are assertions on
+  // the project's own records, so they have provenance, blame and undo
+  // (RetractAssertions with project_id), and peers replicate them. A
+  // project from before folders has every program at the root.
+  // ListPrograms and OpenProject report the folders and each program's
+  // folder.
+  //
+  // Creates a folder under parent_id (empty: the root). A sibling may not
+  // have the same name.
+  rpc CreateFolder(CreateFolderRequest) returns (CreateFolderResponse);
+  // Gives a folder a new name (the same rules); its id doesn't change.
+  rpc RenameFolder(RenameFolderRequest) returns (RenameFolderResponse);
+  // Deletes an empty folder: no subfolders and no listed programs (a
+  // deleted program inside it comes back at the root when restored).
+  rpc DeleteFolder(DeleteFolderRequest) returns (DeleteFolderResponse);
+  // Moves programs and folders into a folder (empty folder_id: the root),
+  // in one revision: one undo. A folder can't move into itself or below
+  // itself, and nothing may land beside a sibling of the same name.
+  rpc MoveToFolder(MoveToFolderRequest) returns (MoveToFolderResponse);
+
+  // Project archives (api_minor 37, feature "project-archive";
+  // docs/backend.md, "Project archives"): a whole project, some programs
+  // or a folder as one .rkproj file (a gzip-compressed tar with a
+  // manifest): the programs' original bytes (unless annotations_only),
+  // their fact logs with every edit, its provenance and its history, the
+  // folder layout and the types. Derived facts are not in it; they are
+  // computed again on import.
+  //
+  // Streams the archive: a first message with its summary, then its bytes
+  // in order (data, at most 1 MiB each). With host_path the daemon writes
+  // the file on its own host instead (admin) and sends the summary alone.
+  rpc ExportProject(ExportProjectRequest) returns (stream ExportProjectResponse);
+  // Stores a file the caller sends in pieces (an archive, or a binary an
+  // annotations-only archive needs), for ImportProjectArchive to name by
+  // upload_id. Pieces arrive in order; an upload is the caller's alone and
+  // is forgotten an hour after its last piece.
+  rpc UploadChunk(UploadChunkRequest) returns (UploadChunkResponse);
+  // Imports an archive into a new project, or into an existing one as new
+  // programs (names that clash get a suffix). Validates everything first:
+  // the format version, every path, size and checksum in it, every op of
+  // the logs; an archive this daemon can't read is refused with the
+  // reason and nothing is imported. With inspect_only it only describes
+  // the archive and whether each program's binary was found.
+  rpc ImportProjectArchive(ImportProjectArchiveRequest) returns (ImportProjectArchiveResponse);
+
+  // Shared libraries (api_minor 70, feature "program-libraries";
+  // docs/api.md "Libraries"). A program's libraries: what it needs (ELF
+  // DT_NEEDED, PE import DLLs), each with the project program it resolves
+  // to (a link the user made, else a program of that name or soname, the
+  // same folder's first) or none; with include_imports, every import and
+  // the library function it resolves to.
+  rpc ListProgramLibraries(ListProgramLibrariesRequest) returns (ListProgramLibrariesResponse);
+  // Links a library a program needs to a project program (or, with an
+  // empty target, back to finding it by name). An assertion on the
+  // program's record: blamed, undone by RetractAssertions, replicated.
+  // Needs editor.
+  rpc LinkProgramLibrary(LinkProgramLibraryRequest) returns (LinkProgramLibraryResponse);
+  // Where an import goes: the library program and the function there, by
+  // the import's thunk or slot address, or by name.
+  rpc ResolveImport(ResolveImportRequest) returns (ResolveImportResponse);
+}
+
+// A folder of a project (api_minor 37, feature "project-folders").
+message ProjectFolder {
+  // Server-assigned, opaque, stable across renames and moves.
+  string folder_id = 1;
+  // Empty: the root.
+  string parent_id = 2;
+  string name = 3;
+  // "/a/b": the names from the root. Concurrent edits on two daemons can
+  // leave two siblings with one name; their paths are then equal, and
+  // the folder ids tell them apart.
+  string path = 4;
+  // Who created it or last renamed or moved it.
+  FactOrigin origin = 5;
+}
+
+message CreateFolderRequest {
+  string project_id = 1;
+  string parent_id = 2;
+  // At most 200 characters, no "/" or control characters.
+  string name = 3;
+  Provenance provenance = 4;
+}
+
+message CreateFolderResponse {
+  Snapshot snapshot = 1;
+  ProjectFolder folder = 2;
+  // Retract its seq (RetractAssertions with project_id) to undo.
+  Assertion assertion = 3;
+}
+
+message RenameFolderRequest {
+  string project_id = 1;
+  string folder_id = 2;
+  string name = 3;
+  Provenance provenance = 4;
+}
+
+message RenameFolderResponse {
+  Snapshot snapshot = 1;
+  ProjectFolder folder = 2;
+  Assertion assertion = 3;
+}
+
+message DeleteFolderRequest {
+  string project_id = 1;
+  string folder_id = 2;
+  Provenance provenance = 3;
+}
+
+message DeleteFolderResponse {
+  Snapshot snapshot = 1;
+  Assertion assertion = 2;
+}
+
+message MoveToFolderRequest {
+  string project_id = 1;
+  // The destination; empty: the root.
+  string folder_id = 2;
+  repeated string program_ids = 3;
+  repeated string folder_ids = 4;
+  Provenance provenance = 5;
+}
+
+message MoveToFolderResponse {
+  Snapshot snapshot = 1;
+  // One per program or folder moved, in one revision: retract their seqs
+  // together to undo the move.
+  repeated Assertion assertions = 2;
+}
+
+// --- Project archives (api_minor 37, feature "project-archive") ------------
+
+// What manifest.json in an archive holds (as protobuf JSON), and what
+// ImportProjectArchive reports of one. docs/backend.md, "Project
+// archives", has the layout.
+message ProjectArchiveManifest {
+  // Always "revkit-project-archive".
+  string format = 1;
+  // 1. A daemon refuses versions it doesn't know.
+  uint32 format_version = 2;
+  // "revkit 0.1.0".
+  string created_by = 3;
+  google.protobuf.Timestamp created_at = 4;
+  string project_name = 5;
+  // The programs' bytes are left out: each is found by its sha256 on
+  // import.
+  bool annotations_only = 6;
+  repeated ArchiveProgram programs = 7;
+  // Every folder, as a path ("/a/b"), parents first.
+  repeated string folders = 8;
+  // log.bin: the fact log's ops.
+  ArchiveFile log = 9;
+  // How each op in log.bin is encoded: the fact store's binary encoding
+  // of an op, as SyncService sends it (sync format 1).
+  uint32 op_format = 10;
+}
+
+message ArchiveProgram {
+  // "p0", "p1", ...: its files are under programs/<key>/.
+  string key = 1;
+  // Its display name.
+  string name = 2;
+  // Its id in the project it was exported from.
+  string program_id = 3;
+  // Lowercase hex SHA-256 and size of the imported file.
+  string sha256 = 4;
+  uint64 size = 5;
+  string format = 6;
+  string language_id = 7;
+  // Its folder, "/" for the root.
+  string folder = 8;
+  // programs/<key>/program.bin holds its bytes.
+  bool has_binary = 9;
+  // Its fact spaces in log.bin (16 + 2 * ordinal, and the next).
+  uint32 ordinal = 10;
+  // Bytes memory-map regions took from other files
+  // (programs/<key>/regions/<sha256>.bin), by their place in the
+  // program's file space. Part of the work: annotations-only archives
+  // keep them too.
+  repeated ArchiveFile regions = 11;
+  // Ops of log.bin on its keys.
+  uint64 op_count = 12;
+}
+
+message ArchiveFile {
+  // Its path in the archive.
+  string path = 1;
+  uint64 size = 2;
+  string sha256 = 3;
+  // A region's bytes: where they start in the program's file space.
+  uint64 offset = 4;
+  // log.bin: how many ops.
+  uint64 count = 5;
+}
+
+message ExportProjectRequest {
+  string project_id = 1;
+  // What to export: these programs and every program under these
+  // folders. Both empty: every program of the project (deleted ones are
+  // left out).
+  repeated string program_ids = 2;
+  repeated string folder_ids = 3;
+  // Leave the programs' files out: the archive keeps the work, keyed by
+  // each program's sha256 (bytes memory-map regions took from other files
+  // stay in).
+  bool annotations_only = 4;
+  // Write the archive to this path on the daemon's host (admin) instead
+  // of streaming it.
+  string host_path = 5;
+}
+
+message ExportProjectResponse {
+  // The first message.
+  ExportSummary summary = 1;
+  // The archive's bytes, in order, in the messages after it.
+  bytes data = 2;
+}
+
+message ExportSummary {
+  // A name to save it as: "<project>.rkproj".
+  string file_name = 1;
+  ProjectArchiveManifest manifest = 2;
+  // With host_path: its size once written. Streaming: 0 (not known in
+  // advance).
+  uint64 size = 3;
+}
+
+message UploadChunkRequest {
+  // Empty on the first piece: the server assigns one (UploadChunkResponse).
+  string upload_id = 1;
+  // Where this piece goes: the bytes received so far.
+  uint64 offset = 2;
+  bytes data = 3;
+  // The whole file's size, on the first piece. At most 16 GiB.
+  uint64 total_size = 4;
+  // A name for messages ("x.rkproj").
+  string file_name = 5;
+}
+
+message UploadChunkResponse {
+  string upload_id = 1;
+  // Bytes received so far; total_size once complete.
+  uint64 received = 2;
+  bool complete = 3;
+}
+
+// A file named by ImportProjectArchive: a path on the daemon's host
+// (admin), its bytes (at most the daemon's message size), or an upload.
+message ArchiveSource {
+  oneof source {
+    string path = 1;
+    bytes content = 2;
+    string upload_id = 3;
+  }
+}
+
+message ImportProjectArchiveRequest {
+  ArchiveSource archive = 1;
+  // Into this existing project, as new programs. Empty: a new project.
+  string project_id = 2;
+  // The new project's name (default: the archive's project's). A project
+  // id already taken gets a suffix.
+  string new_project_name = 3;
+  // Where the archive's tree goes in the project (empty: the root).
+  string folder_id = 4;
+  // Annotations-only archives: the binaries, matched by sha256 (any
+  // order; files that match nothing are ignored).
+  repeated ArchiveSource binaries = 5;
+  // Also look for them, by size and sha256, in this directory on the
+  // daemon's host and below it (admin). Programs already in the target
+  // project are always looked at.
+  string search_dir = 6;
+  // Import the programs whose binaries were found and leave the others
+  // out, instead of failing.
+  bool skip_missing = 7;
+  // Validate and describe the archive; import nothing.
+  bool inspect_only = 8;
+  Provenance provenance = 9;
+}
+
+message ImportProjectArchiveResponse {
+  Snapshot snapshot = 1;
+  // The project the programs went into (unset with inspect_only).
+  ProjectInfo project = 2;
+  ProjectArchiveManifest manifest = 3;
+  repeated ImportedArchiveProgram programs = 4;
+  repeated string warnings = 5;
+}
+
+message ImportedArchiveProgram {
+  // ArchiveProgram.key.
+  string key = 1;
+  string name = 2;
+  string sha256 = 3;
+  // Where its bytes come from: "archive", "upload", "path:<path>",
+  // "project:<program id>", "search:<path>", or "" when not found.
+  string binary_source = 4;
+  // The imported program (empty with inspect_only, or when skipped).
+  ProgramInfo program = 5;
+  // It was left out (skip_missing and no binary).
+  bool skipped = 6;
+}
+
+message AddMemoryRegionRequest {
+  string program_id = 1;
+  // Name, start, size, permissions, initialized and is_volatile. With
+  // bytes from a file, size 0 means the bytes' length, and a size beyond
+  // it is zero-filled; initialized is then implied.
+  MemoryRegion region = 2;
+  // Bytes from a file: a path on the daemon's host (admin), or the file's
+  // contents (at most the daemon's message size). Neither: no bytes.
+  oneof bytes {
+    string path = 3;
+    bytes content = 4;
+  }
+  // The file's name for display (default: the path's last component, or
+  // "upload").
+  string file_name = 5;
+  // Where in the file the bytes start, and how many to take (0: to the
+  // end of the file).
+  uint64 file_offset = 6;
+  uint64 length = 7;
+  // With authentication the server fills in kind and id (send them empty).
+  Provenance provenance = 8;
+  // Check the region against the map without adding it.
+  bool validate_only = 9;
+}
+
+message AddMemoryRegionResponse {
+  Snapshot snapshot = 1;
+  // The region's id (UpdateMemoryRegion, RemoveMemoryRegion); empty with
+  // validate_only.
+  string region_id = 2;
+  // The region as the map will show it.
+  MemoryBlock block = 3;
+  // The addition: retract its seq to undo it. Unset with validate_only.
+  Assertion assertion = 4;
+}
+
+message UpdateMemoryRegionRequest {
+  string program_id = 1;
+  // A region the user added, by id; or one of the image's blocks, by its
+  // start (block_start set, region_id empty).
+  string region_id = 2;
+  Address block_start = 3;
+  // The new state. For an image block, only name, permissions and
+  // is_volatile may differ from the block's own; an empty name keeps it.
+  MemoryRegion region = 4;
+  Provenance provenance = 5;
+  bool validate_only = 6;
+}
+
+message UpdateMemoryRegionResponse {
+  Snapshot snapshot = 1;
+  MemoryBlock block = 2;
+  // The change: retract its seq to undo it. Unset with validate_only.
+  Assertion assertion = 3;
+}
+
+message RemoveMemoryRegionRequest {
+  string program_id = 1;
+  // A region the user added, or an image block whose edits to revert.
+  string region_id = 2;
+  Address block_start = 3;
+  Provenance provenance = 4;
+}
+
+message LoadPdbRequest {
+  string program_id = 1;
+  oneof source {
+    // A file on the daemon's host.
+    string path = 2;
+    // A file sent with UploadChunk.
+    string upload_id = 3;
+    // The PDB the program's CodeView record names, looked up along the
+    // symbol path (stores, then servers when downloads are on).
+    bool symbol_path = 4;
+  }
+  // Load a PDB of another build (GUID or age not the program's): the
+  // addresses may not match.
+  bool force = 5;
+  Provenance provenance = 6;
+}
+
+message LoadPdbResponse {
+  Snapshot snapshot = 1;
+  // The file read (the symbol cache's copy for a download).
+  string pdb_file = 2;
+  // Its GUID and age are the program's.
+  bool exact = 3;
+  // Where it came from: "file", "upload", "store <dir>", "server <url>".
+  string source = 4;
+  uint32 functions = 5;
+  uint32 variables = 6;
+  uint32 types = 7;
+  // A forced mismatch, and the reader's diagnostics.
+  repeated string warnings = 8;
+  // With symbol_path: each place tried.
+  repeated string search_log = 9;
+  // The assertions it made (RetractAssertions undoes the load).
+  repeated uint64 assertion_seqs = 10;
+}
+
+message SymbolSettings {
+  // _NT_SYMBOL_PATH syntax: "srv*C:\\cache*https://msdl.microsoft.com/download/symbols;D:\\pdbs".
+  string symbol_path = 1;
+  // Symbol servers may be contacted (default off).
+  bool downloads = 2;
+  // Where a server entry without its own cache stores what it fetches.
+  string cache_dir = 3;
+}
+
+message GetSymbolSettingsRequest {}
+
+message GetSymbolSettingsResponse {
+  SymbolSettings settings = 1;
+}
+
+message SetSymbolSettingsRequest {
+  SymbolSettings settings = 1;
+}
+
+message SetSymbolSettingsResponse {
+  SymbolSettings settings = 1;
+}
+
+message SetImageBaseRequest {
+  string program_id = 1;
+  // The new base: where the program's lowest image address (its
+  // ProgramSummary.image_base) goes.
+  uint64 image_base = 2;
+  Provenance provenance = 3;
+  // Check that it can be done; change nothing.
+  bool validate_only = 4;
+}
+
+message SetImageBaseResponse {
+  Snapshot snapshot = 1;
+  // The rebase: retract its seq to move the program back. Unset with
+  // validate_only, and when the program is already there.
+  Assertion assertion = 2;
+  uint64 image_base = 3;
+  uint64 previous_image_base = 4;
+  // Where it was imported (what every fact is stored relative to).
+  uint64 import_image_base = 5;
+}
+
+message SetProgramLanguageRequest {
+  string program_id = 1;
+  // A language id ("ARM:LE:32:v7"); empty goes back to the language the
+  // program was imported with.
+  string language_id = 2;
+  // Empty: the language's default compiler spec.
+  string compiler_spec_id = 3;
+  Provenance provenance = 4;
+  // Check that it can be done; change nothing.
+  bool validate_only = 5;
+}
+
+message SetProgramLanguageResponse {
+  Snapshot snapshot = 1;
+  // The change: retract its seq to go back. Unset with validate_only, and
+  // when the program is already in that language.
+  Assertion assertion = 2;
+  string language_id = 3;
+  string compiler_spec_id = 4;
+  string previous_language_id = 5;
+  string previous_compiler_spec_id = 6;
+}
+
+message CompareLanguagesRequest {
+  string program_id = 1;
+  // The languages to compare; empty: every language of the program's
+  // processor whose memory layout matches the program's.
+  repeated string language_ids = 2;
+}
+
+// What a sweep of the program's code found in one language (or mode).
+message LanguageFit {
+  string language_id = 1;
+  // "" or the decoding mode ("thumb").
+  string mode = 2;
+  string description = 3;
+  bool current = 4;
+  // SetProgramLanguage would accept it (same memory layout).
+  bool compatible = 5;
+  // The share of the swept bytes inside decoded instructions, 0..1.
+  double decoded = 6;
+  uint64 instructions = 7;
+  // Places nothing decoded.
+  uint64 invalid = 8;
+  // Decoded, but the language has no semantics for them.
+  uint64 unimplemented = 9;
+  // Instructions branches and calls land on and run through.
+  uint64 reached = 10;
+  // Of those runs, cut short by bytes that don't decode.
+  uint64 reached_invalid = 11;
+  // The variant auto-detection picks: the least capable that decodes the
+  // code as fully as any.
+  bool recommended = 12;
+  // Why it was or wasn't picked, in a sentence.
+  string note = 13;
+}
+
+message CompareLanguagesResponse {
+  repeated LanguageFit fits = 1;
+  // Bytes swept, from how many samples.
+  uint64 bytes = 2;
+  uint32 samples = 3;
+  double elapsed_seconds = 4;
+}
+
+message RemoveMemoryRegionResponse {
+  Snapshot snapshot = 1;
+  // The removal: retract its seq to bring the region (or the edits) back.
+  Assertion assertion = 2;
+}
+
+message DeleteProgramRequest {
+  string program_id = 1;
+  // Who is deleting it; with authentication the server fills in kind and
+  // id (send them empty).
+  Provenance provenance = 2;
+}
+
+message DeleteProgramResponse {
+  Snapshot snapshot = 1;
+  // The deletion: retract its seq (RetractAssertions, same program_id) to
+  // restore the program.
+  Assertion assertion = 2;
+}
+
+message RenameProgramRequest {
+  string program_id = 1;
+  // The new name; empty restores the name it was imported under. At most
+  // 200 characters, no "/" or control characters.
+  string name = 2;
+  Provenance provenance = 3;
+}
+
+message RenameProgramResponse {
+  Snapshot snapshot = 1;
+  ProgramInfo program = 2;
+  // The rename: retract its seq to undo it.
+  Assertion assertion = 3;
+}
+
+message ListLanguagesRequest {
+  // Also list languages the install marks deprecated.
+  bool include_deprecated = 1;
+}
+
+message AvailableLanguage {
+  // "ARM:LE:32:v4t"
+  string language_id = 1;
+  // "ARM"
+  string processor = 2;
+  Endianness endianness = 3;
+  // Address size in bits.
+  uint32 address_size = 4;
+  // "v4t"
+  string variant = 5;
+  // "Generic ARM/Thumb v4 little endian (T-variant)"
+  string description = 6;
+  bool deprecated = 7;
+  // Compiler spec ids ("default", "gcc", "windows"), the default first.
+  repeated string compiler_spec_ids = 8;
+}
+
+message ListLanguagesResponse {
+  // Sorted by language_id.
+  repeated AvailableLanguage languages = 1;
+}
+
+message ListHostFilesRequest {
+  // Directory to list. Empty lists the first root.
+  string path = 1;
+  // Include entries whose names start with ".".
+  bool include_hidden = 2;
+}
+
+message HostFileEntry {
+  string name = 1;
+  // Path to pass back as ListHostFilesRequest.path (a directory) or as
+  // ImportProgramRequest.path (a file).
+  string path = 2;
+  bool directory = 3;
+  // Bytes; files only.
+  uint64 size = 4;
+  google.protobuf.Timestamp modified = 5;
+}
+
+message ListHostFilesResponse {
+  // The directory listed, canonical.
+  string path = 1;
+  // Its parent, or empty when path is a root.
+  string parent = 2;
+  // Directories first, then files, each sorted by name.
+  repeated HostFileEntry entries = 3;
+  // The browsable roots, canonical.
+  repeated string roots = 4;
+  // More entries exist than the daemon returns in one listing.
+  bool truncated = 5;
+}
+
+message ProjectInfo {
+  // Server-assigned, opaque, stable for the life of the project.
+  string project_id = 1;
+  string name = 2;
+  // Location of the database on the daemon's host. Informational; empty
+  // for in-memory projects.
+  string path = 3;
+  bool open = 4;
+  uint64 head_revision = 5;
+  // Oldest revision still readable with ReadOptions.revision.
+  uint64 oldest_retained_revision = 6;
+  uint32 program_count = 7;
+}
+
+message ListProjectsRequest {}
+
+message ListProjectsResponse {
+  repeated ProjectInfo projects = 1;
+}
+
+message OpenProjectRequest {
+  oneof target {
+    // Project id from ListProjects.
+    string project_id = 1;
+    // Database path on the daemon host.
+    string path = 2;
+  }
+  // When opening by path and nothing exists there, create an empty project.
+  bool create_if_missing = 3;
+  // Name for a newly created project; defaults to the path's basename.
+  string name = 4;
+}
+
+message OpenProjectResponse {
+  ProjectInfo project = 1;
+  repeated ProgramInfo programs = 2;
+  // Every folder of the project (api_minor 37), parents first.
+  repeated ProjectFolder folders = 3;
+}
+
+message CloseProjectRequest {
+  string project_id = 1;
+}
+
+message CloseProjectResponse {}
+
+// Short description of a program, as listed in a project.
+message ProgramInfo {
+  // Server-assigned, opaque, unique across the daemon. Every query names
+  // the program it reads by this id.
+  string program_id = 1;
+  string project_id = 2;
+  string name = 3;
+  // Executable format: "elf", "pe", "macho", "raw", ...
+  string format = 4;
+  // Ghidra-style language id, "x86:LE:64:default".
+  string language_id = 5;
+  // Lowercase hex SHA-256 of the imported file.
+  string sha256 = 6;
+  google.protobuf.Timestamp imported_at = 7;
+  // Deleted by DeleteProgram (and not restored): only listed with
+  // ListProgramsRequest.include_deleted (api_minor 19).
+  bool deleted = 8;
+  // Who deleted it, and the assertion to retract to restore it.
+  FactOrigin deleted_origin = 9;
+  // Who gave it its current name: the import, or a RenameProgram
+  // (api_minor 19).
+  FactOrigin name_origin = 10;
+  // Its folder (api_minor 37, feature "project-folders"): empty and "/"
+  // at the root.
+  string folder_id = 11;
+  string folder_path = 12;
+  // Who put it there (unset: it has always been at the root).
+  FactOrigin folder_origin = 13;
+  // Where it came from inside a container (api_minor 48, feature
+  // "filesystems"): "zip://fw.zip!/rootfs.sqfs!/bin/busybox". Empty for a
+  // file imported as itself.
+  string container_path = 14;
+  // The compiler specification ("gcc", "windows", "default") and the
+  // imported file's size in bytes, for the Open dialog's details (empty and
+  // 0 from older daemons).
+  string compiler_spec_id = 15;
+  uint64 file_size = 16;
+}
+
+message ListProgramsRequest {
+  string project_id = 1;
+  ReadOptions read = 2;
+  // Also list programs DeleteProgram deleted (ProgramInfo.deleted), for a
+  // trash to restore them from (api_minor 19).
+  bool include_deleted = 3;
+}
+
+message ListProgramsResponse {
+  Snapshot snapshot = 1;
+  repeated ProgramInfo programs = 2;
+  // Every folder of the project (api_minor 37), parents first.
+  repeated ProjectFolder folders = 3;
+}
+
+message ImportProgramRequest {
+  string project_id = 1;
+  oneof source {
+    // Path readable by the daemon process. Preferred for native clients on
+    // the same host.
+    string path = 2;
+    // File contents, for browser clients and remote daemons. Bounded by
+    // ServerInfo.max_request_bytes.
+    bytes content = 3;
+  }
+  // Program name; defaults to the file's basename ("upload" for content).
+  string name = 4;
+  // Loader overrides. Leave empty to let the loader detect.
+  ImportOptions options = 5;
+  // Who is importing; kind is forced to IMPORT for the loader's own facts,
+  // but id/session are recorded.
+  Provenance provenance = 6;
+  // A random id the client chooses (at most 128 characters) to follow the
+  // import with GetImportProgress while this call runs. Empty: no progress
+  // is recorded. An id the same caller is still importing under is refused
+  // (ALREADY_EXISTS). Added in api_minor 22 (feature "import-progress").
+  string import_id = 7;
+  // The folder the program (and the libraries ImportOptions.import_libraries
+  // brings) goes into; empty: the root (api_minor 70).
+  string folder_id = 8;
+}
+
+// What an import is doing (GetImportProgress), in the order an import goes
+// through them; a phase with nothing to do is skipped.
+enum ImportPhase {
+  IMPORT_PHASE_UNSPECIFIED = 0;
+  // Reading the file, or the uploaded bytes, and hashing them.
+  IMPORT_PHASE_READING = 1;
+  // Detecting the format and loading it: ELF/PE/raw sections, symbols,
+  // relocations, the language.
+  IMPORT_PHASE_LOADING = 2;
+  // DWARF or PDB debug info: names, prototypes, types.
+  IMPORT_PHASE_DEBUG_INFO = 3;
+  // Disassembling and finding functions (function discovery, with the
+  // firmware search on raw images), then their references.
+  IMPORT_PHASE_FUNCTIONS = 4;
+  // Data analysis (strings and pointers) and the listing's rows.
+  IMPORT_PHASE_DATA = 5;
+  // Inferring prototypes (rk-daemon --infer-prototypes only).
+  IMPORT_PHASE_PROTOTYPES = 6;
+  // Writing the project to disk (persistent projects).
+  IMPORT_PHASE_SAVING = 7;
+  // Finished: ImportProgram has answered (or is about to), or failed.
+  IMPORT_PHASE_DONE = 8;
+}
+
+message GetImportProgressRequest {
+  // The project the import is into (as ImportProgramRequest.project_id).
+  string project_id = 1;
+  // ImportProgramRequest.import_id.
+  string import_id = 2;
+}
+
+message GetImportProgressResponse {
+  ImportPhase phase = 1;
+  // What it is doing, for people: "Finding functions: 3,120 found",
+  // "Reading DWARF debug info", "Saving to the project".
+  string message = 2;
+  // Estimated fraction of the whole import done, 0..1, never decreasing;
+  // -1 when unknown. Phases are weighted by what they are expected to
+  // cost for this file (docs/api.md, "Import progress").
+  float progress = 3;
+  // The import has ended: ImportProgram answered, or is about to.
+  bool done = 4;
+  // Why it failed, when done and it failed; empty otherwise.
+  string error = 5;
+  // The program's id, once known.
+  string program_id = 6;
+  // Functions found so far (in the FUNCTIONS phase and after).
+  uint64 functions_found = 7;
+  // Since the import started.
+  double elapsed_seconds = 8;
+}
+
+message DetectRawLayoutRequest {
+  // The project the file would be imported into (as
+  // ImportProgramRequest.project_id): it must be open, and it is what a
+  // caller limited to some projects is checked against. Nothing is written
+  // to it.
+  string project_id = 1;
+  oneof source {
+    // Path readable by the daemon process: a regular file of at most
+    // 1 GiB.
+    string path = 2;
+    // File contents. Bounded by ServerInfo.max_request_bytes.
+    bytes content = 3;
+  }
+  // What the user already knows; each narrows the search.
+  RawDetectHints hints = 4;
+  // A random id the client chooses (at most 128 characters) to follow the
+  // detection with GetRawDetectProgress and stop it with CancelRawDetect
+  // while this call runs. Empty: no progress is recorded (the call can
+  // still be stopped by cancelling it, where the transport tells the
+  // daemon: gRPC does, the HTTP gateway's unary calls do not). An id the
+  // same caller is still detecting under is refused (ALREADY_EXISTS).
+  string detect_id = 5;
+}
+
+// Fields of the answer the user has already chosen (DetectRawLayout).
+message RawDetectHints {
+  // A language ("ARM:LE:32:v4t", with or without ":compiler"). Only its
+  // processor's languages are tried, and the suggestion whose evidence
+  // covers it (its language, or one of its tie group) names it and comes
+  // first, with language_pinned set. If the bytes don't decode as it, the
+  // suggestions are what they do decode as, none pinned. INVALID_ARGUMENT
+  // when the daemon has no such language.
+  string language_id = 1;
+  // A processor ("ARM", "MIPS": AvailableLanguage.processor, or a language
+  // id's first field; case is ignored). Only its languages are tried.
+  // INVALID_ARGUMENT when no language is for it. Ignored with language_id.
+  string processor = 2;
+}
+
+// How sure one answer of a suggestion is. HIGH is meant to be relied on
+// (the rate of wrong HIGH answers is what detection is tuned to keep at
+// zero); MEDIUM and LOW are for the user to check.
+enum DetectConfidence {
+  DETECT_CONFIDENCE_UNSPECIFIED = 0;
+  DETECT_CONFIDENCE_LOW = 1;
+  DETECT_CONFIDENCE_MEDIUM = 2;
+  DETECT_CONFIDENCE_HIGH = 3;
+}
+
+// One sentence of evidence, for people: "1,220 strings; 140 pointers land
+// on string starts at base 0xbe000000, next best 54".
+message DetectEvidence {
+  // The answer it supports: "processor", "variant", "base", "offset" or
+  // "regions".
+  string about = 1;
+  string text = 2;
+}
+
+// One way to import the file as a raw image.
+message RawLayoutSuggestion {
+  // Ready for ImportProgramRequest.options: format "raw", language_id and
+  // compiler_spec_id, has_image_base and image_base (has_image_base false:
+  // the base is undetermined, e.g. position-independent code; a raw import
+  // then loads at 0), raw_offset and regions. Other fields are left at
+  // their defaults for the client to set (analyze).
+  ImportOptions options = 1;
+  // The processor family, byte order and address size.
+  DetectConfidence processor_confidence = 2;
+  // The variant within the family (options.language_id's last field);
+  // tie_group lists what the evidence can't tell it from.
+  DetectConfidence variant_confidence = 3;
+  // options.image_base. LOW with has_image_base false: undetermined.
+  DetectConfidence base_confidence = 4;
+  // options.raw_offset.
+  DetectConfidence offset_confidence = 5;
+  // Why, sentence by sentence; each names the answer it is about.
+  repeated DetectEvidence evidence = 6;
+  // Languages the evidence can't tell from options.language_id, as
+  // "proc:endian:size:variant:compiler": any of them may be the right one.
+  repeated string tie_group = 7;
+  // The detector's score, for ordering only: suggestions are best first.
+  double score = 8;
+  // options.language_id is RawDetectHints.language_id: the evidence covers
+  // the language the user chose.
+  bool language_pinned = 9;
+  // Each of options.regions (in the same order: by address) with its kind,
+  // confidence and evidence; and, of kind UNKNOWN, memory the code accesses
+  // that nothing says is RAM or a device's registers, which options.regions
+  // leaves out. Empty for all but the first suggestion.
+  repeated RawRegionSuggestion region_details = 10;
+}
+
+// What a memory region beside the image is (RawRegionSuggestion).
+enum RawRegionKind {
+  RAW_REGION_KIND_UNSPECIFIED = 0;
+  // Read and written, not volatile.
+  RAW_REGION_KIND_RAM = 1;
+  // Devices' registers: volatile.
+  RAW_REGION_KIND_MMIO = 2;
+  // Accessed, but nothing says which (never HIGH confidence).
+  RAW_REGION_KIND_UNKNOWN = 3;
+}
+
+// One memory region the code uses outside the image.
+message RawRegionSuggestion {
+  RawRegionKind kind = 1;
+  // As ImportOptions.regions takes it ("ram", "mmio2", "mem" for UNKNOWN).
+  MemoryRegion region = 2;
+  // The same as "name:start:size[:perms][:volatile]" (hex), as
+  // rk-lift --region and the UI spell it: "mmio:40010000:1000:rw-:volatile".
+  string spec = 3;
+  DetectConfidence confidence = 4;
+  // Why, sentence by sentence.
+  repeated string evidence = 5;
+}
+
+// Why detection suggests nothing to apply.
+message RawDetectRefusal {
+  // "high-entropy" (compressed or encrypted), "not-code" (text or fill),
+  // "unknown-processor" (no language decodes it as code) or "too-small".
+  // Clients should show an unknown reason as it is.
+  string reason = 1;
+  // A sentence for people.
+  string detail = 2;
+}
+
+// What a stretch of the file looks like, before any language is tried.
+enum RawSegmentKind {
+  RAW_SEGMENT_KIND_UNSPECIFIED = 0;
+  // One byte value repeated: erased flash, alignment.
+  RAW_SEGMENT_KIND_PADDING = 1;
+  // Compressed or encrypted.
+  RAW_SEGMENT_KIND_HIGH_ENTROPY = 2;
+  RAW_SEGMENT_KIND_TEXT = 3;
+  // Could be code (or binary data: only a decoder can tell).
+  RAW_SEGMENT_KIND_CODE = 4;
+}
+
+message RawFileSegment {
+  // Bytes from the start of the file.
+  uint64 offset = 1;
+  uint64 size = 2;
+  RawSegmentKind kind = 3;
+}
+
+message DetectRawLayoutResponse {
+  // Best first, at most three. With a refusal they are the closest
+  // guesses: to show, not to apply.
+  repeated RawLayoutSuggestion suggestions = 1;
+  // Set when nothing here should be applied without the user deciding.
+  RawDetectRefusal refusal = 2;
+  // The file as stretches of padding, high-entropy data, text and
+  // code-like bytes, in order, covering it exactly.
+  repeated RawFileSegment segments = 3;
+  uint64 file_size = 4;
+  // Since the detection started (waiting for a slot included).
+  double elapsed_seconds = 5;
+}
+
+// What a detection is doing (GetRawDetectProgress), in order.
+enum RawDetectPhase {
+  RAW_DETECT_PHASE_UNSPECIFIED = 0;
+  // Waiting for another detection to end: the daemon runs a few at a time.
+  RAW_DETECT_PHASE_QUEUED = 1;
+  // Reading the file, or taking the uploaded bytes.
+  RAW_DETECT_PHASE_READING = 2;
+  // Mapping the file: padding, compressed data, text, what could be code.
+  RAW_DETECT_PHASE_SEGMENTS = 3;
+  // Decoding samples of it as every candidate language.
+  RAW_DETECT_PHASE_PROCESSOR = 4;
+  // Working out where the image loads and where it starts in the file.
+  RAW_DETECT_PHASE_LAYOUT = 5;
+  // Ended: DetectRawLayout has answered (or is about to), failed, or was
+  // cancelled.
+  RAW_DETECT_PHASE_DONE = 6;
+}
+
+message GetRawDetectProgressRequest {
+  // DetectRawLayoutRequest.project_id.
+  string project_id = 1;
+  // DetectRawLayoutRequest.detect_id.
+  string detect_id = 2;
+}
+
+message GetRawDetectProgressResponse {
+  RawDetectPhase phase = 1;
+  // What it is doing, for people: "Trying 152 languages: 64 done".
+  string message = 2;
+  // Estimated fraction done, 0..1, never decreasing; -1 when unknown
+  // (queued, or not started).
+  float progress = 3;
+  // The detection has ended: DetectRawLayout answered, or is about to.
+  bool done = 4;
+  // Why it failed, when done and it failed; empty otherwise (and when it
+  // was cancelled).
+  string error = 5;
+  // It was stopped (CancelRawDetect, or the caller went away).
+  bool cancelled = 6;
+  // Candidate languages decoded so far, and how many there are (in the
+  // PROCESSOR phase and after).
+  uint32 candidates_done = 7;
+  uint32 candidates_total = 8;
+  // Since the detection started.
+  double elapsed_seconds = 9;
+}
+
+message CancelRawDetectRequest {
+  string project_id = 1;
+  string detect_id = 2;
+}
+
+message CancelRawDetectResponse {}
+
+message ImportOptions {
+  // Force a format instead of detecting it ("raw" needs language_id).
+  string format = 1;
+  string language_id = 2;
+  // Compiler spec id, "gcc", "windows", "default".
+  string compiler_spec_id = 3;
+  // Rebase the image. Ignored when has_image_base is false.
+  bool has_image_base = 4;
+  uint64 image_base = 5;
+  // Kick off default auto-analysis after loading.
+  bool analyze = 6;
+
+  // Format "raw" (api_minor 9, feature "raw-import"): a flat binary such as
+  // firmware, loaded as Ghidra's "Raw Binary" loader does: the file's bytes
+  // as one block at image_base (0 when has_image_base is false),
+  // read/write/execute. language_id is required.
+  //
+  // Bytes of the file before the image (a header).
+  uint64 raw_offset = 7;
+  // How many bytes to load; 0 means up to the end of the file.
+  uint64 raw_length = 8;
+  // The image block's permissions as "rwx", "r-x", ...; empty means "rwx".
+  string raw_permissions = 9;
+  // An entry point, if known (the processor's own, such as ARM's exception
+  // vectors, are added anyway).
+  bool has_entry_point = 10;
+  uint64 entry_point = 11;
+  // Further memory: RAM the code uses, memory-mapped I/O. Raw images only.
+  repeated MemoryRegion regions = 12;
+  // The memory space the image is loaded in (api_minor 26): empty for the
+  // code space; "EXTMEM" for an 8051 data dump. image_base and
+  // entry_point are byte offsets in it.
+  string raw_space = 13;
+  // What the file holds (api_minor 26): "binary", "ihex" (Intel HEX),
+  // "srec" (Motorola S-records), or empty to tell by content.
+  string raw_format = 14;
+
+  // Also import the libraries it needs (api_minor 70, feature
+  // "program-libraries"): each one the project has no program for, found by
+  // its name in, in order, library_search_paths (directories on the daemon's
+  // host), the file's own directory and its DT_RUNPATH/DT_RPATH ($ORIGIN
+  // expanded), then the host's library directories (/lib, /usr/lib and their
+  // multiarch and 64-bit forms) for a file imported by path, and only one of
+  // the same machine and word size. They go into the same folder, and
+  // their libraries in turn, to library_depth.
+  bool import_libraries = 15;
+  repeated string library_search_paths = 16;
+  // 1: its own libraries; 2: theirs too; ... 0 means 2; at most 8.
+  uint32 library_depth = 17;
+}
+
+// A memory region declared at import (ImportOptions.regions).
+message MemoryRegion {
+  string name = 1;
+  uint64 start = 2;
+  // Bytes; must be nonzero.
+  uint64 size = 3;
+  bool read = 4;
+  bool write = 5;
+  bool execute = 6;
+  // False: no contents (reads as unknown, never constant). True: zero
+  // filled.
+  bool initialized = 7;
+  // Memory-mapped I/O: every access is a side effect, so the decompiler
+  // never folds or merges accesses to it.
+  bool is_volatile = 8;
+  // The memory space it is in, empty for the default one; start is a
+  // byte offset there (api_minor 26).
+  string space = 9;
+}
+
+message ImportProgramResponse {
+  // Revision committed by the import.
+  Snapshot snapshot = 1;
+  ProgramInfo program = 2;
+  // Set when options.analyze started a job.
+  string analysis_job_id = 3;
+  // Non-fatal loader diagnostics (unsupported relocations, ...).
+  repeated string warnings = 4;
+  // ImportOptions.import_libraries (api_minor 70): the libraries imported
+  // with it, and the ones needed but found nowhere.
+  repeated ProgramInfo libraries = 5;
+  repeated MissingLibrary libraries_not_found = 6;
+}
+
+// A library needed but not found on the search paths.
+message MissingLibrary {
+  string name = 1;
+  // The program that needs it (the one imported, or one of its libraries).
+  string needed_by = 2;
+}
+
+// --- Libraries (api_minor 70, feature "program-libraries") --------------------
+
+message ListProgramLibrariesRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+  // Also list every import with its resolution.
+  bool include_imports = 3;
+}
+
+// How a library was resolved to a project program.
+enum LibraryResolution {
+  LIBRARY_RESOLUTION_UNSPECIFIED = 0;
+  // No program in the project is that library.
+  LIBRARY_RESOLUTION_NONE = 1;
+  // LinkProgramLibrary said which program it is.
+  LIBRARY_RESOLUTION_LINKED = 2;
+  // A program with the library's name (in the same folder first).
+  LIBRARY_RESOLUTION_NAME = 3;
+  // A program whose own name as a library (DT_SONAME, the export
+  // directory's DLL name) is the library's.
+  LIBRARY_RESOLUTION_SONAME = 4;
+}
+
+message ProgramLibrary {
+  // As the program names it: "libc.so.6", "KERNEL32.dll".
+  string name = 1;
+  LibraryResolution resolution = 2;
+  // The project program it resolves to; empty for NONE.
+  string program_id = 3;
+  // That program's display name and folder.
+  string program_name = 4;
+  string folder_path = 5;
+  // LINKED: who linked it (RetractAssertions on its seq unlinks).
+  FactOrigin origin = 6;
+  // The program's imports that resolve to a function of this library.
+  uint32 imports_resolved = 7;
+  // 0: needed by the program itself; 1: by one of its libraries, ...
+  uint32 depth = 8;
+  // depth > 0: the library that needs it.
+  string needed_by = 9;
+}
+
+// One import of a program and where it goes.
+message ResolvedImport {
+  // The imported symbol (version suffix "@GLIBC_2.2.5" dropped).
+  string name = 1;
+  // The library: the PE's DLL; for ELF the library its function was found
+  // in; empty when unresolved and unknown.
+  string library = 2;
+  // The import's thunk (the PLT stub or the jump through the IAT), if it
+  // has one, and its slot (the GOT or IAT entry).
+  Address thunk = 3;
+  Address slot = 4;
+  // Resolved: the library program and the function's address there (its
+  // current address, rebase applied), with that program's name for it.
+  string program_id = 5;
+  Address address = 6;
+  string function_name = 7;
+  bool resolved = 8;
+}
+
+message ListProgramLibrariesResponse {
+  Snapshot snapshot = 1;
+  // Its own needed libraries first (depth 0, in its order), then theirs.
+  repeated ProgramLibrary libraries = 2;
+  // include_imports: every import, in slot order.
+  repeated ResolvedImport imports = 3;
+  // The program's own name as a library and its GNU build ID (hex).
+  string soname = 4;
+  string build_id = 5;
+}
+
+message LinkProgramLibraryRequest {
+  string program_id = 1;
+  // The library as the program names it (ProgramLibrary.name).
+  string library = 2;
+  // The project program it is; empty: find it by name again.
+  string target_program_id = 3;
+  Provenance provenance = 4;
+}
+
+message LinkProgramLibraryResponse {
+  Snapshot snapshot = 1;
+  Assertion assertion = 2;
+  ProgramLibrary library = 3;
+}
+
+message ResolveImportRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+  oneof target {
+    // The import's thunk entry, its slot, or an address inside the thunk.
+    Address address = 3;
+    // The imported symbol's name.
+    string name = 4;
+  }
+}
+
+message ResolveImportResponse {
+  Snapshot snapshot = 1;
+  ResolvedImport resolved = 2;
+}
+
+message GetProgramSummaryRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+}
+
+message GetProgramSummaryResponse {
+  Snapshot snapshot = 1;
+  ProgramSummary summary = 2;
+}
+
+message ProgramSummary {
+  ProgramInfo info = 1;
+  LanguageInfo language = 2;
+  // Address the image was loaded at (lowest loaded address for formats
+  // without a preferred base).
+  Address image_base = 3;
+  repeated EntryPoint entry_points = 4;
+  repeated MemoryBlock memory = 5;
+  uint32 function_count = 6;
+  uint32 instruction_count = 7;
+  // File size in bytes.
+  uint64 file_size = 8;
+  // Address spaces addresses in this program may name.
+  repeated AddressSpaceInfo spaces = 9;
+  // Where the image was imported (api_minor 42, feature "rebase"):
+  // image_base differs after SetImageBase.
+  Address import_image_base = 10;
+}
+
+message LanguageInfo {
+  // "x86:LE:64:default"
+  string language_id = 1;
+  // "gcc"
+  string compiler_spec_id = 2;
+  // "x86"
+  string processor = 3;
+  Endianness endianness = 4;
+  // Pointer size of the default data space, in bytes.
+  uint32 pointer_size = 5;
+  // Name of the default code/data space ("ram").
+  string default_space = 6;
+}
+
+enum Endianness {
+  ENDIANNESS_UNSPECIFIED = 0;
+  ENDIANNESS_LITTLE = 1;
+  ENDIANNESS_BIG = 2;
+}
+
+message AddressSpaceInfo {
+  string name = 1;
+  AddressSpaceKind kind = 2;
+  // Address size in bytes.
+  uint32 size = 3;
+  // Bytes per addressable unit (2 for AVR's and PIC's code spaces).
+  uint32 word_size = 4;
+  // For overlays: the space they overlay.
+  string overlay_base = 5;
+  // A memory space whose addresses the program folds into the default
+  // space's offsets (api_minor 26, feature "address-spaces"): they are
+  // key_base + the byte offset (Address.offset). Show them as
+  // name:offset with the offset in words, as Ghidra does: AVR's
+  // code:0x003a is byte 0x74 of the default space, mem:0x0100 is
+  // key_base + 0x100. Zero for the default space and for spaces with no
+  // memory.
+  uint64 key_base = 6;
+  // The default code space (a RAM space).
+  bool is_default = 7;
+  // A byte view of the default space's memory (AVR's codebyte): offsets
+  // in it are the default space's.
+  bool alias = 8;
+}
+
+enum AddressSpaceKind {
+  ADDRESS_SPACE_KIND_UNSPECIFIED = 0;
+  ADDRESS_SPACE_KIND_CONSTANT = 1;
+  ADDRESS_SPACE_KIND_RAM = 2;
+  ADDRESS_SPACE_KIND_REGISTER = 3;
+  ADDRESS_SPACE_KIND_STACK = 4;
+  ADDRESS_SPACE_KIND_UNIQUE = 5;
+  ADDRESS_SPACE_KIND_OVERLAY = 6;
+  ADDRESS_SPACE_KIND_OTHER = 7;
+}
+
+message EntryPoint {
+  Address address = 1;
+  // "entry", "export", "tls_callback", "init_array", ...
+  string kind = 2;
+  string name = 3;
+}
+
+// One contiguous region of the memory map.
+message MemoryBlock {
+  // Section or segment name, ".text".
+  string name = 1;
+  // Inclusive.
+  AddressRange range = 2;
+  bool read = 3;
+  bool write = 4;
+  bool execute = 5;
+  // False for zero-fill (.bss) and reserved regions with no bytes.
+  bool initialized = 6;
+  // Offset of the block's first byte in the imported file, when it has one.
+  bool has_file_offset = 7;
+  uint64 file_offset = 8;
+  // Block is an overlay sharing addresses with another block.
+  bool overlay = 9;
+  // The loader's (derived) for the image's blocks; the assertion that
+  // added or last edited it otherwise.
+  FactOrigin origin = 10;
+
+  // Since api_minor 24 (feature "memory-map"; docs/memory-map.md):
+  // Memory-mapped I/O: the decompiler never folds or merges accesses.
+  bool is_volatile = 11;
+  // A region the user added: its id. Empty for the image's own blocks.
+  string region_id = 12;
+  // An image block whose name, permissions or volatile flag were edited.
+  bool edited = 13;
+  // Where the block's bytes come from.
+  MemoryBlockSource source = 14;
+  // Set on a region the map can't place (GetMemoryMapResponse.rejected):
+  // why, such as the block it overlaps.
+  string rejected = 15;
+}
+
+enum MemoryBlockSourceKind {
+  MEMORY_BLOCK_SOURCE_KIND_UNSPECIFIED = 0;
+  // The imported file, at MemoryBlock.file_offset.
+  MEMORY_BLOCK_SOURCE_KIND_IMAGE = 1;
+  // Another file's bytes, added with the region (file, file_offset, length).
+  MEMORY_BLOCK_SOURCE_KIND_FILE = 2;
+  // Zero-filled.
+  MEMORY_BLOCK_SOURCE_KIND_ZERO = 3;
+  // No contents (uninitialized).
+  MEMORY_BLOCK_SOURCE_KIND_NONE = 4;
+}
+
+message MemoryBlockSource {
+  MemoryBlockSourceKind kind = 1;
+  // FILE: the file's name, where the bytes start in it and how many there are.
+  string file = 2;
+  uint64 file_offset = 3;
+  uint64 length = 4;
+  string sha256 = 5;
+  // FILE: the bytes haven't reached this daemon yet (a collaborator added
+  // the region); it reads as uninitialized until they do.
+  bool missing = 6;
+}

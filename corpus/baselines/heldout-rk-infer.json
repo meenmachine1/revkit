@@ -1,0 +1,232 @@
+{
+ "TOTAL": {
+  "arity": {
+   "gain": 7.2,
+   "ghidra": 81.56,
+   "revkit": 88.76
+  },
+  "exact": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "functions": 26106,
+  "normalized": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "signature": {
+   "gain": 3.59,
+   "ghidra": 3.81,
+   "revkit": 7.4
+  }
+ },
+ "elf-aarch64": {
+  "arity": {
+   "gain": 3.03,
+   "ghidra": 85.26,
+   "revkit": 88.29
+  },
+  "exact": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "functions": 6105,
+  "normalized": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "signature": {
+   "gain": 3.28,
+   "ghidra": 3.24,
+   "revkit": 6.52
+  }
+ },
+ "elf-riscv64": {
+  "arity": {
+   "gain": 1.94,
+   "ghidra": 87.77,
+   "revkit": 89.71
+  },
+  "exact": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "functions": 6017,
+  "normalized": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "signature": {
+   "gain": 2.93,
+   "ghidra": 1.94,
+   "revkit": 4.87
+  }
+ },
+ "elf-x86_64": {
+  "arity": {
+   "gain": 2.85,
+   "ghidra": 87.85,
+   "revkit": 90.7
+  },
+  "exact": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "functions": 8837,
+  "normalized": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "signature": {
+   "gain": 3.92,
+   "ghidra": 6.11,
+   "revkit": 10.03
+  }
+ },
+ "matchable:TOTAL": {
+  "arity": {
+   "gain": 4.79,
+   "ghidra": 81.03,
+   "revkit": 85.81
+  },
+  "exact": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "functions": 5286,
+  "normalized": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "signature": {
+   "gain": 17.73,
+   "ghidra": 18.8,
+   "revkit": 36.53
+  }
+ },
+ "matchable:elf-aarch64": {
+  "arity": {
+   "gain": 2.21,
+   "ghidra": 81.92,
+   "revkit": 84.13
+  },
+  "exact": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "functions": 1084,
+  "normalized": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "signature": {
+   "gain": 18.45,
+   "ghidra": 18.27,
+   "revkit": 36.72
+  }
+ },
+ "matchable:elf-riscv64": {
+  "arity": {
+   "gain": -0.09,
+   "ghidra": 86.15,
+   "revkit": 86.05
+  },
+  "exact": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "functions": 1061,
+  "normalized": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "signature": {
+   "gain": 16.59,
+   "ghidra": 11.03,
+   "revkit": 27.62
+  }
+ },
+ "matchable:elf-x86_64": {
+  "arity": {
+   "gain": 2.5,
+   "ghidra": 87.82,
+   "revkit": 90.31
+  },
+  "exact": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "functions": 2044,
+  "normalized": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "signature": {
+   "gain": 16.93,
+   "ghidra": 26.42,
+   "revkit": 43.35
+  }
+ },
+ "matchable:pe-x86_64": {
+  "arity": {
+   "gain": 16.32,
+   "ghidra": 62.53,
+   "revkit": 78.85
+  },
+  "exact": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "functions": 1097,
+  "normalized": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "signature": {
+   "gain": 19.6,
+   "ghidra": 12.67,
+   "revkit": 32.27
+  }
+ },
+ "pe-x86_64": {
+  "arity": {
+   "gain": 25.74,
+   "ghidra": 59.12,
+   "revkit": 84.86
+  },
+  "exact": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "functions": 5147,
+  "normalized": {
+   "gain": 0.0,
+   "ghidra": 0.0,
+   "revkit": 0.0
+  },
+  "signature": {
+   "gain": 4.18,
+   "ghidra": 2.7,
+   "revkit": 6.88
+  }
+ }
+}

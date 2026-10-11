@@ -1,0 +1,5 @@
+add_executable(revkit_detect_tests detect_test.cc)
+target_link_libraries(revkit_detect_tests PRIVATE revkit::detect GTest::gtest_main)
+target_compile_options(revkit_detect_tests PRIVATE -Wall -Wextra)
+target_compile_definitions(revkit_detect_tests PRIVATE REVKIT_GHIDRA_ROOT="${GHIDRA_ROOT}")
+gtest_discover_tests(revkit_detect_tests)

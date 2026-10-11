@@ -1,0 +1,77 @@
+{
+ "68000:BE:32:Coldfire": {
+  "exact": 1.0,
+  "lines": 14923,
+  "ok": 1.0
+ },
+ "68000:BE:32:default": {
+  "exact": 1.0,
+  "lines": 12360,
+  "ok": 1.0
+ },
+ "AARCH64:LE:64:v8A": {
+  "exact": 1.0,
+  "lines": 30675,
+  "ok": 1.0
+ },
+ "ARM:LE:32:Cortex Thumb": {
+  "exact": 1.0,
+  "lines": 25794,
+  "ok": 1.0
+ },
+ "ARM:LE:32:v4t ARM": {
+  "exact": 1.0,
+  "lines": 6567,
+  "ok": 1.0
+ },
+ "ARM:LE:32:v4t Thumb": {
+  "exact": 1.0,
+  "lines": 6247,
+  "ok": 1.0
+ },
+ "ARM:LE:32:v7 ARM": {
+  "exact": 1.0,
+  "lines": 6521,
+  "ok": 1.0
+ },
+ "ARM:LE:32:v7 Thumb": {
+  "exact": 1.0,
+  "lines": 6224,
+  "ok": 1.0
+ },
+ "MIPS:BE:32:default": {
+  "exact": 1.0,
+  "lines": 12715,
+  "ok": 1.0
+ },
+ "MIPS:LE:32:default": {
+  "exact": 1.0,
+  "lines": 13392,
+  "ok": 1.0
+ },
+ "PowerPC:BE:32:default": {
+  "exact": 1.0,
+  "lines": 24975,
+  "ok": 1.0
+ },
+ "RISCV:LE:64:default": {
+  "exact": 1.0,
+  "lines": 27745,
+  "ok": 1.0
+ },
+ "SuperH4:LE:32:default": {
+  "exact": 1.0,
+  "lines": 18551,
+  "ok": 1.0
+ },
+ "Xtensa:LE:32:default": {
+  "exact": 1.0,
+  "lines": 24705,
+  "ok": 1.0
+ },
+ "x86:LE:64:default": {
+  "exact": 0.9966,
+  "lines": 50568,
+  "ok": 1.0
+ }
+}

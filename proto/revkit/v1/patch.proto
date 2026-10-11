@@ -1,0 +1,405 @@
+// Patching (docs/patching.md): assemble a line at an address, patch
+// instructions and bytes, list and revert patches, and export the patched
+// file with checksum fixups. Added in api_minor 27 (feature "patch").
+//
+// A patch is an assertion (FACT_KIND_PATCH at its first byte, the new bytes
+// as its value, at most 256 bytes; longer edits are several), so it has
+// provenance, blame, history, undo (RetractAssertions), bulk revert
+// (RevertByProvenance) and replication like every other edit. Every view
+// that decodes the program's bytes (discovery, the listing, instructions,
+// graphs, xrefs, decompilation, the emulator, analyzer plugins) reads them
+// as patched; the file's own bytes never change.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+service PatchService {
+  // Assembles one line at an address with the context there (ARM/Thumb,
+  // x86 mode), ranked shortest first, then fewest bits changed from the
+  // bytes now at the address. With `cursor`, also the completions there.
+  // Nothing is written. Viewer.
+  rpc Assemble(AssembleRequest) returns (AssembleResponse);
+  // Assembles and writes one instruction as a patch (one revision): the
+  // chosen candidate, padded with NOPs when shorter than the instruction it
+  // replaces (pad = true). Editor.
+  rpc PatchInstruction(PatchInstructionRequest) returns (PatchInstructionResponse);
+  // Writes bytes at an address (one revision; one assertion per 256-byte
+  // piece). Only file-backed, initialized memory can be patched. Editor.
+  rpc PatchBytes(PatchBytesRequest) returns (PatchBytesResponse);
+  // The live patches, with their original bytes and text. Viewer.
+  rpc ListPatches(ListPatchesRequest) returns (ListPatchesResponse);
+  // Retracts patches (by seq, or every live one overlapping a range) in one
+  // revision; undoable like any retraction. Editor.
+  rpc RevertPatches(RevertPatchesRequest) returns (RevertPatchesResponse);
+  // The program's file with its patches laid at their file offsets, fixups
+  // applied (PE checksum, a stored or given checksum spec), re-loaded and
+  // compared before it is returned. As a download: viewer (it holds nothing
+  // ReadMemory doesn't). To a path on the daemon's host: admin.
+  rpc ExportProgram(ExportProgramRequest) returns (ExportProgramResponse);
+  // Searches the file for the checksum rule it obeys: additive sums,
+  // Fletcher/Adler, CRC-16 and CRC-32 variants over natural ranges, against
+  // its header words and a value the caller gives (a file name's hex
+  // suffix). Viewer.
+  rpc DetectChecksum(DetectChecksumRequest) returns (DetectChecksumResponse);
+  // The program's stored export settings (a NOTE assertion, tag
+  // "patch.export"): format, fixups, file name template. Viewer.
+  rpc GetExportSettings(GetExportSettingsRequest) returns (GetExportSettingsResponse);
+  // Stores them (one revision). Editor.
+  rpc SetExportSettings(SetExportSettingsRequest) returns (SetExportSettingsResponse);
+  // The program as it was imported, without its patches, as a program of
+  // the same project ("<name> (original)", imported once from the stored
+  // file with the same options): what "Compare with original" diffs the
+  // patched program against (DiffService). Editor.
+  rpc OpenOriginal(OpenOriginalRequest) returns (OpenOriginalResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Assembling
+// ---------------------------------------------------------------------------
+
+message AssembleRequest {
+  string program_id = 1;
+  Address address = 2;
+  string text = 3;
+  // Completion at this character offset of text (0: none; text.length:
+  // the end).
+  uint32 cursor = 4;
+  bool complete = 5;
+  // At most this many candidates (0: 16).
+  uint32 max_candidates = 6;
+  ReadOptions read = 7;
+  // Context variables to set at the address over what the program decodes
+  // with there (ARM {"TMode": 1} to write Thumb code where the listing
+  // has none).
+  map<string, uint32> context = 8;
+}
+
+message AssemblyCandidate {
+  bytes bytes = 1;
+  // The candidate as the disassembler prints it.
+  string text = 2;
+  // Bits that differ from the bytes now at the address (missing bytes count 8).
+  uint32 hamming = 3;
+  // The bytes already at the address.
+  bool current = 4;
+}
+
+message AssembleResponse {
+  Snapshot snapshot = 1;
+  // Ranked: shortest, then nearest to the current bytes.
+  repeated AssemblyCandidate candidates = 2;
+  // Why there are none: a syntax error (with error_column, the 0-based
+  // offset in text where parsing stopped, and what the grammar expected
+  // there) or why no encoding exists (out of range, wrong mode).
+  string error = 3;
+  int32 error_column = 4;
+  repeated string expected = 5;
+  // Completion (complete = true): replace text[completion_from, cursor)
+  // with one of completions. "<number>" and "<address>" stand for operands.
+  uint32 completion_from = 6;
+  repeated string completions = 7;
+  // The instruction now at the address (empty if none decodes), its bytes,
+  // and the context the line is assembled in ("TMode=1").
+  string current_text = 8;
+  bytes current_bytes = 9;
+  string context = 10;
+  bool truncated = 11;
+  uint32 micros = 12;
+}
+
+message PatchInstructionRequest {
+  string program_id = 1;
+  Address address = 2;
+  string text = 3;
+  // The encoding to write: one of the candidates' bytes as Assemble
+  // returned them (the server checks it is one); empty: the first.
+  bytes bytes = 4;
+  // When the encoding is shorter than the instruction it replaces, fill
+  // the rest with the language's NOP (a second patch in the same revision).
+  bool pad = 5;
+  Provenance provenance = 6;
+  // ABORTED if head moved (optimistic concurrency), as AppendAssertions.
+  uint64 expected_head_revision = 7;
+  // As AssembleRequest.context.
+  map<string, uint32> context = 8;
+}
+
+message PatchInstructionResponse {
+  Snapshot snapshot = 1;
+  uint64 revision = 2;
+  // The patch assertions' seqs (the instruction, then any NOP padding):
+  // what RetractAssertions undoes.
+  repeated uint64 seqs = 3;
+  bytes bytes = 4;
+  bytes padding = 5;
+  string text = 6;  // as the disassembler prints the new bytes
+}
+
+message PatchBytesRequest {
+  string program_id = 1;
+  Address address = 2;
+  bytes data = 3;
+  Provenance provenance = 4;
+  uint64 expected_head_revision = 5;
+}
+
+message PatchBytesResponse {
+  Snapshot snapshot = 1;
+  uint64 revision = 2;
+  repeated uint64 seqs = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Listing and reverting
+// ---------------------------------------------------------------------------
+
+message PatchInfo {
+  uint64 seq = 1;
+  Address address = 2;
+  bytes bytes = 3;
+  // What the program's file had there.
+  bytes original = 4;
+  // The instruction there now and before, as the disassembler prints them
+  // (empty where nothing decodes or the bytes are data).
+  string text = 5;
+  string original_text = 6;
+  // The line as typed, for instruction patches.
+  string typed_text = 7;
+  Provenance provenance = 8;
+  uint64 revision = 9;
+  google.protobuf.Timestamp time = 10;
+  // The function containing the address, if any.
+  Address function = 11;
+  string function_name = 12;
+  // Bytes of this patch another (higher precedence or later) one covers.
+  uint32 shadowed_bytes = 13;
+}
+
+message ListPatchesRequest {
+  string program_id = 1;
+  // Only patches overlapping this range (unset: all).
+  AddressRange range = 2;
+  ReadOptions read = 3;
+}
+
+message ListPatchesResponse {
+  Snapshot snapshot = 1;
+  // In address order.
+  repeated PatchInfo patches = 2;
+  uint64 patched_bytes = 3;
+}
+
+message RevertPatchesRequest {
+  string program_id = 1;
+  repeated uint64 seqs = 2;
+  // Every live patch overlapping it (with or instead of seqs).
+  AddressRange range = 3;
+  Provenance provenance = 4;
+  uint64 expected_head_revision = 5;
+}
+
+message RevertPatchesResponse {
+  Snapshot snapshot = 1;
+  uint64 revision = 2;
+  // The retractions (RetractAssertions on them redoes the patches).
+  repeated uint64 seqs = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------
+
+enum ChecksumAlgorithm {
+  CHECKSUM_ALGORITHM_UNSPECIFIED = 0;
+  // Additive sums, truncated to the width: of bytes (SUM8/16/32: every byte
+  // added), of 16-bit or 32-bit words in either byte order.
+  CHECKSUM_ALGORITHM_SUM8 = 1;
+  CHECKSUM_ALGORITHM_SUM16 = 2;
+  CHECKSUM_ALGORITHM_SUM32 = 3;
+  CHECKSUM_ALGORITHM_SUM16_WORDS_LE = 4;
+  CHECKSUM_ALGORITHM_SUM16_WORDS_BE = 5;
+  CHECKSUM_ALGORITHM_SUM32_WORDS_LE = 6;
+  CHECKSUM_ALGORITHM_SUM32_WORDS_BE = 7;
+  // The two's complement of SUM8/SUM32 (the sum with the field is zero).
+  CHECKSUM_ALGORITHM_SUM8_NEG = 8;
+  CHECKSUM_ALGORITHM_SUM32_NEG = 9;
+  CHECKSUM_ALGORITHM_XOR8 = 10;
+  CHECKSUM_ALGORITHM_FLETCHER16 = 11;
+  CHECKSUM_ALGORITHM_FLETCHER32 = 12;
+  CHECKSUM_ALGORITHM_ADLER32 = 13;
+  CHECKSUM_ALGORITHM_CRC16_CCITT_FALSE = 14;  // poly 0x1021, init 0xffff
+  CHECKSUM_ALGORITHM_CRC16_XMODEM = 15;       // poly 0x1021, init 0
+  CHECKSUM_ALGORITHM_CRC16_KERMIT = 16;       // poly 0x1021 reflected, init 0
+  CHECKSUM_ALGORITHM_CRC16_MODBUS = 17;       // poly 0x8005 reflected, init 0xffff
+  CHECKSUM_ALGORITHM_CRC16_ARC = 18;          // poly 0x8005 reflected, init 0
+  CHECKSUM_ALGORITHM_CRC32 = 19;              // IEEE (zlib, PNG, Ethernet)
+  CHECKSUM_ALGORITHM_CRC32_BZIP2 = 20;
+  CHECKSUM_ALGORITHM_CRC32_MPEG2 = 21;
+  CHECKSUM_ALGORITHM_CRC32_POSIX = 22;
+  CHECKSUM_ALGORITHM_CRC32_JAMCRC = 23;
+  CHECKSUM_ALGORITHM_CRC32C = 24;             // Castagnoli
+  // The PE optional header's CheckSum (fixed range and field).
+  CHECKSUM_ALGORITHM_PE = 25;
+}
+
+// A checksum rule: an algorithm over a range of the output file, written
+// into the file (a field) or into its name (a file name template's
+// {SUM...} placeholder uses the value).
+message ChecksumSpec {
+  ChecksumAlgorithm algorithm = 1;
+  // [start, end) in the output file; end 0 means the end of the file,
+  // negative end counts back from it.
+  uint64 start = 2;
+  int64 end = 3;
+  // Skip trailing 0xff / 0x00 padding when computing.
+  bool skip_padding = 4;
+  // Where the value goes: a field of the file (offset, width 1/2/4 bytes,
+  // byte order), excluded from the range while computing...
+  bool field = 5;
+  uint64 field_offset = 6;
+  uint32 field_width = 7;
+  bool field_big_endian = 8;
+  // ...or into the file name: the template's placeholder.
+  bool name = 9;
+}
+
+message ExportFixup {
+  oneof kind {
+    ChecksumSpec checksum = 1;
+    // The PE optional header's CheckSum, recomputed.
+    bool pe_checksum = 2;
+  }
+}
+
+enum ExportFormat {
+  EXPORT_FORMAT_UNSPECIFIED = 0;  // the file as it was imported (raw, ELF or PE)
+  EXPORT_FORMAT_FILE = 1;         // the same
+  // Only the loaded image's bytes (a raw import's slice, without header).
+  EXPORT_FORMAT_IMAGE = 2;
+}
+
+message ExportSettings {
+  ExportFormat format = 1;
+  repeated ExportFixup fixups = 2;
+  // The output file name: {NAME} the imported file's stem with any hex
+  // suffix the checksum filled before, {EXT} its extension, {SUM:08X} (or
+  // {SUM:08x}, {SUM}) a name checksum's value; e.g. "NAME_{SUM:08X}.bin".
+  string file_name_template = 3;
+}
+
+message ExportProgramRequest {
+  string program_id = 1;
+  // Unset fields: the stored settings (GetExportSettings), else the file
+  // as imported, no fixups, the original name.
+  ExportSettings settings = 2;
+  bool use_stored_settings = 3;
+  // Write here on the daemon's host (a directory: the file name joins it).
+  // Admin. Empty: the bytes come back in the response.
+  string host_path = 4;
+  // Skip re-loading the output to compare it with the patched program
+  // (on by default).
+  bool skip_verify = 5;
+  ReadOptions read = 6;
+}
+
+message ExportChange {
+  uint64 file_offset = 1;
+  uint32 length = 2;
+  Address address = 3;  // unset for fixup fields
+  string what = 4;      // "patch", "checksum CRC32 at 0x1c"
+}
+
+message ExportVerification {
+  bool ok = 1;
+  // Mapped bytes compared, and those that differ from the patched program.
+  uint64 compared = 2;
+  uint64 mismatches = 3;
+  Address first_mismatch = 4;
+  string detail = 5;
+}
+
+message ExportProgramResponse {
+  Snapshot snapshot = 1;
+  bytes data = 2;  // when not written to host_path
+  string file_name = 3;
+  string path = 4;  // when written
+  uint64 size = 5;
+  string sha256 = 6;
+  repeated ExportChange changes = 7;
+  // Each fixup's value, as text ("sum32 = 0x1234ABCD").
+  repeated string fixups = 8;
+  ExportVerification verification = 9;
+}
+
+message DetectChecksumRequest {
+  string program_id = 1;
+  // A value the rule should produce, e.g. a file name's hex suffix (0x...
+  // or bare hex digits). With file_name instead, every hex run of 4 or 8
+  // digits in it is tried.
+  string expected = 2;
+  string file_name = 3;
+  // Search the patched file (export's output before fixups) instead of the
+  // imported one.
+  bool patched = 4;
+  ReadOptions read = 5;
+}
+
+message ChecksumHit {
+  ChecksumSpec spec = 1;
+  uint64 value = 2;
+  // In words: "sum32 over 0..EOF = 0x1234ABCD, the file name's suffix".
+  string evidence = 3;
+  // For a file name rule: the name with the value's digits as a
+  // placeholder ("FW_202401011200_{SUM:08X}.bin").
+  string file_name_template = 4;
+}
+
+message DetectChecksumResponse {
+  Snapshot snapshot = 1;
+  repeated ChecksumHit hits = 2;
+  uint64 tried = 3;
+}
+
+message GetExportSettingsRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+}
+
+message GetExportSettingsResponse {
+  Snapshot snapshot = 1;
+  ExportSettings settings = 2;
+  bool stored = 3;
+  // The imported file's name.
+  string file_name = 4;
+}
+
+message SetExportSettingsRequest {
+  string program_id = 1;
+  ExportSettings settings = 2;
+  Provenance provenance = 3;
+}
+
+message SetExportSettingsResponse {
+  Snapshot snapshot = 1;
+  uint64 revision = 2;
+}
+
+message OpenOriginalRequest {
+  string program_id = 1;
+  Provenance provenance = 2;
+}
+
+message OpenOriginalResponse {
+  Snapshot snapshot = 1;
+  string program_id = 2;
+  // False when an earlier call made it.
+  bool created = 3;
+}

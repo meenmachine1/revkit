@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Sun, 4 Oct 2026 21:41:41 -0400
+Subject: [PATCH] Decompiler: fail cleanly instead of dividing by zero in
+ SplitDatatype::buildPointers
+
+RuleSplitStore and RuleSplitLoad (SplitDatatype::splitStore/splitLoad) back
+up from the LOAD/STORE pointer through PTRSUB/INT_ADD/PTRADD to a root
+pointer (RootPointer::backUpPointer), accepting any pointer to a struct or
+array. If that struct has size 0 (an incomplete structure: a forward
+declaration, or a <type> decoded with size="0", which TypeStruct still
+accepts as "the old way to indicate an incomplete structure"),
+buildPointers takes the "offset outside the data-type" branch and computes
+curOff % tmpType->getSize(), a division by zero: SIGFPE. An array whose
+elements have size 0 divides by zero the same way a few lines below.
+
+Throw a LowlevelError before either division, so the function fails with
+an error and the process survives. Only functions that crashed before are
+affected. (Refusing to back up to a pointer to a zero-size type in
+backUpPointer would let the split proceed from the last sized pointer;
+that is a behavior change left to upstream.)
+
+Seen when a client hands the decompiler a pointer to an opaque library
+struct (struct __jmp_buf_tag *) as an incomplete, size-0 TypeStruct.
+Repro: decomp_dbg, restore the attached XML (x86-64: add rdi,0x18;
+mov qword [rdi],0; ret, with p typed as pointer to a size-0 struct and
+RDI after the add as uint4 *), load function storeopaque, decompile.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/subflow.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/subflow.cc
+index b191cdb..ef0e011 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/subflow.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/subflow.cc
+@@ -2626,6 +2626,8 @@ void SplitDatatype::buildPointers(Varnode *rootVn,TypePointer *ptrType,int4 base
+       int8 newOff;
+       PcodeOp *newOp;
+       Datatype *newType;
++      if (tmpType->getSize() == 0)
++	throw LowlevelError("Cannot split access through pointer to zero-size data-type: " + tmpType->getName());
+       if (curOff < 0 || curOff >= tmpType->getSize()) {	// An offset not within the data-type indicates an array
+ 	newType = tmpType;			// The new data-type will be the same as current data-type
+ 	newOff = curOff % tmpType->getSize();	// But new offset will be old offset modulo data-type size
+@@ -2642,6 +2644,8 @@ void SplitDatatype::buildPointers(Varnode *rootVn,TypePointer *ptrType,int4 base
+       if (tmpType == newType || tmpType->getMetatype() == TYPE_ARRAY) {
+ 	int8 finalOffset = curOff - newOff;
+ 	int4 sz = newType->getSize();		// Element size in bytes
++	if (sz == 0)
++	  throw LowlevelError("Cannot split access through array of zero-size elements: " + newType->getName());
+ 	finalOffset = finalOffset / sz;		// Number of elements
+ 	sz = AddrSpace::byteToAddressInt(sz, ptrType->getWordSize());
+ 	newOp = data.newOp(3,followOp->getAddr());

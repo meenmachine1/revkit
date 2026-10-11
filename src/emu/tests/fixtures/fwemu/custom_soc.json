@@ -1,0 +1,25 @@
+// A made-up SoC (custom.c) described with the configurable built-ins.
+{
+  "machine": 1,
+  "name": "custom-soc",
+  "language": "ARM:LE:32:v4t",
+  "cpu": {"model": "arm", "semihosting": true},
+  "memory": [
+    {"name": "ram", "start": "0x0", "size": "8M", "kind": "ram"},
+    {"name": "io", "start": "0xa0000000", "size": "0x10000", "kind": "mmio"}
+  ],
+  "image": {"load": "0x0"},
+  "peripherals": [
+    {"name": "intc", "kind": "intc", "base": "0xa0001000", "size": "0x100",
+     "lines": 64, "number_base": 1, "bit_order": "msb",
+     "registers": {"pending_number": "0x10", "mask": ["0x20", "0x24"], "global_disable": "0x08"}},
+    {"name": "timers", "kind": "timer", "base": "0xa0002000", "size": "0x40",
+     "channels": 4, "stride": "0x10",
+     "registers": {"control": "0x0", "load": "0x4", "value": "0x8", "status": null, "clear": null},
+     "bits": {"enable": 0, "irq_enable": 1, "pending": 7, "periodic": null},
+     "status_in_control": true, "clear_mode": "w1c", "count": "up", "top": "0x8000", "clock_hz": 1000000,
+     "irq": {"irq0": "intc.45", "irq1": "intc.40"}},
+    {"name": "console", "kind": "uart", "base": "0x101f1000",
+     "data": "0x0", "status": "0x18", "tx_ready": "0x80", "rx_ready": "0x0", "rx_empty": "0x10"}
+  ]
+}

@@ -1,0 +1,18 @@
+# Writes lsh_weights_data.h: BSim's weight files (third_party/bsim) as
+# string constants. Run by add_custom_command with -DSRC=<dir> -DOUT=<file>.
+set(_out "// Generated from third_party/bsim by src/diff/embed_weights.cmake. Do not edit.\n#pragma once\n#include <string_view>\nnamespace revkit::diff::bsim_data {\n")
+foreach(pair "64:lshweights_64.xml" "64_32:lshweights_64_32.xml" "32:lshweights_32.xml" "Nosize:lshweights_nosize.xml")
+  string(REPLACE ":" ";" _p "${pair}")
+  list(GET _p 0 _name)
+  list(GET _p 1 _file)
+  file(READ "${SRC}/${_file}" _xml)
+  string(FIND "${_xml}" ")rkbsim\"" _bad)
+  if(NOT _bad EQUAL -1)
+    message(FATAL_ERROR "${_file} contains the raw-string delimiter")
+  endif()
+  string(APPEND _out "inline constexpr std::string_view kLshWeights${_name} = R\"rkbsim(${_xml})rkbsim\";\n")
+endforeach()
+string(APPEND _out "}  // namespace revkit::diff::bsim_data\n")
+file(WRITE "${OUT}.tmp" "${_out}")
+file(COPY_FILE "${OUT}.tmp" "${OUT}" ONLY_IF_DIFFERENT)
+file(REMOVE "${OUT}.tmp")

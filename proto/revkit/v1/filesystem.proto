@@ -1,0 +1,342 @@
+// Container file systems (docs/filesystems.md): open an archive, a
+// compressed file, a file system image or a firmware package as a tree of
+// files, nested to any depth (a squashfs in a tar.gz in a zip), browse it,
+// read and describe its files, import the programs in it (one, many, or a
+// whole tree: batch import) and extract files to the daemon's host. Added
+// in api_minor 48 (feature "filesystems").
+//
+// A session is the outermost container and what is mounted inside it; it
+// belongs to the identity that opened it (anyone else, admins excepted,
+// gets NOT_FOUND) and closes after 30 minutes unused. Paths name a file
+// through every layer: '!' separates the layers and each layer is a path
+// of percent-encoded components ("/rootfs.sqfs!/bin/busybox"); use the
+// paths a listing returns. Names from a container are display text only:
+// nothing is written to the host except by ExtractFromFileSystem, which
+// sanitizes them. Every container is untrusted input, read within limits
+// (FileSystemLimits).
+syntax = "proto3";
+
+package revkit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "revkit/v1/common.proto";
+import "revkit/v1/project.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+service FileSystemService {
+  // Opens a container. A program's stored file needs viewer of its
+  // project; a host path, an upload or bytes sent need admin (they read
+  // the host, or bring in a file, as ImportProgram does).
+  rpc OpenFileSystem(OpenFileSystemRequest) returns (OpenFileSystemResponse);
+  // A directory's entries, a container file's root (its path, or the path
+  // with '!'), or everything below a directory (recursive). Viewer, and
+  // the session's owner.
+  rpc ListFileSystem(ListFileSystemRequest) returns (ListFileSystemResponse);
+  // Bytes of a file (links followed inside the container). Viewer.
+  rpc ReadFileSystemFile(ReadFileSystemFileRequest) returns (ReadFileSystemFileResponse);
+  // A file's entry, hashes, first bytes, what it is, and the container it
+  // holds, if any. Viewer.
+  rpc GetFileSystemFileInfo(GetFileSystemFileInfoRequest) returns (GetFileSystemFileInfoResponse);
+  // Imports files as programs of a project (editor of that project): one,
+  // several, or every program below the paths given (batch import), with a
+  // preview and a cap on the count. Each program records its container
+  // path (ProgramInfo.container_path).
+  rpc ImportFromFileSystem(ImportFromFileSystemRequest) returns (ImportFromFileSystemResponse);
+  // Writes files to a directory on the daemon's host, under --browse-root
+  // (admin). Names are sanitized; links, devices and pipes are skipped.
+  rpc ExtractFromFileSystem(ExtractFromFileSystemRequest) returns (ExtractFromFileSystemResponse);
+  // Closes a session (the owner's, or any for an admin).
+  rpc CloseFileSystem(CloseFileSystemRequest) returns (CloseFileSystemResponse);
+  // The caller's open sessions (an admin's: everyone's).
+  rpc ListFileSystems(ListFileSystemsRequest) returns (ListFileSystemsResponse);
+}
+
+// The limits a session reads with. A request may lower the daemon's
+// defaults, never raise them; 0 keeps the default.
+message FileSystemLimits {
+  // One file once decompressed (default 1 GiB).
+  uint64 max_file_bytes = 1;
+  // Decompressed data the session holds at once (default 4 GiB).
+  uint64 max_total_bytes = 2;
+  // Containers inside containers, the outermost counting 1 (default 8).
+  uint32 max_depth = 3;
+  // Entries in one container (default 262144).
+  uint32 max_entries = 4;
+  // Decompressed over compressed size, past 64 MiB of output (default 1000).
+  uint32 max_ratio = 5;
+}
+
+message OpenFileSystemRequest {
+  // The project the session is for: imports go there unless they name
+  // another, and a program source must be in it.
+  string project_id = 1;
+  oneof source {
+    // A file on the daemon's host; or a directory (batch import), listed
+    // without following symlinks out of it. Admin.
+    string host_path = 2;
+    // A program's stored file (a raw firmware image holding a file system).
+    string program_id = 3;
+    // An upload (ProjectService.UploadChunk). Admin.
+    string upload_id = 4;
+    // The bytes, at most ServerInfo.max_request_bytes. Admin.
+    bytes content = 5;
+  }
+  // The outermost file's name, for upload_id and content ("upload").
+  string name = 6;
+  FileSystemLimits limits = 7;
+}
+
+// One container layer of a session.
+message FileSystemLayer {
+  // "zip", "tar", "gzip", "squashfs", "ext", "iso9660", "dir", ...
+  string format = 1;
+  // "squashfs file system, xz, 1214 files, 80 directories"
+  string description = 2;
+  // What the parser skipped or distrusted (truncation, overlapping members).
+  repeated string warnings = 3;
+  // The session path of its root: "/" or "/rootfs.sqfs!/".
+  string path = 4;
+  // Its container path ("zip://fw.zip!/rootfs.sqfs!/").
+  string container_path = 5;
+  // 1 for the outermost.
+  uint32 depth = 6;
+}
+
+message OpenFileSystemResponse {
+  string session_id = 1;
+  // The outermost file's name.
+  string name = 2;
+  FileSystemLayer root = 3;
+  // The limits in force.
+  FileSystemLimits limits = 4;
+}
+
+enum FileSystemEntryKind {
+  FILE_SYSTEM_ENTRY_KIND_UNSPECIFIED = 0;
+  FILE_SYSTEM_ENTRY_KIND_FILE = 1;
+  FILE_SYSTEM_ENTRY_KIND_DIRECTORY = 2;
+  FILE_SYSTEM_ENTRY_KIND_SYMLINK = 3;
+  FILE_SYSTEM_ENTRY_KIND_HARDLINK = 4;
+  FILE_SYSTEM_ENTRY_KIND_CHAR_DEVICE = 5;
+  FILE_SYSTEM_ENTRY_KIND_BLOCK_DEVICE = 6;
+  FILE_SYSTEM_ENTRY_KIND_FIFO = 7;
+  FILE_SYSTEM_ENTRY_KIND_SOCKET = 8;
+  FILE_SYSTEM_ENTRY_KIND_OTHER = 9;
+}
+
+message FileSystemEntry {
+  // Display text: valid UTF-8, with what isn't (and control characters,
+  // bidirectional overrides) shown as U+FFFD.
+  string name = 1;
+  // The session path to pass back.
+  string path = 2;
+  FileSystemEntryKind kind = 3;
+  // Bytes; for a compressed file whose header doesn't say, size_unknown.
+  uint64 size = 4;
+  bool size_unknown = 5;
+  // Bytes in the container (compressed), when known.
+  uint64 stored_size = 6;
+  // "rwxr-xr-x" (with s, S, t, T), empty when the format keeps none.
+  string permissions = 7;
+  uint32 mode = 8;
+  bool has_owner = 9;
+  uint32 uid = 10;
+  uint32 gid = 11;
+  google.protobuf.Timestamp modified = 12;
+  // Links: the target as stored (display text), and the session path it
+  // resolves to inside its container (empty: dangling, or a loop).
+  string link_target = 13;
+  string link_path = 14;
+  // Why it can't be read ("encrypted", "compression method 14 is not
+  // supported"), or a remark ("stored as ../../etc/passwd").
+  string note = 15;
+  bool unreadable = 16;
+  // Its stored name was changed: "..", an absolute path, or a clash.
+  bool renamed = 17;
+  // What it is, from its first bytes (ListFileSystemRequest.detect):
+  // "ELF 32-bit LE ARM executable", "squashfs file system", "text".
+  string detected = 18;
+  // "elf", "pe", "container", "raw", "text", "data", "empty", or "" when
+  // not looked at.
+  string detected_kind = 19;
+  // A container it holds ("squashfs"): Open as file system.
+  string container_format = 20;
+  // The processor its header names ("ARM:LE:32"), when one does.
+  string processor = 21;
+  // Directories: their entries.
+  uint32 child_count = 22;
+  // A firmware package's member whose header says where it loads and what
+  // runs it (uImage, UF2, an Android boot image): the full language id
+  // when the header settles it, and the load address.
+  string language_id = 23;
+  uint64 load_address = 24;
+  bool has_load_address = 25;
+}
+
+message ListFileSystemRequest {
+  string session_id = 1;
+  // A directory; a container file or "<file>!" lists that container's
+  // root. Empty: the outermost root.
+  string path = 2;
+  // Guess each file's type from its first bytes (bounded: about two
+  // seconds per call; the rest come back with detected_kind "").
+  bool detect = 3;
+  // Every entry below the directory, depth first, not into nested
+  // containers.
+  bool recursive = 4;
+  uint32 offset = 5;
+  // At most this many entries (default 1000, at most 20000).
+  uint32 limit = 6;
+}
+
+message ListFileSystemResponse {
+  // The container the listing is in.
+  FileSystemLayer layer = 1;
+  // The directory listed.
+  FileSystemEntry directory = 2;
+  repeated FileSystemEntry entries = 3;
+  // Entries in all (before offset and limit).
+  uint32 total = 4;
+  // Detection stopped for time; some entries have detected_kind "".
+  bool detect_incomplete = 5;
+}
+
+message ReadFileSystemFileRequest {
+  string session_id = 1;
+  string path = 2;
+  uint64 offset = 3;
+  // At most 4 MiB (default 1 MiB).
+  uint64 length = 4;
+}
+
+message ReadFileSystemFileResponse {
+  bytes data = 1;
+  // The whole file's size.
+  uint64 size = 2;
+  bool eof = 3;
+}
+
+message GetFileSystemFileInfoRequest {
+  string session_id = 1;
+  string path = 2;
+  // Also SHA-256, SHA-1 and MD5 (reads the whole file).
+  bool hashes = 3;
+}
+
+message GetFileSystemFileInfoResponse {
+  FileSystemEntry entry = 1;
+  // "zip://fw.zip!/rootfs.sqfs!/bin/busybox"
+  string container_path = 2;
+  string sha256 = 3;
+  string sha1 = 4;
+  string md5 = 5;
+  // The first 64 bytes.
+  bytes magic = 6;
+  // The container it holds, mounted (unset when it holds none).
+  FileSystemLayer container = 7;
+  // The layer it is in.
+  FileSystemLayer layer = 8;
+}
+
+message ImportFromFileSystemRequest {
+  string session_id = 1;
+  // The project to import into (editor).
+  string project_id = 2;
+  // Its folder (empty: the root).
+  string folder_id = 3;
+  // Files, or directories (their files; recursive: everything below).
+  repeated string paths = 4;
+  bool recursive = 5;
+  // Look inside containers found on the way (an .ipk's data.tar.gz).
+  bool descend = 6;
+  // Import only programs: ELF, PE, and raw images whose header names their
+  // processor (uImage, UF2) or (detect_raw) that raw detection identifies.
+  // A single file named alone is imported whatever it is (raw needs
+  // options.language_id).
+  bool programs_only = 7;
+  // Run raw layout detection on other data files and import those it
+  // identifies with high confidence (slow: seconds per file).
+  bool detect_raw = 8;
+  // Say what would be imported; import nothing.
+  bool preview = 9;
+  // At most this many programs (default 100, at most 1000); the rest are
+  // listed as skipped ("over the cap").
+  uint32 max_programs = 10;
+  // For every program imported (format, language, analyze, ...).
+  ImportOptions options = 11;
+  // Recreate the container's directories as folders under folder_id.
+  bool keep_folders = 12;
+  Provenance provenance = 13;
+}
+
+message FileSystemImport {
+  string path = 1;
+  string container_path = 2;
+  // What it is (FileSystemEntry.detected).
+  string detected = 3;
+  // "import" (preview), "imported", "skipped", "failed".
+  string action = 4;
+  string reason = 5;
+  // The program made (imported).
+  ProgramInfo program = 6;
+  repeated string warnings = 7;
+  // The import options used (raw detection's answer, a header's processor).
+  string language_id = 8;
+}
+
+message ImportFromFileSystemResponse {
+  repeated FileSystemImport items = 1;
+  uint32 imported = 2;
+  uint32 skipped = 3;
+  uint32 failed = 4;
+  // More programs were found than max_programs.
+  bool capped = 5;
+  Snapshot snapshot = 6;
+}
+
+message ExtractFromFileSystemRequest {
+  string session_id = 1;
+  // Files and directories (everything below a directory).
+  repeated string paths = 2;
+  // A directory on the daemon's host under --browse-root; made if missing
+  // (its parent must exist).
+  string host_dir = 3;
+  // Replace files that exist (never through a symlink).
+  bool overwrite = 4;
+}
+
+message ExtractFromFileSystemResponse {
+  uint32 files = 1;
+  uint64 bytes = 2;
+  // Host paths written.
+  repeated string written = 3;
+  // "<path>: <why>" for what was left out.
+  repeated string skipped = 4;
+}
+
+message CloseFileSystemRequest {
+  string session_id = 1;
+}
+
+message CloseFileSystemResponse {}
+
+message ListFileSystemsRequest {}
+
+message OpenFileSystemSession {
+  string session_id = 1;
+  string name = 2;
+  string format = 3;
+  string project_id = 4;
+  string owner = 5;
+  google.protobuf.Timestamp opened_at = 6;
+  // Decompressed bytes it holds.
+  uint64 held_bytes = 7;
+}
+
+message ListFileSystemsResponse {
+  repeated OpenFileSystemSession sessions = 1;
+}

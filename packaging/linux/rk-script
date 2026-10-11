@@ -1,0 +1,124 @@
+#!/bin/sh
+# rk-script as the revkit packages install it (docs/scripting.md#rk-script):
+# the Python SDK's rk-script, run from the environment rk-daemon runs
+# scripts with, ${XDG_DATA_HOME:-~/.local/share}/revkit/pyenv.
+#
+# The SDK ships as a wheel in share/revkit/python beside this file. The
+# first run (or `rk-script setup`) makes the environment from it: a venv
+# from python3 (Python 3.10 or newer with its venv module; on Debian and
+# Ubuntu, python3 and python3-venv, which the package recommends), then the
+# wheel and its dependencies (grpcio and protobuf, from PyPI or the index
+# pip is configured with). When the package brings a newer wheel, the next
+# run updates the environment. `rk-script setup` takes the SDK's options
+# (--with PACKAGE, --force, --dry-run, --dir, --python).
+#
+#   REVKIT_PYENV   the environment (default as above)
+set -eu
+
+here=$(dirname "$(readlink -f "$0")")
+share=$(readlink -f "$here/../share/revkit/python" 2>/dev/null || echo "$here/../share/revkit/python")
+env=${REVKIT_PYENV:-${XDG_DATA_HOME:-$HOME/.local/share}/revkit/pyenv}
+python=python3
+
+# Arguments of `setup` that change where and from what (the rest go to the
+# SDK's setup).
+if [ "${1:-}" = setup ]; then
+  prev=
+  for a in "$@"; do
+    case $prev in
+      --dir) env=$a ;;
+      --python) python=$a ;;
+    esac
+    case $a in
+      --dir=*) env=${a#--dir=} ;;
+      --python=*) python=${a#--python=} ;;
+    esac
+    prev=$a
+  done
+fi
+
+wheel=
+for w in "$share"/revkit-*.whl; do
+  [ -f "$w" ] && wheel=$w
+done
+if [ -z "$wheel" ]; then
+  echo "rk-script: no revkit SDK wheel in $share (the revkit package installs it)" >&2
+  exit 2
+fi
+stamp=$env/.revkit-wheel
+
+say() { echo "rk-script: $*" >&2; }
+
+make_env() {
+  if ! command -v "$python" >/dev/null 2>&1; then
+    say "no $python: install Python 3.10 or newer with its venv module (Debian and Ubuntu: apt install python3 python3-venv)"
+    exit 1
+  fi
+  if ! "$python" -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null; then
+    say "$python is $("$python" -V 2>&1); the revkit SDK needs Python 3.10 or newer"
+    exit 1
+  fi
+  say "making $env (a venv from $python)"
+  mkdir -p "$(dirname "$env")"
+  if ! "$python" -m venv "$env"; then
+    say "$python -m venv failed (Debian and Ubuntu: apt install python3-venv)"
+    exit 1
+  fi
+}
+
+install_sdk() {
+  say "installing $(basename "$wheel") into $env (pip fetches grpcio and protobuf)"
+  if ! PIP_DISABLE_PIP_VERSION_CHECK=1 "$env/bin/python" -m pip install -q --upgrade "$wheel" >&2; then
+    say "installing the revkit SDK failed; pip needs to reach PyPI (or a mirror: PIP_INDEX_URL)"
+    exit 1
+  fi
+  basename "$wheel" > "$stamp"
+}
+
+dry_run=0 force=0
+if [ "${1:-}" = setup ]; then
+  for a in "$@"; do
+    case $a in
+      --dry-run) dry_run=1 ;;
+      --force) force=1 ;;
+    esac
+  done
+fi
+
+if [ "$dry_run" = 0 ]; then
+  if [ "$force" = 1 ] || [ ! -x "$env/bin/python" ]; then
+    make_env
+    install_sdk
+  elif [ ! -x "$env/bin/rk-script" ] || [ "$(cat "$stamp" 2>/dev/null)" != "$(basename "$wheel")" ]; then
+    # (A venv an earlier run left without pip, before python3-venv was
+    # there, is made again.)
+    "$env/bin/python" -m pip --version >/dev/null 2>&1 || make_env
+    install_sdk
+  fi
+fi
+
+if [ "${1:-}" = setup ]; then
+  shift
+  if [ "$dry_run" = 1 ]; then
+    [ -x "$env/bin/python" ] || echo "$python -m venv $env"
+    echo "$env/bin/python -m pip install --upgrade $wheel"
+    exit 0
+  fi
+  # The SDK's setup for the rest (--with, the check that scripts can run),
+  # on the environment and wheel above: the options handled here go.
+  skip=0
+  for a do
+    shift
+    if [ "$skip" = 1 ]; then
+      skip=0
+      continue
+    fi
+    case $a in
+      --dir|--python) skip=1; continue ;;
+      --dir=*|--python=*|--force) continue ;;
+    esac
+    set -- "$@" "$a"
+  done
+  exec "$env/bin/rk-script" setup --dir "$env" --wheel "$wheel" "$@"
+fi
+exec "$env/bin/rk-script" "$@"

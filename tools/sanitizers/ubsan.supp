@@ -1,0 +1,24 @@
+# UndefinedBehaviorSanitizer suppressions (the asan preset runs UBSan with
+# halt_on_error=1). Only the vendored Ghidra decompiler and SLEIGH engine
+# (third_party/ghidra, built from build-*/third_party/ghidra/src/cpp) are
+# listed: upstream quirks that the Java original shares (docs/bug-scrub.md).
+# Never add revkit's own code here; fix it.
+#
+# Shifts. Ghidra computes masks and extensions with shifts by a varnode's
+# size in bits, and varnodes over 8 bytes (AArch64's 128-bit floats, x86's
+# vector registers) shift by 64 or more, or by a negative amount
+# (calc_mask, SubvariableFlow, RuleAndCommute, sign_extend's `(val << sa) >>
+# sa` on negative values, SLEIGH pattern expressions). x86 masks the shift
+# count to 6 bits, as Java's long shifts do, so the C++ decompiler computes
+# what Ghidra's Java side does; patching each site would diverge from it.
+shift-exponent:ghidra/src/cpp/
+shift-base:ghidra/src/cpp/
+# SLEIGH pattern expressions evaluate a processor's operand arithmetic in
+# 64-bit signed integers, wrapping like Java's long.
+signed-integer-overflow:ghidra/src/cpp/slghpatexpress.cc
+# OperandSymbol::print negates a defining expression's INT64_MIN.
+signed-integer-overflow:ghidra/src/cpp/slghsymbol.cc
+# ConstTpl's copy constructor copies `select`, which the relative-jump and
+# space-id constructors leave unset: an uninitialized enum read whose value
+# those constants never use.
+enum:ghidra/src/cpp/semantics.hh

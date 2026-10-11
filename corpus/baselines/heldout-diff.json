@@ -1,0 +1,23 @@
+{
+ "a": {
+  "auto_precision": 100.0,
+  "auto_recall": 92.22,
+  "ported_name_accuracy": 100.0,
+  "precision": 100.0,
+  "recall": 96.94
+ },
+ "b": {
+  "auto_precision": 100.0,
+  "auto_recall": 0.2,
+  "ported_name_accuracy": 100.0,
+  "precision": 84.81,
+  "recall": 25.99
+ },
+ "c": {
+  "auto_precision": 95.56,
+  "auto_recall": 9.27,
+  "ported_name_accuracy": 96.12,
+  "precision": 91.94,
+  "recall": 54.77
+ }
+}

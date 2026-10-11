@@ -1,0 +1,44 @@
+{
+ "arch": "xtensa",
+ "counts": {
+  "c_alpha": 1184,
+  "c_ast": 1072,
+  "c_both": 2488,
+  "c_flow": 2269,
+  "c_ghidra_only": 0,
+  "c_revkit_only": 0,
+  "c_shape": 1251,
+  "c_shape_dwarf": 1799,
+  "common": 2488,
+  "dwarf": 2603,
+  "dwarf_ghidra": 2480,
+  "dwarf_revkit": 2550,
+  "ghidra": 2491,
+  "insn_both": 189980,
+  "insn_ghidra": 190341,
+  "insn_revkit": 197715,
+  "revkit": 2564,
+  "truth_ghidra": 2480,
+  "truth_revkit": 2550
+ },
+ "images": [
+  "xtensa/fwkit-esp32-O2",
+  "xtensa/fwkit-esp32-Os",
+  "xtensa/fwkit-lx106-O2",
+  "xtensa/fwkit-lx106-Os"
+ ],
+ "rates": {
+  "c_alpha": 0.475884,
+  "c_ast": 0.430868,
+  "c_flow": 0.911977,
+  "c_shape": 0.502814,
+  "c_shape_dwarf": 0.723071,
+  "dwarf_recall": 0.979639,
+  "ghidra_dwarf_recall": 0.952747,
+  "ghidra_truth_precision": 0.995584,
+  "listing_both": 0.998103,
+  "precision": 0.970359,
+  "recall": 0.998796,
+  "truth_precision": 0.99454
+ }
+}

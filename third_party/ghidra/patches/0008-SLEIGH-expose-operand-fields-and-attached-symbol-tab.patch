@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Mon, 5 Oct 2026 17:16:05 -0400
+Subject: [PATCH] SLEIGH: expose operand fields and attached symbol tables
+
+To solve an operand's value back into instruction bits, an assembler needs
+where a token or context field sits (TokenField's bit and byte range, byte
+order, sign and shift; ContextField's byte range and shift), which operand
+an OperandValue names, and the tables attached to fields (ValueMapSymbol's
+values, NameSymbol's names, VarnodeListSymbol's registers) to invert them.
+All are private. TokenField::genPattern can't stand in for the bit range:
+a decoded TokenField has no Token (TokenField::decode leaves tok null).
+
+Add read-only accessors for each. No behaviour changes.
+
+Seen in: revkit's SLEIGH assembler (src/asm). Ghidra 12.1.4.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/slghpatexpress.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/slghpatexpress.hh
+index 118fe3c..aff3162 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/slghpatexpress.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/slghpatexpress.hh
+@@ -98,6 +98,13 @@ class TokenField : public PatternValue {
+ public:
+   TokenField(void) {}		// For use with decode
+   TokenField(Token *tk,bool s,int4 bstart,int4 bend);
++  bool isBigEndian(void) const { return bigendian; }	///< Byte order the field is read in
++  bool hasSignbit(void) const { return signbit; }	///< Whether the value is sign-extended
++  int4 getBitStart(void) const { return bitstart; }	///< Least significant bit within the token
++  int4 getBitEnd(void) const { return bitend; }		///< Most significant bit within the token
++  int4 getByteStart(void) const { return bytestart; }	///< First byte read
++  int4 getByteEnd(void) const { return byteend; }	///< Last byte read
++  int4 getShift(void) const { return shift; }		///< Right shift applied to the bytes read
+   virtual intb getValue(ParserWalker &walker) const;
+   virtual TokenPattern genMinPattern(const vector<TokenPattern> &ops) const { return TokenPattern(tok); }
+   virtual TokenPattern genPattern(intb val) const;
+@@ -118,6 +125,9 @@ public:
+   int4 getStartBit(void) const { return startbit; }
+   int4 getEndBit(void) const { return endbit; }
+   bool getSignBit(void) const { return signbit; }
++  int4 getStartByte(void) const { return startbyte; }	///< First context byte read
++  int4 getEndByte(void) const { return endbyte; }	///< Last context byte read
++  int4 getShift(void) const { return shift; }		///< Right shift applied to the bytes read
+   virtual intb getValue(ParserWalker &walker) const;
+   virtual TokenPattern genMinPattern(const vector<TokenPattern> &ops) const { return TokenPattern(); }
+   virtual TokenPattern genPattern(intb val) const;
+@@ -189,6 +199,8 @@ public:
+   OperandValue(void) { } // For use with decode
+   OperandValue(int4 ind,Constructor *c) { index = ind; ct = c; }
+   void changeIndex(int4 newind) { index = newind; }
++  int4 getIndex(void) const { return index; }	///< Index of the operand within its constructor
++  Constructor *getConstructor(void) const { return ct; }	///< The constructor the operand belongs to
+   bool isConstructorRelative(void) const;
+   const string &getName(void) const;
+   virtual TokenPattern genPattern(intb val) const;
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
+index d69eac2..eb5a963 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
+@@ -219,6 +219,7 @@ class ValueMapSymbol : public ValueSymbol {
+ public:
+   ValueMapSymbol(void) {}	// For use with decode
+   ValueMapSymbol(const string &nm,PatternValue *pv,const vector<intb> &vt) : ValueSymbol(nm,pv) { valuetable=vt; checkTableFill(); }
++  const vector<intb> &getMap(void) const { return valuetable; }	///< Value for each field value
+   virtual Constructor *resolve(ParserWalker &walker);
+   virtual void getFixedHandle(FixedHandle &hand,ParserWalker &walker) const;
+   virtual void print(ostream &s,ParserWalker &walker) const;
+@@ -235,6 +236,7 @@ class NameSymbol : public ValueSymbol {
+ public:
+   NameSymbol(void) {}		// For use with decode
+   NameSymbol(const string &nm,PatternValue *pv,const vector<string> &nt) : ValueSymbol(nm,pv) { nametable=nt; checkTableFill(); }
++  const vector<string> &getNameTable(void) const { return nametable; }	///< Name for each field value
+   virtual Constructor *resolve(ParserWalker &walker);
+   virtual void print(ostream &s,ParserWalker &walker) const;
+   virtual symbol_type getType(void) const { return name_symbol; }
+@@ -301,6 +303,7 @@ class VarnodeListSymbol : public ValueSymbol {
+ public:
+   VarnodeListSymbol(void) {}	// For use with decode
+   VarnodeListSymbol(const string &nm,PatternValue *pv,const vector<SleighSymbol *> &vt); 
++  const vector<VarnodeSymbol *> &getVarnodeTable(void) const { return varnode_table; }	///< Register for each field value (null: none)
+   virtual Constructor *resolve(ParserWalker &walker);
+   virtual void getFixedHandle(FixedHandle &hand,ParserWalker &walker) const;
+   virtual int4 getSize(void) const;

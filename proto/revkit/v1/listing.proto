@@ -1,0 +1,487 @@
+// Read models for the disassembly side: functions, listing rows,
+// instruction detail with p-code, and cross-references.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "revkit/v1/assertion.proto";
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// ---------------------------------------------------------------------------
+// Functions
+// ---------------------------------------------------------------------------
+
+message Function {
+  Address entry = 1;
+  // Effective name: the winning NAME assertion, else an imported or derived
+  // default ("FUN_00401136").
+  string name = 2;
+  FactOrigin name_origin = 3;
+  // Body as disjoint inclusive ranges in address order.
+  repeated AddressRange body = 4;
+  FactOrigin bounds_origin = 5;
+  // Prototype as C ("uint32_t checksum(uint8_t *p, size_t n)"). Empty until
+  // known; the structured form comes from Decompile. An asserted prototype
+  // (the user's, an agent's, debug info's) wins; since api_minor 19 a
+  // signature parameter ID committed is shown otherwise, with
+  // prototype_origin derived from "analysis.param_id".
+  string prototype = 6;
+  FactOrigin prototype_origin = 7;
+  string calling_convention = 8;
+  bool no_return = 9;
+  // A thunk forwards to thunk_target.
+  bool thunk = 10;
+  Address thunk_target = 11;
+  // An external (imported) function with no body in this program.
+  bool external = 12;
+  uint32 instruction_count = 13;
+  // Number of call sites referring to this function.
+  uint32 caller_count = 14;
+  // Bytes in its body (api_minor 19, feature "function-list-filters").
+  uint64 size = 15;
+  // References to its entry of any kind: calls, jumps, pointers to it
+  // (api_minor 19).
+  uint32 xref_count = 16;
+  // The decompiler is known to fail on it (a crash, a timeout, out of
+  // memory): it failed when this daemon decompiled it, or during
+  // parameter ID; a function nothing has tried to decompile yet is false
+  // (api_minor 19).
+  bool decompile_failed = 17;
+  // Set where `name` is the demangler analysis's name for a mangled symbol
+  // (api_minor 40, feature "demangle"; docs/demangle.md).
+  DemangledName demangled = 18;
+}
+
+enum FunctionSort {
+  FUNCTION_SORT_UNSPECIFIED = 0;  // = ADDRESS
+  FUNCTION_SORT_ADDRESS = 1;
+  FUNCTION_SORT_NAME = 2;
+  // Body bytes, then address (api_minor 19).
+  FUNCTION_SORT_SIZE = 3;
+  // References to the entry (Function.xref_count), then address
+  // (api_minor 19).
+  FUNCTION_SORT_XREFS = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Symbols
+// ---------------------------------------------------------------------------
+
+enum SymbolKind {
+  SYMBOL_KIND_UNSPECIFIED = 0;
+  // A function entry point.
+  SYMBOL_KIND_FUNCTION = 1;
+  // Any other named address: code labels, globals, imports, data.
+  SYMBOL_KIND_LABEL = 2;
+}
+
+// A named address, as found by ListSymbols.
+message Symbol {
+  Address address = 1;
+  // Effective name: the winning NAME assertion, else the imported or
+  // derived default.
+  string name = 2;
+  SymbolKind kind = 3;
+  FactOrigin origin = 4;
+  // api_minor 40, feature "demangle".
+  DemangledName demangled = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Listing
+// ---------------------------------------------------------------------------
+
+enum ListingRowKind {
+  LISTING_ROW_KIND_UNSPECIFIED = 0;
+  LISTING_ROW_KIND_INSTRUCTION = 1;
+  // Defined data (data_type set).
+  LISTING_ROW_KIND_DATA = 2;
+  // Bytes with nothing defined on them. Servers may coalesce a run of
+  // undefined bytes into one row (length > 1).
+  LISTING_ROW_KIND_UNDEFINED = 3;
+  // A display line above a code unit, only returned when
+  // GetListingRequest.header_rows is set: a plate comment line, a function's
+  // signature, a label, or a pre-comment line (ListingRow.header says
+  // which). `address` is the code unit's; `length` is 0.
+  LISTING_ROW_KIND_HEADER = 4;
+}
+
+// What a header row (LISTING_ROW_KIND_HEADER) shows, in the order they
+// appear above their code unit: plate comment lines, the function
+// signature, the label, pre-comment lines.
+enum ListingHeaderKind {
+  LISTING_HEADER_KIND_UNSPECIFIED = 0;
+  // One line of a plate comment.
+  LISTING_HEADER_KIND_PLATE = 1;
+  // A function entry's signature: the asserted prototype, else
+  // "undefined <name>()".
+  LISTING_HEADER_KIND_SIGNATURE = 2;
+  // The effective name at the address.
+  LISTING_HEADER_KIND_LABEL = 3;
+  // One line of a pre-comment.
+  LISTING_HEADER_KIND_PRE_COMMENT = 4;
+}
+
+message ListingHeader {
+  ListingHeaderKind kind = 1;
+  // The line's text: a comment line, the signature, or the label's name.
+  string text = 2;
+  // Line index within a multi-line comment (0 for the others).
+  uint32 line = 3;
+  // Who set it: the comment, the prototype (unset when only derived) or
+  // the name.
+  FactOrigin origin = 4;
+  // For a signature or label line whose name is a demangled one
+  // (api_minor 40, feature "demangle").
+  DemangledName demangled = 5;
+}
+
+// Display tokens for an instruction or data row. Concatenating the texts
+// in order yields the row's display string.
+enum ListingTokenKind {
+  LISTING_TOKEN_KIND_UNSPECIFIED = 0;
+  LISTING_TOKEN_KIND_MNEMONIC = 1;
+  LISTING_TOKEN_KIND_REGISTER = 2;
+  // An immediate or displacement value (value set).
+  LISTING_TOKEN_KIND_SCALAR = 3;
+  // A raw address (target set).
+  LISTING_TOKEN_KIND_ADDRESS = 4;
+  // A symbol name standing for an address (target set).
+  LISTING_TOKEN_KIND_SYMBOL = 5;
+  // Brackets, commas, "+", size keywords like "dword ptr".
+  LISTING_TOKEN_KIND_SEPARATOR = 6;
+  LISTING_TOKEN_KIND_WHITESPACE = 7;
+  // Instruction prefixes ("LOCK", "REP").
+  LISTING_TOKEN_KIND_PREFIX = 8;
+  // Rendered data value ("0x2a", "\"hello\"").
+  LISTING_TOKEN_KIND_DATA_VALUE = 9;
+  // Data type name on a data row.
+  LISTING_TOKEN_KIND_TYPE = 10;
+}
+
+message ListingToken {
+  ListingTokenKind kind = 1;
+  string text = 2;
+  // Operand this token belongs to; unset for the mnemonic and separators
+  // between operands.
+  optional uint32 operand_index = 3;
+  // For ADDRESS and SYMBOL tokens: the address referred to. Clients make
+  // these clickable.
+  Address target = 4;
+  // For SCALAR tokens. Since api_minor 34 (feature "token-scalars") also
+  // for an ADDRESS or SYMBOL token the disassembler printed as a scalar (an
+  // immediate or a computed constant that names a referenced address, such
+  // as LEA's [0x101295]): its value as that scalar. An address operand
+  // (a branch target, "qword ptr [0x00103fe8]") has no value.
+  optional int64 value = 5;
+  // For REGISTER tokens.
+  Varnode register_varnode = 6;
+  // Since api_minor 34 (feature "token-scalars"): with `value`, the
+  // scalar's width in bits as SLEIGH decoded it (Ghidra's
+  // Scalar.bitLength(): 32 for MOV RAX,-0x1's imm32, 64 for AND RSP,-0x10's
+  // sign-extended imm8).
+  optional uint32 scalar_bits = 7;
+  // Since api_minor 39 (feature "equates"): the scalar shows as an
+  // assertion says (an OperandDisplay: a conversion, an equate's name or
+  // an enum member's), and this is that assertion. `value` is still the
+  // scalar's; `text` is how it shows.
+  FactOrigin display_origin = 8;
+  // Since api_minor 39 (feature "user-references"): the operand shows as
+  // the target of a primary user reference (UserReference.primary), and
+  // this is that assertion; `target` is the reference's.
+  FactOrigin reference_origin = 9;
+  // For a SYMBOL token whose name is a demangled one (api_minor 40,
+  // feature "demangle").
+  DemangledName demangled = 10;
+}
+
+// A comment as displayed on a row or line.
+message CommentView {
+  CommentKind kind = 1;
+  string text = 2;
+  FactOrigin origin = 3;
+}
+
+message Label {
+  string name = 1;
+  // The primary symbol at the address (the one used in operand tokens).
+  bool primary = 2;
+  FactOrigin origin = 3;
+  // api_minor 40, feature "demangle".
+  DemangledName demangled = 4;
+}
+
+message ListingRow {
+  // Position of this row in the whole program listing at the response's
+  // revision. Row numbers shift when code/data are (un)defined, so they are
+  // only meaningful together with Snapshot.revision.
+  int64 row = 1;
+  Address address = 2;
+  uint32 length = 3;
+  ListingRowKind kind = 4;
+  bytes bytes = 5;
+  // Name of the memory block containing the row.
+  string block = 6;
+  // Labels at this address, primary first.
+  repeated Label labels = 7;
+  // Set when the row is inside a function.
+  Address function = 8;
+  // True on the row at the function's entry; clients draw a header.
+  bool function_entry = 9;
+  // Mnemonic + operands for instructions; type + value for data.
+  repeated ListingToken tokens = 10;
+  repeated CommentView comments = 11;
+  // References to this address (shown as "XREF[n]").
+  uint32 xref_to_count = 12;
+  // For DATA rows. On other rows, the type asserted at the address (a
+  // global's retype), for display, until data definitions exist.
+  string data_type = 13;
+  string data_type_hash = 14;
+  // Header rows only (LISTING_ROW_KIND_HEADER).
+  ListingHeader header = 15;
+  // Instructions only: the flow after any override, and the branch, call
+  // and jump-table targets known statically, as in InstructionDetail.
+  // Clients draw flow arrows from these.
+  FlowKind flow = 16;
+  repeated Address flow_targets = 17;
+  // The effective flow override at the instruction, if any
+  // (FLOW_OVERRIDE_KIND_UNSPECIFIED if none), and who asserted it.
+  FlowOverrideKind flow_override = 18;
+  FactOrigin flow_override_origin = 19;
+  // Some byte of the row is patched (PatchService, api_minor 27, feature
+  // "patch"); `bytes` are the patched ones and original_bytes the file's.
+  bool patched = 40;
+  bytes original_bytes = 41;
+  // Feature "listing-edit" (api_minor 30). A user-defined data item
+  // (ListingEdit.data) shows on its own row, and when expanded on a row per
+  // field (structs, unions) or element (arrays) after it: those rows are
+  // DATA rows with `data_field` set (the path from the item: "len",
+  // "hdr.magic", "[3]") and `data_parent` the item's address; `data_depth`
+  // is how deep the field is (1 for the item's own fields).
+  string data_field = 42;
+  Address data_parent = 43;
+  uint32 data_depth = 44;
+  // On the item's own row: how many field or element rows it has when
+  // expanded (0: none to show), and whether it is collapsed.
+  uint32 data_components = 45;
+  bool data_collapsed = 46;
+  // The edit that says what the row's first byte is (a Clear, Disassemble
+  // here or Define data, ListingEdit); unset when analysis decided.
+  FactOrigin unit_origin = 47;
+  // The mutability edit over the row's first byte (SetMutability), if any.
+  Mutability mutability = 48;
+  FactOrigin mutability_origin = 49;
+  // Instructions only (api_minor 53, feature "call-signature-override"):
+  // the call's signature override (CallSignatureOverride) as C, "" if
+  // none, and who asserted it.
+  string call_signature = 50;
+  FactOrigin call_signature_origin = 51;
+}
+
+// Rows [first_row, first_row + row_count).
+message RowWindow {
+  int64 first_row = 1;
+  uint32 row_count = 2;
+}
+
+// Rows overlapping [start, end] inclusive, at most max_rows. When end is
+// unset, rows from the one containing start onward. rows_before adds that
+// many rows of context above start (useful to center a jump target).
+message AddressWindow {
+  Address start = 1;
+  Address end = 2;
+  uint32 max_rows = 3;
+  uint32 rows_before = 4;
+}
+
+// ---------------------------------------------------------------------------
+// Instructions and p-code
+// ---------------------------------------------------------------------------
+
+// P-code opcodes. Numeric values equal Ghidra's OpCode enum (CPUI_*), so
+// conversion is a cast. New opcodes may be added; clients fall back to
+// PcodeOp.mnemonic for display.
+enum PcodeOpcode {
+  PCODE_OPCODE_UNSPECIFIED = 0;
+  PCODE_OPCODE_COPY = 1;
+  PCODE_OPCODE_LOAD = 2;
+  PCODE_OPCODE_STORE = 3;
+  PCODE_OPCODE_BRANCH = 4;
+  PCODE_OPCODE_CBRANCH = 5;
+  PCODE_OPCODE_BRANCHIND = 6;
+  PCODE_OPCODE_CALL = 7;
+  PCODE_OPCODE_CALLIND = 8;
+  PCODE_OPCODE_CALLOTHER = 9;
+  PCODE_OPCODE_RETURN = 10;
+  PCODE_OPCODE_INT_EQUAL = 11;
+  PCODE_OPCODE_INT_NOTEQUAL = 12;
+  PCODE_OPCODE_INT_SLESS = 13;
+  PCODE_OPCODE_INT_SLESSEQUAL = 14;
+  PCODE_OPCODE_INT_LESS = 15;
+  PCODE_OPCODE_INT_LESSEQUAL = 16;
+  PCODE_OPCODE_INT_ZEXT = 17;
+  PCODE_OPCODE_INT_SEXT = 18;
+  PCODE_OPCODE_INT_ADD = 19;
+  PCODE_OPCODE_INT_SUB = 20;
+  PCODE_OPCODE_INT_CARRY = 21;
+  PCODE_OPCODE_INT_SCARRY = 22;
+  PCODE_OPCODE_INT_SBORROW = 23;
+  PCODE_OPCODE_INT_2COMP = 24;
+  PCODE_OPCODE_INT_NEGATE = 25;
+  PCODE_OPCODE_INT_XOR = 26;
+  PCODE_OPCODE_INT_AND = 27;
+  PCODE_OPCODE_INT_OR = 28;
+  PCODE_OPCODE_INT_LEFT = 29;
+  PCODE_OPCODE_INT_RIGHT = 30;
+  PCODE_OPCODE_INT_SRIGHT = 31;
+  PCODE_OPCODE_INT_MULT = 32;
+  PCODE_OPCODE_INT_DIV = 33;
+  PCODE_OPCODE_INT_SDIV = 34;
+  PCODE_OPCODE_INT_REM = 35;
+  PCODE_OPCODE_INT_SREM = 36;
+  PCODE_OPCODE_BOOL_NEGATE = 37;
+  PCODE_OPCODE_BOOL_XOR = 38;
+  PCODE_OPCODE_BOOL_AND = 39;
+  PCODE_OPCODE_BOOL_OR = 40;
+  PCODE_OPCODE_FLOAT_EQUAL = 41;
+  PCODE_OPCODE_FLOAT_NOTEQUAL = 42;
+  PCODE_OPCODE_FLOAT_LESS = 43;
+  PCODE_OPCODE_FLOAT_LESSEQUAL = 44;
+  reserved 45;
+  PCODE_OPCODE_FLOAT_NAN = 46;
+  PCODE_OPCODE_FLOAT_ADD = 47;
+  PCODE_OPCODE_FLOAT_DIV = 48;
+  PCODE_OPCODE_FLOAT_MULT = 49;
+  PCODE_OPCODE_FLOAT_SUB = 50;
+  PCODE_OPCODE_FLOAT_NEG = 51;
+  PCODE_OPCODE_FLOAT_ABS = 52;
+  PCODE_OPCODE_FLOAT_SQRT = 53;
+  PCODE_OPCODE_FLOAT_INT2FLOAT = 54;
+  PCODE_OPCODE_FLOAT_FLOAT2FLOAT = 55;
+  PCODE_OPCODE_FLOAT_TRUNC = 56;
+  PCODE_OPCODE_FLOAT_CEIL = 57;
+  PCODE_OPCODE_FLOAT_FLOOR = 58;
+  PCODE_OPCODE_FLOAT_ROUND = 59;
+  PCODE_OPCODE_MULTIEQUAL = 60;
+  PCODE_OPCODE_INDIRECT = 61;
+  PCODE_OPCODE_PIECE = 62;
+  PCODE_OPCODE_SUBPIECE = 63;
+  PCODE_OPCODE_CAST = 64;
+  PCODE_OPCODE_PTRADD = 65;
+  PCODE_OPCODE_PTRSUB = 66;
+  PCODE_OPCODE_SEGMENTOP = 67;
+  PCODE_OPCODE_CPOOLREF = 68;
+  PCODE_OPCODE_NEW = 69;
+  PCODE_OPCODE_INSERT = 70;
+  PCODE_OPCODE_ZPULL = 71;
+  PCODE_OPCODE_POPCOUNT = 72;
+  PCODE_OPCODE_LZCOUNT = 73;
+  PCODE_OPCODE_SPULL = 74;
+}
+
+message PcodeOp {
+  PcodeOpcode opcode = 1;
+  // SLEIGH name ("INT_ADD"), always set.
+  string mnemonic = 2;
+  // Unset for ops with no output.
+  Varnode output = 3;
+  repeated Varnode inputs = 4;
+  // Index of the op within its instruction (SLEIGH's sequence order).
+  uint32 index = 5;
+}
+
+enum FlowKind {
+  FLOW_KIND_UNSPECIFIED = 0;
+  FLOW_KIND_FALL_THROUGH = 1;
+  FLOW_KIND_UNCONDITIONAL_BRANCH = 2;
+  FLOW_KIND_CONDITIONAL_BRANCH = 3;
+  FLOW_KIND_CALL = 4;
+  FLOW_KIND_RETURN = 5;
+  FLOW_KIND_INDIRECT_BRANCH = 6;
+  FLOW_KIND_INDIRECT_CALL = 7;
+  // Halts or traps (HLT, UD2).
+  FLOW_KIND_TERMINATOR = 8;
+}
+
+message Operand {
+  uint32 index = 1;
+  repeated ListingToken tokens = 2;
+  // Addresses this operand refers to (branch/call targets, data).
+  repeated Address references = 3;
+}
+
+message InstructionDetail {
+  Address address = 1;
+  uint32 length = 2;
+  bytes bytes = 3;
+  string mnemonic = 4;
+  // Full display tokens, as on the listing row.
+  repeated ListingToken tokens = 5;
+  repeated Operand operands = 6;
+  // Flow as decoded, after any override.
+  FlowKind flow = 7;
+  // Branch/call targets that are known statically.
+  repeated Address flow_targets = 8;
+  // Next instruction when execution can fall through.
+  Address fall_through = 9;
+  // Effective flow override, if any (FLOW_OVERRIDE_KIND_UNSPECIFIED if none).
+  FlowOverrideKind flow_override = 10;
+  FactOrigin flow_override_origin = 11;
+  // Raw SLEIGH p-code for the instruction (not decompiler-optimized).
+  repeated PcodeOp pcode = 12;
+  // Containing function entry, if any.
+  Address function = 13;
+  // How the instruction was decoded (rule, confidence).
+  Derivation origin = 14;
+}
+
+// ---------------------------------------------------------------------------
+// Cross-references
+// ---------------------------------------------------------------------------
+
+enum XrefKind {
+  XREF_KIND_UNSPECIFIED = 0;
+  XREF_KIND_CALL = 1;
+  XREF_KIND_JUMP = 2;
+  XREF_KIND_CONDITIONAL_JUMP = 3;
+  XREF_KIND_INDIRECT_CALL = 4;
+  XREF_KIND_INDIRECT_JUMP = 5;
+  XREF_KIND_DATA_READ = 6;
+  XREF_KIND_DATA_WRITE = 7;
+  // Address taken (LEA, pointer in data) without a known access.
+  XREF_KIND_DATA_POINTER = 8;
+  // Thunk to its target.
+  XREF_KIND_THUNK = 9;
+}
+
+enum XrefDirection {
+  XREF_DIRECTION_UNSPECIFIED = 0;  // = TO
+  // References whose target is the queried location.
+  XREF_DIRECTION_TO = 1;
+  // References made from the queried location.
+  XREF_DIRECTION_FROM = 2;
+  XREF_DIRECTION_BOTH = 3;
+}
+
+message Xref {
+  Address from_address = 1;
+  Address to_address = 2;
+  XrefKind kind = 3;
+  optional uint32 operand_index = 4;
+  // Function containing `from_address` (entry and current name), when any.
+  Address from_function = 5;
+  string from_function_name = 6;
+  // Primary symbol at `to_address`, when any.
+  string to_name = 7;
+  // TO or FROM relative to the query location.
+  XrefDirection direction = 8;
+  FactOrigin origin = 9;
+  // The operand's primary reference (a user reference with
+  // UserReference.primary; api_minor 39, feature "user-references").
+  bool primary = 10;
+}

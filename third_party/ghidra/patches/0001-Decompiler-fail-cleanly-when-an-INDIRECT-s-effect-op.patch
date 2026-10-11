@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Sun, 4 Oct 2026 21:40:50 -0400
+Subject: [PATCH] Decompiler: fail cleanly when an INDIRECT's effect op was
+ removed before merging
+
+Merge::snipReads and Merge::trimOpOutput insert a COPY after the op that
+causes an INDIRECT (PcodeOp::getOpFromConst of the INDIRECT's iop input).
+That op can already be dead: SplitDatatype::splitCopy (RuleSplitCopy, in the
+late cleanup pool) destroys the COPY it splits, and when that COPY is a STORE
+that RuleStoreVarnode turned into a COPY, INDIRECTs still name it as their
+effect. No RuleIndirectCollapse runs after the cleanup pool, so the INDIRECT
+reaches ActionMergeRequired; Funcdata::opInsertAfter then dereferences the
+dead op's null parent block and the decompiler segfaults.
+
+Check that the effect op is still alive and throw a LowlevelError instead,
+so the function fails with an error and the process survives. Only
+functions that crashed before are affected.
+
+Seen on: Mbed TLS 3.6.2 x86-64 gcc -O2 (mbedtls_aria_self_test). Ghidra
+12.1.4's decompiler process dies on the same function.
+Repro: decomp_dbg, restore the attached debug XML, load function
+mbedtls_aria_self_test, decompile.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/merge.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/merge.cc
+index c416820..ec442c9 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/merge.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/merge.cc
+@@ -465,6 +465,8 @@ void Merge::snipReads(Varnode *vn,list<PcodeOp *> &markedop)
+     else
+       afterop = vn->getDef();
+   }
++  if (afterop != (PcodeOp *)0 && afterop->isDead())
++    throw LowlevelError("Cannot snip reads: op causing INDIRECT effect has been removed");
+   copyop = allocateCopyTrim(vn, pc, markedop.front());
+   if (afterop == (PcodeOp *)0)
+     data.opInsertBegin(copyop,bl);
+@@ -664,6 +666,8 @@ void Merge::trimOpOutput(PcodeOp *op)
+     afterop = PcodeOp::getOpFromConst(op->getIn(1)->getAddr()); // Insert copyop AFTER source of indirect
+   else
+     afterop = op;
++  if (afterop->isDead())
++    throw LowlevelError("Cannot trim output: op causing INDIRECT effect has been removed");
+   vn = op->getOut();
+   Datatype *ct = vn->getType();
+   copyop = data.newOp(1,op->getAddr());

@@ -1,0 +1,42 @@
+{
+ "arch": "riscv32",
+ "counts": {
+  "c_alpha": 787,
+  "c_ast": 785,
+  "c_both": 1124,
+  "c_flow": 1015,
+  "c_ghidra_only": 0,
+  "c_revkit_only": 0,
+  "c_shape": 841,
+  "c_shape_dwarf": 1017,
+  "common": 1124,
+  "dwarf": 1295,
+  "dwarf_ghidra": 1113,
+  "dwarf_revkit": 1123,
+  "ghidra": 1134,
+  "insn_both": 94685,
+  "insn_ghidra": 95862,
+  "insn_revkit": 95646,
+  "revkit": 1145,
+  "truth_ghidra": 1113,
+  "truth_revkit": 1123
+ },
+ "images": [
+  "riscv32/fwkit-rv32-O2",
+  "riscv32/fwkit-rv32-Os"
+ ],
+ "rates": {
+  "c_alpha": 0.700178,
+  "c_ast": 0.698399,
+  "c_flow": 0.903025,
+  "c_shape": 0.748221,
+  "c_shape_dwarf": 0.904804,
+  "dwarf_recall": 0.867181,
+  "ghidra_dwarf_recall": 0.859459,
+  "ghidra_truth_precision": 0.981481,
+  "listing_both": 0.987722,
+  "precision": 0.981659,
+  "recall": 0.991182,
+  "truth_precision": 0.980786
+ }
+}

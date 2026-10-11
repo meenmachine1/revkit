@@ -1,0 +1,13 @@
+// A bare MIPS32 board for mips.c: RAM in kseg0, a generic UART in kseg1.
+{
+  "machine": 1,
+  "name": "mips-bare",
+  "language": "MIPS:BE:32:default",
+  "cpu": {"model": "mips", "vector_base": "0x80000000"},
+  "memory": [{"name": "ram", "start": "0x80000000", "size": "1M", "kind": "ram"}],
+  "image": {"load": "0x80000000"},
+  "entry": "0x80000000",
+  "peripherals": [
+    {"name": "uart", "kind": "uart", "base": "0xb8000000", "data": "0x0", "status": "0x4", "tx_ready": "0x20", "rx_ready": "0x1", "irq_on_rx": false}
+  ]
+}

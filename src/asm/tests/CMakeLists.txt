@@ -1,0 +1,5 @@
+add_executable(revkit_asm_tests assembler_test.cc)
+target_link_libraries(revkit_asm_tests PRIVATE revkit::asm revkit::lift GTest::gtest_main)
+target_compile_options(revkit_asm_tests PRIVATE -Wall -Wextra)
+target_compile_definitions(revkit_asm_tests PRIVATE REVKIT_GHIDRA_ROOT="${GHIDRA_ROOT}")
+gtest_discover_tests(revkit_asm_tests)

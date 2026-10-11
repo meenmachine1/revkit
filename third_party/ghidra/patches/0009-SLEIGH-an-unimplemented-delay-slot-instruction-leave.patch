@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: revkit <revkit@localhost>
+Date: Wed, 7 Oct 2026 05:48:20 -0400
+Subject: [PATCH] SLEIGH: an unimplemented delay-slot instruction leaves the
+ builder on a dead walker
+
+SleighBuilder::delaySlot points the builder's walker at a ParserWalker on its
+own stack while it builds the delay-slot instruction. When that build throws
+(UnimplError: the delay slot holds an instruction the language has no
+semantics for), the frame unwinds with the pointer still set, and
+Sleigh::oneInstruction's handler then reads the dead walker to describe the
+instruction: a crash, or garbage in the message. Restore the walker before
+rethrowing. SleighBuilder::appendCrossBuild does the same with the
+instruction it weaves in, and gets the same fix.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/sleigh.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/sleigh.cc
+index 0c56b2e..997d8f9 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/sleigh.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/sleigh.cc
+@@ -388,7 +388,15 @@ void SleighBuilder::delaySlot(OpTpl *op)
+     ParserWalker newwalker( pos );
+     walker = &newwalker;
+     walker->baseState();
+-    build(walker->getConstructor()->getTempl(),-1); // Build the whole delay slot
++    try {
++      build(walker->getConstructor()->getTempl(),-1); // Build the whole delay slot
++    } catch(...) {
++      // newwalker dies with this frame: whoever catches (Sleigh::oneInstruction
++      // describing an UnimplError) must find the instruction's own walker.
++      walker = tmp;
++      uniqueoffset = olduniqueoffset;
++      throw;
++    }
+     fallOffset += len;
+     bytecount += len;
+   } while(bytecount < delaySlotByteCnt);
+@@ -430,10 +438,16 @@ void SleighBuilder::appendCrossBuild(OpTpl *bld,int4 secnum)
+   walker->baseState();
+   Constructor *ct = walker->getConstructor();
+   ConstructTpl *construct = ct->getNamedTempl(secnum);
+-  if (construct == (ConstructTpl *)0)
+-    buildEmpty(ct,secnum);
+-  else
+-    build(construct,secnum);
++  try {
++    if (construct == (ConstructTpl *)0)
++      buildEmpty(ct,secnum);
++    else
++      build(construct,secnum);
++  } catch(...) {
++    walker = tmp;		// As in delaySlot: newwalker dies with this frame
++    uniqueoffset = olduniqueoffset;
++    throw;
++  }
+   walker = tmp;
+   uniqueoffset = olduniqueoffset;
+ }

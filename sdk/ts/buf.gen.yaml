@@ -1,0 +1,11 @@
+# TypeScript codegen: protobuf-es v2 messages and service descriptors, which
+# Connect-ES v2 clients consume directly (no separate connect plugin).
+# Run via ./generate.sh (Docker) or `npm run generate` with Node installed.
+version: v2
+inputs:
+  - directory: ../../proto
+plugins:
+  - local: protoc-gen-es
+    out: src/gen
+    opt: target=ts
+clean: true

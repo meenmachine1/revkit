@@ -1,0 +1,302 @@
+// Analysis control and status. Analysis runs as jobs in the daemon; each
+// job's results land as one or more revisions with ANALYSIS cause.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// Analysis jobs: start, cancel, status.
+service AnalysisService {
+  // Analyzers the server offers, with their default enablement.
+  rpc ListAnalyzers(ListAnalyzersRequest) returns (ListAnalyzersResponse);
+  // Starts an analysis job. At most one job per program runs at a time;
+  // others queue (state QUEUED).
+  rpc StartAnalysis(StartAnalysisRequest) returns (StartAnalysisResponse);
+  // Requests cancellation. Work already committed stays committed.
+  rpc CancelAnalysis(CancelAnalysisRequest) returns (CancelAnalysisResponse);
+  // Jobs for a program (running, queued and recently finished).
+  rpc GetAnalysisStatus(GetAnalysisStatusRequest) returns (GetAnalysisStatusResponse);
+
+  // Function ID (api_minor 49, feature "function-id"; docs/fid.md): naming
+  // statically linked library functions by hash, from Ghidra's .fidbf
+  // databases and revkit's .rkfid. The analyzer "function-id" runs in the
+  // background after import (PE and ELF, when an attached database is for
+  // the program's language) and on StartAnalysis; its names are ANALYSIS
+  // assertions with provenance id "fid:<database>", below every name from
+  // symbols, debug info, users and agents.
+  //
+  // The databases a program is matched against: Ghidra's shipped ones
+  // (builtin, attached unless detached), the caller's, the project's.
+  rpc ListFidDatabases(ListFidDatabasesRequest) returns (ListFidDatabasesResponse);
+  // Attaches a database file (a host path the daemon reads) for the caller
+  // (USER) or the project (PROJECT); a builtin one again where it was
+  // detached.
+  rpc AttachFidDatabase(AttachFidDatabaseRequest) returns (AttachFidDatabaseResponse);
+  rpc DetachFidDatabase(DetachFidDatabaseRequest) returns (DetachFidDatabaseResponse);
+  // The last run's results for a program: every function with a match, its
+  // candidates and scores, and what became of it.
+  rpc ListFidMatches(ListFidMatchesRequest) returns (ListFidMatchesResponse);
+  // Names a function as one of its matches (the caller's assertion).
+  rpc ApplyFidMatch(ApplyFidMatchRequest) returns (ApplyFidMatchResponse);
+  // Rejects a function's match: its Function ID name is retracted and runs
+  // after leave it alone.
+  rpc RejectFidMatch(RejectFidMatchRequest) returns (RejectFidMatchResponse);
+  // Writes a .rkfid database from programs of the project with symbols.
+  rpc CreateFidDatabase(CreateFidDatabaseRequest) returns (CreateFidDatabaseResponse);
+}
+
+enum FidScope {
+  FID_SCOPE_UNSPECIFIED = 0;
+  // Shipped with Ghidra (Ghidra/Features/FunctionID/data under the
+  // daemon's Ghidra root): the MSVC runtimes, vs2012-vs2019 and older.
+  FID_SCOPE_BUILTIN = 1;
+  // The caller's own, for every project.
+  FID_SCOPE_USER = 2;
+  // The project's, for everyone in it (a project fact, replicated).
+  FID_SCOPE_PROJECT = 3;
+}
+
+message FidLibrary {
+  string family = 1;
+  string version = 2;
+  string variant = 3;
+  string language = 4;  // "x86:LE:64:default"
+  string compiler = 5;
+}
+
+message FidDatabase {
+  // "builtin:vs2019_x64", or the file's path.
+  string id = 1;
+  string name = 2;  // the file's stem
+  string path = 3;
+  FidScope scope = 4;
+  bool attached = 5;
+  string format = 6;  // "fidbf" (Ghidra's), "rkfid"
+  repeated FidLibrary libraries = 7;
+  uint64 functions = 8;
+  // Why it can't be read ("" when it can).
+  string error = 9;
+  // With ListFidDatabasesRequest.program_id: whether it has a library for
+  // that program's language.
+  bool applies = 10;
+}
+
+message ListFidDatabasesRequest {
+  string project_id = 1;
+  string program_id = 2;
+}
+
+message ListFidDatabasesResponse {
+  repeated FidDatabase databases = 1;
+}
+
+message AttachFidDatabaseRequest {
+  string project_id = 1;
+  // A .fidbf or .rkfid file on the daemon's host, or a builtin id.
+  string path = 2;
+  FidScope scope = 3;  // USER (default) or PROJECT
+  Provenance provenance = 4;
+}
+
+message AttachFidDatabaseResponse {
+  FidDatabase database = 1;
+}
+
+message DetachFidDatabaseRequest {
+  string project_id = 1;
+  string id = 2;
+  FidScope scope = 3;  // USER (default) or PROJECT
+  Provenance provenance = 4;
+}
+
+message DetachFidDatabaseResponse {}
+
+message FidCandidate {
+  string name = 1;
+  string library = 2;   // "Visual Studio 2019 Release"
+  string database = 3;  // the FidDatabase name
+  float score = 4;      // function + children + parents
+  float function_score = 5;
+  float child_score = 6;
+  float parent_score = 7;
+  bool specific = 8;  // the specific hash matched too
+}
+
+enum FidMatchStatus {
+  FID_MATCH_STATUS_UNSPECIFIED = 0;
+  // Named by Function ID (its assertion is the effective name).
+  FID_MATCH_STATUS_APPLIED = 1;
+  // A name from symbols, debug info, a user or an agent stays.
+  FID_MATCH_STATUS_KEPT = 2;
+  // Several names scored below the multi-name threshold: not named.
+  FID_MATCH_STATUS_UNAPPLIED = 3;
+  FID_MATCH_STATUS_REJECTED = 4;
+  // Someone applied one of the candidates (ApplyFidMatch, or a rename to one).
+  FID_MATCH_STATUS_ACCEPTED = 5;
+}
+
+message FidMatch {
+  uint64 entry = 1;
+  string current_name = 2;
+  // What Function ID names it ("" when several names score too low;
+  // "FID_conflict:<name>" when names differ in their base).
+  string name = 3;
+  // "single", "same_base", "different", "below_threshold".
+  string verdict = 4;
+  float score = 5;
+  repeated FidCandidate candidates = 6;  // the best-scoring (ties kept)
+  repeated string libraries = 7;
+  FidMatchStatus status = 8;
+  // Ghidra's plate comment: "Library Function - Single Match\n name\n\nLibrary: ...".
+  string comment = 9;
+  // The function's hash (full and specific, hex).
+  string full_hash = 10;
+  string specific_hash = 11;
+  uint32 code_units = 12;
+}
+
+message ListFidMatchesRequest {
+  string program_id = 1;
+}
+
+message ListFidMatchesResponse {
+  repeated FidMatch matches = 1;
+  // The revision the run read; 0 when Function ID hasn't run.
+  uint64 revision = 2;
+  // The databases it used (FidDatabase ids).
+  repeated string databases = 3;
+  uint32 functions_hashed = 4;
+}
+
+message ApplyFidMatchRequest {
+  string program_id = 1;
+  uint64 entry = 2;
+  // One of the match's candidate names, or "" for its proposed name.
+  string name = 3;
+  Provenance provenance = 4;
+}
+
+message ApplyFidMatchResponse {
+  uint64 revision = 1;
+}
+
+message RejectFidMatchRequest {
+  string program_id = 1;
+  uint64 entry = 2;
+  Provenance provenance = 3;
+}
+
+message RejectFidMatchResponse {
+  uint64 revision = 1;
+}
+
+message CreateFidDatabaseRequest {
+  string project_id = 1;
+  repeated string program_ids = 2;
+  // The .rkfid file to write, on the daemon's host.
+  string path = 3;
+  string family = 4;
+  string version = 5;
+  string variant = 6;
+  // Callee names too common to relate functions by (Ghidra's common symbols).
+  repeated string common_symbols = 7;
+  // Attach the new database (USER or PROJECT scope; UNSPECIFIED: don't).
+  FidScope attach = 8;
+  Provenance provenance = 9;
+}
+
+message CreateFidDatabaseResponse {
+  FidDatabase database = 1;
+  uint32 functions_added = 2;
+  // Functions left out: "no_symbol", "thunk", "too_short", "duplicate".
+  map<string, uint32> excluded = 3;
+  repeated string unresolved_callees = 4;
+}
+
+message Analyzer {
+  // Stable id, "disasm", "functions", "xrefs", "decompile-params".
+  string id = 1;
+  string description = 2;
+  bool enabled_by_default = 3;
+}
+
+message ListAnalyzersRequest {
+  string program_id = 1;
+}
+
+message ListAnalyzersResponse {
+  repeated Analyzer analyzers = 1;
+}
+
+message StartAnalysisRequest {
+  string program_id = 1;
+  // Analyzer ids to run; empty = the defaults.
+  repeated string analyzers = 2;
+  // Restrict to these ranges (empty = whole program).
+  repeated AddressRange ranges = 3;
+  // Recorded on any assertions the analysis persists (kind ANALYSIS).
+  Provenance provenance = 4;
+}
+
+message StartAnalysisResponse {
+  AnalysisJob job = 1;
+}
+
+message CancelAnalysisRequest {
+  string job_id = 1;
+}
+
+message CancelAnalysisResponse {
+  AnalysisJob job = 1;
+}
+
+message GetAnalysisStatusRequest {
+  string program_id = 1;
+}
+
+message GetAnalysisStatusResponse {
+  // Most recent first.
+  repeated AnalysisJob jobs = 1;
+  // True when no job is queued or running.
+  bool idle = 2;
+  uint64 head_revision = 3;
+}
+
+enum AnalysisState {
+  ANALYSIS_STATE_UNSPECIFIED = 0;
+  ANALYSIS_STATE_QUEUED = 1;
+  ANALYSIS_STATE_RUNNING = 2;
+  ANALYSIS_STATE_SUCCEEDED = 3;
+  ANALYSIS_STATE_FAILED = 4;
+  ANALYSIS_STATE_CANCELLED = 5;
+}
+
+message AnalysisJob {
+  string job_id = 1;
+  string program_id = 2;
+  AnalysisState state = 3;
+  repeated string analyzers = 4;
+  // Current phase, human readable ("disassembling", "decompiling 12/340").
+  string phase = 5;
+  // 0..1; -1 when unknown.
+  float progress = 6;
+  google.protobuf.Timestamp started_at = 7;
+  google.protobuf.Timestamp finished_at = 8;
+  // First revision committed by the job, and the latest.
+  uint64 first_revision = 9;
+  uint64 last_revision = 10;
+  // Failure reason or warnings.
+  string message = 11;
+}
+
+// Progress update, delivered on SubscriptionService streams.
+message AnalysisProgress {
+  AnalysisJob job = 1;
+}

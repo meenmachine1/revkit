@@ -1,0 +1,12 @@
+# Applied in order on the pristine Ghidra 12.1.4 sources (fork.sh).
+0001-Decompiler-fail-cleanly-when-an-INDIRECT-s-effect-op.patch
+0002-Decompiler-fail-cleanly-when-a-bitfield-pull-s-readi.patch
+0003-Decompiler-fail-cleanly-instead-of-dividing-by-zero-.patch
+0004-Decompiler-leave-a-LOAD-or-STORE-whose-constant-addr.patch
+0005-SLEIGH-fail-cleanly-when-an-instruction-nests-more-o.patch
+0006-SLEIGH-expose-a-Constructor-s-print-pieces-and-conte.patch
+0007-SLEIGH-expose-the-decision-tree-s-constructor-patter.patch
+0008-SLEIGH-expose-operand-fields-and-attached-symbol-tab.patch
+0009-SLEIGH-an-unimplemented-delay-slot-instruction-leave.patch
+0010-SLEIGH-an-operand-whose-constructor-exports-nothing-.patch
+0011-SLEIGH-expose-a-decision-node-s-field.patch

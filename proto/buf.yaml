@@ -1,0 +1,11 @@
+# buf lint/breaking configuration for the revkit API schema.
+# Run: tools/proto-check.sh (uses the bufbuild/buf Docker image).
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - WIRE_JSON

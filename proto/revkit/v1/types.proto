@@ -1,0 +1,898 @@
+// Data types, addressed by content hash. A type's hash covers its canonical
+// encoding including the hashes of the types it references, so a hash names
+// one immutable definition: clients may cache GetTypes results forever,
+// across revisions and programs.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+enum TypeKind {
+  TYPE_KIND_UNSPECIFIED = 0;
+  TYPE_KIND_VOID = 1;
+  TYPE_KIND_BOOL = 2;
+  TYPE_KIND_INT = 3;   // signed integer
+  TYPE_KIND_UINT = 4;  // unsigned integer
+  TYPE_KIND_CHAR = 5;
+  TYPE_KIND_FLOAT = 6;
+  TYPE_KIND_POINTER = 7;
+  TYPE_KIND_ARRAY = 8;
+  TYPE_KIND_STRUCT = 9;
+  TYPE_KIND_UNION = 10;
+  TYPE_KIND_ENUM = 11;
+  TYPE_KIND_FUNCTION = 12;
+  TYPE_KIND_TYPEDEF = 13;
+  // Bytes with no known interpretation ("undefined4").
+  TYPE_KIND_UNDEFINED = 14;
+  // const/volatile/restrict/_Atomic over another type (api_minor 4).
+  TYPE_KIND_QUALIFIED = 15;
+}
+
+message PointerType {
+  string target_hash = 1;
+  // Address space the pointer points into, when not the default.
+  string space = 2;
+}
+
+message ArrayType {
+  string element_hash = 1;
+  uint64 count = 2;
+}
+
+message Field {
+  string name = 1;
+  // Byte offset (for a bitfield, of the byte holding its first bit).
+  uint64 offset = 2;
+  string type_hash = 3;
+  // Bitfields only: the first bit's offset within that byte, 0 to 7, so
+  // the field starts at bit offset * 8 + bit_offset of the aggregate.
+  uint32 bit_offset = 4;
+  uint32 bit_size = 5;
+  string comment = 6;
+}
+
+// STRUCT and UNION.
+message CompositeType {
+  repeated Field fields = 1;
+  bool packed = 2;
+}
+
+message EnumValue {
+  string name = 1;
+  int64 value = 2;
+}
+
+message EnumType {
+  repeated EnumValue values = 1;
+  string underlying_hash = 2;
+}
+
+message FunctionType {
+  string return_hash = 1;
+  repeated FunctionTypeParam params = 2;
+  bool varargs = 3;
+  string calling_convention = 4;
+  bool no_return = 5;
+}
+
+message FunctionTypeParam {
+  string name = 1;
+  string type_hash = 2;
+}
+
+message TypedefType {
+  string target_hash = 1;
+}
+
+// QUALIFIED (api_minor 4).
+message QualifiedType {
+  string target_hash = 1;
+  bool is_const = 2;
+  bool is_volatile = 3;
+  bool is_restrict = 4;
+  bool is_atomic = 5;
+}
+
+message TypeDefinition {
+  // Lowercase hex content hash (algorithm per docs/api.md); the identity.
+  string hash = 1;
+  // Name for named types ("checksum_ctx"); empty for anonymous or
+  // structural ones (pointers, arrays).
+  string name = 2;
+  TypeKind kind = 3;
+  // Size in bytes; 0 for void, function and incomplete types.
+  uint64 size = 4;
+  uint32 alignment = 5;
+  // C spelling of a use of the type ("struct foo *").
+  string display = 6;
+  // C definition for composites/enums/typedefs; same as display otherwise.
+  string c_definition = 7;
+  oneof detail {
+    PointerType pointer = 10;
+    ArrayType array = 11;
+    CompositeType composite = 12;
+    EnumType enumeration = 13;
+    FunctionType function = 14;
+    TypedefType typedef_type = 15;
+    QualifiedType qualified = 16;
+  }
+  // Where the definition came from (importer, user, analysis).
+  FactOrigin origin = 20;
+  // INT, UINT and CHAR: the C spelling's rank (api_minor 4).
+  IntegerRank rank = 21;
+  // FLOAT: which C floating type (api_minor 4).
+  FloatKind float_kind = 22;
+  // STRUCT, UNION and ENUM: false for a forward declaration (api_minor 4).
+  bool complete = 23;
+  // A BindTypeName makes another definition the program's one for this
+  // name (FindTypes with include_superseded; api_minor 11).
+  bool superseded = 24;
+  // The program's definition of its name: a live BindTypeName names this
+  // hash (api_minor 11).
+  bool bound = 25;
+  // FLOAT: a complex type (_Complex double; size is both parts) (api_minor 25).
+  bool is_complex = 26;
+  // POINTER: a C++ reference rather than a pointer (api_minor 25).
+  TypeNodeReference reference = 27;
+  // STRUCT: declared with C++'s class keyword (api_minor 25).
+  bool is_class = 28;
+  // Named types: the category (folder) the program files its name under
+  // ("/net/http"; a TYPE_DEF "category:<key>" assertion), empty for none
+  // (api_minor 35, feature "type-archive").
+  string category = 29;
+  // Defined at project scope (a TYPE_DEF in the project's space, which
+  // every program of the project sees; api_minor 52, feature
+  // "project-types"). A program's own definition of a name comes first.
+  bool project = 30;
+}
+
+// The C spelling of an integer type: two integers of one size and
+// signedness but different rank (long and long long on LP64) are different
+// C types. UNSPECIFIED is a fixed-width integer with no C spelling.
+enum IntegerRank {
+  INTEGER_RANK_UNSPECIFIED = 0;
+  // signed char / unsigned char (plain char is TYPE_KIND_CHAR).
+  INTEGER_RANK_CHAR = 1;
+  INTEGER_RANK_SHORT = 2;
+  INTEGER_RANK_INT = 3;
+  INTEGER_RANK_LONG = 4;
+  INTEGER_RANK_LONG_LONG = 5;
+  INTEGER_RANK_INT128 = 6;
+  INTEGER_RANK_WCHAR = 7;
+  INTEGER_RANK_CHAR8 = 8;
+  INTEGER_RANK_CHAR16 = 9;
+  INTEGER_RANK_CHAR32 = 10;
+}
+
+enum FloatKind {
+  // By size: 2 half, 4 float, 8 double, 10, 12 or 16 long double.
+  FLOAT_KIND_UNSPECIFIED = 0;
+  FLOAT_KIND_HALF = 1;
+  FLOAT_KIND_FLOAT = 2;
+  FLOAT_KIND_DOUBLE = 3;
+  FLOAT_KIND_LONG_DOUBLE = 4;
+  FLOAT_KIND_FLOAT128 = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Defining types (DefineType assertions, api_minor 4)
+// ---------------------------------------------------------------------------
+
+// A reference from a type being defined to another type.
+message TypeNodeRef {
+  oneof kind {
+    // TypeDefinition.hash of a type the program already has.
+    string hash = 1;
+    // Index into AppendAssertionsRequest.assertions of a define_type in the
+    // same request (stored as the hash it resolves to).
+    uint32 assertion_index = 2;
+  }
+}
+
+// One type of revkit's type model (docs/types.md), described for
+// DefineType. Which fields apply depends on kind:
+//   VOID                  -
+//   BOOL, UNDEFINED       size
+//   INT, UINT             size, rank
+//   CHAR                  size (1), is_signed: plain char's signedness
+//   FLOAT                 size, float_kind
+//   POINTER               size (0: the program's pointer size), target
+//   ARRAY                 target (element), count (0: unknown bound)
+//   STRUCT, UNION         name (empty: anonymous), size, alignment, packed,
+//                         incomplete, fields
+//   ENUM                  name, size, is_signed, incomplete, enumerators
+//   TYPEDEF               name, target
+//   QUALIFIED             target, qualifiers
+//   FUNCTION              target (return; unset: void), params, varargs,
+//                         calling_convention
+message TypeNode {
+  TypeKind kind = 1;
+  string name = 2;
+  uint64 size = 3;
+  IntegerRank rank = 4;
+  bool is_signed = 5;
+  FloatKind float_kind = 6;
+  TypeNodeRef target = 7;
+  uint64 count = 8;
+  repeated TypeNodeField fields = 9;
+  repeated EnumValue enumerators = 10;
+  repeated TypeNodeParam params = 11;
+  bool varargs = 12;
+  // "" (the default convention), "__cdecl", "__stdcall", "__fastcall",
+  // "__thiscall", "__vectorcall", "__pascal", "__ms_abi", "__sysv_abi",
+  // "__regcall"; anything else is kept as "other".
+  string calling_convention = 13;
+  // Explicit alignment in bytes; 0 = natural.
+  uint32 alignment = 14;
+  bool packed = 15;
+  // A forward declaration (struct foo;) with no fields.
+  bool incomplete = 16;
+  QualifiedType qualifiers = 17;  // target_hash unused: see target
+  // FLOAT: complex (both parts; size is the whole) (api_minor 25).
+  bool is_complex = 18;
+  // POINTER: a C++ lvalue or rvalue reference (api_minor 25).
+  TypeNodeReference reference = 19;
+  // STRUCT: a C++ class (api_minor 25).
+  bool is_class = 20;
+}
+
+// What a POINTER node is (api_minor 25). UNSPECIFIED is a pointer.
+enum TypeNodeReference {
+  TYPE_NODE_REFERENCE_UNSPECIFIED = 0;
+  TYPE_NODE_REFERENCE_LVALUE = 1;
+  TYPE_NODE_REFERENCE_RVALUE = 2;
+}
+
+message TypeNodeField {
+  // Empty for an anonymous member.
+  string name = 1;
+  TypeNodeRef type = 2;
+  // As in Field: byte offset, and for bitfields the bit within that byte.
+  uint64 offset = 3;
+  uint32 bit_offset = 4;
+  // Non-zero only for bitfields.
+  uint32 bit_size = 5;
+}
+
+message TypeNodeParam {
+  string name = 1;
+  TypeNodeRef type = 2;
+}
+
+// ---------------------------------------------------------------------------
+// Parsing C (TypeService.ParseC, api_minor 25, feature "parse-c")
+// ---------------------------------------------------------------------------
+
+// C declarations as types, for a program's target. Nothing is asserted:
+// the client defines what it chose with AppendAssertions (docs/cparse.md).
+service TypeService {
+  // Parses C headers or pasted declarations (with a preprocessor and the
+  // program's data model) into DefineType-ready type nodes, with the named
+  // types, constants and function prototypes they declare, line-numbered
+  // diagnostics, and how each name compares with the program's definition.
+  rpc ParseC(ParseCRequest) returns (ParseCResponse);
+  // A structure from how a pointer variable is used (Ghidra's Auto Create
+  // Structure and Auto Fill in Structure), or from the data defined in an
+  // address range (Create Structure from a listing selection), as
+  // DefineType-ready nodes plus what the client asserts to apply it
+  // (api_minor 32, feature "auto-struct"; docs/types.md).
+  rpc AutoStructure(AutoStructureRequest) returns (AutoStructureResponse);
+  // A set of the program's types as a type archive: one self-contained C
+  // header and a JSON sidecar of content hashes, categories, provenance and
+  // the data model. Importing one is ParseC with the sidecar
+  // (ParseCRequest.archive_sidecar), which checks the hashes. Asserts
+  // nothing (api_minor 35, feature "type-archive"; docs/types.md).
+  rpc ExportTypeArchive(ExportTypeArchiveRequest) returns (ExportTypeArchiveResponse);
+  // Moves a program's named types to project scope, or copies project
+  // types into a program, with every type they reach, in one revision
+  // (api_minor 52, feature "project-types"; docs/types.md#project-types).
+  rpc CopyTypes(CopyTypesRequest) returns (CopyTypesResponse);
+  // The type archives that apply to a program's project: the library
+  // archives revkit ships, Ghidra's, and those attached to the project
+  // (AssertionBody.type_archive), each enabled or not (api_minor 52,
+  // feature "project-types").
+  rpc ListTypeArchives(ListTypeArchivesRequest) returns (ListTypeArchivesResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Project-wide types (api_minor 52, feature "project-types")
+// ---------------------------------------------------------------------------
+
+enum CopyTypesMode {
+  COPY_TYPES_MODE_UNSPECIFIED = 0;
+  // The program's definitions become the project's: their records and the
+  // types they reach are defined at project scope, each name bound there,
+  // and the program's own definition and binding of each name retracted,
+  // so every program sees one definition and an edit at project scope
+  // reaches them all.
+  COPY_TYPES_MODE_MOVE_TO_PROJECT = 1;
+  // The project's definitions copied into the program, each name bound in
+  // the program: the program's copy then wins over the project's, and the
+  // program can change it alone.
+  COPY_TYPES_MODE_COPY_TO_PROGRAM = 2;
+}
+
+message CopyTypesRequest {
+  string program_id = 1;
+  // Named keys ("struct cJSON", "typedef uLong") as the source scope
+  // defines them (the program's resolved definition, or the project's).
+  repeated string keys = 2;
+  CopyTypesMode mode = 3;
+  Provenance provenance = 4;
+  uint64 expected_head_revision = 5;
+}
+
+message CopyTypesResponse {
+  Snapshot snapshot = 1;
+  // The named types copied (their keys and hashes, as the destination
+  // binds them) and how many type records were defined there.
+  repeated NamedTypeRef types = 2;
+  uint32 records = 3;
+  // Assertions appended (definitions, bindings) and retracted (a move's).
+  uint32 asserted = 4;
+  uint32 retracted = 5;
+  // The revision's ops (assertions and retractions): retracting them undoes
+  // the copy (a move's retractions retracted bring the program's own back).
+  repeated uint64 seqs = 6;
+}
+
+message NamedTypeRef {
+  string key = 1;
+  string hash = 2;
+}
+
+enum TypeArchiveKind {
+  TYPE_ARCHIVE_KIND_UNSPECIFIED = 0;
+  // A library archive revkit ships (share/revkit/typeinfo).
+  TYPE_ARCHIVE_KIND_SHIPPED = 1;
+  // Ghidra's .gdt for the program's format and size ("ghidra").
+  TYPE_ARCHIVE_KIND_GHIDRA = 2;
+  // A type archive attached to the project (AssertionBody.type_archive).
+  TYPE_ARCHIVE_KIND_ATTACHED = 3;
+}
+
+message ListTypeArchivesRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+}
+
+message TypeArchiveInfo {
+  string name = 1;
+  TypeArchiveKind kind = 2;
+  // On for the project (turned off with AssertionBody.type_archive).
+  bool enabled = 3;
+  // Applies to this program: a shipped archive of its format and data
+  // model, Ghidra's when present, every attached archive.
+  bool applies = 4;
+  // Function prototypes and named types it declares (0 for Ghidra's).
+  uint32 functions = 5;
+  uint32 types = 6;
+  // The data model it was made for, and where it came from (the sidecar's
+  // provenance.origin; the headers it was made from for a shipped one).
+  string data_model = 7;
+  string origin = 8;
+  // Errors parsing it for this program's target (an attached archive for
+  // another compiler), at most a few.
+  repeated string diagnostics = 9;
+  // Who turned it off or attached it; derived for a shipped default.
+  FactOrigin origin_fact = 10;
+}
+
+message ListTypeArchivesResponse {
+  Snapshot snapshot = 1;
+  // Shipped (by name), Ghidra's, then attached (by name).
+  repeated TypeArchiveInfo archives = 2;
+}
+
+message ParseCSource {
+  oneof kind {
+    // The text itself (a pasted declaration, an uploaded header).
+    string text = 1;
+    // A file on the daemon's host, under one of its --browse-root
+    // directories (admin only, as reading the host is).
+    string path = 2;
+  }
+  // Shown in diagnostics for text ("cJSON.h"; default "<input>"); its
+  // extension decides C or C++ unless ParseCOptions.cplusplus is set.
+  string name = 3;
+}
+
+message ParseCOptions {
+  // Group each file's integer #define constants into one enum,
+  // "<file>_constants", returned as a named type.
+  bool defines_as_enum = 1;
+  // Return the function prototypes the sources declare.
+  bool prototypes = 2;
+  // Parse as C++ (namespaces, classes, enum class, references).
+  bool cplusplus = 3;
+  // Also return the named types of system and built-in headers (normally
+  // only the sources' own, plus what they reference, as nodes).
+  bool include_system = 4;
+}
+
+message ParseCRequest {
+  string program_id = 1;
+  // Parsed in order as one translation unit.
+  repeated ParseCSource sources = 2;
+  // -I and -isystem directories on the daemon's host, under --browse-root.
+  // Every #include is resolved and checked: none reaches outside the roots.
+  repeated string include_dirs = 3;
+  repeated string system_include_dirs = 4;
+  // -D NAME[=VALUE] and -U NAME.
+  repeated string defines = 5;
+  repeated string undefines = 6;
+  // A named target ("x86_64-linux-gnu", "x86_64-w64-mingw32", ...) instead
+  // of the program's own (from its compiler spec).
+  string profile = 7;
+  ParseCOptions options = 8;
+  // The program's types at this revision: names the sources use but don't
+  // declare resolve to them, and conflicts are against them. A type name
+  // __revkit_type_<hash> is the program's type with that hash itself (an
+  // anonymous struct or union so named declares an anonymous member).
+  ReadOptions read = 9;
+  // A type archive's sidecar (its .json, ExportTypeArchiveResponse.sidecar)
+  // for the archive's header in `sources`: the header is parsed for the
+  // sidecar's data model (unless `profile` names one), each type is checked
+  // against the sidecar's hash (ParseCResponse.archive), and the named
+  // types get the sidecar's categories (api_minor 35, feature
+  // "type-archive").
+  string archive_sidecar = 10;
+}
+
+enum ParseCSeverity {
+  PARSE_C_SEVERITY_UNSPECIFIED = 0;
+  PARSE_C_SEVERITY_NOTE = 1;
+  PARSE_C_SEVERITY_WARNING = 2;
+  PARSE_C_SEVERITY_ERROR = 3;
+}
+
+message ParseCDiagnostic {
+  string file = 1;
+  uint32 line = 2;
+  uint32 column = 3;
+  ParseCSeverity severity = 4;
+  string text = 5;
+  // The text of that line (empty for a built-in header), so a client can
+  // show where it is without the file.
+  string source_line = 6;
+}
+
+// A struct, union, enum or typedef the sources declare.
+message ParseCNamedType {
+  // "struct cJSON", "typedef cJSON", "enum color" (FindTypes' key form).
+  string key = 1;
+  // Index into ParseCResponse.nodes.
+  uint32 index = 2;
+  string hash = 3;
+  string file = 4;
+  uint32 line = 5;
+  // From a system or built-in header.
+  bool system = 6;
+  // The program's definition of the name (its bound one, else its own,
+  // else the library archive's); empty when it has none. Equal to hash:
+  // the same type (importing it again changes nothing).
+  string existing_hash = 7;
+  // Its C definition as revkit prints it (TypeDefinition.c_definition), so
+  // a client can show it before importing.
+  string c_definition = 8;
+  // The category an import files it under: the archive's (archive_sidecar;
+  // empty for none), else "/<file name>" of the header it was declared in
+  // (empty for pasted text) (api_minor 35).
+  string category = 9;
+  // The program's current category for the name (empty: none).
+  string existing_category = 10;
+  // existing_hash is only the library archive's definition (the program
+  // itself has none), so importing it gives the program its own.
+  bool existing_library = 11;
+}
+
+message ParseCPrototype {
+  string name = 1;
+  uint32 index = 2;  // a FUNCTION node with parameter names
+  string hash = 3;
+  string declaration = 4;  // "int add(int a, int b)"
+  string file = 5;
+  uint32 line = 6;
+  bool defined = 7;  // the source had its body (skipped)
+}
+
+message ParseCConstant {
+  string name = 1;
+  int64 value = 2;
+  bool is_unsigned = 3;
+  string file = 4;
+  uint32 line = 5;
+}
+
+// A name the program already defines differently.
+message ParseCConflict {
+  string named_key = 1;
+  string existing_hash = 2;
+  string new_hash = 3;
+  // The same layout: size, member offsets and widths (enums: size and
+  // values). What differs is names or the members' types.
+  bool same_layout = 4;
+}
+
+message ParseCResponse {
+  Snapshot snapshot = 1;
+  // Every type the named types, prototypes and constant enums need that
+  // the program doesn't already have, DefineType-ready: references are
+  // TypeNodeRef.assertion_index into this list (a client that puts the
+  // nodes first in an AppendAssertionsRequest, in order, can send them as
+  // they are) or hashes of the program's own types.
+  repeated TypeNode nodes = 2;
+  repeated string hashes = 3;  // nodes[i]'s content hash
+  repeated ParseCNamedType named = 4;
+  repeated ParseCConstant constants = 5;
+  repeated ParseCPrototype prototypes = 6;
+  repeated ParseCDiagnostic diagnostics = 7;
+  repeated ParseCConflict conflicts = 8;
+  // The target the sources were parsed for, and what was decided about it
+  // ("plain char is unsigned on aarch64 (the ABI; ...)").
+  string profile = 9;
+  repeated string profile_notes = 10;
+  uint32 errors = 11;
+  uint32 warnings = 12;
+  // A limit (bytes, include depth, macro expansion, time) stopped the
+  // parse; what was parsed before it is returned.
+  bool limit_hit = 13;
+  // The host files read, in order.
+  repeated string files = 14;
+  // nodes[i]'s C spelling ("void (*)(int)", "struct point *"), as
+  // TypeDefinition.display gives it once defined.
+  repeated string displays = 15;
+  // With archive_sidecar: how the header compares with its sidecar.
+  ParseCArchiveCheck archive = 16;
+}
+
+// A type archive's header against its sidecar (api_minor 35).
+message ParseCArchiveCheck {
+  string name = 1;
+  // TypeArchiveProvenance.origin: an import gives its provenance this as
+  // the version, so exporting the imported types again keeps it.
+  string origin = 2;
+  // The sidecar's data model, as one line; the header was parsed for it.
+  string data_model = 3;
+  uint32 types = 4;     // in the sidecar
+  uint32 verified = 5;  // parsed to the sidecar's hash
+  repeated ParseCArchiveMismatch mismatches = 6;
+  // The header isn't the one the sidecar was written with (its SHA-256
+  // differs): edited since, or another archive's.
+  bool header_changed = 7;
+}
+
+message ParseCArchiveMismatch {
+  string key = 1;
+  string expected_hash = 2;
+  string parsed_hash = 3;  // empty: the header doesn't declare it
+}
+
+// ---------------------------------------------------------------------------
+// Type archives (TypeService.ExportTypeArchive, api_minor 35, feature
+// "type-archive")
+// ---------------------------------------------------------------------------
+
+enum TypeArchiveScope {
+  // SELECTED when keys or hashes are given, CATEGORY when a category is,
+  // else USER.
+  TYPE_ARCHIVE_SCOPE_UNSPECIFIED = 0;
+  // The named types in `keys` (the program's definition of each) and
+  // `hashes` (those very types).
+  TYPE_ARCHIVE_SCOPE_SELECTED = 1;
+  // Every named type filed under `category` or a category below it.
+  TYPE_ARCHIVE_SCOPE_CATEGORY = 2;
+  // Every name a user or an import bound (BindTypeName): the types made,
+  // edited or imported in revkit, not the debug info's.
+  TYPE_ARCHIVE_SCOPE_USER = 3;
+  // Every named type of the program (debug info's too), not the library
+  // archive's.
+  TYPE_ARCHIVE_SCOPE_ALL = 4;
+}
+
+message ExportTypeArchiveRequest {
+  string program_id = 1;
+  TypeArchiveScope scope = 2;
+  repeated string keys = 3;    // "struct cJSON", "typedef cJSON", "enum color"
+  repeated string hashes = 4;  // named types by hash
+  string category = 5;         // "/net"
+  // The archive's name: the files are <name>.h and <name>.json. Default:
+  // the provenance's origin.
+  string name = 6;
+  ReadOptions read = 7;
+}
+
+message ExportTypeArchiveResponse {
+  Snapshot snapshot = 1;
+  // The header: every named type the chosen ones reach, in dependency
+  // order, with #pragma pack where needed and a _Static_assert of each
+  // size; it parses back to the sidecar's hashes for its data model.
+  string header = 2;
+  // The sidecar: TypeArchiveSidecar as protobuf JSON.
+  string sidecar = 3;
+  string header_name = 4;   // "<name>.h"
+  string sidecar_name = 5;  // "<name>.json"
+  TypeArchiveSidecar archive = 6;  // the sidecar, parsed
+  // What the header can't reproduce (C++ types, a name with two
+  // definitions, ...): those types parse to their sidecar hash, not the
+  // program's.
+  repeated string notes = 7;
+  uint32 mismatches = 8;
+}
+
+// A type archive's sidecar (<name>.json). Byte-identical for the same types,
+// categories, origin and data model: exporting what an archive imported
+// gives the same files.
+message TypeArchiveSidecar {
+  string format = 1;   // "revkit-type-archive"
+  uint32 version = 2;  // 1
+  string name = 3;
+  string header = 4;         // "<name>.h"
+  string header_sha256 = 5;  // of the header's bytes
+  TypeArchiveDataModel data_model = 6;
+  TypeArchiveProvenance provenance = 7;
+  repeated TypeArchiveEntry types = 8;  // in header order
+}
+
+// The target the header's types are laid out for (cparse's profile).
+message TypeArchiveDataModel {
+  string profile = 1;   // "x86_64-linux-gnu"
+  string arch = 2;      // "x86_64"
+  string os = 3;        // "linux", "windows", "darwin", "none"
+  string compiler = 4;  // "gcc", "clang", "msvc"
+  uint32 pointer_size = 5;
+  uint32 short_size = 6;
+  uint32 int_size = 7;
+  uint32 long_size = 8;
+  uint32 long_long_size = 9;
+  uint32 float_size = 10;
+  uint32 double_size = 11;
+  uint32 long_double_size = 12;
+  uint32 long_double_align = 13;
+  uint32 wchar_size = 14;
+  bool wchar_signed = 15;
+  bool char_signed = 16;
+  bool big_endian = 17;
+  bool has_int128 = 18;
+  // An n-byte scalar's alignment, as "n:alignment".
+  repeated string size_alignment = 19;
+  uint32 max_alignment = 20;
+  string bitfields = 21;  // "gcc" or "msvc"
+  bool msvc_enums = 22;
+  bool zero_width_bitfield_aligns = 23;
+  uint32 biggest_alignment = 24;
+  uint32 max_vector_alignment = 25;
+  // The data model as one line, as the header's comment says it.
+  string description = 26;
+}
+
+message TypeArchiveProvenance {
+  string generator = 1;  // "revkit"
+  // Where the types came from: the program first exported from, kept
+  // through imports (an import's provenance version is the origin).
+  string origin = 2;
+}
+
+message TypeArchiveEntry {
+  string key = 1;
+  // What the header parses to for the data model; an import checks it.
+  string hash = 2;
+  uint64 size = 3;
+  uint32 line = 4;      // of its definition in the header
+  string category = 5;  // "/net/http"; empty for none
+  // "natural", "pack(N)", "explicit", "packed" (an enum), "typedef",
+  // "declaration".
+  string form = 6;
+  // The program's own hash, when the header can't reproduce it (notes say
+  // why); empty when equal.
+  string source_hash = 7;
+  // A prototype's (form "prototype", key "function <name>": a library
+  // archive's functions, docs/types.md#library-prototypes): it never returns.
+  bool noreturn = 8;
+}
+
+// ---------------------------------------------------------------------------
+// Structures from pointer use and from data (TypeService.AutoStructure,
+// api_minor 32, feature "auto-struct")
+// ---------------------------------------------------------------------------
+
+enum AutoStructureMode {
+  // A new structure ("astruct", "astruct_1", ... or AutoStructureRequest.name).
+  AUTO_STRUCTURE_MODE_UNSPECIFIED = 0;
+  AUTO_STRUCTURE_MODE_CREATE = 1;
+  // Fill in the structure the variable already points to: its fields stay,
+  // new fields go where it has none, and it only grows. A variable that
+  // isn't a pointer to a structure is FAILED_PRECONDITION.
+  AUTO_STRUCTURE_MODE_FILL = 2;
+}
+
+// A parameter or local of a function, as LocalVariableRef names one.
+message AutoStructureVariable {
+  // Entry point of the function.
+  Address function = 1;
+  // Variable.storage_key from its decompilation ("param:0", "stack:-0x20").
+  string storage_key = 2;
+}
+
+message AutoStructureRequest {
+  string program_id = 1;
+  oneof source {
+    // The accesses through a pointer variable (and, call_depth deep, through
+    // the parameters of the functions it is passed to).
+    AutoStructureVariable variable = 2;
+    // The data items defined inside the range (listing selection); the
+    // rest is undefined filler. The structure is the range's size.
+    AddressRange range = 3;
+    // A structure's field as a pointer (api_minor 56, feature
+    // "auto-struct-edit"): the structure made from the accesses through the
+    // value the field holds (param_1->field_0x20->...), and the field
+    // retyped to point to it (AutoStructureResponse.outer_index).
+    AutoStructureFieldTarget field = 9;
+  }
+  AutoStructureMode mode = 4;
+  // How many calls deep to follow the pointer into the functions it is
+  // passed to (as a parameter: their accesses at its offset there). Unset:
+  // 1, as Ghidra; at most 4. Variables only.
+  optional uint32 call_depth = 5;
+  // The structure's name; empty: "astruct" (or "astruct_N", the first the
+  // program doesn't name). FILL keeps the existing structure's name.
+  string name = 6;
+  ReadOptions read = 7;
+  // The client's edits to the composed fields (api_minor 56, feature
+  // "auto-struct-edit"), keyed by offset: applied after composing, in the
+  // order removes, renames and retypes, adds. An edit that doesn't fit (a
+  // bad name, a type that doesn't parse or runs into the next field) is
+  // left out and named in AutoStructureResponse.field_errors.
+  repeated AutoStructureFieldEdit edits = 8;
+}
+
+message AutoStructureFieldTarget {
+  // The function whose code reads the field (and, call_depth deep, the
+  // functions the loaded pointer is passed to).
+  Address function = 1;
+  // The structure (its hash) and the field's byte offset in it.
+  string struct_hash = 2;
+  uint64 offset = 3;
+  // The pointer the field is read through, as a storage key, or a path of
+  // fields read through one ("param:0", "param:0->0x20"); empty: every
+  // variable of the function that points to the structure.
+  string base_storage_key = 4;
+}
+
+message AutoStructureFieldEdit {
+  // The field's byte offset (the field there; or where an added field goes).
+  uint64 offset = 1;
+  // A new name (a C identifier, unique in the structure); empty: keep.
+  string name = 2;
+  // A new type, as C ("int", "char[16]", "struct hdr *"; a declaration's
+  // name, "int count", names the field when `name` is empty) or a type's
+  // hash. The field's size follows the type.
+  oneof type {
+    string type_c = 3;
+    string type_hash = 4;
+  }
+  // Remove the field: its bytes become undefined filler.
+  bool remove = 5;
+  // Add a field at `offset` (in filler, inside the structure); a type is
+  // required, the name defaults to field_0x<offset>.
+  bool add = 6;
+}
+
+message AutoStructureFieldError {
+  uint64 offset = 1;
+  string message = 2;
+}
+
+enum PointerAccessKind {
+  POINTER_ACCESS_KIND_UNSPECIFIED = 0;
+  POINTER_ACCESS_KIND_LOAD = 1;
+  POINTER_ACCESS_KIND_STORE = 2;
+  // The pointer (plus offset) is passed to a call.
+  POINTER_ACCESS_KIND_PASSED = 3;
+}
+
+// What a value read or written through the pointer is, as the code says.
+enum PointerValueKind {
+  POINTER_VALUE_KIND_UNSPECIFIED = 0;
+  POINTER_VALUE_KIND_POINTER = 1;
+  POINTER_VALUE_KIND_SIGNED = 2;
+  POINTER_VALUE_KIND_UNSIGNED = 3;
+  POINTER_VALUE_KIND_FLOAT = 4;
+  POINTER_VALUE_KIND_BOOL = 5;
+}
+
+// One access through the pointer (infer.pointer_accesses).
+message PointerAccess {
+  // The function and the variable the access is through: the request's, or
+  // a callee's parameter it was passed as.
+  Address function = 1;
+  string storage_key = 2;
+  // From the structure's start (a callee's offsets are shifted by where
+  // the pointer was passed: offset + delta).
+  int64 offset = 3;
+  // Bytes read or written; 0 for PASSED.
+  uint32 size = 4;
+  PointerAccessKind kind = 5;
+  PointerValueKind value = 6;
+  // The instruction.
+  Address address = 7;
+  // PASSED: the callee (unset for an indirect call) and the parameter.
+  Address callee = 8;
+  optional uint32 parameter_index = 9;
+  // Calls from the request's function: 0 there.
+  uint32 depth = 10;
+}
+
+enum AutoStructureFieldSource {
+  AUTO_STRUCTURE_FIELD_SOURCE_UNSPECIFIED = 0;
+  // Made from accesses.
+  AUTO_STRUCTURE_FIELD_SOURCE_ACCESS = 1;
+  // The existing structure's (FILL), kept.
+  AUTO_STRUCTURE_FIELD_SOURCE_EXISTING = 2;
+  // A data item defined in the range.
+  AUTO_STRUCTURE_FIELD_SOURCE_DATA = 3;
+}
+
+message AutoStructureField {
+  uint64 offset = 1;
+  uint64 size = 2;
+  string name = 3;
+  // The field's C type ("undefined8", "undefined1 *", "int", "double",
+  // "struct hdr") and its hash.
+  string type_display = 4;
+  string type_hash = 5;
+  AutoStructureFieldSource source = 6;
+  // Loads and stores starting at its offset.
+  uint32 accesses = 7;
+  // The accesses were wider than the room before the next field (merged
+  // stores of two fields, say): the field is undefined bytes up to it.
+  bool truncated = 8;
+  // An edit (AutoStructureRequest.edits) made or changed it.
+  bool edited = 9;
+}
+
+message AutoStructureResponse {
+  Snapshot snapshot = 1;
+  // The structure as composed: every field by offset (gaps are undefined
+  // filler), its size, name and C definition.
+  repeated AutoStructureField fields = 2;
+  uint64 size = 3;
+  string name = 4;
+  // "struct astruct": what a BindTypeName of it binds.
+  string named_key = 5;
+  string c_definition = 6;
+  // DefineType-ready nodes (as ParseCResponse.nodes: references are indices
+  // into this list or hashes of the program's types): the structure, what
+  // it reaches that the program lacks, and a pointer to it.
+  repeated TypeNode nodes = 7;
+  repeated string hashes = 8;
+  uint32 struct_index = 9;
+  uint32 pointer_index = 10;
+  string struct_hash = 11;
+  string pointer_hash = 12;
+  // FILL: the structure filled in.
+  string existing_hash = 13;
+  // Variables: every access found, and the functions read.
+  repeated PointerAccess accesses = 14;
+  repeated Address functions = 15;
+  // What couldn't be followed ("FUN_00401200 failed to decompile").
+  repeated string notes = 16;
+  // Nothing in the structure would change (FILL with no new field, or no
+  // accesses at all).
+  bool unchanged = 17;
+  // The edits left out, and why ("int64_t is 8 bytes: it runs into
+  // field_0xc at 0xc"); the structure above is without them.
+  repeated AutoStructureFieldError field_errors = 18;
+  // A field target: the outer structure's next version, its field retyped
+  // to `pointer_index` (a node in `nodes`, by index and hash), and the key
+  // to bind to it ("struct item") with the new structure's in one request.
+  optional uint32 outer_index = 19;
+  string outer_hash = 20;
+  string outer_named_key = 21;
+}

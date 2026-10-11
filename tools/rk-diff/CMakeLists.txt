@@ -1,0 +1,10 @@
+add_executable(rk-diff main.cc)
+target_link_libraries(rk-diff PRIVATE revkit::diff revkit::analysis revkit::decompd revkit::facts revkit::inputs revkit::lift revkit::loader revkit::runtime)
+add_dependencies(rk-diff rk-decompd)
+# Through the image backend (the API path) when the API component is built.
+if(TARGET revkit::backend)
+  target_link_libraries(rk-diff PRIVATE revkit::backend)
+  target_compile_definitions(rk-diff PRIVATE REVKIT_DIFF_BACKEND=1)
+endif()
+target_compile_options(rk-diff PRIVATE -Wall -Wextra)
+target_compile_definitions(rk-diff PRIVATE REVKIT_DEFAULT_GHIDRA_ROOT="${GHIDRA_ROOT}")

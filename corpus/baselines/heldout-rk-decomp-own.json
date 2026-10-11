@@ -1,0 +1,688 @@
+{
+ "binaries": {
+  "elf-aarch64/clang-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.955696,
+   "c_ast": 0.905063,
+   "c_tokens": 0.575949,
+   "functions": 0.78607
+  },
+  "elf-aarch64/clang-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.942753,
+   "c_ast": 0.939099,
+   "c_tokens": 0.517661,
+   "functions": 0.931896
+  },
+  "elf-aarch64/clang-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.360759,
+   "c_ast": 0.360759,
+   "c_tokens": 0.360759,
+   "functions": 0.78607
+  },
+  "elf-aarch64/clang-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.10475,
+   "c_ast": 0.10475,
+   "c_tokens": 0.10475,
+   "functions": 0.931896
+  },
+  "elf-aarch64/clang-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.929825,
+   "c_ast": 0.903509,
+   "c_tokens": 0.666667,
+   "functions": 0.7125
+  },
+  "elf-aarch64/clang-O2/debug/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 0.903254,
+   "c_ast": 0.897098,
+   "c_tokens": 0.523307,
+   "functions": 0.964377
+  },
+  "elf-aarch64/clang-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.893916,
+   "c_ast": 0.876755,
+   "c_tokens": 0.525741,
+   "functions": 0.910511
+  },
+  "elf-aarch64/clang-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.5,
+   "c_ast": 0.5,
+   "c_tokens": 0.5,
+   "functions": 0.7125
+  },
+  "elf-aarch64/clang-O2/stripped/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 0.058047,
+   "c_ast": 0.058047,
+   "c_tokens": 0.058047,
+   "functions": 0.964377
+  },
+  "elf-aarch64/clang-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.123245,
+   "c_ast": 0.123245,
+   "c_tokens": 0.123245,
+   "functions": 0.910511
+  },
+  "elf-aarch64/gcc-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.924528,
+   "c_ast": 0.918239,
+   "c_tokens": 0.842767,
+   "functions": 0.783251
+  },
+  "elf-aarch64/gcc-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.935758,
+   "c_ast": 0.930909,
+   "c_tokens": 0.92,
+   "functions": 0.928009
+  },
+  "elf-aarch64/gcc-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.383648,
+   "c_ast": 0.383648,
+   "c_tokens": 0.383648,
+   "functions": 0.783251
+  },
+  "elf-aarch64/gcc-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.104242,
+   "c_ast": 0.104242,
+   "c_tokens": 0.104242,
+   "functions": 0.928009
+  },
+  "elf-aarch64/gcc-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.908333,
+   "c_ast": 0.908333,
+   "c_tokens": 0.691667,
+   "functions": 0.701754
+  },
+  "elf-aarch64/gcc-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.540123,
+   "c_ast": 0.521605,
+   "c_tokens": 0.367284,
+   "functions": 0.845953
+  },
+  "elf-aarch64/gcc-O2/debug/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 0.796043,
+   "c_ast": 0.776256,
+   "c_tokens": 0.460173,
+   "functions": 0.881879
+  },
+  "elf-aarch64/gcc-O2/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.812903,
+   "c_ast": 0.777419,
+   "c_tokens": 0.377419,
+   "functions": 0.775
+  },
+  "elf-aarch64/gcc-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.491667,
+   "c_ast": 0.491667,
+   "c_tokens": 0.491667,
+   "functions": 0.701754
+  },
+  "elf-aarch64/gcc-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.118827,
+   "c_ast": 0.118827,
+   "c_tokens": 0.118827,
+   "functions": 0.845953
+  },
+  "elf-aarch64/gcc-O2/stripped/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 0.079148,
+   "c_ast": 0.07864,
+   "c_tokens": 0.07864,
+   "functions": 0.881879
+  },
+  "elf-aarch64/gcc-O2/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.241935,
+   "c_ast": 0.23871,
+   "c_tokens": 0.23871,
+   "functions": 0.775
+  },
+  "elf-riscv64/clang-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.914474,
+   "c_ast": 0.907895,
+   "c_tokens": 0.842105,
+   "functions": 0.783505
+  },
+  "elf-riscv64/clang-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.944853,
+   "c_ast": 0.943627,
+   "c_tokens": 0.936275,
+   "functions": 0.931507
+  },
+  "elf-riscv64/clang-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.111842,
+   "c_ast": 0.111842,
+   "c_tokens": 0.111842,
+   "functions": 0.783505
+  },
+  "elf-riscv64/clang-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.031863,
+   "c_ast": 0.031863,
+   "c_tokens": 0.031863,
+   "functions": 0.931507
+  },
+  "elf-riscv64/clang-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.908257,
+   "c_ast": 0.880734,
+   "c_tokens": 0.669725,
+   "functions": 0.707792
+  },
+  "elf-riscv64/clang-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.888365,
+   "c_ast": 0.88522,
+   "c_tokens": 0.559748,
+   "functions": 0.908571
+  },
+  "elf-riscv64/clang-O2/debug/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 0.001038,
+   "c_ast": 0.001038,
+   "c_tokens": 0.001038,
+   "functions": 0.941809
+  },
+  "elf-riscv64/clang-O2/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.8,
+   "c_ast": 0.8,
+   "c_tokens": 0.410909,
+   "functions": 0.811209
+  },
+  "elf-riscv64/clang-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.165138,
+   "c_ast": 0.165138,
+   "c_tokens": 0.165138,
+   "functions": 0.707792
+  },
+  "elf-riscv64/clang-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.029874,
+   "c_ast": 0.029874,
+   "c_tokens": 0.029874,
+   "functions": 0.908571
+  },
+  "elf-riscv64/clang-O2/stripped/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 0.031623,
+   "c_ast": 0.031623,
+   "c_tokens": 0.031623,
+   "functions": 0.943276
+  },
+  "elf-riscv64/clang-O2/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.090909,
+   "c_ast": 0.090909,
+   "c_tokens": 0.090909,
+   "functions": 0.811209
+  },
+  "elf-riscv64/gcc-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.882353,
+   "c_ast": 0.882353,
+   "c_tokens": 0.816993,
+   "functions": 0.780612
+  },
+  "elf-riscv64/gcc-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.960976,
+   "c_ast": 0.959756,
+   "c_tokens": 0.95122,
+   "functions": 0.927602
+  },
+  "elf-riscv64/gcc-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.091503,
+   "c_ast": 0.091503,
+   "c_tokens": 0.091503,
+   "functions": 0.780612
+  },
+  "elf-riscv64/gcc-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.032927,
+   "c_ast": 0.032927,
+   "c_tokens": 0.032927,
+   "functions": 0.927602
+  },
+  "elf-riscv64/gcc-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.824561,
+   "c_ast": 0.824561,
+   "c_tokens": 0.640351,
+   "functions": 0.716981
+  },
+  "elf-riscv64/gcc-O2/debug/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 0.854768,
+   "c_ast": 0.847769,
+   "c_tokens": 0.594926,
+   "functions": 0.966188
+  },
+  "elf-riscv64/gcc-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.531153,
+   "c_ast": 0.531153,
+   "c_tokens": 0.378505,
+   "functions": 0.905501
+  },
+  "elf-riscv64/gcc-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.122807,
+   "c_ast": 0.122807,
+   "c_tokens": 0.122807,
+   "functions": 0.716981
+  },
+  "elf-riscv64/gcc-O2/stripped/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 0.027972,
+   "c_ast": 0.027972,
+   "c_tokens": 0.027972,
+   "functions": 0.967033
+  },
+  "elf-riscv64/gcc-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.028037,
+   "c_ast": 0.028037,
+   "c_tokens": 0.028037,
+   "functions": 0.905501
+  },
+  "elf-x86_64/clang-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.993548,
+   "c_ast": 0.993548,
+   "c_tokens": 0.916129,
+   "functions": 0.782828
+  },
+  "elf-x86_64/clang-O0/debug/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 0.892365,
+   "c_ast": 0.888611,
+   "c_tokens": 0.868586,
+   "functions": 0.97558
+  },
+  "elf-x86_64/clang-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.943902,
+   "c_ast": 0.943902,
+   "c_tokens": 0.934146,
+   "functions": 0.929705
+  },
+  "elf-x86_64/clang-O0/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.963793,
+   "c_ast": 0.963793,
+   "c_tokens": 0.855172,
+   "functions": 0.892308
+  },
+  "elf-x86_64/clang-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.387097,
+   "c_ast": 0.387097,
+   "c_tokens": 0.387097,
+   "functions": 0.782828
+  },
+  "elf-x86_64/clang-O0/stripped/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 0.078849,
+   "c_ast": 0.078849,
+   "c_tokens": 0.078849,
+   "functions": 0.97558
+  },
+  "elf-x86_64/clang-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.103659,
+   "c_ast": 0.103659,
+   "c_tokens": 0.103659,
+   "functions": 0.929705
+  },
+  "elf-x86_64/clang-O0/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.196552,
+   "c_ast": 0.196552,
+   "c_tokens": 0.196552,
+   "functions": 0.892308
+  },
+  "elf-x86_64/clang-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.972727,
+   "c_ast": 0.963636,
+   "c_tokens": 0.7,
+   "functions": 0.709677
+  },
+  "elf-x86_64/clang-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.895312,
+   "c_ast": 0.889062,
+   "c_tokens": 0.570312,
+   "functions": 0.907801
+  },
+  "elf-x86_64/clang-O2/debug/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 0.799061,
+   "c_ast": 0.797495,
+   "c_tokens": 0.468163,
+   "functions": 0.943842
+  },
+  "elf-x86_64/clang-O2/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.839721,
+   "c_ast": 0.836237,
+   "c_tokens": 0.383275,
+   "functions": 0.799443
+  },
+  "elf-x86_64/clang-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.509091,
+   "c_ast": 0.509091,
+   "c_tokens": 0.509091,
+   "functions": 0.709677
+  },
+  "elf-x86_64/clang-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.128125,
+   "c_ast": 0.128125,
+   "c_tokens": 0.128125,
+   "functions": 0.907801
+  },
+  "elf-x86_64/clang-O2/stripped/sqlite": {
+   "binaries": 1.0,
+   "c_alpha": 0.069343,
+   "c_ast": 0.069343,
+   "c_tokens": 0.069343,
+   "functions": 0.944828
+  },
+  "elf-x86_64/clang-O2/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.271777,
+   "c_ast": 0.268293,
+   "c_tokens": 0.268293,
+   "functions": 0.799443
+  },
+  "elf-x86_64/gcc-O0/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.922581,
+   "c_ast": 0.916129,
+   "c_tokens": 0.83871,
+   "functions": 0.782828
+  },
+  "elf-x86_64/gcc-O0/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.935523,
+   "c_ast": 0.930657,
+   "c_tokens": 0.919708,
+   "functions": 0.927765
+  },
+  "elf-x86_64/gcc-O0/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.956971,
+   "c_ast": 0.95525,
+   "c_tokens": 0.521515,
+   "functions": 0.891104
+  },
+  "elf-x86_64/gcc-O0/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.387097,
+   "c_ast": 0.387097,
+   "c_tokens": 0.387097,
+   "functions": 0.782828
+  },
+  "elf-x86_64/gcc-O0/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.108273,
+   "c_ast": 0.108273,
+   "c_tokens": 0.108273,
+   "functions": 0.927765
+  },
+  "elf-x86_64/gcc-O0/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.196213,
+   "c_ast": 0.196213,
+   "c_tokens": 0.196213,
+   "functions": 0.891104
+  },
+  "elf-x86_64/gcc-O2/debug/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.905172,
+   "c_ast": 0.905172,
+   "c_tokens": 0.663793,
+   "functions": 0.720497
+  },
+  "elf-x86_64/gcc-O2/debug/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 0.877481,
+   "c_ast": 0.85591,
+   "c_tokens": 0.616911,
+   "functions": 0.965029
+  },
+  "elf-x86_64/gcc-O2/debug/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.540832,
+   "c_ast": 0.523883,
+   "c_tokens": 0.365177,
+   "functions": 0.911517
+  },
+  "elf-x86_64/gcc-O2/debug/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.813456,
+   "c_ast": 0.782875,
+   "c_tokens": 0.357798,
+   "functions": 0.823678
+  },
+  "elf-x86_64/gcc-O2/stripped/bzip2": {
+   "binaries": 1.0,
+   "c_alpha": 0.482759,
+   "c_ast": 0.482759,
+   "c_tokens": 0.482759,
+   "functions": 0.720497
+  },
+  "elf-x86_64/gcc-O2/stripped/mbedtls": {
+   "binaries": 1.0,
+   "c_alpha": 0.067299,
+   "c_ast": 0.067299,
+   "c_tokens": 0.067299,
+   "functions": 0.965029
+  },
+  "elf-x86_64/gcc-O2/stripped/mujs": {
+   "binaries": 1.0,
+   "c_alpha": 0.123267,
+   "c_ast": 0.123267,
+   "c_tokens": 0.121726,
+   "functions": 0.911517
+  },
+  "elf-x86_64/gcc-O2/stripped/tcc": {
+   "binaries": 1.0,
+   "c_alpha": 0.272171,
+   "c_ast": 0.269113,
+   "c_tokens": 0.266055,
+   "functions": 0.823678
+  },
+  "pe-x86_64/clang-O0/debug/bzip2.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.716912,
+   "c_ast": 0.709559,
+   "c_tokens": 0.610294,
+   "functions": 0.996337
+  },
+  "pe-x86_64/clang-O0/debug/mbedtls.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.353917,
+   "c_ast": 0.352773,
+   "c_tokens": 0.336764,
+   "functions": 0.996581
+  },
+  "pe-x86_64/clang-O0/debug/mujs.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.780591,
+   "c_ast": 0.778481,
+   "c_tokens": 0.741561,
+   "functions": 0.996845
+  },
+  "pe-x86_64/clang-O0/stripped/bzip2.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.220472,
+   "c_ast": 0.212598,
+   "c_tokens": 0.212598,
+   "functions": 0.930403
+  },
+  "pe-x86_64/clang-O0/stripped/mbedtls.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.096699,
+   "c_ast": 0.09612,
+   "c_tokens": 0.09612,
+   "functions": 0.985731
+  },
+  "pe-x86_64/clang-O0/stripped/mujs.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.107296,
+   "c_ast": 0.106223,
+   "c_tokens": 0.106223,
+   "functions": 0.981053
+  },
+  "pe-x86_64/clang-O2/debug/bzip2.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.702326,
+   "c_ast": 0.688372,
+   "c_tokens": 0.562791,
+   "functions": 0.964126
+  },
+  "pe-x86_64/clang-O2/debug/mujs.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.635714,
+   "c_ast": 0.632857,
+   "c_tokens": 0.582857,
+   "functions": 0.912647
+  },
+  "pe-x86_64/clang-O2/debug/sqlite.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.462857,
+   "c_ast": 0.461299,
+   "c_tokens": 0.444675,
+   "functions": 0.899533
+  },
+  "pe-x86_64/clang-O2/debug/tcc.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.585421,
+   "c_ast": 0.578588,
+   "c_tokens": 0.503417,
+   "functions": 0.986517
+  },
+  "pe-x86_64/clang-O2/stripped/bzip2.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.287879,
+   "c_ast": 0.277778,
+   "c_tokens": 0.277778,
+   "functions": 0.908257
+  },
+  "pe-x86_64/clang-O2/stripped/mujs.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.111111,
+   "c_ast": 0.109649,
+   "c_tokens": 0.109649,
+   "functions": 0.972973
+  },
+  "pe-x86_64/clang-O2/stripped/sqlite.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.080775,
+   "c_ast": 0.080237,
+   "c_tokens": 0.080237,
+   "functions": 0.959194
+  },
+  "pe-x86_64/clang-O2/stripped/tcc.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.217604,
+   "c_ast": 0.212714,
+   "c_tokens": 0.212714,
+   "functions": 0.929545
+  }
+ },
+ "refdiff_baseline": 1,
+ "total": {
+  "binaries": {
+   "agree": 88,
+   "rate": 1.0,
+   "total": 88
+  },
+  "bodies": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "c_alpha": {
+   "agree": 24956,
+   "rate": 0.419252,
+   "total": 59525
+  },
+  "c_ast": {
+   "agree": 24743,
+   "rate": 0.415674,
+   "total": 59525
+  },
+  "c_tokens": {
+   "agree": 19848,
+   "rate": 0.33344,
+   "total": 59525
+  },
+  "decompiled_c": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "functions": {
+   "agree": 59525,
+   "rate": 0.916757,
+   "total": 64930
+  },
+  "instructions": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "memory": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "names": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "pcode": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "pcode_shared": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "prototypes": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  }
+ }
+}

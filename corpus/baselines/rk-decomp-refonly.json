@@ -1,0 +1,391 @@
+{
+ "binaries": {
+  "elf-aarch64/clang-O0/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.113095,
+   "c_ast": 0.071429,
+   "c_tokens": 0.053571
+  },
+  "elf-aarch64/clang-O0/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.482143,
+   "c_ast": 0.184524,
+   "c_tokens": 0.178571
+  },
+  "elf-aarch64/clang-O2/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.158416,
+   "c_ast": 0.118812,
+   "c_tokens": 0.089109
+  },
+  "elf-aarch64/clang-O2/debug/lua": {
+   "binaries": 1.0,
+   "c_alpha": 0.012136,
+   "c_ast": 0.012136,
+   "c_tokens": 0.008495
+  },
+  "elf-aarch64/clang-O2/debug/zlib": {
+   "binaries": 1.0,
+   "c_alpha": 0.044554,
+   "c_ast": 0.044554,
+   "c_tokens": 0.029703
+  },
+  "elf-aarch64/clang-O2/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.29703,
+   "c_ast": 0.267327,
+   "c_tokens": 0.257426
+  },
+  "elf-aarch64/clang-O2/stripped/lua": {
+   "binaries": 1.0,
+   "c_alpha": 0.304612,
+   "c_ast": 0.256068,
+   "c_tokens": 0.253641
+  },
+  "elf-aarch64/clang-O2/stripped/zlib": {
+   "binaries": 1.0,
+   "c_alpha": 0.321782,
+   "c_ast": 0.292079,
+   "c_tokens": 0.287129
+  },
+  "elf-aarch64/gcc-O0/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.070588,
+   "c_ast": 0.070588,
+   "c_tokens": 0.052941
+  },
+  "elf-aarch64/gcc-O0/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.482353,
+   "c_ast": 0.294118,
+   "c_tokens": 0.288235
+  },
+  "elf-aarch64/gcc-O2/debug/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.070423,
+   "c_ast": 0.070423,
+   "c_tokens": 0.042254
+  },
+  "elf-aarch64/gcc-O2/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.157407,
+   "c_ast": 0.111111,
+   "c_tokens": 0.083333
+  },
+  "elf-aarch64/gcc-O2/stripped/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.260563,
+   "c_ast": 0.260563,
+   "c_tokens": 0.253521
+  },
+  "elf-aarch64/gcc-O2/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.324074,
+   "c_ast": 0.314815,
+   "c_tokens": 0.305556
+  },
+  "elf-riscv64/clang-O0/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.037037,
+   "c_ast": 0.037037,
+   "c_tokens": 0.018519
+  },
+  "elf-riscv64/clang-O0/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.561728,
+   "c_ast": 0.228395,
+   "c_tokens": 0.222222
+  },
+  "elf-riscv64/clang-O2/debug/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.045802,
+   "c_ast": 0.045802,
+   "c_tokens": 0.022901
+  },
+  "elf-riscv64/clang-O2/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.061856,
+   "c_ast": 0.061856,
+   "c_tokens": 0.030928
+  },
+  "elf-riscv64/clang-O2/stripped/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.267176,
+   "c_ast": 0.267176,
+   "c_tokens": 0.267176
+  },
+  "elf-riscv64/clang-O2/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.298969,
+   "c_ast": 0.28866,
+   "c_tokens": 0.278351
+  },
+  "elf-riscv64/gcc-O0/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.036145,
+   "c_ast": 0.036145,
+   "c_tokens": 0.018072
+  },
+  "elf-riscv64/gcc-O0/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.542169,
+   "c_ast": 0.313253,
+   "c_tokens": 0.307229
+  },
+  "elf-riscv64/gcc-O2/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.056604,
+   "c_ast": 0.056604,
+   "c_tokens": 0.028302
+  },
+  "elf-riscv64/gcc-O2/debug/zlib": {
+   "binaries": 1.0,
+   "c_alpha": 0.024631,
+   "c_ast": 0.024631,
+   "c_tokens": 0.014778
+  },
+  "elf-riscv64/gcc-O2/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.301887,
+   "c_ast": 0.292453,
+   "c_tokens": 0.283019
+  },
+  "elf-riscv64/gcc-O2/stripped/zlib": {
+   "binaries": 1.0,
+   "c_alpha": 0.344828,
+   "c_ast": 0.339901,
+   "c_tokens": 0.339901
+  },
+  "elf-x86_64/clang-O0/debug/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.063291,
+   "c_ast": 0.056962,
+   "c_tokens": 0.037975
+  },
+  "elf-x86_64/clang-O0/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.055901,
+   "c_ast": 0.055901,
+   "c_tokens": 0.037267
+  },
+  "elf-x86_64/clang-O0/debug/zlib": {
+   "binaries": 1.0,
+   "c_alpha": 0.039474,
+   "c_ast": 0.039474,
+   "c_tokens": 0.026316
+  },
+  "elf-x86_64/clang-O0/stripped/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.417722,
+   "c_ast": 0.253165,
+   "c_tokens": 0.253165
+  },
+  "elf-x86_64/clang-O0/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.478261,
+   "c_ast": 0.15528,
+   "c_tokens": 0.149068
+  },
+  "elf-x86_64/clang-O0/stripped/zlib": {
+   "binaries": 1.0,
+   "c_alpha": 0.482456,
+   "c_ast": 0.188596,
+   "c_tokens": 0.188596
+  },
+  "elf-x86_64/clang-O2/debug/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.074627,
+   "c_ast": 0.067164,
+   "c_tokens": 0.044776
+  },
+  "elf-x86_64/clang-O2/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.138298,
+   "c_ast": 0.095745,
+   "c_tokens": 0.06383
+  },
+  "elf-x86_64/clang-O2/stripped/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.253731,
+   "c_ast": 0.253731,
+   "c_tokens": 0.253731
+  },
+  "elf-x86_64/clang-O2/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.265957,
+   "c_ast": 0.234043,
+   "c_tokens": 0.223404
+  },
+  "elf-x86_64/gcc-O0/debug/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.05625,
+   "c_ast": 0.05625,
+   "c_tokens": 0.0375
+  },
+  "elf-x86_64/gcc-O0/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.055901,
+   "c_ast": 0.055901,
+   "c_tokens": 0.037267
+  },
+  "elf-x86_64/gcc-O0/stripped/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.40625,
+   "c_ast": 0.31875,
+   "c_tokens": 0.31875
+  },
+  "elf-x86_64/gcc-O0/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.47205,
+   "c_ast": 0.267081,
+   "c_tokens": 0.26087
+  },
+  "elf-x86_64/gcc-O2/debug/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.076336,
+   "c_ast": 0.068702,
+   "c_tokens": 0.045802
+  },
+  "elf-x86_64/gcc-O2/debug/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.14,
+   "c_ast": 0.09,
+   "c_tokens": 0.06
+  },
+  "elf-x86_64/gcc-O2/debug/lua": {
+   "binaries": 1.0,
+   "c_alpha": 0.011468,
+   "c_ast": 0.011468,
+   "c_tokens": 0.008028
+  },
+  "elf-x86_64/gcc-O2/debug/zlib": {
+   "binaries": 1.0,
+   "c_alpha": 0.042857,
+   "c_ast": 0.042857,
+   "c_tokens": 0.033333
+  },
+  "elf-x86_64/gcc-O2/stripped/cjson": {
+   "binaries": 1.0,
+   "c_alpha": 0.259542,
+   "c_ast": 0.259542,
+   "c_tokens": 0.259542
+  },
+  "elf-x86_64/gcc-O2/stripped/features": {
+   "binaries": 1.0,
+   "c_alpha": 0.3,
+   "c_ast": 0.27,
+   "c_tokens": 0.26
+  },
+  "elf-x86_64/gcc-O2/stripped/lua": {
+   "binaries": 1.0,
+   "c_alpha": 0.313073,
+   "c_ast": 0.262615,
+   "c_tokens": 0.261468
+  },
+  "elf-x86_64/gcc-O2/stripped/zlib": {
+   "binaries": 1.0,
+   "c_alpha": 0.357143,
+   "c_ast": 0.314286,
+   "c_tokens": 0.314286
+  },
+  "pe-x86_64/clang-O0/debug/features.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.022901,
+   "c_ast": 0.015267,
+   "c_tokens": 0.01145
+  },
+  "pe-x86_64/clang-O0/stripped/features.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.295082,
+   "c_ast": 0.131148,
+   "c_tokens": 0.131148
+  },
+  "pe-x86_64/clang-O2/debug/cjson.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.011029,
+   "c_ast": 0.007353,
+   "c_tokens": 0.003676
+  },
+  "pe-x86_64/clang-O2/debug/features.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.030612,
+   "c_ast": 0.020408,
+   "c_tokens": 0.015306
+  },
+  "pe-x86_64/clang-O2/stripped/cjson.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.171875,
+   "c_ast": 0.160156,
+   "c_tokens": 0.078125
+  },
+  "pe-x86_64/clang-O2/stripped/features.exe": {
+   "binaries": 1.0,
+   "c_alpha": 0.151163,
+   "c_ast": 0.127907,
+   "c_tokens": 0.127907
+  }
+ },
+ "refdiff_baseline": 1,
+ "total": {
+  "binaries": {
+   "agree": 54,
+   "rate": 1.0,
+   "total": 54
+  },
+  "bodies": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "c_alpha": {
+   "agree": 2190,
+   "rate": 0.192443,
+   "total": 11380
+  },
+  "c_ast": {
+   "agree": 1632,
+   "rate": 0.143409,
+   "total": 11380
+  },
+  "c_tokens": {
+   "agree": 1520,
+   "rate": 0.133568,
+   "total": 11380
+  },
+  "decompiled_c": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "functions": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "instructions": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "memory": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "names": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "pcode": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  },
+  "prototypes": {
+   "agree": 0,
+   "rate": null,
+   "total": 0
+  }
+ }
+}

@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: revkit <revkit@localhost>
+Date: Tue, 6 Oct 2026 00:37:59 -0400
+Subject: [PATCH] SLEIGH: fail cleanly when an instruction nests more operands
+ than the parser holds
+
+ParserContext keeps a fixed pool of 75 ConstructStates (Sleigh's
+DisassemblyCache initializes every context with 75 states of 20 operands)
+and ParserWalker a 32-entry breadcrumb path. allocateOperand indexes both
+without a bound, so bytes that are not code but happen to decode through a
+deeply recursive constructor tree write past them and crash the process.
+
+Seen disassembling compressed data in a raw ARMv7 firmware image
+(ARM:LE:32:v7) while searching for function starts; Ghidra 12.1.4.
+
+Throw BadDataError instead, as the parser already does for an instruction
+longer than 16 bytes: the caller treats the bytes as undecodable.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/context.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/context.cc
+index 1a0a35f..283b9ee 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/context.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/context.cc
+@@ -35,6 +35,12 @@ ParserContext::ParserContext(ContextCache *ccache,Translate *trans)
+   }
+ }
+ 
++void ParserContext::tooDeep(void)
++
++{
++  throw BadDataError("Instruction nests too many operands");
++}
++
+ void ParserContext::initialize(int4 maxstate,int4 maxparam,AddrSpace *spc)
+ 
+ {
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/context.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/context.hh
+index 79fbe1e..4356f47 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/context.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/context.hh
+@@ -103,6 +103,7 @@ public:
+   void setParserState(int4 st) { parsestate = st; }
+   void deallocateState(ParserWalkerChange &walker);
+   void allocateOperand(int4 i,ParserWalkerChange &walker);
++  [[noreturn]] static void tooDeep(void);	///< Throw: the constructor tree outgrows the state pool
+   void setAddr(const Address &ad) { addr = ad; n2addr = Address(); }
+   void setNaddr(const Address &ad) { naddr = ad; }
+   void setCalladdr(const Address &ad) { calladdr = ad; }
+@@ -191,6 +192,10 @@ inline void ParserContext::deallocateState(ParserWalkerChange &walker) {
+ }
+ 
+ inline void ParserContext::allocateOperand(int4 i,ParserWalkerChange &walker) {
++  // Bytes that are not code (compressed data, say) can make the constructor
++  // tree deeper or wider than the fixed state pool and breadcrumb path hold.
++  if (alloc >= state.size() || walker.depth + 1 >= 32 || i >= walker.point->resolve.size())
++    tooDeep();
+   ConstructState *opstate = &state[alloc++];
+   opstate->parent = walker.point;
+   opstate->ct = (Constructor *)0;

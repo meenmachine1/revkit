@@ -1,0 +1,94 @@
+{
+ "AArch64 (LP64)": {
+  "aggregates": {
+   "compared": 135,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 1.0
+  },
+  "enums": {
+   "compared": 12,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 1.0
+  },
+  "typedefs": {
+   "compared": 274,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 0.9818
+  }
+ },
+ "RISC-V 64 (LP64)": {
+  "aggregates": {
+   "compared": 69,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 1.0
+  },
+  "enums": {
+   "compared": 8,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 1.0
+  },
+  "typedefs": {
+   "compared": 163,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 0.9632
+  }
+ },
+ "x86-64 PE (LLP64, Microsoft bitfields; PDB)": {
+  "aggregates": {
+   "compared": 35,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 0.5714
+  },
+  "enums": {
+   "compared": 2,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 1.0
+  },
+  "typedefs": {
+   "compared": 33,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 0.8182
+  }
+ },
+ "x86-64 SysV (LP64)": {
+  "aggregates": {
+   "compared": 158,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 1.0
+  },
+  "enums": {
+   "compared": 13,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 1.0
+  },
+  "typedefs": {
+   "compared": 352,
+   "hash": 1.0,
+   "layout": 1.0,
+   "missing": 0,
+   "typed_hash": 0.9972
+  }
+ }
+}

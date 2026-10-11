@@ -1,0 +1,27 @@
+# rk-daemon on demand, for the web UI in a browser (docs/packaging.md,
+# "Start the daemon on first use"). systemd listens on the daemon's HTTP
+# port and starts revkit-daemon.service when the first connection arrives:
+# opening http://revkit.localhost:50052/ starts the daemon.
+#
+# Opt in, as your user (nothing is enabled by installing the package):
+#
+#   systemctl --user enable --now revkit-daemon.socket
+#
+# Another port: systemctl --user edit revkit-daemon.socket, then
+#   [Socket]
+#   ListenStream=
+#   ListenStream=127.0.0.1:50060
+#
+# Keep it on loopback. rk-daemon applies the same rules to this socket as to
+# --http: off loopback it refuses to start without TLS (docs/security.md).
+[Unit]
+Description=revkit daemon socket (starts rk-daemon on the first connection)
+Documentation=man:systemd.socket(5) file:///usr/share/doc/revkit/getting-started.md
+
+[Socket]
+ListenStream=127.0.0.1:50052
+FileDescriptorName=http
+NoDelay=true
+
+[Install]
+WantedBy=sockets.target

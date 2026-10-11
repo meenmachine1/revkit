@@ -1,0 +1,542 @@
+// Emulation sessions over a program's code (api_minor 12, feature
+// "emulator"; docs/emulator.md). A session runs the program's machine code
+// in revkit's p-code emulator: registers, memory written over the loaded
+// image, breakpoints and a bounded trace.
+//
+// Session state is the caller's, not a fact about the binary: nothing is
+// asserted, no revision is made, and other clients don't see it unless
+// they hold the session id. Sessions are bounded in steps and memory, each
+// call in time, and are closed after a period without use.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+service EmulatorService {
+  // Starts a session for a program at an entry, with initial registers and
+  // memory. RESOURCE_EXHAUSTED when the caller has too many sessions.
+  rpc CreateEmulatorSession(CreateEmulatorSessionRequest) returns (CreateEmulatorSessionResponse);
+  rpc CloseEmulatorSession(CloseEmulatorSessionRequest) returns (CloseEmulatorSessionResponse);
+  // The caller's sessions.
+  rpc ListEmulatorSessions(ListEmulatorSessionsRequest) returns (ListEmulatorSessionsResponse);
+  // Steps (into, over a call, out of the function) or runs until a stop.
+  rpc RunEmulator(RunEmulatorRequest) returns (RunEmulatorResponse);
+  rpc GetEmulatorState(GetEmulatorStateRequest) returns (GetEmulatorStateResponse);
+  rpc WriteEmulatorRegisters(WriteEmulatorRegistersRequest) returns (WriteEmulatorRegistersResponse);
+  rpc ReadEmulatorMemory(ReadEmulatorMemoryRequest) returns (ReadEmulatorMemoryResponse);
+  rpc WriteEmulatorMemory(WriteEmulatorMemoryRequest) returns (WriteEmulatorMemoryResponse);
+  rpc SetEmulatorBreakpoints(SetEmulatorBreakpointsRequest) returns (SetEmulatorBreakpointsResponse);
+  rpc GetEmulatorTrace(GetEmulatorTraceRequest) returns (GetEmulatorTraceResponse);
+
+  // Firmware (api_minor 20, feature "firmware-emulation";
+  // docs/firmware-emulation.md). A session created with a machine runs on
+  // a board: memory, peripherals, interrupts and a clock.
+  //
+  // Bytes for a UART of the session's machine (the console by default).
+  rpc WriteEmulatorInput(WriteEmulatorInputRequest) returns (WriteEmulatorInputResponse);
+  // The session's machine now: the CPU's mode and banked registers, the
+  // devices, pending interrupts, and the exceptions taken.
+  rpc GetEmulatorMachine(GetEmulatorMachineRequest) returns (GetEmulatorMachineResponse);
+  // Machine descriptions kept with a program (in the project's directory
+  // when it has one, else in memory).
+  rpc ListMachines(ListMachinesRequest) returns (ListMachinesResponse);
+  rpc GetMachine(GetMachineRequest) returns (GetMachineResponse);
+  rpc SaveMachine(SaveMachineRequest) returns (SaveMachineResponse);
+  rpc DeleteMachine(DeleteMachineRequest) returns (DeleteMachineResponse);
+  // A starter machine for a program: its raw import's memory, the MMIO its
+  // code reaches, and auto-ack registers for the polling loops a trial run
+  // gets stuck in.
+  rpc DeriveMachine(DeriveMachineRequest) returns (DeriveMachineResponse);
+  // The peripheral kinds a machine can use: built-ins and the daemon's
+  // peripheral plugins ("plugin:NAME").
+  rpc ListPeripheralKinds(ListPeripheralKindsRequest) returns (ListPeripheralKindsResponse);
+}
+
+enum EmulatorStartMode {
+  // A Linux process at an ELF's entry point, bare for raw images, else a call.
+  EMULATOR_START_MODE_UNSPECIFIED = 0;
+  // A Linux process: a stack with argc, argv, envp and the auxiliary vector.
+  EMULATOR_START_MODE_PROCESS = 1;
+  // A call: a stack, the arguments, and a return address that ends the run
+  // (stop kind RETURNED).
+  EMULATOR_START_MODE_CALL = 2;
+  // Only the program counter (firmware: the reset handler sets its stack up).
+  EMULATOR_START_MODE_BARE = 3;
+}
+
+enum EmulatorRunMode {
+  EMULATOR_RUN_MODE_UNSPECIFIED = 0;  // as RUN
+  // Until a breakpoint, `until`, a stop or the step limit.
+  EMULATOR_RUN_MODE_RUN = 1;
+  // One instruction.
+  EMULATOR_RUN_MODE_STEP_INTO = 2;
+  // One instruction, or a whole call (until the fall-through, by the stack
+  // pointer).
+  EMULATOR_RUN_MODE_STEP_OVER = 3;
+  // Until the current function returns.
+  EMULATOR_RUN_MODE_STEP_OUT = 4;
+}
+
+// Why execution stopped (revkit::emu::StopKind).
+enum EmulatorStopKind {
+  EMULATOR_STOP_KIND_UNSPECIFIED = 0;
+  EMULATOR_STOP_KIND_NONE = 1;            // nothing has run yet
+  EMULATOR_STOP_KIND_STEPPED = 2;         // a step, step over or step out finished
+  EMULATOR_STOP_KIND_STEP_LIMIT = 3;      // the call's step budget is spent
+  EMULATOR_STOP_KIND_BREAKPOINT = 4;
+  EMULATOR_STOP_KIND_UNTIL = 5;           // reached RunEmulatorRequest.until
+  EMULATOR_STOP_KIND_RETURNED = 6;        // the call a CALL session started returned
+  EMULATOR_STOP_KIND_EXITED = 7;          // exit system call or exit stub; exit_code
+  EMULATOR_STOP_KIND_HALTED = 8;          // a halt, or an instruction that branches to itself
+  EMULATOR_STOP_KIND_UNMAPPED = 9;        // fetch, read or write of unmapped memory; address
+  EMULATOR_STOP_KIND_PROTECTION = 10;     // write to read-only or fetch from non-executable memory
+  EMULATOR_STOP_KIND_DECODE = 11;         // the bytes at pc don't decode
+  EMULATOR_STOP_KIND_UNIMPLEMENTED = 12;  // no p-code semantics, or an op the emulator lacks
+  EMULATOR_STOP_KIND_USEROP = 13;         // CALLOTHER without a handler
+  EMULATOR_STOP_KIND_SYSCALL = 14;        // system call without a handler
+  EMULATOR_STOP_KIND_WATCHPOINT = 15;
+  EMULATOR_STOP_KIND_HOOK = 16;
+  EMULATOR_STOP_KIND_DIVIDE_BY_ZERO = 17;
+  EMULATOR_STOP_KIND_MEMORY_LIMIT = 18;   // the session's memory bound
+  EMULATOR_STOP_KIND_TIME_LIMIT = 19;     // the call's time limit
+  EMULATOR_STOP_KIND_CANCELLED = 20;      // the client went away
+  EMULATOR_STOP_KIND_SESSION_LIMIT = 21;  // the session's total step bound
+  // Firmware (api_minor 20, feature "firmware-emulation").
+  EMULATOR_STOP_KIND_EXCEPTION = 22;      // an exception breakpoint: the CPU took an exception asked for
+  EMULATOR_STOP_KIND_IDLE = 23;           // waiting for an interrupt with nothing scheduled to raise one
+}
+
+message EmulatorStop {
+  EmulatorStopKind kind = 1;
+  Address pc = 2;  // where execution stands: the next instruction
+  // Faulting or watched address (UNMAPPED, PROTECTION, WATCHPOINT).
+  Address address = 3;
+  string detail = 4;
+  int64 exit_code = 5;  // EXITED, RETURNED
+  uint64 steps = 6;     // executed by the call that stopped
+}
+
+// A register's value; values wider than 8 bytes are in `bytes` only.
+message EmulatorRegisterValue {
+  string name = 1;
+  uint32 size = 2;  // bytes
+  uint64 value = 3;  // the low 64 bits
+  bytes bytes = 4;  // the whole value, least significant byte first
+  // Different from its value before the last RunEmulator call.
+  bool changed = 5;
+}
+
+message EmulatorRegisterWrite {
+  string name = 1;  // case-insensitive
+  uint64 value = 2;
+  // The whole value, least significant byte first; replaces `value` when set.
+  bytes bytes = 3;
+}
+
+message EmulatorMemoryWrite {
+  Address address = 1;
+  bytes data = 2;
+}
+
+message EmulatorRegisterInfo {
+  string name = 1;
+  uint32 size = 2;
+  bool display = 3;  // one of the registers a debugger shows by default
+}
+
+message EmulatorRegion {
+  string name = 1;
+  AddressRange range = 2;
+  string permissions = 3;  // "rwx", "r-x", ...
+  string kind = 4;         // "image", "ram", "mmio", "stub"
+}
+
+message EmulatorLimits {
+  // Steps one RunEmulator call may take (0: the server's default; capped).
+  uint64 max_steps_per_call = 1;
+  // Steps over the session's life (0: the server's default; capped).
+  uint64 max_total_steps = 2;
+  // Bytes of state the session may allocate (0: the server's default; capped).
+  uint64 max_memory_bytes = 3;
+  // Steps kept in the trace (0: the server's default; capped).
+  uint32 trace_capacity = 4;
+  // Wall time one call may take, in milliseconds (0: the server's default;
+  // capped; the call's deadline shortens it).
+  uint32 time_limit_ms = 5;
+}
+
+message CreateEmulatorSessionRequest {
+  string program_id = 1;
+  // Where to start (unset: the program's entry point).
+  Address entry = 2;
+  EmulatorStartMode mode = 3;
+  // Integer arguments for a CALL session.
+  repeated uint64 arguments = 4;
+  // Set after the start mode has set up the machine.
+  repeated EmulatorRegisterWrite registers = 5;
+  repeated EmulatorMemoryWrite memory = 6;
+  repeated Address breakpoints = 7;
+  EmulatorLimits limits = 8;
+  // What calls to imports without a built-in stub return.
+  uint64 import_return = 9;
+  // No built-in C library stubs: every import call is skipped.
+  bool no_library_stubs = 10;
+  // What the program reads from standard input.
+  bytes stdin = 11;
+  // Who the session belongs to, for ListEmulatorSessions and the
+  // per-client bound (default: the connection's peer).
+  string client = 12;
+  // Firmware (api_minor 20): a machine description (JSON,
+  // docs/firmware-emulation.md) to run the program on, or the name of one
+  // saved with SaveMachine. The machine sets the entry (its reset vector
+  // unless it or `entry` names one); `mode` and `arguments` don't apply.
+  string machine = 13;
+  string machine_name = 14;
+}
+
+// A session's machine.
+message EmulatorDevice {
+  string name = 1;
+  string kind = 2;
+  uint64 base = 3;
+  uint64 size = 4;  // 0: no registers (a CPU-internal device)
+  string state = 5;
+  // When it next needs the clock, if it does.
+  optional uint64 next_tick = 6;
+}
+
+message EmulatorMachineInfo {
+  string name = 1;
+  string cpu = 2;   // "arm", "cortex-m", "mips"
+  repeated EmulatorDevice devices = 3;
+  uint64 hz = 4;    // ticks per emulated second
+  bool wall_clock = 5;
+}
+
+// An exception the CPU took (or returned from: kind "return").
+message EmulatorException {
+  uint64 step = 1;
+  uint64 tick = 2;
+  string kind = 3;  // "irq", "fiq", "swi", "undefined", "data_abort", "svc", "systick", "pendsv", "interrupt", "syscall", "return", ...
+  int32 number = 4; // IRQ line, exception number, MIPS cause; -1: none
+  Address pc = 5;   // where execution was
+  Address handler = 6;
+  string source = 7;  // the device that raised it, when known
+  string detail = 8;
+}
+
+message EmulatorMachineState {
+  string cpu = 1;
+  string mode = 2;  // "svc", "irq", "thread", "handler systick", "kernel", ...
+  uint64 tick = 3;
+  uint64 hz = 4;
+  bool waiting = 5;  // WFI or an idle loop
+  uint64 exceptions_taken = 6;
+  // Banked and system registers the language doesn't name (sp_irq, spsr_svc, msp, primask, ...).
+  repeated EmulatorRegisterValue registers = 7;
+  repeated EmulatorDevice devices = 8;
+  repeated string pending = 9;  // asserted lines, pending exceptions
+  repeated string log = 10;     // what the machine and its devices said
+  repeated string exception_breaks = 11;
+}
+
+message CreateEmulatorSessionResponse {
+  string session_id = 1;
+  string language = 2;  // "proc:endian:size:variant:compiler"
+  repeated EmulatorRegisterInfo registers = 3;
+  string pc_register = 4;
+  string sp_register = 5;
+  EmulatorState state = 6;
+  EmulatorLimits limits = 7;  // the bounds in force
+  EmulatorMachineInfo machine = 8;  // with a machine
+}
+
+message CloseEmulatorSessionRequest {
+  string session_id = 1;
+}
+
+message CloseEmulatorSessionResponse {}
+
+message ListEmulatorSessionsRequest {
+  string client = 1;  // default: the connection's peer
+}
+
+message EmulatorSessionInfo {
+  string session_id = 1;
+  string program_id = 2;
+  string client = 3;
+  uint64 steps = 4;
+  EmulatorStop last_stop = 5;
+  // Milliseconds since the session was last used.
+  uint64 idle_ms = 6;
+}
+
+message ListEmulatorSessionsResponse {
+  repeated EmulatorSessionInfo sessions = 1;
+}
+
+message EmulatorState {
+  Address pc = 1;
+  bool thumb = 2;  // ARM: in Thumb code
+  uint64 steps = 3;
+  EmulatorStop last_stop = 4;
+  // The display registers, or those named in the request.
+  repeated EmulatorRegisterValue registers = 5;
+  repeated Address breakpoints = 6;
+  uint64 memory_used = 7;
+  // What the program wrote, from the offsets asked for (at most 64 KiB each).
+  bytes stdout = 8;
+  bytes stderr = 9;
+  uint64 stdout_size = 10;  // total bytes written so far
+  uint64 stderr_size = 11;
+  repeated EmulatorRegion regions = 12;  // with include_regions
+  // Firmware (api_minor 20): whether a machine runs the session, its clock,
+  // and whether the CPU waits for an interrupt.
+  bool machine = 13;
+  uint64 tick = 14;
+  bool waiting = 15;
+}
+
+// What a state in a response includes.
+message EmulatorStateOptions {
+  // Registers by name (empty: the display set).
+  repeated string registers = 1;
+  bool all_registers = 2;
+  uint64 stdout_offset = 3;
+  uint64 stderr_offset = 4;
+  bool include_regions = 5;
+}
+
+message RunEmulatorRequest {
+  string session_id = 1;
+  EmulatorRunMode mode = 2;
+  // At most this many steps (0: the session's per-call limit).
+  uint64 max_steps = 3;
+  // RUN: also stop on reaching this address.
+  Address until = 4;
+  uint32 time_limit_ms = 5;  // 0: the session's
+  EmulatorStateOptions state = 6;
+}
+
+message RunEmulatorResponse {
+  EmulatorStop stop = 1;
+  EmulatorState state = 2;
+}
+
+message GetEmulatorStateRequest {
+  string session_id = 1;
+  EmulatorStateOptions state = 2;
+}
+
+message GetEmulatorStateResponse {
+  EmulatorState state = 1;
+}
+
+message WriteEmulatorRegistersRequest {
+  string session_id = 1;
+  repeated EmulatorRegisterWrite registers = 2;
+  EmulatorStateOptions state = 3;
+}
+
+message WriteEmulatorRegistersResponse {
+  EmulatorState state = 1;
+}
+
+message ReadEmulatorMemoryRequest {
+  string session_id = 1;
+  Address address = 2;
+  uint32 length = 3;  // at most 1 MiB
+}
+
+message EmulatorByteRange {
+  uint32 offset = 1;
+  uint32 length = 2;
+}
+
+message ReadEmulatorMemoryResponse {
+  Address address = 1;
+  bytes data = 2;  // unmapped bytes read as 0
+  repeated EmulatorByteRange unmapped = 3;
+}
+
+message WriteEmulatorMemoryRequest {
+  string session_id = 1;
+  Address address = 2;
+  bytes data = 3;
+}
+
+message WriteEmulatorMemoryResponse {}
+
+message SetEmulatorBreakpointsRequest {
+  string session_id = 1;
+  repeated Address add = 2;
+  repeated Address remove = 3;
+  bool clear = 4;  // remove every breakpoint first
+  // Firmware (api_minor 20): when set_exception_breaks, stop when the CPU
+  // takes these exceptions: kinds ("irq", "fiq", "swi", "svc", "systick",
+  // "any", "return"), optionally with a number ("irq:4").
+  repeated string exception_breaks = 5;
+  bool set_exception_breaks = 6;
+}
+
+message SetEmulatorBreakpointsResponse {
+  repeated Address breakpoints = 1;
+  repeated string exception_breaks = 2;
+}
+
+message GetEmulatorTraceRequest {
+  string session_id = 1;
+  // Entries with index >= from_index (the trace keeps the last
+  // trace_capacity steps).
+  uint64 from_index = 2;
+  uint32 limit = 3;  // 0: up to 1000
+  // The whole trace as revkit::emu's JSON (rk-emu --trace) instead.
+  bool json = 4;
+}
+
+message EmulatorMemoryAccess {
+  Address address = 1;
+  bytes data = 2;  // in memory order
+  bool mmio = 3;
+}
+
+message EmulatorTraceEntry {
+  uint64 index = 1;
+  Address pc = 2;
+  bool thumb = 3;
+  bytes bytes = 4;
+  string text = 5;  // disassembly, or "<stub name>"
+  repeated EmulatorRegisterValue registers = 6;  // written, with their values after
+  repeated EmulatorMemoryAccess reads = 7;
+  repeated EmulatorMemoryAccess writes = 8;
+  string event = 9;  // a system call, a stub, a hook's note
+  // Firmware (api_minor 20): the exception this step entered, or "return".
+  string exception = 10;
+  int32 exception_number = 11;
+}
+
+message EmulatorTraceSummary {
+  uint64 steps = 1;
+  uint64 recorded = 2;
+  uint64 dropped = 3;
+  uint64 unique_pcs = 4;
+  uint64 memory_reads = 5;
+  uint64 memory_writes = 6;
+  uint64 mmio_reads = 7;
+  uint64 mmio_writes = 8;
+  uint64 syscalls = 9;
+  uint64 stub_calls = 10;
+  uint64 userops = 11;
+  uint64 exceptions = 12;  // exceptions taken (firmware)
+}
+
+message GetEmulatorTraceResponse {
+  repeated EmulatorTraceEntry entries = 1;
+  EmulatorTraceSummary summary = 2;
+  string json = 3;
+}
+
+// --- Firmware (api_minor 20) ---
+
+message WriteEmulatorInputRequest {
+  string session_id = 1;
+  bytes data = 2;
+  string peripheral = 3;  // a UART by name; empty: the console
+}
+
+message WriteEmulatorInputResponse {}
+
+message GetEmulatorMachineRequest {
+  string session_id = 1;
+  // Exceptions from this one on (they are numbered from the session's
+  // first; the machine keeps the last 4096), at most `limit` (0: 1000).
+  uint64 from_event = 2;
+  uint32 limit = 3;
+}
+
+message GetEmulatorMachineResponse {
+  EmulatorMachineState state = 1;
+  repeated EmulatorException events = 2;
+  uint64 first_event = 3;  // the oldest kept
+  uint64 event_count = 4;  // taken so far
+}
+
+message MachineInfo {
+  string name = 1;
+  string program_id = 2;
+  string description = 3;
+  int64 modified_unix = 4;
+  uint64 bytes = 5;
+  bool persisted = 6;  // in the project's directory
+}
+
+message ListMachinesRequest {
+  string program_id = 1;
+}
+
+message ListMachinesResponse {
+  repeated MachineInfo machines = 1;
+}
+
+message GetMachineRequest {
+  string program_id = 1;
+  string name = 2;
+}
+
+message GetMachineResponse {
+  MachineInfo info = 1;
+  string machine = 2;  // the description (JSON)
+}
+
+message SaveMachineRequest {
+  string program_id = 1;
+  string name = 2;     // [A-Za-z0-9._-], at most 64
+  string machine = 3;  // checked: INVALID_ARGUMENT with line:column when it doesn't parse
+}
+
+message SaveMachineResponse {
+  MachineInfo info = 1;
+}
+
+message DeleteMachineRequest {
+  string program_id = 1;
+  string name = 2;
+}
+
+message DeleteMachineResponse {}
+
+message DeriveMachineRequest {
+  string program_id = 1;
+  // Steps of the trial run that finds polling loops (0: 2,000,000; at most
+  // 50,000,000); `no_trial` skips it.
+  uint64 trial_steps = 2;
+  bool no_trial = 3;
+}
+
+message DeriveMachineResponse {
+  string machine = 1;           // the starter description (JSON with notes)
+  repeated string notes = 2;    // what was derived and why
+  uint32 mmio_registers = 3;    // MMIO addresses the code reaches
+  uint32 polling_loops = 4;     // loops answered with auto-ack registers
+  uint64 trial_steps = 5;       // steps the trial run took with the starter
+  EmulatorStop trial_stop = 6;  // where it stopped
+}
+
+message ListPeripheralKindsRequest {}
+
+message PeripheralKind {
+  string kind = 1;  // "pl011", "timer", "plugin:tick-timer", ...
+  string description = 2;
+  bool plugin = 3;
+  repeated string outputs = 4;  // plugins: interrupt outputs
+}
+
+message ListPeripheralKindsResponse {
+  repeated PeripheralKind kinds = 1;
+}

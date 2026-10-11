@@ -1,0 +1,27 @@
+# Started by revkit-http80.socket: forwards connections to port 80 of the
+# loopback addresses to rk-daemon on 127.0.0.1:50052, as an unprivileged,
+# sandboxed throwaway user. Not enabled by itself: enable the socket.
+#
+# Another daemon port: sudo systemctl edit revkit-http80.service, then
+#   [Service]
+#   ExecStart=
+#   ExecStart=/usr/lib/systemd/systemd-socket-proxyd --exit-idle-time=10min 127.0.0.1:50060
+[Unit]
+Description=revkit web UI on port 80 (forwards to rk-daemon on 127.0.0.1:50052)
+Documentation=file:///usr/share/doc/revkit/getting-started.md
+Requires=revkit-http80.socket
+After=revkit-http80.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --exit-idle-time=10min 127.0.0.1:50052
+DynamicUser=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

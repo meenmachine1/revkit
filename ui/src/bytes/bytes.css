@@ -1,0 +1,45 @@
+/* The byte viewer (src/bytes/viewer.ts). Kinds are background tints under
+   the theme's text colour, so the text keeps its contrast in both themes. */
+:root {
+  --bv-code: rgba(88, 166, 255, 0.13);
+  --bv-data: rgba(63, 185, 80, 0.15);
+  --bv-ext: rgba(210, 168, 255, 0.18);
+  --bv-patch: #f0883e;
+  --bv-patch-bg: rgba(240, 136, 62, 0.22);
+  --bv-sel: rgba(88, 166, 255, 0.35);
+  --bv-unit: rgba(255, 255, 255, 0.06);
+}
+:root[data-theme="light"] {
+  --bv-code: rgba(9, 105, 218, 0.09);
+  --bv-data: rgba(26, 127, 55, 0.11);
+  --bv-ext: rgba(110, 64, 201, 0.12);
+  --bv-patch: #bc4c00;
+  --bv-patch-bg: rgba(188, 76, 0, 0.14);
+  --bv-sel: rgba(9, 105, 218, 0.22);
+  --bv-unit: rgba(0, 0, 0, 0.05);
+}
+.bv { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.bv-head { display: flex; align-items: center; gap: 6px; height: 26px; flex: none; padding: 0 10px; border-bottom: 1px solid var(--border); background: var(--panel); font-size: 12px; overflow: hidden; white-space: nowrap; }
+.bv-select { background: var(--panel-2, var(--panel)); color: var(--fg); border: 1px solid var(--border); border-radius: 5px; font-size: 12px; padding: 1px 4px; }
+.bv-btn { font-size: 12px; padding: 2px 8px; line-height: 16px; }
+.bv-btn.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.bv-follow { display: inline-flex; align-items: center; gap: 3px; color: var(--dim); }
+.bv-status { margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+.bv-body { flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden; padding: 2px 8px; font: 13px/18px var(--mono); outline: none; cursor: text; user-select: none; white-space: pre; }
+.bv-body:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+.bv-line { height: 18px; display: flex; gap: 14px; }
+.bv-addr { color: var(--dim); }
+.bv-col { white-space: pre; }
+.bv-b { border-radius: 2px; }
+.bv-b.k-code { background: var(--bv-code); }
+.bv-b.k-data { background: var(--bv-data); }
+.bv-b.k-ext { background: var(--bv-ext); }
+.bv-b.k-undef { color: var(--dim); }
+.bv-b.k-uninit { color: var(--dim); }
+.bv-b.unit { box-shadow: inset 0 -1px 0 var(--dim); }
+.bv-b.patched { background: var(--bv-patch-bg); box-shadow: inset 0 -2px 0 var(--bv-patch); }
+.bv-b.pending { box-shadow: inset 0 -2px 0 var(--warn); font-style: italic; }
+.bv-b.sel { background: var(--bv-sel); }
+.bv-b.cur { outline: 1px solid var(--accent); outline-offset: -1px; }
+.bv-b.cur.edit { outline: 2px solid var(--warn); }
+.bv.editing .bv-body { cursor: text; }

@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Mon, 5 Oct 2026 17:15:44 -0400
+Subject: [PATCH] SLEIGH: expose a Constructor's print pieces and context
+ changes
+
+An assembler that inverts SLEIGH (as Ghidra's Java assembler does) builds
+its grammar from each constructor's display pieces and solves its context
+operations backwards, so it needs to read them from a loaded .sla.
+Constructor keeps both private (printpiece, context), and ContextOp and
+ContextCommit keep their fields private.
+
+Add read-only accessors: Constructor::getPrintPieces, getContextChanges and
+getFlowthruIndex; ContextOp::getPatternExpression, getWordIndex, getMask and
+getShift; ContextCommit::getWordIndex and getMask. No behaviour changes.
+
+Seen in: revkit's SLEIGH assembler (src/asm). Ghidra 12.1.4.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
+index e3be244..3903fbb 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/slghsymbol.hh
+@@ -452,6 +452,10 @@ public:
+   ContextOp(int4 startbit,int4 endbit,PatternExpression *pe);
+   ContextOp(void) : patexp(nullptr) {}		// For use with decode
+   virtual ~ContextOp(void) { if (patexp) PatternExpression::release(patexp); }
++  PatternExpression *getPatternExpression(void) const { return patexp; }	///< The value written
++  int4 getWordIndex(void) const { return num; }	///< Index of the context word written
++  uintm getMask(void) const { return mask; }	///< Bits of that word written
++  int4 getShift(void) const { return shift; }	///< Shift of the value into place
+   virtual void validate(void) const;
+   virtual void encode(Encoder &encoder) const;
+   virtual void decode(Decoder &decoder,SleighBase *trans);
+@@ -467,6 +471,8 @@ class ContextCommit : public ContextChange {
+ public:
+   ContextCommit(void) {}	// For use with decode
+   ContextCommit(TripleSymbol *s,int4 sbit,int4 ebit,bool fl);
++  int4 getWordIndex(void) const { return num; }	///< Index of the context word committed
++  uintm getMask(void) const { return mask; }	///< Bits of that word committed
+   virtual void validate(void) const {}
+   virtual void encode(Encoder &encoder) const;
+   virtual void decode(Decoder &decoder,SleighBase *trans);
+@@ -520,6 +526,9 @@ public:
+   ConstructTpl *getTempl(void) const { return templ; }
+   ConstructTpl *getNamedTempl(int4 secnum) const;
+   int4 getNumSections(void) const { return namedtempl.size(); }
++  const vector<string> &getPrintPieces(void) const { return printpiece; }	///< Display pieces: literal text, or "\\n" + ('A'+operand index)
++  const vector<ContextChange *> &getContextChanges(void) const { return context; }	///< Context operations, in order
++  int4 getFlowthruIndex(void) const { return flowthruindex; }	///< The single printed operand, or -1
+   void printInfo(ostream &s) const;
+   void print(ostream &s,ParserWalker &pos) const;
+   void printMnemonic(ostream &s,ParserWalker &walker) const;

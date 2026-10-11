@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>revkit</title>
+    <!-- The desktop app's icon (ui/tauri/src-tauri/icons/icon.png) as SVG: a framed page of three lines. -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2317181c'/%3E%3Crect x='5.5' y='5.5' width='21' height='21' fill='none' stroke='%235aa5ff' stroke-width='3'/%3E%3Crect x='10' y='10.5' width='12' height='2.5' fill='%2382c3ff'/%3E%3Crect x='10' y='15' width='9' height='2.5' fill='%23d0a0ff'/%3E%3Crect x='10' y='19.5' width='12' height='2.5' fill='%23e8c47a'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="toolbar">
+        <h1 class="brand">revkit</h1>
+        <button id="allmenu" class="tb-file tb-allmenu" title="Menus: File, Edit, View, Navigate, Analyze, Search" aria-label="Menus" aria-haspopup="menu" data-testid="all-menu">☰</button>
+        <nav class="tb-menus" aria-label="Menus">
+          <button id="file" class="tb-file" title="File: open a program, import or export a project" aria-haspopup="menu" data-testid="file-menu">File</button>
+          <button id="editmenu" class="tb-file" title="Edit: undo, rename, retype, comment, copy" aria-haspopup="menu" data-testid="edit-menu">Edit</button>
+          <button id="viewmenu" class="tb-file" title="View: the views, the layout, the theme" aria-haspopup="menu" data-testid="view-menu">View</button>
+          <button id="navmenu" class="tb-file" title="Navigate: go to, back and forward, history, next and previous" aria-haspopup="menu" data-testid="nav-menu">Navigate</button>
+          <button id="analyzemenu" class="tb-file" title="Analyze: functions, structures, cross-references, emulation, comparison" aria-haspopup="menu" data-testid="analyze-menu">Analyze</button>
+          <button id="searchmenu" class="tb-file" title="Search: memory, program text, scalars, decompiled code" aria-haspopup="menu" data-testid="search-menu" hidden>Search</button>
+        </nav>
+        <span class="spacer"></span>
+        <span class="tb-nav">
+          <button id="back" class="icon" title="Back (Alt+←)" aria-label="Back" disabled>←</button>
+          <button id="forward" class="icon" title="Forward (Alt+→)" aria-label="Forward" disabled>→</button>
+          <button id="history" class="icon tb-history" title="History: the locations you went to" aria-label="History" aria-haspopup="menu" data-testid="history">▾</button>
+        </span>
+        <button id="search" class="tb-search" title="Go to address or symbol (Ctrl+K); &gt; for commands"><span class="tb-search-icon" aria-hidden="true"></span><span class="tb-search-text">Go to address, symbol, or command…</span><kbd>Ctrl K</kbd></button>
+        <span class="spacer"></span>
+        <button id="undo" class="icon" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↶</button>
+        <button id="redo" class="icon" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>↷</button>
+        <button id="user" class="tb-user" title="Your name on edits (provenance)" data-testid="user"></button>
+        <button id="logout" class="btn tb-logout" title="Sign out of this daemon" data-testid="logout" hidden>Log out</button>
+        <button id="help" class="icon" title="Commands (Ctrl+Shift+P)" aria-label="Commands">⌘</button>
+      </header>
+      <div id="context" class="ctx-bar">
+        <nav class="ctx-crumbs" aria-label="Program">
+          <button id="project-crumb" class="ctx-crumb ctx-project" title="Project: switch or create one (Open dialog)" data-testid="project-crumb"><span class="ctx-icon" aria-hidden="true"></span><span id="project-name">project</span></button>
+          <span class="ctx-sep" aria-hidden="true">/</span>
+          <span id="folder-crumb" class="ctx-folder" hidden></span>
+          <button id="program" class="tb-program ctx-crumb" title="Open program (Ctrl+O)">connecting…</button>
+        </nav>
+        <span class="spacer"></span>
+        <span id="ctx-tools" class="ctx-tools"></span>
+        <button id="import-binary" class="btn ctx-import" type="button" title="Import a binary into this project (the Open dialog's import section)" data-testid="import-binary"><span class="ctx-import-icon" aria-hidden="true"></span>Import binary…</button>
+      </div>
+      <main>
+        <aside id="functions" class="pane"><div id="fnpanel" class="subpane"></div><div id="notes" class="subpane"></div></aside>
+        <div class="splitter" data-split="functions" title="Drag to resize"></div>
+        <section id="dock-main" class="dock" data-group="main">
+          <div class="dock-tabs" role="tablist" aria-label="Main views"></div>
+          <div class="dock-body">
+            <section id="listing" class="pane view">
+              <div id="colhdr"></div>
+              <button id="fields" class="btn fields-btn" type="button" aria-haspopup="menu" title="Fields: optional listing columns (file offset, function offset, p-code, references)" data-testid="fields-menu">Fields ▾</button>
+              <div class="listing-body">
+                <canvas id="listing-canvas" tabindex="0" aria-label="Listing"></canvas>
+              </div>
+            </section>
+            <section id="graph" class="pane view" data-testid="graph-view"></section>
+            <section id="strings" class="pane view" data-testid="data-view"></section>
+            <section id="types" class="pane view" data-testid="types-view"></section>
+            <section id="memory" class="pane view" data-testid="memory-view"></section>
+            <section id="diff" class="pane view" data-testid="diff-view"></section>
+            <section id="diffgraph" class="pane view" data-testid="diffgraph-view"></section>
+          </div>
+        </section>
+        <div class="splitter" data-split="dock-side" title="Drag to resize"></div>
+        <section id="dock-side" class="dock" data-group="side">
+          <div class="dock-tabs" role="tablist" aria-label="Side views"></div>
+          <div class="dock-body">
+            <section id="decomp" class="pane view">
+              <div id="decomp-title" class="panel-head"><span class="panel-title">Decompiler</span><span id="decomp-name" class="dim"></span></div>
+              <div id="decomp-sig" class="decomp-sig mono" data-testid="decomp-sig"></div>
+              <div id="decomp-failure" class="decomp-failure" role="alert" hidden data-testid="decomp-failure">
+                <span id="decomp-failure-text"></span>
+                <span class="spacer"></span>
+                <button id="decomp-retry" class="btn" type="button">Retry</button>
+                <button id="decomp-repro" class="btn" type="button" title="Download the decompiler's input bundle: rk-decompd --bundle FILE reproduces the failure">Export repro</button>
+              </div>
+              <div id="cm"></div>
+            </section>
+            <section id="calls" class="pane view" data-testid="calls-view"></section>
+            <section id="patches" class="pane view" data-testid="patches-view"></section>
+            <section id="bytes" class="pane view" data-testid="bytes-view"></section>
+            <section id="equates" class="pane view" data-testid="equates-view" hidden></section>
+            <section id="refs" class="pane view" data-testid="refs-view" hidden></section>
+            <section id="classes" class="pane view" data-testid="classes-view" hidden></section>
+            <section id="fid" class="pane view" data-testid="fid-view" hidden></section>
+            <section id="bsim" class="pane view" data-testid="bsim-view" hidden></section>
+            <section id="scripts" class="pane view" data-testid="scripts-view"></section>
+            <section id="python" class="pane view" data-testid="python-view" hidden></section>
+            <section id="searchresults" class="pane view" data-testid="search-view"></section>
+          </div>
+        </section>
+      </main>
+      <footer id="statusbar">
+        <span id="st-live" class="st-live" title="Subscription stream"><i></i><span>connecting</span></span>
+        <span id="st-rev" class="dim"></span>
+        <select id="st-space" class="st-space mono" hidden title="Address space: jump to its first block" aria-label="Address space"></select>
+        <span id="st-loc" class="mono"></span>
+        <span id="st-fn" class="dim"></span>
+        <span class="spacer"></span>
+        <span id="st-collab" class="st-collab" hidden data-testid="collab"></span>
+        <span id="st-render" class="st-render" hidden></span>
+        <span id="st-rows" class="dim"></span>
+        <span class="dim hints" data-testid="key-hints">L rename · Ctrl+L type · ; comment · Ctrl+Shift+F xrefs · D C B code/data · Space graph · Ctrl+2–9 views · F1 commands</span>
+      </footer>
+    </div>
+    <div id="overlays" role="region" aria-label="Dialogs and menus"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,7 @@
+add_executable(revkit_decompd_tests decompd_test.cc signature_test.cc)
+target_include_directories(revkit_decompd_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/loader/tests)
+target_link_libraries(revkit_decompd_tests PRIVATE revkit::decompd revkit::lift GTest::gtest_main)
+target_compile_options(revkit_decompd_tests PRIVATE -Wall -Wextra)
+target_compile_definitions(revkit_decompd_tests PRIVATE REVKIT_GHIDRA_ROOT="${GHIDRA_ROOT}")
+add_dependencies(revkit_decompd_tests rk-decompd)
+gtest_discover_tests(revkit_decompd_tests)

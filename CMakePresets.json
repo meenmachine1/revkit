@@ -1,0 +1,69 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "default",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "GHIDRA_ROOT": "$env{HOME}/ghidra/ghidra_12.1.4_PUBLIC"
+      }
+    },
+    {
+      "name": "asan",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-asan",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "REVKIT_SANITIZE": "address" }
+    },
+    {
+      "name": "tsan",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build-tsan",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "REVKIT_SANITIZE": "thread",
+        "CMAKE_CROSSCOMPILING_EMULATOR": "setarch;-R"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release: relocatable, reproducible (scripts/package.sh; LTO off, see docs/packaging.md)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "REVKIT_BUILD_TESTS": "OFF",
+        "REVKIT_REPRODUCIBLE": "ON",
+        "REVKIT_BUNDLE_LIBS": "ON",
+        "GHIDRA_ROOT": ""
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "default", "configurePreset": "default" },
+    { "name": "asan", "configurePreset": "asan" },
+    { "name": "tsan", "configurePreset": "tsan" },
+    { "name": "release", "configurePreset": "release" }
+  ],
+  "testPresets": [
+    { "name": "default", "configurePreset": "default", "output": { "outputOnFailure": true } },
+    {
+      "name": "asan",
+      "configurePreset": "asan",
+      "output": { "outputOnFailure": true },
+      "environment": {
+        "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1:suppressions=${sourceDir}/tools/sanitizers/ubsan.supp"
+      }
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
+      "output": { "outputOnFailure": true },
+      "environment": {
+        "TSAN_OPTIONS": "suppressions=${sourceDir}/tools/sanitizers/tsan.supp halt_on_error=1"
+      },
+      "filter": { "exclude": { "name": "^(python_sdk_[0-9]+|ui_e2e|ts_sdk_auth|ts_sdk_detect|ts_sdk_memory|ts_sdk_scripting|ts_sdk_scripts|ts_sdk_search|ghidra_interop_mapping|ghidra_roundtrip|processor_sweep_sampled|mcu_fixtures)$" } }
+    }
+  ]
+}

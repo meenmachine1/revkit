@@ -1,0 +1,381 @@
+#include "merge.h"
+
+#include <algorithm>
+#include <functional>
+#include <map>
+#include <set>
+
+namespace revkit::infer {
+
+namespace {
+
+struct Param {
+  VType type;
+  std::uint8_t size = 0;
+};
+
+// A narrower view of an integer or unknown value: a callee that returns a
+// 4-byte value zero-extended into RAX returns a 4-byte value.
+VType narrow(const VType &t, std::uint8_t size) {
+  if (t.meta == Meta::int_) return VType::integer(size, t.sign);
+  if (t.meta == Meta::unknown) return VType::unknown(size);
+  return t;
+}
+
+// A value in a floating-point register whose type is unknown: a vector
+// register's low 4 or 8 bytes hold a float or a double.
+VType float_of(std::uint8_t size) { return VType::floating(size == 4 ? 4 : 8); }
+
+bool is_scalar(const VType &t) {
+  return t.meta == Meta::int_ || t.meta == Meta::unknown || t.meta == Meta::bool_ || t.meta == Meta::char_;
+}
+
+// A parameter's type, narrowed to what the function uses of it: an int
+// passed in a 64-bit register is truncated by every use, or by some 32-bit
+// operation (RISC-V passes it sign-extended).
+VType param_type(const Slot &s, const Abi &) {
+  VType t = s.type;
+  if (!is_scalar(t)) return t;
+  if (s.used > 0 && s.used < s.size) return narrow(t, s.used);
+  if (s.narrowest == 4 && s.size == 8) return narrow(t, 4);
+  return t;
+}
+
+// Whether a caller's type for a value should refine the callee's.
+bool refines(const VType &have, const VType &caller, std::uint8_t size) {
+  if (caller.meta == Meta::unknown) return false;
+  if (caller.meta == Meta::pointer)
+    return have.meta != Meta::pointer || have.target().meta == Meta::unknown || have.target().meta == Meta::void_ ||
+           (have.target().meta == Meta::code && have.target().pointee.empty() && caller.target().meta == Meta::code);
+  if (caller.size != size) return false;
+  if (caller.meta == Meta::char_ || caller.meta == Meta::float_ || caller.meta == Meta::bool_)
+    return have.meta == Meta::unknown || have.meta == Meta::int_;
+  return have.meta == Meta::unknown;
+}
+
+}  // namespace
+
+Prototype merge(const Abi *abi, const Evidence &ev, const DataOrg &org) {
+  Prototype p;
+  p.source = "merged";
+  const Observation *self0 = ev.self0 != nullptr ? ev.self0 : ev.self;
+  const Observation *self = ev.self != nullptr ? ev.self : ev.self0;
+  if (abi == nullptr || !ev.interprocedural) {
+    p.source = "self";
+    if (self != nullptr) {
+      for (const Slot &s : self->params) p.params.push_back(s.type);
+      if (self->ret) p.ret = self->ret->type;
+    }
+    return p;
+  }
+
+  // ---- parameters, by argument position ----
+  // Round 0 sees a register a call passes through to an unknown callee as
+  // a parameter (too many); a later round, whose callees are locked, sees
+  // one a callee with a parameter too many reads (also too many), and one
+  // that tail-calls a function unknown at round 0 sees none there (too
+  // few). So: the positions both agree on, or the one that sees any.
+  std::set<ArgPos> later;
+  if (self != nullptr && self != self0)
+    for (const Slot &s : self->params)
+      if (auto pos = arg_position(*abi, s)) later.insert(*pos);
+  std::map<ArgPos, Param> params;
+  std::vector<VType> unplaced;  // parameters outside the table, in order
+  const Observation *storage = self0;
+  if (self0 != nullptr && self0->params.empty() && self != nullptr && !self->params.empty()) storage = self;
+  if (storage != nullptr) {
+    for (const Slot &s : storage->params) {
+      auto pos = arg_position(*abi, s);
+      if (!pos) {
+        unplaced.push_back(s.type);
+        continue;
+      }
+      if (storage == self0 && self != nullptr && self != self0 && !self->params.empty() && !later.contains(*pos))
+        continue;
+      params[*pos] = {param_type(s, *abi), s.size};
+    }
+  }
+  // Types from this round's view of the function.
+  if (self != nullptr && self != self0) {
+    for (const Slot &s : self->params) {
+      auto pos = arg_position(*abi, s);
+      if (!pos) continue;
+      auto it = params.find(*pos);
+      if (it == params.end() || s.size > it->second.size) continue;
+      VType t = param_type(s, *abi);
+      Param &q = it->second;
+      if (t.size == q.type.size || t.meta == Meta::pointer) q.type = join(t, q.type);
+    }
+  }
+
+  // ---- varargs ----
+  // A variadic function saves the argument registers its named
+  // parameters don't use (the register save area, or Windows' home
+  // slots) before anything else touches them: a run of saved argument
+  // registers that ends at the last one, starting after the named ones.
+  // On System V x86-64 it also reads AL. The decompiler takes the saved
+  // registers for parameters, untyped.
+  bool varargs = false;
+  int named = -1;
+  if (self0 != nullptr) {
+    std::vector<int> saved;  // integer argument register indices, in store order
+    for (const std::string &r : self0->spills)
+      for (std::size_t i = 0; i < abi->int_regs.size(); ++i)
+        if (r == abi->int_regs[i] && std::find(saved.begin(), saved.end(), static_cast<int>(i)) == saved.end())
+          saved.push_back(static_cast<int>(i));
+    std::vector<int> sorted = saved;
+    std::sort(sorted.begin(), sorted.end());
+    const int last = static_cast<int>(abi->int_regs.size()) - 1;
+    const bool run = sorted.size() >= 2 && sorted.back() == last &&
+                     sorted.back() - sorted.front() + 1 == static_cast<int>(sorted.size());
+    const int first = run ? sorted.front() : -1;
+    if (abi->al_varargs && self0->reads_al) varargs = true;
+    if (run) {
+      if (abi->positional) {
+        // Windows: a run after the first slot, or saved last-to-first.
+        if (first >= 1 || (!saved.empty() && saved.front() == last)) varargs = true;
+      } else if (first >= 1 || !abi->al_varargs) {
+        varargs = true;
+      }
+    }
+    if (varargs && first >= 1) named = first;
+  }
+  if (varargs) {
+    if (named < 0) {
+      // Every argument register saved (unoptimized code saves the named
+      // ones too): the named ones are those the function uses as
+      // something, up to the last.
+      named = 0;
+      for (const auto &[pos, q] : params)
+        if (pos.cls == 0 && q.type.meta != Meta::unknown) named = std::max(named, pos.index + 1);
+    }
+    for (auto it = params.begin(); it != params.end();) {
+      // Float registers are saved too and read as va_arg's doubles: named
+      // float parameters before `...` are rare enough to drop them all.
+      const bool drop = (it->first.cls == 0 && it->first.index >= named) || it->first.cls == 1 || it->first.cls == 2;
+      it = drop ? params.erase(it) : std::next(it);
+    }
+    for (int i = 0; i < named; ++i)
+      params.try_emplace(ArgPos{0, i}, Param{VType::unknown(org.pointer_size), org.pointer_size});
+    p.varargs = true;
+  }
+
+  // Types the callers' values have where they pass them.
+  const std::vector<const CallSite *> &typed = ev.current.empty() ? ev.unlocked : ev.current;
+  for (const CallSite *c : typed) {
+    for (const Slot &s : c->args) {
+      auto pos = arg_position(*abi, s);
+      if (!pos) continue;
+      auto it = params.find(*pos);
+      if (it == params.end()) continue;
+      Param &q = it->second;
+      if (refines(q.type, s.type, q.size)) q.type = join(s.type, q.type);
+    }
+  }
+  // A caller passing the address of static data or of a function: a
+  // pointer (the decompiler types such constants by how the callee uses
+  // them, which it doesn't know).
+  for (const auto *sites : {&ev.unlocked, &ev.current})
+    for (const CallSite *c : *sites)
+      for (const Slot &s : c->args) {
+        if (!s.data_address && !s.code_address) continue;
+        auto pos = arg_position(*abi, s);
+        if (!pos) continue;
+        auto it = params.find(*pos);
+        if (it == params.end() || it->second.size != org.pointer_size) continue;
+        VType &t = it->second.type;
+        if (s.code_address && !s.data_address) {
+          // A function's address: a pointer to a function of its prototype.
+          VType code = VType::code_type();
+          if (ev.proto_of)
+            for (std::uint64_t a : s.constants)
+              if (auto fp = ev.proto_of(a)) {
+                code = VType::code_of(*fp);
+                break;
+              }
+          const VType fn = VType::pointer_to(code, org.pointer_size);
+          if (t.meta == Meta::unknown || t.meta == Meta::int_ || (t.is_pointer() && t.target().meta != Meta::code) ||
+              (t.is_pointer() && t.target().meta == Meta::code && t.target().pointee.empty()))
+            t = fn;
+        } else if (t.meta == Meta::unknown || t.meta == Meta::int_) {
+          t = VType::pointer_to(VType::unknown(1), org.pointer_size);
+        }
+      }
+  std::vector<std::pair<int, VType>> ordered;
+  for (auto &[pos, q] : params)
+    if (pos.cls == 1 && q.type.meta == Meta::unknown) q.type = float_of(q.type.size);
+  for (const auto &[pos, q] : params) ordered.emplace_back(order_key(*abi, pos), q.type);
+  std::sort(ordered.begin(), ordered.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+  for (auto &[k, t] : ordered) p.params.push_back(std::move(t));
+  for (VType &t : unplaced) p.params.push_back(std::move(t));
+
+  // ---- return value ----
+  int used = 0;
+  std::uint8_t used_size = 0;
+  VType used_type;
+  for (const CallSite *c : ev.unlocked) {
+    if (!c->ret_used) continue;
+    ++used;
+    used_size = std::max(used_size, c->ret_type.size);
+    used_type = join(used_type, c->ret_type);
+  }
+  if (self0 != nullptr && self0->ret) {
+    p.ret = self0->ret->type;
+    if (self0->ret->reg == abi->float_ret && p.ret.meta == Meta::unknown)
+      p.ret = float_of(self0->ret_natural > 0 ? self0->ret_natural : self0->ret->size);
+    if (self != nullptr && self->ret && self->ret->size == self0->ret->size) p.ret = join(self->ret->type, p.ret);
+    // A value zero- or sign-extended into a wider return register is as
+    // wide as it was (an int in RAX), unless callers read all of it.
+    const std::uint8_t natural = self0->ret_natural;
+    if (natural > 0 && natural < self0->ret->size && is_scalar(p.ret) && !(used > 0 && used_size > natural))
+      p.ret = narrow(p.ret, natural);
+    else if (used > 0 && used_size > 0 && used_size < self0->ret->size && is_scalar(p.ret))
+      p.ret = narrow(p.ret, used_size);
+  } else if (used > 0 && used * 2 > static_cast<int>(ev.unlocked.size())) {
+    // The function leaves a value most callers read (a tail call's result).
+    p.ret = used_type.meta == Meta::unknown && used_size == 0 ? VType::unknown(org.pointer_size) : used_type;
+  }
+  // A function's address.
+  if (self0 != nullptr && !self0->ret_code.empty() && !p.ret.is_void() && self0->ret->size == org.pointer_size) {
+    VType code = VType::code_type();
+    if (ev.proto_of)
+      for (std::uint64_t a : self0->ret_code)
+        if (auto fp = ev.proto_of(a)) {
+          code = VType::code_of(*fp);
+          break;
+        }
+    p.ret = VType::pointer_to(code, org.pointer_size);
+  }
+  // An element of a function-pointer table.
+  if (self0 != nullptr && !self0->ret_loaded.empty() && !p.ret.is_void() && self0->ret->size == org.pointer_size &&
+      ev.table_proto)
+    for (std::uint64_t a : self0->ret_loaded)
+      if (auto fp = ev.table_proto(a)) {
+        p.ret = VType::pointer_to(VType::code_of(*fp), org.pointer_size);
+        break;
+      }
+  // A static buffer's or string's address.
+  if (self0 != nullptr && self0->ret_address && !p.ret.is_void() && p.ret.meta != Meta::pointer &&
+      self0->ret->size == org.pointer_size)
+    p.ret = VType::pointer_to(VType::unknown(1), org.pointer_size);
+  // Return types the callers' values have where they read them: told the
+  // previous prototype (current) or not (unlocked, pointers only: an
+  // unlocked call's integer result is only as wide as the register).
+  for (const CallSite *c : ev.current)
+    if (c->ret_used && !p.ret.is_void() && refines(p.ret, c->ret_type, p.ret.size)) p.ret = join(c->ret_type, p.ret);
+  for (const CallSite *c : ev.unlocked)
+    if (c->ret_used && !p.ret.is_void() && c->ret_type.meta == Meta::pointer && refines(p.ret, c->ret_type, p.ret.size))
+      p.ret = join(c->ret_type, p.ret);
+  return p;
+}
+
+std::optional<Prototype> family_vote(const Prototype &own, const std::vector<Prototype> &members) {
+  if (members.size() < 2) return std::nullopt;
+  std::map<std::size_t, int> arity;
+  int returns = 0, varargs = 0;
+  for (const Prototype &m : members) {
+    ++arity[m.params.size()];
+    returns += !m.ret.is_void();
+    varargs += m.varargs;
+  }
+  std::size_t n = 0;
+  int best = -1;
+  for (const auto &[a, count] : arity)
+    if (count >= best) {
+      best = count;
+      n = a;
+    }
+  if (best * 2 < static_cast<int>(members.size())) return std::nullopt;
+  auto vote = [&](auto get, const VType &fallback) {
+    std::vector<std::pair<VType, int>> counts;
+    for (const Prototype &m : members) {
+      const VType *t = get(m);
+      if (t == nullptr || t->meta == Meta::unknown) continue;
+      auto it = std::find_if(counts.begin(), counts.end(), [&](const auto &c) { return c.first == *t; });
+      if (it == counts.end()) counts.emplace_back(*t, 1);
+      else ++it->second;
+    }
+    const VType *pick = &fallback;
+    int top = 0;
+    for (const auto &[t, c] : counts)
+      if (c > top) {
+        top = c;
+        pick = &t;
+      }
+    // Signedness as Ghidra's type lattice orders it: signed is the default
+    // for arithmetic, unsigned needs evidence, so one member's unsigned
+    // view of an integer of the chosen size wins.
+    if (pick->meta == Meta::int_ && pick->sign != Sign::is_unsigned)
+      for (const auto &[t, c] : counts)
+        if (t.meta == Meta::int_ && t.size == pick->size && t.sign == Sign::is_unsigned) return t;
+    return *pick;
+  };
+  Prototype p;
+  p.source = "family";
+  p.varargs = varargs * 2 > static_cast<int>(members.size());
+  if (returns * 2 > static_cast<int>(members.size()))
+    p.ret = vote([](const Prototype &m) { return m.ret.is_void() ? nullptr : &m.ret; },
+                 own.ret.is_void() ? VType::unknown(8) : own.ret);
+  for (std::size_t i = 0; i < n; ++i) {
+    const VType fallback = i < own.params.size() ? own.params[i] : VType::unknown(8);
+    p.params.push_back(vote([&](const Prototype &m) { return i < m.params.size() ? &m.params[i] : nullptr; }, fallback));
+  }
+  return p;
+}
+
+Prototype join(const Prototype &prev, const Prototype &next) {
+  if (prev.params.size() != next.params.size() || prev.varargs != next.varargs) return next;
+  Prototype out = next;
+  for (std::size_t i = 0; i < out.params.size(); ++i) out.params[i] = infer::join(prev.params[i], next.params[i]);
+  if (!prev.ret.is_void() && !next.ret.is_void()) out.ret = infer::join(prev.ret, next.ret);
+  return out;
+}
+
+Prototype finalize(const Prototype &p, const DataOrg &org, bool keep_return_width) {
+  const Priors &pr = SigDb::priors(org);
+  std::function<VType(const VType &, bool)> spell = [&](const VType &t, bool ret) -> VType {
+    switch (t.meta) {
+      case Meta::unknown:
+        if (ret && keep_return_width) {
+          auto it = pr.returns.find(t.size);
+          return it != pr.returns.end() ? it->second : t;
+        }
+        return ret ? pr.unknown_return(t.size) : pr.unknown_param(t.size);
+      case Meta::int_:
+        if (!ret || t.sign == Sign::unknown) return ret ? pr.integer_return(t.size) : pr.integer_param(t.size);
+        return t;
+      case Meta::bool_:
+        // The decompiler's bool is a 0/1 value; C returns those as int.
+        return ret ? pr.unknown_return(4) : t;
+      case Meta::pointer: {
+        const VType &to = t.target();
+        if (to.meta == Meta::code && !to.pointee.empty()) {
+          VType code = to;
+          for (std::size_t i = 0; i < code.pointee.size(); ++i) code.pointee[i] = spell(code.pointee[i], i == 0);
+          return VType::pointer_to(code, t.size);
+        }
+        // A returned void *: mostly an allocator's result handed on, which
+        // C code returns as the type it fills (char * in the headers far
+        // more often than void *).
+        if (ret && to.meta == Meta::void_ && pr.pointee.meta != Meta::unknown) return VType::pointer_to(pr.pointee, t.size);
+        if (to.meta == Meta::unknown) {
+          if (to.size > 1) return VType::pointer_to(pr.unknown_param(to.size), t.size);
+          if (pr.pointee.meta != Meta::unknown) return VType::pointer_to(pr.pointee, t.size);
+        }
+        // Bytes: the decompiler's signedness comes from the loads compilers
+        // pick; C strings are char.
+        if (to.meta == Meta::int_ && to.size == 1 && pr.pointee.meta == Meta::char_)
+          return VType::pointer_to(pr.pointee, t.size);
+        return t;
+      }
+      default:
+        return t;
+    }
+  };
+  Prototype out = p;
+  out.ret = spell(p.ret, true);
+  for (VType &t : out.params) t = spell(t, false);
+  return out;
+}
+
+}  // namespace revkit::infer

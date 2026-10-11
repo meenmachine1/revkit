@@ -1,0 +1,35 @@
+/* fwkit's linker script: code, constants and the initial data in ROM (the
+ * raw image, objcopy -O binary), data and bss in RAM. build.py fills in
+ * the addresses per target. */
+ENTRY(_start)
+MEMORY {
+  rom (rx)  : ORIGIN = @ROM@, LENGTH = @ROMSIZE@
+  ram (rwx) : ORIGIN = @RAM@, LENGTH = @RAMSIZE@
+}
+SECTIONS {
+  .text : {
+    KEEP(*(.vectors))
+    *(.literal .text .literal.* .text.*)
+    . = ALIGN(4);
+  } > rom
+  .rodata : {
+    *(.rodata .rodata.* .srodata .srodata.* .sdata2 .sdata2.*)
+    . = ALIGN(8);
+  } > rom
+  .data : {
+    __data_start = .;
+    *(.data .data.* .sdata .sdata.*)
+    . = ALIGN(8);
+    __data_end = .;
+  } > ram AT > rom
+  __data_load = LOADADDR(.data);
+  .bss (NOLOAD) : {
+    __bss_start = .;
+    *(.bss .bss.* .sbss .sbss.* COMMON)
+    . = ALIGN(8);
+    __bss_end = .;
+  } > ram
+  __stack_top = ORIGIN(ram) + LENGTH(ram);
+  /DISCARD/ : { *(.comment) *(.note .note.*) *(.eh_frame .eh_frame_hdr) *(.MIPS.abiflags) *(.reginfo)
+                *(.gnu.attributes) *(.ARM.exidx*) *(.ARM.attributes) *(.xt.prop*) *(.xt.lit*) *(.xtensa.info) }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "string-refs",
+  "version": "1.0.0",
+  "kind": "analyzer",
+  "interface": 1,
+  "description": "Comments each instruction that references a C string with the string, and suggests a str_ label for unnamed functions that reference strings",
+  "capabilities": ["memory", "code"],
+  "analyzer": {"scope": "function"}
+}

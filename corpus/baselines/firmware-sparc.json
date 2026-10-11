@@ -1,0 +1,42 @@
+{
+ "arch": "sparc",
+ "counts": {
+  "c_alpha": 906,
+  "c_ast": 783,
+  "c_both": 1185,
+  "c_flow": 1172,
+  "c_ghidra_only": 0,
+  "c_revkit_only": 0,
+  "c_shape": 1064,
+  "c_shape_dwarf": 1065,
+  "common": 1185,
+  "dwarf": 1283,
+  "dwarf_ghidra": 1185,
+  "dwarf_revkit": 1170,
+  "ghidra": 1205,
+  "insn_both": 88554,
+  "insn_ghidra": 88865,
+  "insn_revkit": 88729,
+  "revkit": 1191,
+  "truth_ghidra": 1201,
+  "truth_revkit": 1186
+ },
+ "images": [
+  "sparc/fwkit-sparc-O2",
+  "sparc/fwkit-sparc-Os"
+ ],
+ "rates": {
+  "c_alpha": 0.764557,
+  "c_ast": 0.660759,
+  "c_flow": 0.98903,
+  "c_shape": 0.89789,
+  "c_shape_dwarf": 0.898734,
+  "dwarf_recall": 0.911925,
+  "ghidra_dwarf_recall": 0.923617,
+  "ghidra_truth_precision": 0.99668,
+  "listing_both": 0.9965,
+  "precision": 0.994962,
+  "recall": 0.983402,
+  "truth_precision": 0.995802
+ }
+}

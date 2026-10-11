@@ -1,0 +1,27 @@
+[package]
+name = "revkit-shell"
+version = "0.1.0"
+edition = "2021"
+description = "Tauri shell for the revkit web UI"
+license = "AGPL-3.0-or-later"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+libc = "0.2"
+
+# The native save dialog for downloads (ask_save_path); already one of
+# Tauri's own dependencies on Linux.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
+[features]
+default = ["custom-protocol"]
+# Serve the bundled ../../dist through tauri:// instead of a dev server.
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = 3

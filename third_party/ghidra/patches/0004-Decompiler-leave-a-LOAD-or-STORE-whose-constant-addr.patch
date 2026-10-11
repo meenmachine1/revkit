@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Mon, 5 Oct 2026 00:34:49 -0400
+Subject: [PATCH] Decompiler: leave a LOAD or STORE whose constant address
+ range would wrap
+
+- Fails: "Trying to construct memory range beyond end of address space:
+  ram" (LowlevelError from AddrSpaceManager::constructWrappingAddress, via
+  Funcdata::newVarnodeOut / newVarnode), and the whole function fails to
+  decompile.
+- Cause: RuleLoadVarnode and RuleStoreVarnode turn a LOAD or STORE through
+  a constant pointer into a COPY from or to a varnode at that address. When
+  the address is within size bytes of the end of a space that doesn't allow
+  wrapped ranges (ram), that varnode can't exist. The constant typically
+  comes from folding a read-only pointer slot whose bytes are 0xffffffff
+  (erased flash in firmware), so storing through it addresses the top of
+  memory.
+- Patch: in both rules, keep the LOAD or STORE (return 0) when the range
+  isn't valid in a heritaged space that doesn't allow wrapping: exactly the
+  case where newVarnode(Out) would throw. Nothing else changes; the
+  function decompiles with the access through the pointer (*(uint *)
+  0xffffffff = v).
+- Seen on: ARM (v4t) firmware loaded raw with its image read-only;
+  reproduced with a synthetic image (a read-only slot holding 0xffffffff,
+  stored through).
+- Ghidra 12.1.4: the Java decompiler interface reports the same error.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.cc
+index 3071e76..aa1acff 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.cc
+@@ -4305,6 +4305,8 @@ int4 RuleLoadVarnode::applyOp(PcodeOp *op,Funcdata &data)
+ 
+   size = op->getOut()->getSize();
+   offoff = AddrSpace::addressToByte(offoff,baseoff->getWordSize());
++  if (!Address(baseoff,offoff).isValidRange(size) && baseoff->isHeritaged() && !baseoff->allowsWrappedRange())
++    return 0;			// Range would run past the end of the space: leave the LOAD
+   newvn = data.newVarnode(size,baseoff,offoff);
+   data.opSetInput(op,newvn,0);
+   data.opRemoveInput(op,1);
+@@ -4347,6 +4349,8 @@ int4 RuleStoreVarnode::applyOp(PcodeOp *op,Funcdata &data)
+   size = op->getIn(2)->getSize();
+   offoff = AddrSpace::addressToByte(offoff,baseoff->getWordSize());
+   Address addr(baseoff,offoff);
++  if (!addr.isValidRange(size) && baseoff->isHeritaged() && !baseoff->allowsWrappedRange())
++    return 0;			// Range would run past the end of the space: leave the STORE
+   data.newVarnodeOut(size, addr,op);
+   op->getOut()->setStackStore();	// Mark as originally coming from CPUI_STORE
+   data.opRemoveInput(op,1);

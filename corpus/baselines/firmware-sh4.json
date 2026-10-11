@@ -1,0 +1,43 @@
+{
+ "arch": "sh4",
+ "counts": {
+  "c_alpha": 314,
+  "c_ast": 310,
+  "c_both": 1744,
+  "c_flow": 1427,
+  "c_ghidra_only": 0,
+  "c_revkit_only": 0,
+  "c_shape": 330,
+  "c_shape_dwarf": 590,
+  "common": 1744,
+  "dwarf": 2537,
+  "dwarf_ghidra": 1857,
+  "dwarf_revkit": 1917,
+  "ghidra": 1894,
+  "insn_both": 157997,
+  "insn_ghidra": 168596,
+  "insn_revkit": 173636,
+  "revkit": 1949,
+  "truth_ghidra": 1884,
+  "truth_revkit": 1940
+ },
+ "images": [
+  "sh4/fwkit-sh4-O2",
+  "sh4/fwkit-sh4-Os",
+  "sh4/uboot-r2dplus"
+ ],
+ "rates": {
+  "c_alpha": 0.180046,
+  "c_ast": 0.177752,
+  "c_flow": 0.818234,
+  "c_shape": 0.18922,
+  "c_shape_dwarf": 0.338303,
+  "dwarf_recall": 0.755617,
+  "ghidra_dwarf_recall": 0.731967,
+  "ghidra_truth_precision": 0.99472,
+  "listing_both": 0.937134,
+  "precision": 0.894818,
+  "recall": 0.920803,
+  "truth_precision": 0.995382
+ }
+}

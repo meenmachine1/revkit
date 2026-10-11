@@ -1,0 +1,378 @@
+{
+ "binaries": {
+  "cjson@elf-x86_64/gcc-O0": {
+   "functions": 122,
+   "signatured": 122,
+   "unique_names": 122,
+   "analyze_s": 7.13,
+   "signatures_s": 2.29,
+   "ms_per_function_sig": 18.78,
+   "features_median": 12,
+   "features_mean": 24.6,
+   "weights": "lshweights_64.xml",
+   "language": "x86:LE:64:default"
+  },
+  "cjson@elf-x86_64/gcc-O2": {
+   "functions": 95,
+   "signatured": 95,
+   "unique_names": 95,
+   "analyze_s": 5.03,
+   "signatures_s": 2.22,
+   "ms_per_function_sig": 23.33,
+   "features_median": 22,
+   "features_mean": 34.2,
+   "weights": "lshweights_64.xml",
+   "language": "x86:LE:64:default"
+  },
+  "cjson@elf-x86_64/clang-O0": {
+   "functions": 122,
+   "signatured": 122,
+   "unique_names": 122,
+   "analyze_s": 3.72,
+   "signatures_s": 2.25,
+   "ms_per_function_sig": 18.42,
+   "features_median": 12,
+   "features_mean": 24.1,
+   "weights": "lshweights_64.xml",
+   "language": "x86:LE:64:default"
+  },
+  "cjson@elf-x86_64/clang-O2": {
+   "functions": 96,
+   "signatured": 96,
+   "unique_names": 96,
+   "analyze_s": 4.87,
+   "signatures_s": 2.25,
+   "ms_per_function_sig": 23.48,
+   "features_median": 32,
+   "features_mean": 41.5,
+   "weights": "lshweights_64.xml",
+   "language": "x86:LE:64:default"
+  },
+  "cjson@elf-aarch64/gcc-O2": {
+   "functions": 101,
+   "signatured": 101,
+   "unique_names": 101,
+   "analyze_s": 3.83,
+   "signatures_s": 2.13,
+   "ms_per_function_sig": 21.11,
+   "features_median": 22,
+   "features_mean": 34.9,
+   "weights": "lshweights_64.xml",
+   "language": "AARCH64:LE:64:v8A"
+  },
+  "cjson@elf-riscv64/clang-O2": {
+   "functions": 109,
+   "signatured": 109,
+   "unique_names": 109,
+   "analyze_s": 4.68,
+   "signatures_s": 2.12,
+   "ms_per_function_sig": 19.43,
+   "features_median": 22,
+   "features_mean": 37.8,
+   "weights": "lshweights_64.xml",
+   "language": "RISCV:LE:64:default"
+  }
+ },
+ "pairs": [
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/gcc-O0",
+   "b": "elf-x86_64/gcc-O2",
+   "common": 95,
+   "sim_mean": 0.302,
+   "sim_median": 0.203,
+   "frac_identical": 0.126,
+   "frac_sim_ge_0.7": 0.158,
+   "frac_sim_ge_0.5": 0.168,
+   "top1": 0.316,
+   "top1_and_sim_ge_0.7": 0.105,
+   "signif_median": 6.09,
+   "top1_by_features": {
+    "10-29": "6/44",
+    "30-99": "16/23",
+    "<10": "6/26",
+    ">=100": "2/2"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/gcc-O0",
+   "b": "elf-x86_64/clang-O0",
+   "common": 122,
+   "sim_mean": 0.93,
+   "sim_median": 1.0,
+   "frac_identical": 0.721,
+   "frac_sim_ge_0.7": 0.902,
+   "frac_sim_ge_0.5": 0.984,
+   "top1": 0.59,
+   "top1_and_sim_ge_0.7": 0.5,
+   "signif_median": 22.71,
+   "top1_by_features": {
+    "10-29": "26/55",
+    "30-99": "30/32",
+    "<10": "13/32",
+    ">=100": "3/3"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/gcc-O0",
+   "b": "elf-x86_64/clang-O2",
+   "common": 96,
+   "sim_mean": 0.296,
+   "sim_median": 0.186,
+   "frac_identical": 0.135,
+   "frac_sim_ge_0.7": 0.146,
+   "frac_sim_ge_0.5": 0.208,
+   "top1": 0.302,
+   "top1_and_sim_ge_0.7": 0.094,
+   "signif_median": 3.81,
+   "top1_by_features": {
+    "10-29": "5/44",
+    "30-99": "14/24",
+    "<10": "8/26",
+    ">=100": "2/2"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/gcc-O0",
+   "b": "elf-aarch64/gcc-O2",
+   "common": 94,
+   "sim_mean": 0.262,
+   "sim_median": 0.185,
+   "frac_identical": 0.096,
+   "frac_sim_ge_0.7": 0.106,
+   "frac_sim_ge_0.5": 0.138,
+   "top1": 0.277,
+   "top1_and_sim_ge_0.7": 0.043,
+   "signif_median": 5.61,
+   "top1_by_features": {
+    "10-29": "6/44",
+    "30-99": "15/23",
+    "<10": "3/25",
+    ">=100": "2/2"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/gcc-O0",
+   "b": "elf-riscv64/clang-O2",
+   "common": 93,
+   "sim_mean": 0.216,
+   "sim_median": 0.134,
+   "frac_identical": 0.011,
+   "frac_sim_ge_0.7": 0.086,
+   "frac_sim_ge_0.5": 0.108,
+   "top1": 0.226,
+   "top1_and_sim_ge_0.7": 0.065,
+   "signif_median": 3.72,
+   "top1_by_features": {
+    "10-29": "5/44",
+    "30-99": "10/24",
+    "<10": "4/23",
+    ">=100": "2/2"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/gcc-O2",
+   "b": "elf-x86_64/clang-O0",
+   "common": 95,
+   "sim_mean": 0.296,
+   "sim_median": 0.199,
+   "frac_identical": 0.126,
+   "frac_sim_ge_0.7": 0.147,
+   "frac_sim_ge_0.5": 0.158,
+   "top1": 0.316,
+   "top1_and_sim_ge_0.7": 0.095,
+   "signif_median": 6.09,
+   "top1_by_features": {
+    "10-29": "5/35",
+    "30-99": "15/36",
+    "<10": "6/18",
+    ">=100": "4/6"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/gcc-O2",
+   "b": "elf-x86_64/clang-O2",
+   "common": 94,
+   "sim_mean": 0.473,
+   "sim_median": 0.503,
+   "frac_identical": 0.16,
+   "frac_sim_ge_0.7": 0.181,
+   "frac_sim_ge_0.5": 0.521,
+   "top1": 0.436,
+   "top1_and_sim_ge_0.7": 0.128,
+   "signif_median": 13.35,
+   "top1_by_features": {
+    "10-29": "9/35",
+    "30-99": "20/35",
+    "<10": "6/18",
+    ">=100": "6/6"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/gcc-O2",
+   "b": "elf-aarch64/gcc-O2",
+   "common": 94,
+   "sim_mean": 0.723,
+   "sim_median": 0.726,
+   "frac_identical": 0.266,
+   "frac_sim_ge_0.7": 0.521,
+   "frac_sim_ge_0.5": 0.883,
+   "top1": 0.457,
+   "top1_and_sim_ge_0.7": 0.213,
+   "signif_median": 22.97,
+   "top1_by_features": {
+    "10-29": "8/35",
+    "30-99": "26/36",
+    "<10": "4/17",
+    ">=100": "5/6"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/gcc-O2",
+   "b": "elf-riscv64/clang-O2",
+   "common": 91,
+   "sim_mean": 0.298,
+   "sim_median": 0.221,
+   "frac_identical": 0.011,
+   "frac_sim_ge_0.7": 0.088,
+   "frac_sim_ge_0.5": 0.154,
+   "top1": 0.319,
+   "top1_and_sim_ge_0.7": 0.044,
+   "signif_median": 7.95,
+   "top1_by_features": {
+    "10-29": "6/35",
+    "30-99": "14/35",
+    "<10": "3/15",
+    ">=100": "6/6"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/clang-O0",
+   "b": "elf-x86_64/clang-O2",
+   "common": 96,
+   "sim_mean": 0.296,
+   "sim_median": 0.188,
+   "frac_identical": 0.135,
+   "frac_sim_ge_0.7": 0.146,
+   "frac_sim_ge_0.5": 0.208,
+   "top1": 0.292,
+   "top1_and_sim_ge_0.7": 0.094,
+   "signif_median": 3.81,
+   "top1_by_features": {
+    "10-29": "6/45",
+    "30-99": "13/24",
+    "<10": "8/26",
+    ">=100": "1/1"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/clang-O0",
+   "b": "elf-aarch64/gcc-O2",
+   "common": 94,
+   "sim_mean": 0.263,
+   "sim_median": 0.189,
+   "frac_identical": 0.096,
+   "frac_sim_ge_0.7": 0.106,
+   "frac_sim_ge_0.5": 0.138,
+   "top1": 0.277,
+   "top1_and_sim_ge_0.7": 0.043,
+   "signif_median": 5.61,
+   "top1_by_features": {
+    "10-29": "7/45",
+    "30-99": "15/23",
+    "<10": "3/25",
+    ">=100": "1/1"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/clang-O0",
+   "b": "elf-riscv64/clang-O2",
+   "common": 93,
+   "sim_mean": 0.216,
+   "sim_median": 0.137,
+   "frac_identical": 0.011,
+   "frac_sim_ge_0.7": 0.086,
+   "frac_sim_ge_0.5": 0.108,
+   "top1": 0.226,
+   "top1_and_sim_ge_0.7": 0.065,
+   "signif_median": 3.72,
+   "top1_by_features": {
+    "10-29": "6/45",
+    "30-99": "10/24",
+    "<10": "4/23",
+    ">=100": "1/1"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/clang-O2",
+   "b": "elf-aarch64/gcc-O2",
+   "common": 93,
+   "sim_mean": 0.5,
+   "sim_median": 0.515,
+   "frac_identical": 0.118,
+   "frac_sim_ge_0.7": 0.258,
+   "frac_sim_ge_0.5": 0.538,
+   "top1": 0.355,
+   "top1_and_sim_ge_0.7": 0.097,
+   "signif_median": 16.13,
+   "top1_by_features": {
+    "10-29": "9/33",
+    "30-99": "16/42",
+    "<10": "3/13",
+    ">=100": "5/5"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-x86_64/clang-O2",
+   "b": "elf-riscv64/clang-O2",
+   "common": 93,
+   "sim_mean": 0.551,
+   "sim_median": 0.552,
+   "frac_identical": 0.022,
+   "frac_sim_ge_0.7": 0.376,
+   "frac_sim_ge_0.5": 0.559,
+   "top1": 0.516,
+   "top1_and_sim_ge_0.7": 0.237,
+   "signif_median": 18.41,
+   "top1_by_features": {
+    "10-29": "11/33",
+    "30-99": "27/43",
+    "<10": "4/11",
+    ">=100": "6/6"
+   }
+  },
+  {
+   "program": "cjson",
+   "a": "elf-aarch64/gcc-O2",
+   "b": "elf-riscv64/clang-O2",
+   "common": 91,
+   "sim_mean": 0.29,
+   "sim_median": 0.213,
+   "frac_identical": 0.0,
+   "frac_sim_ge_0.7": 0.099,
+   "frac_sim_ge_0.5": 0.143,
+   "top1": 0.341,
+   "top1_and_sim_ge_0.7": 0.055,
+   "signif_median": 6.02,
+   "top1_by_features": {
+    "10-29": "8/37",
+    "30-99": "14/34",
+    "<10": "4/15",
+    ">=100": "5/5"
+   }
+  }
+ ]
+}

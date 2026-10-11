@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "noUnusedLocals": true,
+    "resolveJsonModule": true,
+    // The generated revkit.v1 client lives in sdk/ts; its runtime deps
+    // resolve from this package so there is one copy in the bundle.
+    "paths": {
+      "@revkit/api": ["../sdk/ts/src/index.ts"],
+      "@bufbuild/protobuf": ["./node_modules/@bufbuild/protobuf"],
+      "@bufbuild/protobuf/*": ["./node_modules/@bufbuild/protobuf/*"],
+      "@connectrpc/connect": ["./node_modules/@connectrpc/connect"],
+      "@connectrpc/connect-web": ["./node_modules/@connectrpc/connect-web"]
+    }
+  },
+  "include": ["src", "bench", "e2e", "test", "vite.config.ts", "../sdk/ts/src"]
+}

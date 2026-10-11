@@ -1,0 +1,43 @@
+{
+ "arch": "msp430",
+ "counts": {
+  "c_alpha": 244,
+  "c_ast": 240,
+  "c_both": 320,
+  "c_flow": 317,
+  "c_ghidra_only": 0,
+  "c_revkit_only": 0,
+  "c_shape": 293,
+  "c_shape_dwarf": 293,
+  "common": 320,
+  "dwarf": 772,
+  "dwarf_ghidra": 299,
+  "dwarf_revkit": 532,
+  "ghidra": 323,
+  "insn_both": 63032,
+  "insn_ghidra": 63303,
+  "insn_revkit": 80068,
+  "revkit": 565,
+  "truth_ghidra": 310,
+  "truth_revkit": 552
+ },
+ "images": [
+  "msp430/fwkit-msp430x-Os",
+  "msp430/mcukit-msp430-O2",
+  "msp430/mcukit-msp430-Os"
+ ],
+ "rates": {
+  "c_alpha": 0.7625,
+  "c_ast": 0.75,
+  "c_flow": 0.990625,
+  "c_shape": 0.915625,
+  "c_shape_dwarf": 0.915625,
+  "dwarf_recall": 0.689119,
+  "ghidra_dwarf_recall": 0.387306,
+  "ghidra_truth_precision": 0.959752,
+  "listing_both": 0.995719,
+  "precision": 0.566372,
+  "recall": 0.990712,
+  "truth_precision": 0.976991
+ }
+}

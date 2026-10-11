@@ -1,0 +1,94 @@
+{
+ "about": "Memory regions beyond each corpus image's own bytes, added to manifest.json's (which lists only what build.py tells the loaders) for scoring region detection (scripts/detect_cases.py, docs/autodetect.md). 'regions': true regions, exact, added to the manifest's. 'partial': windows of the board's memory map the true regions lie somewhere in (kind ram, mmio, or any: either, or neither, such as ROM), scored for found and false only. Every entry names its source.",
+ "images": {
+  "cortexm/fwkit-cortexm3-O2": {
+   "regions": [
+    {"region": "mmio:e000e000:1000:rw-:volatile",
+     "source": "the System Control Space (ARMv7-M architecture): corpus/firmware/src/fwkit/arch/cortexm.c reads CFSR at 0xe000ed28; the FreeRTOS GCC/ARM_CM3 port (firmware.json) programs SysTick at 0xe000e010-0xe000e018 and the SCB's priorities and ICSR at 0xe000ed04-0xe000ed20"}
+   ]
+  },
+  "cortexm/fwkit-cortexm4-Os": {
+   "regions": [
+    {"region": "mmio:e000e000:1000:rw-:volatile",
+     "source": "as fwkit-cortexm3-O2: arch/cortexm.c and the FreeRTOS GCC/ARM_CM3 port"}
+   ]
+  },
+  "cortexm/uboot-stm32f429-discovery": {
+   "partial": [
+    {"kind": "ram", "region": "ccm:10000000:10000", "source": "STM32F429 reference manual (RM0090) memory map: 64 KiB CCM data RAM"},
+    {"kind": "ram", "region": "sram:20000000:30000", "source": "RM0090: SRAM1-3, 192 KiB"},
+    {"kind": "mmio", "region": "periph:40000000:20000000:rw-:volatile", "source": "ARMv7-M peripheral region; RM0090 APB and AHB peripherals"},
+    {"kind": "mmio", "region": "fmc:a0000000:1000:rw-:volatile", "source": "RM0090: FMC control registers"},
+    {"kind": "ram", "region": "sdram:d0000000:800000", "source": "STM32F429I-DISC1 board: 64 Mbit SDRAM on FMC SDRAM bank 2"},
+    {"kind": "mmio", "region": "ppb:e0000000:100000:rw-:volatile", "source": "ARMv7-M private peripheral bus"},
+    {"kind": "any", "region": "system:1fff0000:7a30", "source": "RM0090: system memory, OTP and the device signature (unique ID, flash size): read-only"}
+   ]
+  },
+  "cortexm/uboot-stm32f746-disco": {
+   "partial": [
+    {"kind": "ram", "region": "itcm:0:4000", "source": "STM32F746 reference manual (RM0385) memory map: 16 KiB ITCM RAM"},
+    {"kind": "ram", "region": "sram:20000000:50000", "source": "RM0385: DTCM 64 KiB, SRAM1 240 KiB, SRAM2 16 KiB"},
+    {"kind": "mmio", "region": "periph:40000000:20000000:rw-:volatile", "source": "ARMv7-M peripheral region; RM0385 APB and AHB peripherals"},
+    {"kind": "any", "region": "qspi:90000000:10000000", "source": "RM0385: Quad-SPI flash, memory-mapped"},
+    {"kind": "mmio", "region": "fmcregs:a0000000:2000:rw-:volatile", "source": "RM0385: FMC and Quad-SPI control registers"},
+    {"kind": "ram", "region": "sdram:c0000000:1000000", "source": "STM32F746G-DISCO board: SDRAM on FMC SDRAM bank 1"},
+    {"kind": "mmio", "region": "ppb:e0000000:100000:rw-:volatile", "source": "ARMv7-M private peripheral bus"},
+    {"kind": "any", "region": "system:1ff00000:10000", "source": "RM0385: system memory, OTP and the device signature: read-only"}
+   ]
+  },
+  "mips/uboot-malta": {
+   "partial": [
+    {"kind": "ram", "region": "sdram:80000000:10000000", "source": "MIPS Malta user's manual memory map: SDRAM at physical 0, through kseg0"},
+    {"kind": "any", "region": "sdram1:a0000000:10000000", "source": "the same SDRAM through kseg1 (uncached)"},
+    {"kind": "mmio", "region": "pci:b0000000:be00000:rw-:volatile", "source": "Malta memory map: PCI memory and I/O through the GT-64120 system controller, through kseg1"},
+    {"kind": "mmio", "region": "gt64120:bbe00000:200000:rw-:volatile", "source": "Malta memory map: GT-64120 system controller registers"},
+    {"kind": "mmio", "region": "fpga:bf000000:c00000:rw-:volatile", "source": "Malta memory map: board FPGA (LEDs, display, UART)"}
+   ]
+  },
+  "mips/uboot-maltael": {
+   "partial": [
+    {"kind": "ram", "region": "sdram:80000000:10000000", "source": "MIPS Malta user's manual memory map: SDRAM at physical 0, through kseg0"},
+    {"kind": "any", "region": "sdram1:a0000000:10000000", "source": "the same SDRAM through kseg1 (uncached)"},
+    {"kind": "mmio", "region": "pci:b0000000:be00000:rw-:volatile", "source": "Malta memory map: PCI memory and I/O through the GT-64120 system controller, through kseg1"},
+    {"kind": "mmio", "region": "gt64120:bbe00000:200000:rw-:volatile", "source": "Malta memory map: GT-64120 system controller registers"},
+    {"kind": "mmio", "region": "fpga:bf000000:c00000:rw-:volatile", "source": "Malta memory map: board FPGA (LEDs, display, UART)"}
+   ]
+  },
+  "ppc/uboot-MPC837XERDB": {
+   "partial": [
+    {"kind": "ram", "region": "ddr:0:10000000", "source": "MPC837xE-RDB: DDR2 SDRAM at 0"},
+    {"kind": "mmio", "region": "immr:e0000000:100000:rw-:volatile", "source": "MPC837x reference manual: the internal memory-mapped registers (IMMR), 1 MiB, which U-Boot moves to 0xe0000000"}
+   ]
+  },
+  "ppc/uboot-MCR3000": {
+   "partial": [
+    {"kind": "ram", "region": "sdram:0:4000000", "source": "MCR3000 board: SDRAM at 0"},
+    {"kind": "mmio", "region": "immr:ff000000:2000:rw-:volatile", "source": "MPC866 reference manual: internal memory map registers at IMMR (0xff000000 on this board)"},
+    {"kind": "ram", "region": "dpram:ff002000:2000", "source": "MPC866 reference manual: dual-port RAM at IMMR + 0x2000, where U-Boot keeps its first stack"}
+   ]
+  },
+  "m68k/uboot-M5208EVBE": {
+   "partial": [
+    {"kind": "ram", "region": "sdram:40000000:2000000", "source": "MCF5208 reference manual memory map, M5208EVBe board: SDRAM at 0x40000000"},
+    {"kind": "ram", "region": "sram:80000000:4000", "source": "MCF5208 reference manual: 16 KiB internal SRAM"},
+    {"kind": "mmio", "region": "ips:fc000000:100000:rw-:volatile", "source": "MCF5208 reference manual: on-chip peripherals (IPS)"}
+   ]
+  },
+  "m68k/uboot-M5373EVB": {
+   "partial": [
+    {"kind": "ram", "region": "sdram:40000000:2000000", "source": "MCF5373 reference manual memory map, M5373EVB board: SDRAM at 0x40000000"},
+    {"kind": "ram", "region": "sram:80000000:8000", "source": "MCF5373 reference manual: 32 KiB internal SRAM"},
+    {"kind": "mmio", "region": "ips:fc000000:100000:rw-:volatile", "source": "MCF5373 reference manual: on-chip peripherals (IPS)"}
+   ]
+  },
+  "sh4/uboot-r2dplus": {
+   "partial": [
+    {"kind": "ram", "region": "sdram:8c000000:4000000", "source": "SH7751R hardware manual, R2D-PLUS board: SDRAM in area 3, through P1"},
+    {"kind": "any", "region": "sdram1:ac000000:4000000", "source": "the same SDRAM through P2 (uncached)"},
+    {"kind": "mmio", "region": "fpga:a4000000:1000000:rw-:volatile", "source": "R2D-PLUS board: FPGA registers in area 1, through P2"},
+    {"kind": "mmio", "region": "pci:fd000000:1000000:rw-:volatile", "source": "SH7751R hardware manual: PCI memory window"},
+    {"kind": "mmio", "region": "p4:fe000000:2000000:rw-:volatile", "source": "SH7751R hardware manual: control registers in P4"}
+   ]
+  }
+ }
+}

@@ -1,0 +1,617 @@
+{
+ "about": "The Ghidra compatibility corpus (run.py): 30 of Ghidra 12.1.4's bundled scripts, ported to Python 3 in scripts/ with their API calls unchanged. Addresses are symbolic ('main', 'main+0x4', 'block:.data', '0x104010'), resolved in each program. 'args' are the script's arguments (getScriptArgs(); they answer ask* in order, as in Ghidra's headless mode; {out} is a file the script may write). 'setup' runs first on both sides; 'compare' names what must agree; 'expect' is 'agree' or {'unsupported': API}. Lines naming an address outside the memory both programs have (Ghidra's ELF EXTERNAL pseudo block, its non-loaded '.symtab::' spaces) are left out of every comparison. 'extra' scenarios are run and reported but are not among the 30. Every scenario runs on the SDK fixture (tests/fixtures/script_target.c, compiled with cc -O1) and on the corpus program elf-x86_64/gcc-O0/debug/features (corpus/manifest.json pins it); 'on' overrides a scenario's addresses and arguments per program.",
+ "scenarios": [
+  {
+   "name": "HelloWorldScript",
+   "script": "HelloWorldScript.py",
+   "source": "Features/Base",
+   "compare": [
+    "output"
+   ]
+  },
+  {
+   "name": "HelloWorldPopupScript",
+   "script": "HelloWorldPopupScript.py",
+   "source": "Features/Base",
+   "compare": [
+    "output",
+    "messages"
+   ]
+  },
+  {
+   "name": "Lab4Script",
+   "script": "Lab4Script.py",
+   "source": "docs/GhidraClass",
+   "args": [
+    "2"
+   ],
+   "compare": [
+    "output"
+   ]
+  },
+  {
+   "name": "Lab5Script",
+   "script": "Lab5Script.py",
+   "source": "docs/GhidraClass",
+   "compare": [
+    "output",
+    "comments"
+   ]
+  },
+  {
+   "name": "AddCommentToProgramScript",
+   "script": "AddCommentToProgramScript.py",
+   "source": "Features/Base",
+   "compare": [
+    "output",
+    "comments"
+   ]
+  },
+  {
+   "name": "CountSymbolsScript",
+   "script": "CountSymbolsScript.py",
+   "source": "Features/Base",
+   "compare": [
+    "output"
+   ],
+   "extra": true,
+   "why": "lists every symbol: Ghidra's ELF loader marks up .dynamic, .eh_frame and the ELF headers with labels (__DT_*, fde_*, cie_*) revkit's loader doesn't make, so it compares the loaders more than the shim"
+  },
+  {
+   "name": "ConvertDotToDashInAutoAnalysisLabels",
+   "script": "ConvertDotToDashInAutoAnalysisLabels.py",
+   "source": "Features/Base",
+   "setup": [
+    {
+     "op": "label",
+     "at": "decrypt+0x11",
+     "name": "case.1",
+     "source": "ANALYSIS"
+    },
+    {
+     "op": "label",
+     "at": "mix+0x4",
+     "name": "kept.by.user",
+     "source": "USER_DEFINED"
+    }
+   ],
+   "compare": [
+    "output",
+    "names"
+   ],
+   "on": {
+    "features": {
+     "setup": [
+      {
+       "op": "label",
+       "at": "fnv1a+0x8",
+       "name": "case.1",
+       "source": "ANALYSIS"
+      },
+      {
+       "op": "label",
+       "at": "run_vm+0x8",
+       "name": "kept.by.user",
+       "source": "USER_DEFINED"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "FormatExampleScript",
+   "script": "FormatExampleScript.py",
+   "source": "Features/Base",
+   "compare": [
+    "output"
+   ],
+   "normalize": {
+    "replace": [
+     [
+      "\\b(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day\\b",
+      "DAY"
+     ],
+     [
+      "\\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\b",
+      "DY"
+     ],
+     [
+      "\\b(January|February|March|April|May|June|July|August|September|October|November|December)\\b",
+      "MONTH"
+     ],
+     [
+      "\\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\b",
+      "MON"
+     ],
+     [
+      "\\d+",
+      "#"
+     ]
+    ]
+   }
+  },
+  {
+   "name": "IterateDataScript",
+   "script": "IterateDataScript.py",
+   "source": "Features/Base",
+   "compare": [
+    "output"
+   ],
+   "extra": true,
+   "why": "lists every defined data item: Ghidra's ELF loader defines the ELF headers, .dynamic, .eh_frame and symbol-sized arrays revkit's loader doesn't"
+  },
+  {
+   "name": "IterateInstructionsScript",
+   "script": "IterateInstructionsScript.py",
+   "source": "Features/Base",
+   "compare": [
+    "output"
+   ],
+   "model_difference": "revkit's analysis doesn't disassemble the .plt's lazy-binding code that only the GOT reaches (the fixture's three PUSH/JMP stubs, the PUSH/JMP after each of features' PLT jumps); Ghidra's does. Every other instruction's text agrees."
+  },
+  {
+   "name": "IterateFunctionsScript",
+   "script": "IterateFunctionsScript.py",
+   "source": "Features/Base",
+   "args": [
+    "true"
+   ],
+   "compare": [
+    "output"
+   ],
+   "normalize": {
+    "drop_lines": [
+     "^found forward = "
+    ]
+   },
+   "why_normalize": "Ghidra's count includes the 8 functions of its ELF EXTERNAL pseudo block, which revkit doesn't have; every function listed in the program's memory is compared"
+  },
+  {
+   "name": "IterateFunctionsByAddressScript",
+   "script": "IterateFunctionsByAddressScript.py",
+   "source": "Features/Base",
+   "args": [
+    "true"
+   ],
+   "compare": [
+    "output"
+   ],
+   "normalize": {
+    "drop_lines": [
+     "^found \\d+ functions"
+    ]
+   },
+   "why_normalize": "Ghidra's count includes the 8 functions of its ELF EXTERNAL pseudo block, which revkit doesn't have; every function listed in the program's memory is compared"
+  },
+  {
+   "name": "FindTextScript",
+   "script": "FindTextScript.py",
+   "source": "Features/Base",
+   "address": "main",
+   "args": [
+    "raw_getpid"
+   ],
+   "compare": [
+    "output"
+   ],
+   "on": {
+    "features": {
+     "args": [
+      "run_vm"
+     ]
+    }
+   }
+  },
+  {
+   "name": "ExportFunctionInfoScript",
+   "script": "ExportFunctionInfoScript.py",
+   "source": "Features/Base",
+   "args": [
+    "{out}"
+   ],
+   "compare": [
+    "output",
+    "file"
+   ],
+   "normalize": {
+    "replace": [
+     [
+      "functions to .*$",
+      "functions to {out}"
+     ]
+    ],
+    "file_json_common": "entry"
+   }
+  },
+  {
+   "name": "PrintFunctionCallTreesScript",
+   "script": "PrintFunctionCallTreesScript.py",
+   "source": "Features/Base",
+   "address": "main+0x4",
+   "compare": [
+    "output"
+   ]
+  },
+  {
+   "name": "ReportPercentDisassembled",
+   "script": "ReportPercentDisassembled.py",
+   "source": "Features/Base",
+   "compare": [
+    "output",
+    "messages"
+   ],
+   "model_difference": "the same .plt code: 84.1% of the executable bytes are instructions in revkit and 90.3% in Ghidra on the fixture, 98.4% and 99.7% on features"
+  },
+  {
+   "name": "FindAndReplaceCommentScript",
+   "script": "FindAndReplaceCommentScript.py",
+   "source": "Features/Base",
+   "setup": [
+    {
+     "op": "comment",
+     "at": "main",
+     "kind": "eol",
+     "text": "check the secret"
+    },
+    {
+     "op": "comment",
+     "at": "mix",
+     "kind": "pre",
+     "text": "mixes a secret value"
+    },
+    {
+     "op": "comment",
+     "at": "decrypt",
+     "kind": "plate",
+     "text": "decrypts the secret\nin place"
+    },
+    {
+     "op": "comment",
+     "at": "parse_config",
+     "kind": "post",
+     "text": "no match here"
+    }
+   ],
+   "args": [
+    "secret",
+    "SECRET"
+   ],
+   "compare": [
+    "output",
+    "comments"
+   ],
+   "normalize": {
+    "drop_lines": [
+     "^$"
+    ]
+   },
+   "on": {
+    "features": {
+     "setup": [
+      {
+       "op": "comment",
+       "at": "main",
+       "kind": "eol",
+       "text": "check the secret"
+      },
+      {
+       "op": "comment",
+       "at": "fnv1a",
+       "kind": "pre",
+       "text": "hashes a secret value"
+      },
+      {
+       "op": "comment",
+       "at": "run_bits",
+       "kind": "plate",
+       "text": "twiddles the secret\nbits"
+      },
+      {
+       "op": "comment",
+       "at": "run_vm",
+       "kind": "post",
+       "text": "no match here"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "RemoveSymbolQuotesScript",
+   "script": "RemoveSymbolQuotesScript.py",
+   "source": "Features/Base",
+   "setup": [
+    {
+     "op": "label",
+     "at": "sha256_iv",
+     "name": "`sha256'iv",
+     "source": "IMPORTED"
+    },
+    {
+     "op": "label",
+     "at": "aes_sbox",
+     "name": "aes'sbox",
+     "source": "USER_DEFINED"
+    }
+   ],
+   "compare": [
+    "output",
+    "names"
+   ],
+   "on": {
+    "features": {
+     "setup": [
+      {
+       "op": "label",
+       "at": "__dso_handle",
+       "name": "`__dso'_handle",
+       "source": "IMPORTED"
+      },
+      {
+       "op": "label",
+       "at": "_DYNAMIC",
+       "name": "_DYNA'MIC",
+       "source": "USER_DEFINED"
+      }
+     ],
+     "note": "not the DWARF-named globals (table, modules): in revkit a debug-info import's names outrank a script's edits, so the script couldn't change them"
+    }
+   }
+  },
+  {
+   "name": "DeleteFunctionDefaultPlatesScript",
+   "script": "DeleteFunctionDefaultPlatesScript.py",
+   "source": "Features/Base",
+   "setup": [
+    {
+     "op": "comment",
+     "at": "main",
+     "kind": "plate",
+     "text": " FUNCTION"
+    },
+    {
+     "op": "comment",
+     "at": "mix",
+     "kind": "plate",
+     "text": " FUNCTION"
+    },
+    {
+     "op": "comment",
+     "at": "decrypt",
+     "kind": "plate",
+     "text": " FUNCTION\nwith more"
+    }
+   ],
+   "compare": [
+    "output",
+    "comments"
+   ],
+   "on": {
+    "features": {
+     "setup": [
+      {
+       "op": "comment",
+       "at": "main",
+       "kind": "plate",
+       "text": " FUNCTION"
+      },
+      {
+       "op": "comment",
+       "at": "fnv1a",
+       "kind": "plate",
+       "text": " FUNCTION"
+      },
+      {
+       "op": "comment",
+       "at": "run_vm",
+       "kind": "plate",
+       "text": " FUNCTION\nwith more"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "AutoRenameSimpleLabels",
+   "script": "AutoRenameSimpleLabels.py",
+   "source": "Features/Base",
+   "compare": [
+    "output_sorted",
+    "names",
+    "comments"
+   ],
+   "why_normalize": "getAllSymbols(true) walks Ghidra's symbols in database order and revkit's in address order, so the output lines are compared sorted"
+  },
+  {
+   "name": "ClearOrphanFunctions",
+   "script": "ClearOrphanFunctions.py",
+   "source": "Features/Base",
+   "compare": [
+    "output",
+    "functions",
+    "comments"
+   ],
+   "model_difference": "revkit has no references from the ELF headers, .dynamic, .init_array and .fini_array (Ghidra's loader marks them up), and its references come from code inside functions, so removing _start removes its reference to main: revkit removes 7 functions, Ghidra none"
+  },
+  {
+   "name": "CreateFunctionsFromSelection",
+   "script": "CreateFunctionsFromSelection.py",
+   "source": "Features/Base",
+   "setup": [
+    {
+     "op": "remove_function",
+     "at": "mix"
+    }
+   ],
+   "selection": [
+    "mix",
+    "mix+0x27"
+   ],
+   "compare": [
+    "output",
+    "functions"
+   ],
+   "on": {
+    "features": {
+     "setup": [
+      {
+       "op": "remove_function",
+       "at": "fnv1a"
+      }
+     ],
+     "selection": [
+      "fnv1a",
+      "end:fnv1a"
+     ]
+    }
+   }
+  },
+  {
+   "name": "MakeFunctionsScript",
+   "script": "MakeFunctionsScript.py",
+   "source": "Features/Base",
+   "args": [
+    "f3 0f 1e fa"
+   ],
+   "compare": [
+    "output",
+    "functions"
+   ],
+   "note": "no setup: removing a function first made revkit re-create it when the script disassembled there (revkit makes a function at a function symbol once its code is disassembled; Ghidra doesn't), so the script's createFunction found it made; the .plt stubs exercise disassemble and createFunction instead",
+   "on": {
+    "features": {
+     "args": [
+      "55 48 89 e5"
+     ]
+    }
+   }
+  },
+  {
+   "name": "XorMemoryScript",
+   "script": "XorMemoryScript.py",
+   "source": "Features/Base",
+   "address": "secret",
+   "selection": [
+    "secret",
+    "secret+0xb"
+   ],
+   "args": [
+    "5a"
+   ],
+   "bytes": [
+    [
+     "secret",
+     12
+    ]
+   ],
+   "compare": [
+    "output",
+    "bytes"
+   ],
+   "on": {
+    "features": {
+     "address": "table",
+     "selection": [
+      "table",
+      "table+0xf"
+     ],
+     "bytes": [
+      [
+       "table",
+       16
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "RecursiveStringFinder",
+   "script": "RecursiveStringFinder.py",
+   "source": "Features/Base (Jython)",
+   "address": "main+0x4",
+   "compare": [
+    "output"
+   ],
+   "normalize": {
+    "drop_lines": [
+     "^<(java )?class "
+    ]
+   },
+   "on": {
+    "features": {
+     "model_difference": "Ghidra's analysis also references the string from the MOV RDI,RAX that passes LEA's pointer on (constant propagation), so its tree lists those strings twice; revkit references the LEA only"
+    }
+   }
+  },
+  {
+   "name": "LocateMemoryAddressesForFileOffset",
+   "script": "LocateMemoryAddressesForFileOffset.py",
+   "source": "Features/Base (Jython)",
+   "args": [
+    "2004"
+   ],
+   "compare": [
+    "output",
+    "comments"
+   ],
+   "on": {
+    "features": {
+     "args": [
+      "6004"
+     ]
+    }
+   }
+  },
+  {
+   "name": "CallAnotherScript",
+   "script": "CallAnotherScript.py",
+   "source": "Features/Base",
+   "expect": {
+    "unsupported": "runScript"
+   }
+  },
+  {
+   "name": "SelectFunctionsScript",
+   "script": "SelectFunctionsScript.py",
+   "source": "Features/Base",
+   "expect": {
+    "unsupported": "createSelection"
+   }
+  },
+  {
+   "name": "ComputeCyclomaticComplexity",
+   "script": "ComputeCyclomaticComplexity.py",
+   "source": "Features/Base",
+   "address": "main",
+   "expect": {
+    "unsupported": "ghidra.program.util.CyclomaticComplexity"
+   }
+  },
+  {
+   "name": "PyGhidraBasics",
+   "script": "PyGhidraBasics.py",
+   "source": "Features/PyGhidra",
+   "expect": {
+    "unsupported": "java.util.LinkedList"
+   }
+  },
+  {
+   "name": "GraphASTScript",
+   "script": "GraphASTScript.py",
+   "source": "Features/Decompiler",
+   "address": "main",
+   "expect": {
+    "unsupported": "state.getTool"
+   }
+  },
+  {
+   "name": "DumpFunctionBitPatternInfoForCurrentFunctionScript",
+   "script": "DumpFunctionBitPatternInfoForCurrentFunctionScript.py",
+   "source": "Features/BytePatterns",
+   "address": "main",
+   "expect": {
+    "unsupported": "ghidra.bitpatterns.info.DataGatheringParams"
+   }
+  }
+ ]
+}

@@ -1,0 +1,813 @@
+// The assertion log: user, importer and agent edits. The log is append-only:
+// undo appends a retraction, so every edit stays blame-able and every
+// author's edits stay revertible as a group.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "revkit/v1/common.proto";
+import "revkit/v1/diff.proto";
+import "revkit/v1/types.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// The append-only assertion log: edits with provenance, retraction,
+// history, blame and bulk revert.
+service AssertionService {
+  // Appends a batch of assertions atomically: all land in one new revision
+  // or none do (INVALID_ARGUMENT names the offending index). Returns the
+  // stored assertions with their sequence numbers and canonical keys.
+  rpc AppendAssertions(AppendAssertionsRequest) returns (AppendAssertionsResponse);
+  // Retracts assertions by sequence number, appending one retraction per
+  // target in a single revision. Retracting a retraction re-instates its
+  // target.
+  rpc RetractAssertions(RetractAssertionsRequest) returns (RetractAssertionsResponse);
+  // Every assertion and retraction touching one key, oldest first.
+  rpc GetHistory(GetHistoryRequest) returns (GetHistoryResponse);
+  // The effective value of a key, which assertion (or derivation) produced
+  // it, and every competing assertion with its status.
+  rpc Blame(BlameRequest) returns (BlameResponse);
+  // Assertions matching a filter (by provenance, kind, address, revision).
+  rpc ListAssertions(ListAssertionsRequest) returns (ListAssertionsResponse);
+  // Reverts an author's work in one revision: retracts every assertion AND
+  // every retraction whose provenance matches, live or not, as the fact
+  // store's revert does. Retracting their retractions reinstates what they
+  // removed; retracting even already-retracted ops means a later undo of
+  // one of their retractions cannot revive their work. A full revert thus
+  // reads as if the author had never acted, and is itself undoable. The
+  // usual way to undo an agent run: filter by kind AGENT and session.
+  rpc RevertByProvenance(RevertByProvenanceRequest) returns (RevertByProvenanceResponse);
+}
+
+// ---------------------------------------------------------------------------
+// Assertion bodies
+// ---------------------------------------------------------------------------
+
+// What an assertion says. Each body maps to exactly one FactKey (documented
+// per message); the server computes it and returns it in Assertion.key.
+message AssertionBody {
+  oneof kind {
+    Rename rename = 1;
+    Retype retype = 2;
+    Comment comment = 3;
+    SetFunctionBounds function_bounds = 4;
+    FlowOverride flow_override = 5;
+    Note note = 6;
+    // Added in api_minor 4 (feature "define-types").
+    DefineType define_type = 7;
+    // Added in api_minor 11 (feature "type-names").
+    BindTypeName bind_type_name = 8;
+    // A version-tracking match (FACT_KIND_MATCH), written by DiffService
+    // only (api_minor 16, feature "diff"); AppendAssertions refuses it.
+    DiffMatchBody diff_match = 9;
+    // A byte patch (FACT_KIND_PATCH), written by PatchService only
+    // (api_minor 27, feature "patch"); AppendAssertions refuses it.
+    PatchBody patch = 20;
+    // A memory-map edit (FACT_KIND_MEMORY_REGION), written by
+    // AddMemoryRegion, UpdateMemoryRegion and RemoveMemoryRegion only
+    // (api_minor 24, feature "memory-map"); AppendAssertions refuses it.
+    MemoryRegionEdit memory_region = 10;
+    // What bytes are (FACT_KIND_CODE_UNIT): Clear, Disassemble here, Define
+    // data, from the listing (api_minor 30, feature "listing-edit";
+    // docs/listing-edit.md).
+    ListingEdit listing_edit = 21;
+    // Constant or volatile memory by range (FACT_KIND_MUTABILITY; api_minor
+    // 30, feature "listing-edit").
+    SetMutability mutability = 22;
+    // A named type's category (api_minor 35, feature "type-archive").
+    SetTypeCategory type_category = 23;
+    // How a scalar operand shows: a format (Ghidra's Convert) or an
+    // equate name or enum member (Set Equate) (FACT_KIND_EQUATE; api_minor
+    // 39, feature "equates"; docs/api.md "Equates and user references").
+    OperandDisplay operand_display = 24;
+    // A reference the user added from an instruction, or one of analysis's
+    // the user deleted (FACT_KIND_REFERENCE; api_minor 39, feature
+    // "user-references").
+    UserReference reference = 25;
+    // The program moved to a new image base (FACT_KIND_REBASE; api_minor
+    // 42, feature "rebase"), written by ProjectService.SetImageBase only.
+    ImageBaseBody image_base = 26;
+    // A type archive attached to the project, or a library archive turned
+    // off or on, for every program of the project (api_minor 52, feature
+    // "project-types"; docs/types.md#project-types). NOTE key in the
+    // project's space, sub "revkit:type-archive:<name>".
+    TypeArchiveSetting type_archive = 27;
+    // The prototype one call uses, in place of its callee's (Ghidra's
+    // Override Signature; FACT_KIND_CALL_SIGNATURE; api_minor 53, feature
+    // "call-signature-override").
+    CallSignatureOverride call_signature = 28;
+    // Whether a function returns (Ghidra's Edit Function "No Return" and
+    // Set No-Return; FACT_KIND_NO_RETURN; api_minor 66, feature "no-return").
+    SetNoReturn no_return = 29;
+    // The program's language changed (FACT_KIND_LANGUAGE; api_minor 73,
+    // feature "set-language"), written by ProjectService.SetProgramLanguage
+    // only.
+    ProgramLanguageBody language = 30;
+  }
+}
+
+// Key: LANGUAGE at address 0 in the program. The language and compiler
+// spec the program is decoded and analyzed in from this edit on, and what
+// it was before.
+message ProgramLanguageBody {
+  string language_id = 1;
+  string compiler_spec_id = 2;
+  string previous_language_id = 3;
+  string previous_compiler_spec_id = 4;
+}
+
+// Key: NO_RETURN at the function's entry. no_return true: calls to it end
+// their caller's flow there (discovery stops the caller's body, the
+// listing's flow and the decompiler's after the call); false: it returns,
+// even where analysis found it doesn't (a name on the known list, or no
+// path to a return). Retracting it gives analysis its say again. A function
+// at the address is required.
+message SetNoReturn {
+  Address function = 1;
+  bool no_return = 2;
+}
+
+// Key: CALL_SIGNATURE at the call instruction. The decompiler takes this
+// prototype for the call alone (its arguments, return value and calling
+// convention), as Ghidra's per-call-site prototype override does: for a
+// call to a varargs function, the arguments this call passes; for a
+// computed call, its target's prototype. A call instruction is required
+// (a direct, computed or conditional call). An unset `signature` removes
+// the override (Ghidra's Remove Signature Override); undo retracts it.
+message CallSignatureOverride {
+  Address call = 1;
+  // A function type by hash, or a C prototype ("int printf(char *fmt, int
+  // n)"): parsed against the program's types (types it lacks are defined
+  // with it, as for a retype) and stored by hash. The name in a C
+  // prototype is ignored.
+  TypeSpec signature = 2;
+}
+
+// Key: REBASE at address 0. What SetImageBase did: the program's base
+// before and after (the import base when nothing moved it).
+message ImageBaseBody {
+  uint64 image_base = 1;
+  uint64 previous_image_base = 2;
+  uint64 import_image_base = 3;
+}
+
+// How a scalar shows, as Ghidra's Convert menu says. Widths are the
+// scalar's (ListingToken.scalar_bits; for a decompiler constant, its
+// size).
+enum ScalarFormat {
+  // As the disassembler prints it: clears a conversion or an equate.
+  SCALAR_FORMAT_UNSPECIFIED = 0;
+  // Unsigned hexadecimal: 0xfffffff0.
+  SCALAR_FORMAT_HEX = 1;
+  // Signed decimal: -16.
+  SCALAR_FORMAT_SIGNED_DECIMAL = 2;
+  // Unsigned decimal: 4294967280.
+  SCALAR_FORMAT_UNSIGNED_DECIMAL = 3;
+  // Unsigned octal, Ghidra's suffix: 37777777760o.
+  SCALAR_FORMAT_OCTAL = 4;
+  // Unsigned binary, Ghidra's suffix: 11110000b.
+  SCALAR_FORMAT_BINARY = 5;
+  // Characters, most significant byte first: 'A', 'AB', '\n', '\x01'.
+  SCALAR_FORMAT_CHAR = 6;
+  // The bits as an IEEE 754 float (a 32-bit scalar) or double (64-bit):
+  // 1.5. Refused for other widths.
+  SCALAR_FORMAT_FLOAT = 7;
+}
+
+// An equate: a name shown in place of a value (Ghidra's Set Equate).
+message EquateName {
+  // The name: no whitespace or control characters, at most 256 bytes.
+  // One name has one value program-wide (the server refuses a second).
+  // For an enum member the server fills it with `member`.
+  string name = 1;
+  // An enum member (Ghidra's enum equate): the enum by type hash and the
+  // member's name, whose value must be the scalar's.
+  string enum_type_hash = 2;
+  string member = 3;
+}
+
+// Which scalars an OperandDisplay applies to, besides its own.
+enum EquateScope {
+  // Only the operand it names.
+  EQUATE_SCOPE_UNSPECIFIED = 0;
+  // Every operand of the function containing `address` that holds the
+  // same value (Ghidra's "Apply to all scalars in the function").
+  EQUATE_SCOPE_FUNCTION = 1;
+  // Every operand in the program that holds the same value.
+  EQUATE_SCOPE_PROGRAM = 2;
+}
+
+// Key: EQUATE at `address`, sub = "<operand index>:<value in hex>", or
+// "h<hash in hex>:<value in hex>" for a decompiler constant no operand of
+// the instruction holds. How one scalar shows, in the listing (the
+// operand's text, ListingToken.display_origin) and in the decompiler (the
+// constant the instruction's p-code holds, as Ghidra's Java side sends
+// equates: docs/decompiler-inputs.md "Equates").
+//
+// `value` is the scalar's value as a 64-bit pattern (ListingToken.value,
+// or CodeToken.value of a decompiler constant). Without `operand_index`
+// the server finds the operand holding it (sign extension allowed); a
+// decompiler constant no operand holds needs `constant_hash`
+// (CodeToken.constant_hash). The stored body has the operand and the
+// operand's own value. A display that is unset (or format UNSPECIFIED)
+// shows the scalar as the disassembler prints it again, whoever set it.
+//
+// `apply_to` also sets the same display on every other operand holding
+// the value in the function or program: the response has one assertion
+// per operand, this one's first and the others after the request's.
+message OperandDisplay {
+  Address address = 1;
+  optional uint32 operand_index = 2;
+  uint64 value = 3;
+  oneof display {
+    ScalarFormat format = 4;
+    EquateName equate = 5;
+  }
+  uint64 constant_hash = 6;
+  EquateScope apply_to = 7;
+}
+
+// A reference's type, as Ghidra's RefType names them.
+enum ReferenceType {
+  REFERENCE_TYPE_UNSPECIFIED = 0;
+  // The address is taken (Ghidra's DATA): XREF_KIND_DATA_POINTER.
+  REFERENCE_TYPE_DATA = 1;
+  REFERENCE_TYPE_DATA_READ = 2;
+  REFERENCE_TYPE_DATA_WRITE = 3;
+  // UNCONDITIONAL_CALL: the target is a function.
+  REFERENCE_TYPE_CALL = 4;
+  // UNCONDITIONAL_JUMP.
+  REFERENCE_TYPE_JUMP = 5;
+  // COMPUTED_CALL: a computed call's target, which discovery makes a
+  // function and the decompiler calls directly (XREF_KIND_INDIRECT_CALL).
+  REFERENCE_TYPE_COMPUTED_CALL = 6;
+  // COMPUTED_JUMP: one of a computed jump's targets (a switch's case),
+  // which flow follows and the decompiler takes as the jump's table
+  // (XREF_KIND_INDIRECT_JUMP).
+  REFERENCE_TYPE_COMPUTED_JUMP = 7;
+}
+
+// Key: REFERENCE at `from`, sub = "<operand index>:<to in hex>", or
+// "i:<to in hex>" for the instruction as a whole (Ghidra's mnemonic
+// reference). A reference from the instruction at `from` to `to`
+// (Ghidra's References > Add), which xrefs list with this assertion as
+// their origin. Call types make `to` a function (discovery follows them
+// from any instruction a function's flow reaches); computed jumps add to
+// the jump's targets. `primary` shows the operand as `to`'s symbol in the
+// listing; a primary call on a computed call makes the decompiler call `to`
+// (Ghidra's call override). `remove` deletes the reference instead: the
+// user's own at this key, and every reference analysis made from `from`
+// to `to`, from xrefs (discovery keeps what it found).
+message UserReference {
+  Address from = 1;
+  optional uint32 operand_index = 2;
+  Address to = 3;
+  ReferenceType type = 4;
+  bool primary = 5;
+  bool remove = 6;
+}
+
+// Key: CODE_UNIT at `address`, sub "clear:<hex length>", "code" or "data".
+// Says what the bytes from `address` are, as Ghidra's Clear Code Bytes,
+// Disassemble and Data menu say it. Edits overlap freely: each byte goes
+// to the live edit of the highest precedence, then the most recent, and a
+// data definition holds only while it owns all its bytes (a later edit
+// over part of it removes it). Retracting an edit (undo) gives the bytes
+// back to what was there before. Discovery, data analysis, the listing,
+// references and the decompiler follow (docs/listing-edit.md).
+message ListingEdit {
+  Address address = 1;
+  oneof kind {
+    ClearCode clear = 2;
+    Disassemble disassemble = 3;
+    DefineData data = 4;
+  }
+}
+
+// The bytes [address, address + length) go back to undefined bytes:
+// instructions and data there go away, nothing analysis finds may start
+// in them (no function, no code flowing in, no data), until a later
+// Disassemble here or Define data over them.
+message ClearCode {
+  uint64 length = 1;
+}
+
+// Which instruction set to decode in, where a language has two (ARM and
+// Thumb). UNSPECIFIED: as the context there says (Ghidra's Disassemble).
+enum InstructionSet {
+  INSTRUCTION_SET_UNSPECIFIED = 0;
+  INSTRUCTION_SET_ARM = 1;
+  INSTRUCTION_SET_THUMB = 2;
+}
+
+// Code starts at the address: discovery decodes from there and follows its
+// flow, also through bytes analysis took for data and bytes cleared
+// before this edit, and outside executable memory. It is code, not a
+// function, unless `function` is set or something calls it.
+message Disassemble {
+  InstructionSet instruction_set = 1;
+  // Also a function starting here.
+  bool function = 2;
+}
+
+// How a string's length is known.
+enum StringLayout {
+  STRING_LAYOUT_UNSPECIFIED = 0;
+  // Up to and including the terminating NUL character (the server reads
+  // the bytes when the edit is made).
+  STRING_LAYOUT_TERMINATED = 1;
+  // Exactly DefineData.count characters.
+  STRING_LAYOUT_FIXED = 2;
+  // A length prefix of one byte (Pascal, Ghidra's PascalString255), or
+  // two bytes (Ghidra's PascalString), then that many characters.
+  STRING_LAYOUT_PASCAL = 3;
+  STRING_LAYOUT_PASCAL16 = 4;
+}
+
+enum StringEncoding {
+  STRING_ENCODING_UNSPECIFIED = 0;
+  // Bytes: ASCII or UTF-8 (char).
+  STRING_ENCODING_UTF8 = 1;
+  // 16-bit units (wchar16), in the program's byte order.
+  STRING_ENCODING_UTF16 = 2;
+  // 32-bit units (wchar32).
+  STRING_ENCODING_UTF32 = 3;
+}
+
+// A data item at the address: `type` (an integer, pointer, float, char,
+// struct, union, enum or typedef: any program or library type, by hash or
+// as C text the server parses), or an array of `count` of them, or a
+// string. In responses and stored bodies the server fills `size`,
+// `type_hash` and `type_name`.
+message DefineData {
+  TypeSpec type = 1;
+  // An array of this many elements; 0: not an array. For a fixed-length
+  // string, its characters.
+  uint64 count = 2;
+  // A string (then `type` is ignored): its characters and layout.
+  StringEncoding string = 3;
+  StringLayout layout = 4;
+  // Show it on one row (the default for arrays), or a row per field or
+  // element (the default for structs and unions).
+  optional bool collapsed = 5;
+  // Set by the server.
+  uint64 size = 6;
+  string type_hash = 7;
+  string type_name = 8;
+}
+
+enum Mutability {
+  MUTABILITY_UNSPECIFIED = 0;
+  // As the memory map says (writable blocks normal, read-only ones
+  // constant): cancels an earlier edit over the range.
+  MUTABILITY_DEFAULT = 1;
+  // Read and written: never folded, even in read-only memory.
+  MUTABILITY_NORMAL = 2;
+  // Never written: the decompiler folds reads to the value in the bytes.
+  MUTABILITY_CONSTANT = 3;
+  // Memory-mapped I/O: every read and write is kept.
+  MUTABILITY_VOLATILE = 4;
+}
+
+// Key: MUTABILITY at `address`, sub = "<hex length>". The range
+// [address, address + length) is constant, volatile or writable for the
+// decompiler, whatever its block's permissions say (Ghidra's data
+// mutability setting, per range). Overlapping edits compose like
+// ListingEdit's.
+message SetMutability {
+  Address address = 1;
+  uint64 length = 2;
+  Mutability mutability = 3;
+}
+
+// Key: PATCH at address. What the patch wrote, what was there, and for an
+// instruction patch the line as typed (docs/patching.md).
+message PatchBody {
+  Address address = 1;
+  bytes data = 2;
+  bytes original = 3;
+  string text = 4;
+  // The disassembler's text of the patched instruction when it was written.
+  string canonical_text = 5;
+  // Other encodings the assembler found, and the context it used ("TMode=1").
+  uint32 alternatives = 6;
+  string context = 7;
+}
+
+// What a memory-map edit did: the region (or image block) and its state
+// after the edit; `removed` when it was removed or its edits reverted.
+message MemoryRegionEdit {
+  // A region the user added, or an image block by its start.
+  string region_id = 1;
+  Address block_start = 2;
+  bool removed = 3;
+  // The state after the edit (as MemoryRegion has it).
+  string name = 4;
+  uint64 start = 5;
+  uint64 size = 6;
+  bool read = 7;
+  bool write = 8;
+  bool execute = 9;
+  bool initialized = 10;
+  bool is_volatile = 11;
+  // Bytes from a file: its name, where they start in it and how many.
+  string file = 12;
+  uint64 file_offset = 13;
+  uint64 length = 14;
+}
+
+// The thing a rename or retype applies to.
+message Target {
+  oneof kind {
+    // A function, label, or global at this address.
+    Address address = 1;
+    // A local variable or parameter of a function.
+    LocalVariableRef local = 2;
+  }
+}
+
+// Identifies a local variable or parameter independently of its name, so a
+// rename does not change its identity.
+message LocalVariableRef {
+  // Entry point of the owning function.
+  Address function = 1;
+  // Storage key as returned in Variable.storage_key, e.g. "stack:-0x14",
+  // "register:RDI", "param:0".
+  string storage_key = 2;
+}
+
+// Key: NAME at the address, or NAME at function entry with
+// sub = "local:<storage_key>" for locals. An empty name clears a user name
+// back to the derived default.
+message Rename {
+  Target target = 1;
+  string name = 2;
+}
+
+// Key: TYPE at the address (data type or, at a function entry, its
+// prototype), or TYPE with sub = "local:<storage_key>" for locals.
+message Retype {
+  Target target = 1;
+  TypeSpec type = 2;
+}
+
+// A data type, by content hash or as C source the server parses.
+message TypeSpec {
+  oneof kind {
+    // TypeDefinition.hash of an existing type.
+    string type_hash = 1;
+    // C declaration: "char *", "struct foo", or for a function prototype a
+    // full declaration "int main(int argc, char **argv)".
+    string c_declaration = 2;
+  }
+}
+
+enum CommentKind {
+  COMMENT_KIND_UNSPECIFIED = 0;
+  COMMENT_KIND_EOL = 1;
+  COMMENT_KIND_PRE = 2;
+  COMMENT_KIND_POST = 3;
+  COMMENT_KIND_PLATE = 4;
+  COMMENT_KIND_REPEATABLE = 5;
+  // Shown in the decompiler view at the statement for this address.
+  COMMENT_KIND_DECOMPILER = 6;
+}
+
+// Key: COMMENT at the address, sub = "eol" | "pre" | "post" | "plate" |
+// "repeatable" | "decompiler". Empty text deletes the comment.
+message Comment {
+  Address address = 1;
+  CommentKind kind = 2;
+  string text = 3;
+}
+
+// Key: FUNCTION_BOUNDS at entry. Declares a function at entry. An empty body
+// lets analysis discover the body by following flow; a non-empty body pins
+// it. remove = true asserts there is no function at entry.
+message SetFunctionBounds {
+  Address entry = 1;
+  repeated AddressRange body = 2;
+  bool remove = 3;
+}
+
+enum FlowOverrideKind {
+  FLOW_OVERRIDE_KIND_UNSPECIFIED = 0;
+  // Explicitly no override (cancels a derived or imported one).
+  FLOW_OVERRIDE_KIND_NONE = 1;
+  // Treat a call as a branch (tail call into the same function).
+  FLOW_OVERRIDE_KIND_BRANCH = 2;
+  // Treat a branch as a call.
+  FLOW_OVERRIDE_KIND_CALL = 3;
+  // Treat as a call followed by a return (tail call).
+  FLOW_OVERRIDE_KIND_CALL_RETURN = 4;
+  // Treat as a return.
+  FLOW_OVERRIDE_KIND_RETURN = 5;
+}
+
+// Key: FLOW_OVERRIDE at the instruction address.
+message FlowOverride {
+  Address address = 1;
+  FlowOverrideKind kind = 2;
+}
+
+// Key: NOTE at the address, sub = tag. Free-form annotation for humans and
+// agents ("hypothesis", "todo", "vuln"), not shown inline in code views.
+message Note {
+  Address address = 1;
+  string tag = 2;
+  string text = 3;
+}
+
+// Key: TYPE_DEF with sub = the content hash of `type` (address unused).
+// Defines a type in the program's type store, so a Retype can name it by
+// hash. Added in api_minor 4 (feature "define-types").
+//
+// Types that refer to each other (struct node { struct node *next; }) are
+// defined in one AppendAssertions request, each define_type naming the
+// others by TypeNodeRef.assertion_index. The server interns them as one batch,
+// so equal types get equal hashes however they were described, and stores
+// each body with those references replaced by hashes. Later assertions in
+// the same request (a Retype by type_hash) may use the hashes; a client
+// learns them beforehand with validate_only, whose keys carry them in sub.
+message DefineType {
+  TypeNode type = 1;
+}
+
+// Key: TYPE_DEF with sub = "name:<struct|union|enum|typedef> <name>".
+// Makes `type`, a named struct, union, enum or typedef, the program's
+// definition of its name: wherever another type of that kind and name is
+// used (in a prototype, a global's or a variable's type, inside another
+// type), the decompiler and every display use this one instead, as an
+// edit of a type in Ghidra's data type manager reaches all its uses.
+// GetTypes is unaffected (a hash still names one immutable definition).
+// Retracting it restores the previous binding, or none. Edit a type by
+// defining the new version and binding it in one request (assertion_index).
+// Added in api_minor 11 (feature "type-names").
+message BindTypeName {
+  TypeNodeRef type = 1;
+}
+
+// Key: TYPE_DEF with sub = "category:<struct|union|class|enum|typedef> <name>".
+// Files a named type under a category (a folder of the types view), as
+// Ghidra's category paths do: "/net/http" ('/'-separated, absolute; no
+// empty, "." or ".." parts; at most 1024 bytes and 32 levels). The path
+// is the name's, not a definition's: every definition of the name is
+// filed there. An empty path, or "/", files it at the top (no category).
+// Debug info files its types under the header that declared them; a
+// header import under the header's name; a type archive's import under
+// the archive's categories. Added in api_minor 35 (feature "type-archive").
+message SetTypeCategory {
+  string named_key = 1;
+  string path = 2;
+}
+
+message TypeArchiveSetting {
+  // A shipped archive's name ("libc-lp64"), "ghidra" for Ghidra's .gdt,
+  // or an attached archive's (letters, digits, '_', '-', '.').
+  string name = 1;
+  bool enabled = 2;
+  // To attach an archive: its header (and, optionally, its sidecar, whose
+  // data model and origin ListTypeArchives reports). Empty for a shipped
+  // archive's setting.
+  string header = 3;
+  string sidecar = 4;
+  // Detaches an attached archive (the setting is then "nothing").
+  bool detach = 5;
+}
+
+// ---------------------------------------------------------------------------
+// Stored assertions
+// ---------------------------------------------------------------------------
+
+enum AssertionOp {
+  ASSERTION_OP_UNSPECIFIED = 0;
+  ASSERTION_OP_ASSERT = 1;
+  ASSERTION_OP_RETRACT = 2;
+}
+
+// Status of a log entry as of the read revision.
+enum AssertionStatus {
+  ASSERTION_STATUS_UNSPECIFIED = 0;
+  // Live and the winner for its key. For retractions: live.
+  ASSERTION_STATUS_EFFECTIVE = 1;
+  // Live but outranked by another assertion on the same key (higher
+  // provenance precedence, or a later assertion of the same rank).
+  ASSERTION_STATUS_SHADOWED = 2;
+  // A live retraction targets it.
+  ASSERTION_STATUS_RETRACTED = 3;
+  // Not retracted, but the assertion it depends on is not live.
+  ASSERTION_STATUS_DEPENDENCY_DEAD = 4;
+}
+
+// One entry of the log.
+message Assertion {
+  // Log sequence number; unique per project, starts at 1, never reused.
+  // Local to the daemon serving it; see id for the global identity.
+  uint64 seq = 1;
+  // Revision that committed it on this daemon (for an entry from a peer,
+  // the revision that merged it).
+  uint64 revision = 2;
+  // Server wall-clock time at append. Informational; order is by seq.
+  google.protobuf.Timestamp time = 3;
+  Provenance provenance = 4;
+  AssertionOp op = 5;
+  // The fact this entry is about. For retractions: the target's key.
+  FactKey key = 6;
+  // ASSERT only.
+  AssertionBody body = 7;
+  // RETRACT only: the entry being retracted.
+  uint64 retracts_seq = 8;
+  // ASSERT only, optional: this assertion is live only while that one is
+  // (e.g. a local rename that depends on a user-set function bound).
+  uint64 depends_on_seq = 9;
+  // As of the read revision.
+  AssertionStatus status = 10;
+  // Live retractions targeting this entry.
+  repeated uint64 retracted_by = 11;
+  // Replication (docs/collab.md): the entry's global identity, the same on
+  // every daemon sharing the project, and its hybrid logical clock stamp.
+  // Recency between entries is (stamp, id.replica, id.counter), not seq.
+  OpId id = 12;
+  uint64 stamp = 13;
+  // retracts_seq, depends_on_seq and retracted_by as global identities.
+  OpId retracts_id = 14;
+  OpId depends_on_id = 15;
+  repeated OpId retracted_by_ids = 16;
+  // ASSERT only: the live assertion of the same precedence class that
+  // was effective where this one was made (what its author replaced).
+  OpId supersedes = 17;
+  // Markup DiffService.ApplyMarkup ported from another program: where it
+  // came from (api_minor 16, feature "diff").
+  PortedFrom ported_from = 18;
+}
+
+// ---------------------------------------------------------------------------
+// Append / retract
+// ---------------------------------------------------------------------------
+
+message AssertionInput {
+  AssertionBody body = 1;
+  // Optional: seq of an assertion this one depends on.
+  uint64 depends_on_seq = 2;
+}
+
+message AppendAssertionsRequest {
+  string program_id = 1;
+  repeated AssertionInput assertions = 2;
+  // Required: kind must not be UNSPECIFIED. The same provenance applies to
+  // the whole batch.
+  Provenance provenance = 3;
+  // Optimistic concurrency: when non-zero, fail with ABORTED unless the
+  // project's head revision equals this value.
+  uint64 expected_head_revision = 4;
+  // Validate and compute keys without committing. The response then has
+  // seq = 0 and snapshot.revision = current head.
+  bool validate_only = 5;
+  // The request's define_type, bind_type_name and type_category bodies
+  // are the project's: keyed in the project's space, so every program of
+  // the project sees them (only those bodies may be sent; api_minor 52,
+  // feature "project-types"). program_id still names a program, whose data
+  // model the types are laid out for.
+  bool project_scope = 6;
+}
+
+message AppendAssertionsResponse {
+  // The new revision (or current head for validate_only).
+  Snapshot snapshot = 1;
+  // Stored entries, in request order.
+  repeated Assertion assertions = 2;
+  // Keys whose effective value changed, sorted. Subscribers receive the
+  // same keys in the matching RevisionEvent.
+  repeated FactKey changed_keys = 3;
+}
+
+message RetractAssertionsRequest {
+  string program_id = 1;
+  repeated uint64 seqs = 2;
+  Provenance provenance = 3;
+  uint64 expected_head_revision = 4;
+  // With program_id empty: the project whose ops to retract, which may be
+  // the project's own records (folders, ProjectService.CreateFolder and
+  // the like) or any of its programs' (api_minor 37).
+  string project_id = 5;
+}
+
+message RetractAssertionsResponse {
+  Snapshot snapshot = 1;
+  // The retraction entries appended, in request order.
+  repeated Assertion retractions = 2;
+  repeated FactKey changed_keys = 3;
+}
+
+// ---------------------------------------------------------------------------
+// History and blame
+// ---------------------------------------------------------------------------
+
+message GetHistoryRequest {
+  FactKey key = 1;
+  ReadOptions read = 2;
+  PageRequest page = 3;
+}
+
+message GetHistoryResponse {
+  Snapshot snapshot = 1;
+  // Assertions on the key plus every retraction (transitively) touching
+  // them, oldest first.
+  repeated Assertion entries = 2;
+  PageInfo page = 3;
+}
+
+message BlameRequest {
+  FactKey key = 1;
+  ReadOptions read = 2;
+}
+
+message BlameResponse {
+  Snapshot snapshot = 1;
+  FactKey key = 2;
+  // Display form of the effective value ("checksum", "uint32_t *"). Empty
+  // when the key has no value.
+  string value_text = 3;
+  // The winning assertion, or the derivation when no assertion is live and
+  // analysis supplies the value. Unset when the key has no value at all.
+  FactOrigin origin = 4;
+  // Every assertion on the key, best first (winner first).
+  repeated Assertion candidates = 5;
+  // Live candidates of the winner's precedence class made concurrently
+  // with it (its author never saw them): the losing side of a concurrent
+  // edit by another person or daemon, best first. Empty when edits were
+  // sequential.
+  repeated uint64 concurrent_seqs = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Listing and bulk revert
+// ---------------------------------------------------------------------------
+
+// Matches assertions by who made them. Empty fields match anything, except
+// that kind UNSPECIFIED with a non-empty id is rejected as ambiguous.
+message ProvenanceFilter {
+  ProvenanceKind kind = 1;
+  string id = 2;
+  // Only matches this exact version when set.
+  string version = 3;
+  // Only matches this session when set.
+  string session = 4;
+  // Only matches this Provenance.on_behalf_of when set ("user:alice":
+  // what alice's scripts did). api_minor 29.
+  string on_behalf_of = 5;
+}
+
+message AssertionFilter {
+  ProvenanceFilter provenance = 1;
+  // Restrict to these fact kinds (empty = all).
+  repeated FactKind kinds = 2;
+  // Restrict to keys whose address falls inside this range.
+  AddressRange range = 3;
+  // Only entries committed in [min_revision, max_revision]; 0 = unbounded.
+  uint64 min_revision = 4;
+  uint64 max_revision = 5;
+  // Include retracted and dependency-dead assertions and retraction entries.
+  bool include_inactive = 6;
+}
+
+message ListAssertionsRequest {
+  string program_id = 1;
+  AssertionFilter filter = 2;
+  ReadOptions read = 3;
+  PageRequest page = 4;
+}
+
+message ListAssertionsResponse {
+  Snapshot snapshot = 1;
+  // Oldest first.
+  repeated Assertion assertions = 2;
+  PageInfo page = 3;
+}
+
+message RevertByProvenanceRequest {
+  string program_id = 1;
+  // Required; must set at least kind or session.
+  ProvenanceFilter filter = 2;
+  // Only revert ops committed at or after this revision (0 = all).
+  uint64 since_revision = 3;
+  // Who is reverting; recorded on the retractions.
+  Provenance provenance = 4;
+  // Report what would be retracted without committing.
+  bool dry_run = 5;
+}
+
+message RevertByProvenanceResponse {
+  // New revision, or current head for dry_run / nothing to revert.
+  Snapshot snapshot = 1;
+  // Sequence numbers retracted (or that would be): every matching assertion
+  // and retraction, including ones already retracted.
+  repeated uint64 retracted_seqs = 2;
+  // The retraction entries appended; empty for dry_run.
+  repeated Assertion retractions = 3;
+  repeated FactKey changed_keys = 4;
+}

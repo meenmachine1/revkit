@@ -1,0 +1,1030 @@
+// Debug sessions (api_minor 14; features "debugger", "debugger-live";
+// docs/debugger.md). One session model whatever runs the code: revkit's
+// p-code emulator, a live process or board behind a GDB remote stub
+// (gdbserver, QEMU, OpenOCD, J-Link), a process the daemon launches, or a
+// saved trace replayed. Every stop is recorded on the session's timeline,
+// which the state, register and memory calls can read at any snapshot.
+//
+// Like EmulatorService, a session is the caller's state, not a fact about
+// the binary: nothing is asserted, no revision is made. Live targets run
+// code on the daemon's host or reach other machines, so they are off unless
+// the daemon was started with --debug-live (feature "debugger-live").
+//
+// Addresses: a DebugAddress is runtime (the target's own) unless `program`
+// is set, when it is an address in the program's static image and the
+// session maps it by the program's slide (PIE/ASLR, module base). Locations
+// in responses carry both.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "revkit/v1/common.proto";
+import "revkit/v1/decompile.proto";
+import "revkit/v1/emulator.proto";
+import "revkit/v1/project.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+service DebugService {
+  // Starts a session: the emulator, a GDB remote stub, a launched process,
+  // or a saved trace. RESOURCE_EXHAUSTED when the caller has too many;
+  // PERMISSION_DENIED for live targets on a daemon without --debug-live;
+  // FAILED_PRECONDITION when the host can't (no gdbserver, ptrace_scope),
+  // with what to install or change.
+  rpc CreateDebugSession(CreateDebugSessionRequest) returns (CreateDebugSessionResponse);
+  // Ends a session: a process the daemon launched is killed, one it
+  // attached to (or a board) is detached and left running, unless `kill`.
+  rpc CloseDebugSession(CloseDebugSessionRequest) returns (CloseDebugSessionResponse);
+  rpc ListDebugSessions(ListDebugSessionsRequest) returns (ListDebugSessionsResponse);
+  // Runs or steps. A live target still running at the call's time limit
+  // answers RUNNING: WaitDebugSession or InterruptDebugSession then.
+  rpc ResumeDebugSession(ResumeDebugSessionRequest) returns (ResumeDebugSessionResponse);
+  // Waits for a running target to stop, up to wait_ms.
+  rpc WaitDebugSession(WaitDebugSessionRequest) returns (WaitDebugSessionResponse);
+  // Asks a running target to stop (^C); WaitDebugSession sees the stop.
+  rpc InterruptDebugSession(InterruptDebugSessionRequest) returns (InterruptDebugSessionResponse);
+  // The state now, or at a recorded snapshot (time travel).
+  rpc GetDebugState(GetDebugStateRequest) returns (GetDebugStateResponse);
+  rpc WriteDebugRegisters(WriteDebugRegistersRequest) returns (WriteDebugRegistersResponse);
+  // Memory now, or at a recorded snapshot.
+  rpc ReadDebugMemory(ReadDebugMemoryRequest) returns (ReadDebugMemoryResponse);
+  rpc WriteDebugMemory(WriteDebugMemoryRequest) returns (WriteDebugMemoryResponse);
+  // Breakpoints and watchpoints: add, remove, clear.
+  rpc SetDebugBreakpoints(SetDebugBreakpointsRequest) returns (SetDebugBreakpointsResponse);
+  rpc SelectDebugThread(SelectDebugThreadRequest) returns (SelectDebugThreadResponse);
+  // Loaded modules, the memory map and the address mapping.
+  rpc ListDebugModules(ListDebugModulesRequest) returns (ListDebugModulesResponse);
+  // The recorded snapshots.
+  rpc GetDebugTimeline(GetDebugTimelineRequest) returns (GetDebugTimelineResponse);
+  // Saves the session's timeline with its program's project (in the
+  // project directory when the daemon has one).
+  rpc SaveDebugTrace(SaveDebugTraceRequest) returns (SaveDebugTraceResponse);
+  rpc ListDebugTraces(ListDebugTracesRequest) returns (ListDebugTracesResponse);
+  rpc DeleteDebugTrace(DeleteDebugTraceRequest) returns (DeleteDebugTraceResponse);
+  // Firmware (api_minor 20, feature "firmware-emulation"): bytes for a UART
+  // of an emulator session's machine, and the machine's state.
+  rpc WriteDebugInput(WriteDebugInputRequest) returns (WriteDebugInputResponse);
+  rpc GetDebugMachine(GetDebugMachineRequest) returns (GetDebugMachineResponse);
+  // The call stack now, or at a recorded snapshot (api_minor 59, feature
+  // "debugger-stack"; docs/debugger.md "Call stack"): the frames above the
+  // stop, unwound with the program's call-frame information where it covers
+  // a pc, else frame pointers, else a stack scan.
+  rpc GetDebugBacktrace(GetDebugBacktraceRequest) returns (GetDebugBacktraceResponse);
+  // Values at a stop or a snapshot, in a call-stack frame (api_minor 60,
+  // feature "debugger-values"; docs/debugger.md "Expressions"):
+  // expressions (registers, symbols, the frame's variables, memory, the
+  // program's types), a decompiler variable through its storage, or a
+  // listing operand's memory. What watches and value hovers show.
+  rpc EvaluateDebug(EvaluateDebugRequest) returns (EvaluateDebugResponse);
+  // Instructions in target memory, in the program or not (libraries,
+  // unpacked or JIT code), as the program's language decodes them
+  // (api_minor 62, feature "debugger-disassembly"; docs/debugger.md
+  // "Runtime disassembly").
+  rpc DisassembleDebugMemory(DisassembleDebugMemoryRequest) returns (DisassembleDebugMemoryResponse);
+  // Target memory into the program, as a new memory block or as patches
+  // (one revision: one undo), or into a new program (api_minor 63, feature
+  // "debugger-copy"; docs/debugger.md "Copying runtime memory"): how
+  // unpacked or decrypted code is captured.
+  rpc CopyDebugMemory(CopyDebugMemoryRequest) returns (CopyDebugMemoryResponse);
+  // Back to a recorded snapshot, to continue from there (api_minor 65,
+  // feature "debugger-rewind"; docs/debugger.md "Rewind"): the emulator's
+  // state as it was, the later snapshots dropped (optionally saved first as
+  // a trace: the branch that was). Step back is one snapshot.
+  rpc RewindDebugSession(RewindDebugSessionRequest) returns (RewindDebugSessionResponse);
+  // Hooks the client answers (api_minor 68, feature "debugger-hooks";
+  // docs/debugger.md "Hooks"): a run in an emulator session stops at a
+  // hooked function, system call, MMIO access or user op (DebugStop.hook);
+  // AnswerDebugHook gives its value (a return, a result, a read), then the
+  // run goes on. The Python SDK's hook_function and the like.
+  rpc SetDebugHooks(SetDebugHooksRequest) returns (SetDebugHooksResponse);
+  rpc AnswerDebugHook(AnswerDebugHookRequest) returns (AnswerDebugHookResponse);
+}
+
+// --- Targets ---
+
+// revkit's emulator (what CreateEmulatorSession takes).
+message DebugEmulatorTarget {
+  Address entry = 1;  // unset: the program's entry point
+  EmulatorStartMode mode = 2;
+  repeated uint64 arguments = 3;
+  repeated EmulatorRegisterWrite registers = 4;
+  repeated EmulatorMemoryWrite memory = 5;
+  EmulatorLimits limits = 6;
+  uint64 import_return = 7;
+  bool no_library_stubs = 8;
+  bytes stdin = 9;
+  // Firmware (api_minor 20): a machine description, or a saved one's name
+  // (CreateEmulatorSessionRequest.machine, machine_name).
+  string machine = 10;
+  string machine_name = 11;
+  // Emulate from another session's state (api_minor 67, feature
+  // "debugger-emulate-from"; docs/debugger.md "Emulating from a stop"): its
+  // registers at its stop (or at from_snapshot), its memory map, and its
+  // memory read when first touched (live, or as recorded), then copied on
+  // write; the source isn't changed. entry, mode, arguments, memory and
+  // machine are unused; registers are written over the source's.
+  string from_session = 12;
+  optional uint64 from_snapshot = 13;
+}
+
+// A GDB remote stub already listening: gdbserver, qemu -g / -gdb, OpenOCD
+// (port 3333), J-Link GDB Server (port 2331).
+message DebugRemoteTarget {
+  // "host:port", "tcp:host:port" or "unix:/path".
+  string address = 1;
+  // Extended remote (gdbserver --multi): attach to this process.
+  int64 attach_pid = 2;
+  uint32 timeout_ms = 3;  // per packet (0: 5000)
+}
+
+// The program itself, started on the daemon's host under gdbserver (or
+// qemu-user for another machine), stopped at its first instruction.
+message DebugLaunchTarget {
+  repeated string arguments = 1;  // after argv[0]
+  repeated string environment = 2;  // NAME=value
+  // Instead of starting it, attach to this running process (gdbserver
+  // --attach; kernel.yama.ptrace_scope must allow it).
+  int64 attach_pid = 3;
+  // Run under this qemu-user binary ("qemu-aarch64"); default: gdbserver
+  // for the host's machine, qemu-<arch> for another.
+  string qemu = 4;
+}
+
+// A trace saved with SaveDebugTrace, replayed: its snapshots can be read,
+// nothing runs.
+message DebugTraceTarget {
+  string name = 1;
+}
+
+message DebugTimelineLimits {
+  uint32 max_snapshots = 1;  // 0: the server's default (10,000); capped
+  uint64 max_bytes = 2;      // 0: the server's default (64 MiB); capped
+  // The emulator records a snapshot per instruction between stops; this
+  // turns that off (a snapshot per stop only).
+  bool stops_only = 3;
+  uint32 stack_bytes = 4;  // live targets: stack recorded per stop (0: 256)
+}
+
+// --- Addresses and locations ---
+
+message DebugAddress {
+  uint64 offset = 1;
+  // An address in the program's static image (as the listing shows it),
+  // mapped by the session. Default: the target's runtime address.
+  bool program = 2;
+}
+
+message DebugLocation {
+  Address address = 1;          // runtime
+  Address program_address = 2;  // in the program's image; unset outside it
+  string module = 3;            // the module containing it, when known
+  uint64 module_offset = 4;
+  // Outside the program, in a module that is another project program (a
+  // library the program links, or a program of the module's name; api_minor
+  // 70, feature "program-libraries"): that program, the address in its image,
+  // and the function there ("strlen+0x10"), when its analysis knows it.
+  string library_program_id = 5;
+  Address library_address = 6;
+  string library_function = 7;
+}
+
+message DebugAddressMapping {
+  bool known = 1;
+  // runtime address = program address + slide.
+  int64 slide = 2;
+  // How it was found: "emulator", "static", "auxv AT_ENTRY", "module <name>", "given".
+  string how = 3;
+}
+
+// --- Stops and state ---
+
+enum DebugRunMode {
+  DEBUG_RUN_MODE_UNSPECIFIED = 0;  // as RUN
+  DEBUG_RUN_MODE_RUN = 1;
+  DEBUG_RUN_MODE_STEP_INTO = 2;
+  DEBUG_RUN_MODE_STEP_OVER = 3;
+  DEBUG_RUN_MODE_STEP_OUT = 4;
+}
+
+// Why execution stopped. The emulator's kinds (EmulatorStopKind) keep
+// their meanings; the rest come from live targets.
+enum DebugStopKind {
+  DEBUG_STOP_KIND_UNSPECIFIED = 0;
+  DEBUG_STOP_KIND_NONE = 1;            // nothing has run yet (or: stopped when connected)
+  DEBUG_STOP_KIND_STEPPED = 2;
+  DEBUG_STOP_KIND_STEP_LIMIT = 3;
+  DEBUG_STOP_KIND_BREAKPOINT = 4;
+  DEBUG_STOP_KIND_UNTIL = 5;
+  DEBUG_STOP_KIND_RETURNED = 6;
+  DEBUG_STOP_KIND_EXITED = 7;          // exit_code
+  DEBUG_STOP_KIND_HALTED = 8;
+  DEBUG_STOP_KIND_UNMAPPED = 9;
+  DEBUG_STOP_KIND_PROTECTION = 10;
+  DEBUG_STOP_KIND_DECODE = 11;
+  DEBUG_STOP_KIND_UNIMPLEMENTED = 12;
+  DEBUG_STOP_KIND_USEROP = 13;
+  DEBUG_STOP_KIND_SYSCALL = 14;
+  DEBUG_STOP_KIND_WATCHPOINT = 15;     // address: the watched address hit
+  DEBUG_STOP_KIND_HOOK = 16;
+  DEBUG_STOP_KIND_DIVIDE_BY_ZERO = 17;
+  DEBUG_STOP_KIND_MEMORY_LIMIT = 18;
+  DEBUG_STOP_KIND_TIME_LIMIT = 19;
+  DEBUG_STOP_KIND_CANCELLED = 20;
+  DEBUG_STOP_KIND_SESSION_LIMIT = 21;
+  DEBUG_STOP_KIND_SIGNAL = 22;         // a signal (signal, detail "SIGSEGV")
+  DEBUG_STOP_KIND_INTERRUPTED = 23;
+  DEBUG_STOP_KIND_RUNNING = 24;        // still running at the time limit
+  DEBUG_STOP_KIND_KILLED = 25;         // terminated by a signal
+  DEBUG_STOP_KIND_DETACHED = 26;
+  DEBUG_STOP_KIND_DISCONNECTED = 27;   // the stub went away
+  // The emulator with a machine (api_minor 20, feature "firmware-emulation").
+  DEBUG_STOP_KIND_EXCEPTION = 28;      // an exception breakpoint
+  DEBUG_STOP_KIND_IDLE = 29;           // waiting for an interrupt; nothing scheduled
+}
+
+enum DebugTargetState {
+  DEBUG_TARGET_STATE_UNSPECIFIED = 0;
+  DEBUG_TARGET_STATE_STOPPED = 1;
+  DEBUG_TARGET_STATE_RUNNING = 2;
+  DEBUG_TARGET_STATE_EXITED = 3;
+  DEBUG_TARGET_STATE_DETACHED = 4;
+  DEBUG_TARGET_STATE_DISCONNECTED = 5;
+  DEBUG_TARGET_STATE_REPLAY = 6;  // a saved trace: nothing runs
+}
+
+message DebugStop {
+  DebugStopKind kind = 1;
+  DebugLocation pc = 2;
+  Address address = 3;  // faulting or watched address (runtime)
+  string detail = 4;
+  int64 exit_code = 5;
+  uint64 steps = 6;
+  int32 signal = 7;
+  string thread = 8;
+  // Kind HOOK (api_minor 68): the hook that stopped the run, waiting for
+  // AnswerDebugHook.
+  DebugHookEvent hook = 9;
+}
+
+message DebugRegisterInfo {
+  // SLEIGH's name when the target's register maps onto the program's
+  // language ("RAX", "x0"), else the target's.
+  string name = 1;
+  string target_name = 2;  // the stub's name ("rax", "cpsr")
+  uint32 size = 3;
+  bool display = 4;
+  string group = 5;   // "general", "flags", "float", "vector", "system", ...
+  string sleigh = 6;  // the SLEIGH register it maps to; empty if none
+}
+
+message DebugRegisterValue {
+  string name = 1;
+  uint32 size = 2;
+  uint64 value = 3;  // the low 64 bits
+  bytes bytes = 4;   // least significant byte first
+  // Different from the snapshot before (a stop: the previous stop).
+  bool changed = 5;
+}
+
+message DebugRegisterWrite {
+  string name = 1;
+  uint64 value = 2;
+  bytes bytes = 3;  // replaces value when set
+}
+
+enum DebugBreakpointKind {
+  DEBUG_BREAKPOINT_KIND_UNSPECIFIED = 0;  // as SOFTWARE
+  DEBUG_BREAKPOINT_KIND_SOFTWARE = 1;
+  DEBUG_BREAKPOINT_KIND_HARDWARE = 2;
+  DEBUG_BREAKPOINT_KIND_WATCH_WRITE = 3;
+  DEBUG_BREAKPOINT_KIND_WATCH_READ = 4;
+  DEBUG_BREAKPOINT_KIND_WATCH_ACCESS = 5;
+}
+
+message DebugBreakpointSpec {
+  DebugAddress address = 1;
+  DebugBreakpointKind kind = 2;
+  uint32 size = 3;  // watchpoints: bytes watched (0: 1)
+  // Conditional breakpoints (api_minor 64, feature "debugger-conditions";
+  // docs/debugger.md "Breakpoints"): a run stops here only when the
+  // condition (an expression, as EvaluateDebug takes) holds, after
+  // `ignore_count` hits; a disabled breakpoint is kept but not in the target.
+  string condition = 4;
+  uint32 ignore_count = 5;
+  bool disabled = 6;
+}
+
+// A change to a breakpoint (api_minor 64): the fields set.
+message DebugBreakpointUpdate {
+  int32 id = 1;
+  optional string condition = 2;  // "": none
+  optional uint32 ignore_count = 3;
+  optional bool disabled = 4;
+}
+
+message DebugBreakpoint {
+  int32 id = 1;
+  DebugBreakpointKind kind = 2;
+  DebugLocation location = 3;
+  uint32 size = 4;
+  bool inserted = 5;  // in the target now
+  bool pending = 6;   // waiting for the program to be mapped
+  string error = 7;   // why the target refused it
+  // Times the target reached it, whether a run stopped there or passed over it.
+  uint64 hits = 8;
+  // api_minor 64: as DebugBreakpointSpec; condition_error is the last
+  // evaluation's error (the run stopped there for it).
+  string condition = 9;
+  uint32 ignore_count = 10;
+  bool disabled = 11;
+  string condition_error = 12;
+}
+
+message DebugThread {
+  string id = 1;
+  string name = 2;
+  bool current = 3;
+  DebugLocation pc = 4;  // the current thread's
+  int32 core = 5;        // -1: unknown
+}
+
+message DebugState {
+  DebugTargetState target_state = 1;
+  DebugLocation pc = 2;
+  DebugStop last_stop = 3;
+  repeated DebugRegisterValue registers = 4;
+  repeated DebugBreakpoint breakpoints = 5;
+  string thread = 6;
+  bool thumb = 7;
+  uint64 steps = 8;
+  // The snapshot shown, and whether it is in the past (time travel).
+  uint64 snapshot = 9;
+  bool historical = 10;
+  uint64 last_snapshot = 11;
+  // The program's output from output_offset (at most 64 KiB), and its size.
+  bytes output = 12;
+  uint64 output_size = 13;
+  DebugAddressMapping mapping = 14;
+  repeated DebugThread threads = 15;  // with include_threads
+  // Firmware (api_minor 20): the emulator runs a machine; its clock, and
+  // whether the CPU waits for an interrupt.
+  bool machine = 16;
+  uint64 tick = 17;
+  bool waiting = 18;
+  // The session can go back to its recorded snapshots and continue from
+  // there (RewindDebugSession; api_minor 65): the emulator without a machine.
+  bool rewindable = 19;
+}
+
+message DebugStateOptions {
+  repeated string registers = 1;  // by name (empty: the display set)
+  bool all_registers = 2;
+  uint64 output_offset = 3;
+  bool include_threads = 4;
+}
+
+// --- Requests ---
+
+message CreateDebugSessionRequest {
+  string program_id = 1;
+  oneof target {
+    DebugEmulatorTarget emulator = 2;
+    DebugRemoteTarget remote = 3;
+    DebugLaunchTarget launch = 4;
+    DebugTraceTarget trace = 5;
+  }
+  repeated DebugBreakpointSpec breakpoints = 6;
+  DebugTimelineLimits timeline = 7;
+  // runtime = program + slide, instead of what the session finds.
+  optional int64 slide = 8;
+  string client = 9;  // default: the connection's peer
+}
+
+message CreateDebugSessionResponse {
+  string session_id = 1;
+  string target_kind = 2;  // "emulator", "gdb-remote", "trace"
+  string description = 3;
+  string language = 4;
+  repeated DebugRegisterInfo registers = 5;
+  string pc_register = 6;
+  string sp_register = 7;
+  DebugState state = 8;
+  DebugTimelineLimits timeline = 9;  // the bounds in force
+  EmulatorMachineInfo machine = 10;  // an emulator target with a machine
+}
+
+message CloseDebugSessionRequest {
+  string session_id = 1;
+  bool kill = 2;  // kill what it attached to too
+}
+
+message CloseDebugSessionResponse {}
+
+message ListDebugSessionsRequest {
+  string client = 1;
+}
+
+message DebugSessionInfo {
+  string session_id = 1;
+  string program_id = 2;
+  string client = 3;
+  string target_kind = 4;
+  string description = 5;
+  DebugTargetState target_state = 6;
+  DebugStop last_stop = 7;
+  uint64 snapshots = 8;
+  uint64 idle_ms = 9;
+}
+
+message ListDebugSessionsResponse {
+  repeated DebugSessionInfo sessions = 1;
+}
+
+message ResumeDebugSessionRequest {
+  string session_id = 1;
+  DebugRunMode mode = 2;
+  uint64 max_steps = 3;  // the emulator's budget (0: the session's per-call limit)
+  DebugAddress until = 4;  // RUN: also stop here
+  uint32 time_limit_ms = 5;  // 0: 5000; at most 60000
+  DebugStateOptions state = 6;
+}
+
+message ResumeDebugSessionResponse {
+  DebugStop stop = 1;
+  DebugState state = 2;
+}
+
+message WaitDebugSessionRequest {
+  string session_id = 1;
+  uint32 wait_ms = 2;  // 0: 1000; at most 60000
+  DebugStateOptions state = 3;
+}
+
+message WaitDebugSessionResponse {
+  DebugStop stop = 1;  // RUNNING if it still is
+  DebugState state = 2;
+}
+
+message InterruptDebugSessionRequest {
+  string session_id = 1;
+}
+
+message InterruptDebugSessionResponse {}
+
+message GetDebugStateRequest {
+  string session_id = 1;
+  DebugStateOptions state = 2;
+  // A recorded snapshot to show instead of now.
+  optional uint64 snapshot = 3;
+}
+
+message GetDebugStateResponse {
+  DebugState state = 1;
+}
+
+message GetDebugBacktraceRequest {
+  string session_id = 1;
+  // A recorded snapshot instead of now: unwound through what was recorded
+  // of the stack then.
+  optional uint64 snapshot = 2;
+  // At most this many frames (default 64, at most 256).
+  uint32 max_frames = 3;
+}
+
+// One frame of the call stack.
+message DebugFrame {
+  // 0 is the stop's frame; its caller is 1, and so on.
+  uint32 level = 1;
+  // The frame's pc: the stop's for frame 0, the return address for callers.
+  DebugLocation pc = 2;
+  uint64 sp = 3;
+  // The canonical frame address (the caller's sp at the call); 0 if not known.
+  uint64 cfa = 4;
+  // How it was found: "registers" (frame 0), "cfi" (.eh_frame or
+  // .debug_frame), "entry" (frame 0 at a function's first instruction),
+  // "frame pointer", "link register", "stack scan" (least certain).
+  string how = 5;
+  // The function the pc is in, when the program's analysis knows it: its
+  // name, entry (program address) and the pc's offset from it. In a library
+  // that is a project program (pc.library_program_id), the library's
+  // function: its name and offset, the entry in the library's image.
+  string function = 6;
+  Address function_entry = 7;
+  uint64 function_offset = 8;
+  // The registers known in the frame (pc, sp, the frame pointer, those the
+  // unwinding restored): what the frame's caller sees.
+  repeated DebugRegisterValue registers = 9;
+}
+
+message GetDebugBacktraceResponse {
+  repeated DebugFrame frames = 1;
+  uint64 snapshot = 2;
+  // The architecture has no unwinder (only some are covered): why.
+  string unsupported = 3;
+}
+
+message EvaluateDebugRequest {
+  string session_id = 1;
+  // A recorded snapshot instead of now.
+  optional uint64 snapshot = 2;
+  // The call-stack level whose registers and variables names see (0: the
+  // stop's). Unset: for a variable or an operand, the innermost frame in
+  // its function, else 0.
+  optional uint32 frame = 3;
+  repeated DebugEvalItem items = 4;
+  // Also evaluate there and mark the values that differ (`changed`): the
+  // previous stop's snapshot, for watches.
+  optional uint64 compare_snapshot = 5;
+  // Levels of nested structs and arrays spelled out in `text` (default 2).
+  uint32 depth = 6;
+}
+
+message DebugEvalItem {
+  oneof what {
+    // C's operators over registers ($RAX or RAX), symbols, the frame's
+    // variables (by the decompiler's names), memory and casts to the
+    // program's types: "*(struct ctx *)($RDI)", "buf[i] == 'x'".
+    string expression = 1;
+    // A decompiler variable (DecompiledFunction.variables) through its storage.
+    DebugVariable variable = 2;
+    // A listing instruction's memory operand: the address its registers make
+    // in the frame, and what is there.
+    DebugOperand operand = 3;
+  }
+  // Evaluate in the innermost frame of the function at this entry (a
+  // program address), whatever the request's `frame`: a watch on a
+  // function's variable (api_minor 61, feature "debugger-watches").
+  Address frame_function = 4;
+}
+
+message DebugVariable {
+  // The function it belongs to (its stack offsets count from the stack
+  // pointer at that function's entry).
+  Address function = 1;
+  // Variable.storage: register, stack or memory varnodes (pieces of a
+  // split variable in order, most significant first).
+  repeated Varnode storage = 2;
+  // Variable.type; empty: undefined of the storage's size.
+  TypeRef type = 3;
+  string name = 4;
+  // A global's address (Variable.address) when it has no storage.
+  Address address = 5;
+}
+
+message DebugOperand {
+  // The instruction (a program address).
+  Address address = 1;
+  // Its operand in print order (-1: its first memory access).
+  int32 operand = 2;
+}
+
+message DebugValueChild {
+  string name = 1;
+  string text = 2;
+  string type = 3;
+  optional uint64 address = 4;
+}
+
+message DebugValue {
+  // Typed: "42", "-1", "0x7ffd… <main+0x10>", "{x = 1, y = 2}", "'A'"; "??" when not known.
+  string text = 1;
+  // Its type's C spelling.
+  string type = 2;
+  // A scalar's bytes as one hex number.
+  string hex = 3;
+  // Where it is: a runtime address, or a register.
+  optional uint64 address = 4;
+  string register_name = 5;
+  // The address as the program's (static), when it is in the program.
+  optional uint64 program_address = 6;
+  // "RDI", "stack -0x14 (0x7ffd…)", "0x404010 counter": for a hover's caption.
+  string location = 7;
+  bytes bytes = 8;
+  // Why there is no value: a parse error, an unknown name, memory not
+  // recorded at the snapshot, a register not recovered in the frame.
+  string error = 9;
+  // compare_snapshot's value differs (or was not known there).
+  bool changed = 10;
+  // A struct's fields, an array's elements (64 at most).
+  repeated DebugValueChild children = 11;
+  // The decompiler variable or symbol the value is: a hover's title.
+  string name = 12;
+}
+
+message EvaluateDebugResponse {
+  repeated DebugValue values = 1;  // one per item
+  uint64 snapshot = 2;
+  // The frame used, and its function's name and entry when known.
+  uint32 frame = 3;
+  string function = 4;
+  Address function_entry = 5;
+}
+
+message DisassembleDebugMemoryRequest {
+  string session_id = 1;
+  // Where to start (unset: the pc).
+  DebugAddress address = 2;
+  // A recorded snapshot instead of now (the memory recorded then).
+  optional uint64 snapshot = 3;
+  // Instructions (default 32, at most 512).
+  uint32 count = 4;
+  // Start this many instructions before `address` (at most 16 on
+  // variable-length instruction sets, found by decoding forward from
+  // earlier starts; 256 on fixed-width ones): context around the pc.
+  uint32 before = 5;
+}
+
+message DebugInstruction {
+  // Its runtime address, the program's address when it is in the program, and the module.
+  DebugLocation location = 1;
+  bytes bytes = 2;
+  string mnemonic = 3;
+  // The operands as the language prints them.
+  string operands = 4;
+  // "main+0x10" in the program, "libc.so.6+0x2a1ca" in a module, or "".
+  string symbol = 5;
+  // A direct call's or branch's target (runtime), and its symbol.
+  optional uint64 target = 6;
+  string target_symbol = 7;
+  bool call = 8;
+  bool branch = 9;
+  bool ret = 10;
+  // The stop's (or the snapshot's) pc is here; a breakpoint is.
+  bool pc = 11;
+  bool breakpoint = 12;
+  // "does not decode": `bytes` holds one unit.
+  string error = 13;
+}
+
+message DisassembleDebugMemoryResponse {
+  repeated DebugInstruction instructions = 1;
+  uint64 snapshot = 2;
+  // The address after the last instruction (where to continue).
+  uint64 next = 3;
+  // Nothing at the address could be read.
+  bool unreadable = 4;
+}
+
+enum DebugCopyMode {
+  DEBUG_COPY_MODE_UNSPECIFIED = 0;
+  // A new memory block of the program at the bytes' runtime address (outside
+  // the program's own blocks: a library, the heap, unpacked or JIT code).
+  DEBUG_COPY_MODE_BLOCK = 1;
+  // Patches over the program's own bytes (code a packer unpacked in place);
+  // only the bytes that differ.
+  DEBUG_COPY_MODE_PATCH = 2;
+  // A new raw program in the project, in the program's language, based at
+  // the runtime address.
+  DEBUG_COPY_MODE_NEW_PROGRAM = 3;
+}
+
+message CopyDebugMemoryRequest {
+  string session_id = 1;
+  // The first byte (runtime, or a program address).
+  DebugAddress address = 2;
+  // Bytes to copy (at most 64 MiB). With `region`: unused.
+  uint64 length = 3;
+  // The whole region of the target's memory map that holds `address`.
+  bool region = 4;
+  DebugCopyMode mode = 5;
+  // The block's or the new program's name (default: the region's file name
+  // and the address, "libc.so.6_7ffff7c28000").
+  string name = 6;
+  // What was recorded at a snapshot instead of now.
+  optional uint64 snapshot = 7;
+  Provenance provenance = 8;
+  // "rwx" style, for a block or a new program (default: the target region's).
+  string permissions = 9;
+  // NEW_PROGRAM: analyze it after import.
+  bool analyze = 10;
+}
+
+message CopyDebugMemoryResponse {
+  // What was copied: its runtime start and length.
+  uint64 address = 1;
+  uint64 length = 2;
+  // Where it went: the block's start, the patches' program address, or the new program's base.
+  uint64 program_address = 3;
+  // The revision made, and its assertions (retract them to undo; one undo
+  // step). PATCH with nothing different makes none.
+  uint64 revision = 4;
+  repeated uint64 seqs = 5;
+  // BLOCK: the region (UpdateMemoryRegion, RemoveMemoryRegion) and the block.
+  string region_id = 6;
+  MemoryBlock block = 7;
+  // NEW_PROGRAM: the program.
+  ProgramInfo program = 8;
+  // PATCH: the bytes that differed.
+  uint64 changed = 9;
+}
+
+message RewindDebugSessionRequest {
+  string session_id = 1;
+  // The snapshot to go back to (unset with step_back).
+  optional uint64 snapshot = 2;
+  // One snapshot back: an instruction, in the emulator's recording.
+  bool step_back = 3;
+  // First save the whole timeline as this trace, so the later snapshots
+  // stay viewable ("trace:<name>").
+  string save_branch_as = 4;
+  DebugStateOptions state = 5;
+}
+
+message RewindDebugSessionResponse {
+  DebugStop stop = 1;
+  DebugState state = 2;
+  // The snapshots dropped.
+  uint64 discarded = 3;
+  // With save_branch_as: the trace saved.
+  DebugTraceInfo saved = 4;
+}
+
+// --- Hooks (api_minor 68, feature "debugger-hooks"; docs/debugger.md "Hooks") ---
+
+enum DebugHookKind {
+  DEBUG_HOOK_KIND_UNSPECIFIED = 0;
+  // A function's entry (an address, or an import's or a symbol's name): a
+  // run stops there; the answer is the value it returns (it isn't run), or
+  // none (it runs).
+  DEBUG_HOOK_KIND_FUNCTION = 1;
+  // A system call (by number, -1: any): the answer is its result, or none
+  // (the emulator's own handler).
+  DEBUG_HOOK_KIND_SYSCALL = 2;
+  // Reads and writes of an address range (made MMIO): a read's answer is the
+  // value read; none, or a write, goes on as before.
+  DEBUG_HOOK_KIND_MMIO = 3;
+  // A CALLOTHER by name: the answer is its output.
+  DEBUG_HOOK_KIND_USEROP = 4;
+}
+
+message DebugHookSpec {
+  DebugHookKind kind = 1;
+  // FUNCTION: the entry; MMIO: the first byte.
+  DebugAddress address = 2;
+  // MMIO: bytes (0: 1).
+  uint64 size = 3;
+  // SYSCALL: the call's number (-1: every call).
+  int64 number = 4;
+  // FUNCTION: an import's or a symbol's name instead of an address; USEROP: the CALLOTHER.
+  string name = 5;
+  // MMIO: which accesses (neither: both).
+  bool read = 6;
+  bool write = 7;
+}
+
+message DebugHook {
+  int32 id = 1;
+  DebugHookSpec spec = 2;
+  uint64 address = 3;  // FUNCTION, MMIO: runtime
+  uint64 hits = 4;
+}
+
+// What stopped a run at a hook (DebugStop.hook, kind HOOK): answer it with
+// AnswerDebugHook, then resume.
+message DebugHookEvent {
+  int32 hook_id = 1;
+  DebugHookKind kind = 2;
+  uint64 pc = 3;
+  string name = 4;           // FUNCTION, USEROP
+  int64 number = 5;          // SYSCALL
+  repeated uint64 args = 6;  // FUNCTION: integer arguments by the calling convention; SYSCALL, USEROP: inputs
+  uint64 address = 7;        // MMIO
+  uint32 size = 8;           // MMIO; USEROP: the output's size
+  bool write = 9;            // MMIO
+  uint64 value = 10;         // MMIO: written, or what a read would read
+}
+
+message SetDebugHooksRequest {
+  string session_id = 1;
+  repeated DebugHookSpec add = 2;
+  repeated int32 remove = 3;
+  bool clear = 4;  // first
+}
+
+message SetDebugHooksResponse {
+  repeated DebugHook hooks = 1;
+}
+
+message AnswerDebugHookRequest {
+  string session_id = 1;
+  int32 hook_id = 2;
+  // FUNCTION: the value it returns (and it returns now); SYSCALL: its result;
+  // MMIO read: the value read; USEROP: its output. Unset: as if not hooked.
+  optional uint64 value = 3;
+  DebugStateOptions state = 4;
+}
+
+message AnswerDebugHookResponse {
+  DebugState state = 1;
+}
+
+message WriteDebugRegistersRequest {
+  string session_id = 1;
+  repeated DebugRegisterWrite registers = 2;
+  DebugStateOptions state = 3;
+}
+
+message WriteDebugRegistersResponse {
+  DebugState state = 1;
+}
+
+message ReadDebugMemoryRequest {
+  string session_id = 1;
+  DebugAddress address = 2;
+  uint32 length = 3;  // at most 1 MiB
+  optional uint64 snapshot = 4;
+}
+
+message DebugByteRange {
+  uint32 offset = 1;
+  uint32 length = 2;
+}
+
+message ReadDebugMemoryResponse {
+  uint64 address = 1;  // runtime
+  bytes data = 2;      // unavailable bytes read as 0
+  // Now: unreadable. At a snapshot: never recorded up to it.
+  repeated DebugByteRange unavailable = 3;
+  // At a snapshot: recorded earlier and possibly changed since.
+  repeated DebugByteRange stale = 4;
+  uint64 snapshot = 5;
+}
+
+message WriteDebugMemoryRequest {
+  string session_id = 1;
+  DebugAddress address = 2;
+  bytes data = 3;
+}
+
+message WriteDebugMemoryResponse {}
+
+message SetDebugBreakpointsRequest {
+  string session_id = 1;
+  repeated DebugBreakpointSpec add = 2;
+  repeated int32 remove_ids = 3;
+  // Every breakpoint at these addresses.
+  repeated DebugAddress remove = 4;
+  bool clear = 5;  // first
+  // Firmware (api_minor 20): exception breakpoints, when
+  // set_exception_breaks (SetEmulatorBreakpointsRequest.exception_breaks).
+  repeated string exception_breaks = 6;
+  bool set_exception_breaks = 7;
+  // api_minor 64: conditions, ignore counts, enabled state.
+  repeated DebugBreakpointUpdate update = 8;
+}
+
+message SetDebugBreakpointsResponse {
+  repeated DebugBreakpoint breakpoints = 1;
+  repeated string exception_breaks = 2;
+}
+
+message SelectDebugThreadRequest {
+  string session_id = 1;
+  string thread_id = 2;
+  DebugStateOptions state = 3;
+}
+
+message SelectDebugThreadResponse {
+  DebugState state = 1;
+}
+
+message ListDebugModulesRequest {
+  string session_id = 1;
+}
+
+message DebugModule {
+  string name = 1;
+  string path = 2;
+  uint64 base = 3;
+  uint64 size = 4;  // 0: unknown
+  uint64 load_bias = 5;
+  bool main = 6;        // the executable
+  bool program = 7;     // the program this session's program_id names
+  // Another project program the module is (api_minor 70): a library the
+  // program links (ListProgramLibraries), else a program of its name; and
+  // runtime address = that program's address + library_slide.
+  string program_id = 8;
+  int64 library_slide = 9;
+}
+
+message DebugMemoryRegion {
+  uint64 start = 1;
+  uint64 size = 2;
+  string permissions = 3;
+  string name = 4;
+  string kind = 5;  // "image", "ram", "mmio", "file", "anon", "flash", "rom"
+  uint64 offset = 6;
+}
+
+message ListDebugModulesResponse {
+  repeated DebugModule modules = 1;
+  repeated DebugMemoryRegion regions = 2;
+  DebugAddressMapping mapping = 3;
+}
+
+enum DebugSnapshotKind {
+  DEBUG_SNAPSHOT_KIND_UNSPECIFIED = 0;
+  DEBUG_SNAPSHOT_KIND_STOP = 1;  // the target stopped
+  DEBUG_SNAPSHOT_KIND_STEP = 2;  // an instruction inside a run (the emulator)
+  DEBUG_SNAPSHOT_KIND_EDIT = 3;  // the debugger changed registers or memory
+}
+
+message DebugSnapshot {
+  uint64 index = 1;
+  DebugSnapshotKind kind = 2;
+  DebugLocation pc = 3;
+  string thread = 4;
+  uint64 steps = 5;
+  DebugStopKind stop = 6;
+  string detail = 7;
+  string text = 8;  // the instruction that led here, or the edit
+  repeated string changed = 9;  // registers changed from the snapshot before
+  int64 time_us = 10;
+  bool gap = 11;  // steps before it weren't recorded
+  // Firmware (api_minor 20): the exception the step entered ("irq", "fiq",
+  // "swi", "svc", "systick", ...) or "return"; empty for other steps.
+  string event = 12;
+  int32 event_number = 13;
+}
+
+message GetDebugTimelineRequest {
+  string session_id = 1;
+  uint64 from_snapshot = 2;
+  uint32 limit = 3;  // 0: 1000; at most 10000
+  // Only stops (no instruction snapshots).
+  bool stops_only = 4;
+  // Only snapshots with an event (exception entries and returns; api_minor 20).
+  bool events_only = 5;
+}
+
+message GetDebugTimelineResponse {
+  repeated DebugSnapshot snapshots = 1;
+  uint64 first = 2;
+  uint64 last = 3;
+  uint64 count = 4;
+  uint64 dropped = 5;  // old snapshots dropped to stay in bounds
+  uint64 bytes = 6;
+  // Every memory write recorded (the emulator): memory at any snapshot is exact.
+  bool complete = 7;
+  DebugTimelineLimits limits = 8;
+}
+
+message DebugTraceInfo {
+  string name = 1;
+  string program_id = 2;
+  int64 created_unix = 3;
+  uint64 snapshots = 4;
+  uint64 bytes = 5;
+  string target_kind = 6;
+  string description = 7;
+  // In the project directory (kept across restarts); else in memory.
+  bool persisted = 8;
+}
+
+message SaveDebugTraceRequest {
+  string session_id = 1;
+  string name = 2;  // [A-Za-z0-9._-], at most 64
+}
+
+message SaveDebugTraceResponse {
+  DebugTraceInfo trace = 1;
+}
+
+message ListDebugTracesRequest {
+  string program_id = 1;
+}
+
+message ListDebugTracesResponse {
+  repeated DebugTraceInfo traces = 1;
+}
+
+message DeleteDebugTraceRequest {
+  string program_id = 1;
+  string name = 2;
+}
+
+message DeleteDebugTraceResponse {}
+
+message WriteDebugInputRequest {
+  string session_id = 1;
+  bytes data = 2;
+  string peripheral = 3;  // a UART by name; empty: the console
+}
+
+message WriteDebugInputResponse {}
+
+message GetDebugMachineRequest {
+  string session_id = 1;
+  uint64 from_event = 2;
+  uint32 limit = 3;  // 0: 1000
+}
+
+message GetDebugMachineResponse {
+  EmulatorMachineState state = 1;
+  repeated EmulatorException events = 2;
+  uint64 first_event = 3;
+  uint64 event_count = 4;
+}

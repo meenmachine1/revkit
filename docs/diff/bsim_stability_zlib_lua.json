@@ -1,0 +1,228 @@
+{
+ "binaries": {
+  "zlib@elf-x86_64/gcc-O2": {
+   "functions": 147,
+   "signatured": 147,
+   "unique_names": 145,
+   "analyze_s": 7.33,
+   "signatures_s": 2.47,
+   "ms_per_function_sig": 16.8,
+   "features_median": 39,
+   "features_mean": 73.4,
+   "weights": "lshweights_64.xml",
+   "language": "x86:LE:64:default",
+   "decompile_s": 1.23,
+   "ms_per_function_decompile": 8.37,
+   "decompiled_ok": 147,
+   "signatures_1thread_s": 0.93,
+   "ms_per_function_sig_1thread": 6.33
+  },
+  "zlib@elf-x86_64/clang-O0": {
+   "functions": 165,
+   "signatured": 165,
+   "unique_names": 163,
+   "analyze_s": 5.69,
+   "signatures_s": 2.63,
+   "ms_per_function_sig": 15.93,
+   "features_median": 31,
+   "features_mean": 53.0,
+   "weights": "lshweights_64.xml",
+   "language": "x86:LE:64:default"
+  },
+  "zlib@elf-aarch64/clang-O2": {
+   "functions": 135,
+   "signatured": 135,
+   "unique_names": 135,
+   "analyze_s": 4.27,
+   "signatures_s": 2.31,
+   "ms_per_function_sig": 17.12,
+   "features_median": 46,
+   "features_mean": 85.4,
+   "weights": "lshweights_64.xml",
+   "language": "AARCH64:LE:64:v8A"
+  },
+  "zlib@elf-riscv64/gcc-O2": {
+   "functions": 170,
+   "signatured": 170,
+   "unique_names": 168,
+   "analyze_s": 4.6,
+   "signatures_s": 2.25,
+   "ms_per_function_sig": 13.26,
+   "features_median": 33,
+   "features_mean": 66.4,
+   "weights": "lshweights_64.xml",
+   "language": "RISCV:LE:64:default"
+  },
+  "lua@elf-x86_64/gcc-O2": {
+   "functions": 702,
+   "signatured": 702,
+   "unique_names": 698,
+   "analyze_s": 10.57,
+   "signatures_s": 3.81,
+   "ms_per_function_sig": 5.43,
+   "features_median": 27,
+   "features_mean": 42.4,
+   "weights": "lshweights_64.xml",
+   "language": "x86:LE:64:default",
+   "decompile_s": 3.48,
+   "ms_per_function_decompile": 4.96,
+   "decompiled_ok": 702,
+   "signatures_1thread_s": 3.01,
+   "ms_per_function_sig_1thread": 4.28
+  },
+  "lua@elf-aarch64/clang-O2": {
+   "functions": 651,
+   "signatured": 651,
+   "unique_names": 651,
+   "analyze_s": 8.06,
+   "signatures_s": 3.07,
+   "ms_per_function_sig": 4.71,
+   "features_median": 30,
+   "features_mean": 49.5,
+   "weights": "lshweights_64.xml",
+   "language": "AARCH64:LE:64:v8A"
+  }
+ },
+ "pairs": [
+  {
+   "program": "zlib",
+   "a": "elf-x86_64/gcc-O2",
+   "b": "elf-x86_64/clang-O0",
+   "common": 141,
+   "sim_mean": 0.528,
+   "sim_median": 0.522,
+   "frac_identical": 0.156,
+   "frac_sim_ge_0.7": 0.248,
+   "frac_sim_ge_0.5": 0.525,
+   "top1": 0.73,
+   "top1_and_sim_ge_0.7": 0.163,
+   "signif_median": 28.02,
+   "top1_by_features": {
+    "10-29": "17/28",
+    "30-99": "51/63",
+    "<10": "10/22",
+    ">=100": "25/28"
+   }
+  },
+  {
+   "program": "zlib",
+   "a": "elf-x86_64/gcc-O2",
+   "b": "elf-aarch64/clang-O2",
+   "common": 130,
+   "sim_mean": 0.53,
+   "sim_median": 0.513,
+   "frac_identical": 0.1,
+   "frac_sim_ge_0.7": 0.308,
+   "frac_sim_ge_0.5": 0.5,
+   "top1": 0.708,
+   "top1_and_sim_ge_0.7": 0.177,
+   "signif_median": 32.65,
+   "top1_by_features": {
+    "10-29": "18/26",
+    "30-99": "45/57",
+    "<10": "4/20",
+    ">=100": "25/27"
+   }
+  },
+  {
+   "program": "zlib",
+   "a": "elf-x86_64/gcc-O2",
+   "b": "elf-riscv64/gcc-O2",
+   "common": 138,
+   "sim_mean": 0.6,
+   "sim_median": 0.617,
+   "frac_identical": 0.022,
+   "frac_sim_ge_0.7": 0.42,
+   "frac_sim_ge_0.5": 0.645,
+   "top1": 0.732,
+   "top1_and_sim_ge_0.7": 0.283,
+   "signif_median": 38.83,
+   "top1_by_features": {
+    "10-29": "23/28",
+    "30-99": "50/63",
+    "<10": "3/19",
+    ">=100": "25/28"
+   }
+  },
+  {
+   "program": "zlib",
+   "a": "elf-x86_64/clang-O0",
+   "b": "elf-aarch64/clang-O2",
+   "common": 133,
+   "sim_mean": 0.445,
+   "sim_median": 0.419,
+   "frac_identical": 0.105,
+   "frac_sim_ge_0.7": 0.173,
+   "frac_sim_ge_0.5": 0.398,
+   "top1": 0.632,
+   "top1_and_sim_ge_0.7": 0.083,
+   "signif_median": 19.27,
+   "top1_by_features": {
+    "10-29": "14/27",
+    "30-99": "47/54",
+    "<10": "4/32",
+    ">=100": "19/20"
+   }
+  },
+  {
+   "program": "zlib",
+   "a": "elf-x86_64/clang-O0",
+   "b": "elf-riscv64/gcc-O2",
+   "common": 138,
+   "sim_mean": 0.391,
+   "sim_median": 0.381,
+   "frac_identical": 0.007,
+   "frac_sim_ge_0.7": 0.116,
+   "frac_sim_ge_0.5": 0.312,
+   "top1": 0.609,
+   "top1_and_sim_ge_0.7": 0.043,
+   "signif_median": 17.14,
+   "top1_by_features": {
+    "10-29": "14/28",
+    "30-99": "50/60",
+    "<10": "3/31",
+    ">=100": "17/19"
+   }
+  },
+  {
+   "program": "zlib",
+   "a": "elf-aarch64/clang-O2",
+   "b": "elf-riscv64/gcc-O2",
+   "common": 128,
+   "sim_mean": 0.475,
+   "sim_median": 0.438,
+   "frac_identical": 0.008,
+   "frac_sim_ge_0.7": 0.25,
+   "frac_sim_ge_0.5": 0.43,
+   "top1": 0.656,
+   "top1_and_sim_ge_0.7": 0.125,
+   "signif_median": 25.14,
+   "top1_by_features": {
+    "10-29": "16/22",
+    "30-99": "37/62",
+    "<10": "6/17",
+    ">=100": "25/27"
+   }
+  },
+  {
+   "program": "lua",
+   "a": "elf-x86_64/gcc-O2",
+   "b": "elf-aarch64/clang-O2",
+   "common": 629,
+   "sim_mean": 0.607,
+   "sim_median": 0.586,
+   "frac_identical": 0.194,
+   "frac_sim_ge_0.7": 0.391,
+   "frac_sim_ge_0.5": 0.596,
+   "top1": 0.785,
+   "top1_and_sim_ge_0.7": 0.323,
+   "signif_median": 23.92,
+   "top1_by_features": {
+    "10-29": "205/247",
+    "30-99": "186/226",
+    "<10": "53/103",
+    ">=100": "50/53"
+   }
+  }
+ ]
+}
