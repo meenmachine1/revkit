@@ -45,7 +45,11 @@ export async function openDialogChecks(c: OpenDialogContext) {
   const detail = (p: Page, key: string) => p.textContent(`[data-testid=open-detail-${key}]`);
 
   await check("open dialog: search by name, architecture and folder; sortable columns; the details; Enter opens the match", async () => {
-    // A second program, in a folder.
+    // A second program, in a folder, imported in a later second than prog
+    // (import times are whole seconds; "newest first" below needs them to differ).
+    const listed = await rpc<{ programs: { name: string; importedAt?: string }[] }>(base, "ProjectService/ListPrograms", { projectId: "default" });
+    const progAt = Date.parse(listed.programs.find((x) => x.name === "prog")?.importedAt ?? "") || 0;
+    while (Date.now() < progAt + 1100) await new Promise((r) => setTimeout(r, 100));
     second = (await rpc<{ program: Prog }>(base, "ProjectService/ImportProgram", { projectId: "default", path: c.exe, name: "zz-second", provenance: prov })).program;
     folderId = (await rpc<{ folder: { folderId: string } }>(base, "ProjectService/CreateFolder", { projectId: "default", parentId: "", name: "e2e-sub", provenance: prov })).folder.folderId;
     await rpc(base, "ProjectService/MoveToFolder", { projectId: "default", folderId, programIds: [second.programId], provenance: prov });
@@ -111,6 +115,17 @@ export async function openDialogChecks(c: OpenDialogContext) {
     await Promise.all([p.waitForEvent("load"), p.keyboard.press("Enter")]);
     await p.waitForSelector("body[data-ready='1']", { timeout: 20000 });
     assert(new URL(p.url()).searchParams.get("program") === second.programId, `Enter opened ${p.url()}`);
+    await p.context().close();
+  });
+
+  await check("open dialog: started without a program (several in the project), nothing of the empty workspace shows behind it", async () => {
+    const p = await open(base);
+    await p.goto(`${base}/?theme=dark`);
+    await p.waitForFunction(() => document.body.dataset.ready === "open", undefined, { timeout: 30000 });
+    await p.waitForSelector("[data-testid=open-dialog], .modal", { timeout: 15000 });
+    // The listing's and the decompiler's headers would sit alone halfway down the page.
+    const shown = await p.evaluate(() => ["fields", "decomp-title"].map((id) => getComputedStyle(document.getElementById(id)!).visibility));
+    assert(shown.every((v) => v === "hidden"), `pane headers behind the dialog: ${shown.join(", ")}`);
     await p.context().close();
   });
 

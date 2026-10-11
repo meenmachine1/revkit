@@ -310,6 +310,10 @@ select.filter, select.ask-select { font-family: system-ui, -apple-system, "Segoe
 .st-live.reconnecting i { background: var(--error); }
 .st-live.paused i { background: var(--dim); }
 /* The daemon status chip (ui/daemon.ts), bottom left, and its popover. */
+/* No program behind the Open dialog (started without one) or the sign-in
+   page: the workspace's panes are empty, and their headers ("Fields",
+   "Decompiler") would sit alone halfway down the page. */
+body[data-ready="open"] main > *, body[data-ready="login"] main > * { visibility: hidden; }
 .st-daemon { display: inline-flex; align-items: center; gap: 6px; height: 18px; padding: 0 8px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--fg); font: inherit; font-size: 11px; cursor: pointer; max-width: 320px; flex: none; }
 .st-daemon:hover { border-color: var(--accent); }
 .st-daemon i, .st-daemon-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); display: inline-block; flex: none; }
