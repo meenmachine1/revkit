@@ -4,7 +4,7 @@
 ``revkit.Client`` is a thin wrapper over them. See docs/api.md.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from revkit.client import (  # noqa: E402
     Aborted,
