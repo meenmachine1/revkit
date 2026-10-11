@@ -678,9 +678,23 @@ TEST_F(RawRebaseTest, TheLanguageChangesInPlaceAndBack) {
   set.set_program_id(fw);
   *set.mutable_provenance() = User();
   set.set_language_id("ARM:LE:32:v4t");
+  set.set_progress_id("switch-1");
   pb::SetProgramLanguageResponse changed;
   st = b->SetProgramLanguage(ctx_, set, changed);
   ASSERT_TRUE(st.ok()) << st.message;
+  // Followed as an import is (feature "language-progress"): analyzed in the
+  // new language before the call answered.
+  pb::GetImportProgressRequest pr;
+  pr.set_project_id("default");
+  pr.set_import_id("switch-1");
+  pb::GetImportProgressResponse progress;
+  ASSERT_TRUE(b->GetImportProgress(ctx_, pr, progress).ok());
+  EXPECT_TRUE(progress.done());
+  EXPECT_EQ(progress.phase(), pb::IMPORT_PHASE_DONE);
+  EXPECT_TRUE(progress.error().empty()) << progress.error();
+  EXPECT_GT(progress.functions_found(), 0u);
+  EXPECT_EQ(progress.program_id(), fw);
+  EXPECT_TRUE(progress.message().starts_with("In ARM:LE:32:v4t: ")) << progress.message();
   EXPECT_EQ(changed.previous_language_id(), "ARM:LE:32:v4");
   EXPECT_EQ(changed.language_id(), "ARM:LE:32:v4t");
   EXPECT_EQ(changed.compiler_spec_id(), "default");

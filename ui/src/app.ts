@@ -93,7 +93,7 @@ import { NotesPanel } from "./ui/notes";
 import { Collaborators } from "./ui/presence";
 import { deleteProgram, renameProgram, showOpenDialog, undoProgramEdit } from "./ui/open";
 import { LIBRARIES_FEATURE, importMap, importTarget, showLibrariesDialog } from "./ui/libraries";
-import { LANGUAGE_FEATURE, showLanguageDialog } from "./ui/language";
+import { LANGUAGE_FEATURE, LANGUAGE_PROGRESS_FEATURE, showLanguageDialog } from "./ui/language";
 import { FILESYSTEMS_FEATURE, openFileSystemDialog } from "./ui/filesystem";
 import { showPickerDiagnostics } from "./ui/pickdiag";
 import { Palette, type Command, type Item } from "./ui/palette";
@@ -4301,6 +4301,8 @@ export class App {
     void showLanguageDialog(this.rk, {
       programId: this.programId,
       programName: $("program").textContent ?? this.programId,
+      projectId: this.projectId,
+      progress: this.features.has(LANGUAGE_PROGRESS_FEATURE),
       recordUndo: (label, seqs) => this.edits.record(label, seqs),
       undo: () => void this.redoOrUndo("undo"),
       settle: (rev) => this.live.waitFor(rev),

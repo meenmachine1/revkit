@@ -5,19 +5,28 @@
 // picks), and switching to one in place (SetProgramLanguage: same bytes and
 // addresses, every edit kept, analysis run again; one undo step). Another
 // language of the processor (the other byte order, say) can be picked from
-// the list below the table.
+// the list below the table. While a switch runs, the import's progress bar
+// (importprogress.ts) follows it: SetProgramLanguageRequest.progress_id,
+// polled with GetImportProgress (api_minor 74, feature "language-progress";
+// without it the bar is indeterminate).
 
 import type { AvailableLanguage, CompareLanguagesResponse, LanguageFit, Revkit } from "@revkit/api";
 import { userProvenance } from "../api/client";
 import { errText } from "../data/format";
 import { toast } from "./dialogs";
 import { h, overlayRoot } from "./dom";
+import { followImport, ImportProgressView, newImportId } from "./importprogress";
 
 export const LANGUAGE_FEATURE = "set-language";
+export const LANGUAGE_PROGRESS_FEATURE = "language-progress";
 
 export interface LanguageOptions {
   programId: string;
   programName: string;
+  /** The program's project: where its switch's progress is read. */
+  projectId: string;
+  /** The daemon reports a switch's progress (LANGUAGE_PROGRESS_FEATURE). */
+  progress: boolean;
   /** Records the change for Ctrl+Z / the history. */
   recordUndo: (label: string, seqs: bigint[]) => void;
   undo: () => void;
@@ -76,7 +85,7 @@ export async function showLanguageDialog(rk: Revkit, o: LanguageOptions) {
   const why = h("div", { class: "lang-why", "data-testid": "lang-why" });
   // While a switch runs: the program is analyzed again in the new language
   // before the call returns (as long as the import's analysis took).
-  const progress = h("div", { class: "dim lang-busy", "data-testid": "lang-progress", hidden: true });
+  const bar = new ImportProgressView();
   const other = h(
     "select",
     { class: "filter select", "aria-label": "Any language of the processor", "data-testid": "lang-other" },
@@ -99,7 +108,7 @@ export async function showLanguageDialog(rk: Revkit, o: LanguageOptions) {
     meta,
     why,
     h("div", { class: "lang-pick" }, h("label", { class: "dim" }, "Language", other), h("label", { class: "dim" }, "Compiler", compiler)),
-    progress,
+    bar.el,
     h("div", { class: "modal-hint" }, "The same bytes at the same addresses: names, comments and types stay, and analysis runs again in the new language. One undo step."),
     h("div", { class: "lang-buttons" }, back, h("span", { class: "spacer" }), h("button", { class: "btn", type: "button", "data-testid": "lang-cancel", onclick: close }, "Cancel"), apply),
   );
@@ -139,15 +148,23 @@ export async function showLanguageDialog(rk: Revkit, o: LanguageOptions) {
     apply.disabled = true;
     back.disabled = true;
     const target = imported ? "the imported language" : variantLabel(chosen, "").replace(/ \(big-endian\)$/, "");
-    progress.textContent = `Switching to ${target}: analyzing the program again in it… (as long as its import took; Cancel only closes this)`;
-    progress.hidden = false;
+    bar.start(`Switching to ${target}: analyzing the program again in it…`, "Language switch progress");
+    const progressId = o.progress ? newImportId() : "";
+    const stop = progressId ? followImport(rk, o.projectId, progressId, bar) : () => {};
     try {
       const r = await rk.projects.setProgramLanguage({
         programId: o.programId,
         languageId: imported ? "" : chosen,
         compilerSpecId: imported ? "" : compiler.value,
         provenance: userProvenance(imported ? "back to the imported language" : `the code is ${chosen}`),
+        progressId,
       });
+      stop();
+      if (r.assertion) {
+        // Full, with the outcome, a moment before the dialog goes.
+        bar.finish(`In ${target}: done`);
+        await new Promise((done) => setTimeout(done, 600));
+      }
       close();
       if (!r.assertion) {
         toast(imported ? "Already in the imported language" : "Already in that language");
@@ -159,9 +176,10 @@ export async function showLanguageDialog(rk: Revkit, o: LanguageOptions) {
       toast(label, { action: { label: "Undo", run: () => o.undo() } });
       if (r.snapshot?.revision) await o.settle(r.snapshot.revision);
     } catch (e) {
+      stop();
       apply.disabled = false;
       back.disabled = false;
-      progress.hidden = true;
+      bar.hide();
       toast(errText(e), { kind: "error" });
     }
   };

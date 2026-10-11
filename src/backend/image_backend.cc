@@ -117,7 +117,7 @@ using facts::FactValue;
 using facts::Seq;
 using google::protobuf::util::TimeUtil;
 
-constexpr std::uint32_t kApiMinor = 73;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language")
+constexpr std::uint32_t kApiMinor = 74;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language"); 74: SetProgramLanguageRequest.progress_id, followed with GetImportProgress (feature "language-progress")
 
 // Fact-store address spaces: project records, then two per program (its
 // addresses in fact keys, and its file's bytes).
@@ -2491,7 +2491,7 @@ class ImageBackend final : public api::Backend {
                           "firmware-emulation", "import-progress", "patch", "assemble", "export-fixups",
                           "raw-detect", "memory-map", "script-batch", "script-provenance", "listing-edit",
                           "token-scalars", "project-folders", "project-archive", "field-tokens", "equates",
-                          "user-references", "demangle", "search", "rebase", "set-language", "function-id", "byte-viewer", "overview",
+                          "user-references", "demangle", "search", "rebase", "set-language", "language-progress", "function-id", "byte-viewer", "overview",
                           "find-next", "msvc-rtti", "pe-analysis", "hover", "filesystems", "pdb-load", "library-types", "project-types",
                           "type-uses", "call-signature-override",
                           "function-compare", "decompile-slices"})
@@ -4525,7 +4525,7 @@ class ImageBackend final : public api::Backend {
 
   // ProjectService.SetProgramLanguage: one LANGUAGE assertion; the fact
   // store calls OnLanguage in its commit, which reloads the program in it.
-  Status SetProgramLanguage(const CallContext &, const pb::SetProgramLanguageRequest &req,
+  Status SetProgramLanguage(const CallContext &ctx, const pb::SetProgramLanguageRequest &req,
                             pb::SetProgramLanguageResponse &resp) override {
     if (req.program_id().empty()) return Error(StatusCode::kInvalidArgument, "program_id is required");
     const pb::Provenance &prov = req.provenance();
@@ -4584,6 +4584,28 @@ class ImageBackend final : public api::Backend {
       SetSnapshot(r, resp.mutable_snapshot());
       return Status::Ok();
     }
+    // With a progress_id, followed with GetImportProgress: loading in the
+    // language, then the import's analysis (discovery, references, the
+    // listing) in its phases.
+    std::shared_ptr<ImportProgress> progress;
+    if (!req.progress_id().empty()) {
+      if (auto st = core_->imports.Start(ctx.caller, p.id, req.progress_id(), progress); !st.ok()) return st;
+    } else {
+      progress = std::make_shared<ImportProgress>(ctx.caller, p.id, req.program_id());
+    }
+    const std::string target = language.empty() ? "the imported language" : language;
+    {
+      const analysis::ProgramInfo was = src.program->Describe(src.ram_space);
+      ImportFacts f;
+      f.parsed = true;
+      f.file_bytes = src.file_size;
+      for (const analysis::Range &c : was.code) f.code_bytes += c.last - c.first + 1;
+      f.raw = was.search;
+      f.parallel = f.code_bytes > kParallelCodeBytes;
+      progress->SetProgram(req.program_id());
+      progress->Plan(ImportCosts::estimate(f));
+      progress->Enter(pb::IMPORT_PHASE_LOADING, "Loading " + req.program_id() + " in " + target);
+    }
     pb::AssertionBody body;
     auto *b = body.mutable_language();
     b->set_language_id(language);
@@ -4593,18 +4615,46 @@ class ImageBackend final : public api::Backend {
     auto tx = p.db->begin();
     const std::uint64_t rev = tx.next_revision();
     tx.assert_fact(ToFacts(prov), LanguageKey(src.ram_space), value, 0, Meta(prov, &body, rev));
+    // The program analyzed in its new language before the revision is
+    // published (the import's analysis, in parallel): until then every read
+    // gets the previous head, so views keep what they show and aren't held
+    // up, and then they find the new analysis done.
+    const std::function<void(const facts::Snapshot &, std::uint64_t, Seq)> analyze =
+        [&](const facts::Snapshot &snap, std::uint64_t revision, Seq log_size) {
+          auto pending = p.rebased.find(req.program_id());
+          if (pending == p.rebased.end()) return;
+          Read nr;
+          nr.project = &p;
+          nr.snapshot = snap;
+          nr.revision = revision;
+          nr.head = revision;
+          nr.log_size = log_size;
+          {
+            std::lock_guard lock(core_->mu);
+            nr.spaces = p.spaces;
+          }
+          nr.program = pending->second;
+          const ProgramSource &ns = nr.program->source;
+          try {
+            Analyze(nr, ns.program->Describe(ns.ram_space), progress.get());
+          } catch (const std::exception &e) {
+            // Published anyway: a read computes what's missing and reports it.
+            std::cerr << "rk-daemon: analysis of " << req.program_id() << " in " << target << " failed: " << e.what() << "\n";
+          }
+        };
     pb::RevisionEvent ev;
     std::uint64_t revision = 0;
     try {
-      revision = Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev);
+      revision = Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr, &ev, nullptr, nullptr, &analyze);
     } catch (const std::exception &e) {
+      progress->Fail(e.what());
       return Error(StatusCode::kInternal, std::string("changing the language failed: ") + e.what());
     }
     for (const pb::Assertion &a : ev.assertions())
       if (a.key().kind() == pb::FACT_KIND_LANGUAGE) *resp.mutable_assertion() = a;
     resp.mutable_snapshot()->set_revision(revision);
     resp.mutable_snapshot()->set_head_revision(revision);
-    WarmAfterMemoryEdit(req.program_id(), revision);
+    progress->Finish("In " + target + ": " + Thousands(progress->functions()) + " functions");
     return Status::Ok();
   }
 
@@ -12456,12 +12506,17 @@ class ImageBackend final : public api::Backend {
   std::uint64_t Commit(Project &p, facts::FactDb::Transaction &tx, const pb::Provenance &prov, pb::ChangeCause cause,
                        std::shared_ptr<const ProgramEntry> imported, pb::RevisionEvent *out = nullptr,
                        const std::vector<std::pair<std::string, std::uint64_t>> *signatures = nullptr,
-                       const std::set<std::string> *remapped_programs = nullptr) {
+                       const std::set<std::string> *remapped_programs = nullptr,
+                       const std::function<void(const facts::Snapshot &, std::uint64_t, Seq)> *before_publish = nullptr) {
     const Seq first_new = p.log().next_seq();
     std::vector<facts::FactKey> changed;
     const std::uint64_t revision = tx.commit(&changed);
     facts::Snapshot snap = p.db->snapshot();
     const Seq log_size = p.log().size();
+    // Work at the new revision before anyone reads it (SetProgramLanguage's
+    // analysis): reads still resolve to the previous head, and the restaged
+    // programs are still in p.rebased.
+    if (before_publish) (*before_publish)(snap, revision, log_size);
 
     std::uint64_t previous = 0;
     std::map<std::string, std::shared_ptr<const ProgramEntry>> programs;

@@ -539,6 +539,15 @@ tell processor variants apart.
   takes the language's default. It persists, survives a rebase (and a
   rebase survives it), and reaches peers and project archives.
   `validate_only` checks without changing anything.
+- **Analyzed before it is published.** The call returns once the program
+  has been analyzed in the new language (the import's analysis, in
+  parallel: about as long as the import's). Until then the change isn't
+  published: every read still gets the previous revision, so views keep
+  what they show, and then find the new analysis done. With a
+  `progress_id` (`api_minor` 74, feature `language-progress`), the switch
+  is followed as an import is: `GetImportProgress` with the program's
+  project and the id as `import_id`, through `LOADING`, `FUNCTIONS` and
+  `DATA` to `DONE` ("In ARM:LE:32:v7: 4,581 functions").
 - **Refused:** an unknown language or compiler spec (`INVALID_ARGUMENT`); a
   language that lays memory out differently (other address spaces, address
   or word sizes: AVR's code and data spaces after ARM's single space), whose
@@ -2004,6 +2013,9 @@ then frozen.
 - `api_minor` increments with each additive change. Branches developed in
   parallel may each bump it; on merge, each additive change takes the next
   number, which is why clients should check features rather than numbers.
+  74 added `SetProgramLanguageRequest.progress_id`, followed with
+  `GetImportProgress` (feature `language-progress`;
+  [above](#changing-a-programs-language));
   73 added `ProjectService.SetProgramLanguage` and `CompareLanguages`
   (`LanguageFit`), `FACT_KIND_LANGUAGE` and `AssertionBody.language`
   (`ProgramLanguageBody`; feature `set-language`;

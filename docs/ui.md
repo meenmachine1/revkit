@@ -889,8 +889,10 @@ marked **current**. Click a row (or Enter) to choose it, or pick any
 language of the processor (the other byte order) and a compiler spec from
 the lists below; **Switch** changes the language in place: the same bytes
 at the same addresses, every name, comment and type kept, analysis run
-again (the dialog says so while it runs; it takes about as long as the
-import's analysis, and the views wait for it). It is one undo step (Ctrl+Z, or the toast's Undo);
+again. While it runs, the dialog shows the import's progress bar (the
+phase, functions found, a percentage); it takes about as long as the
+import's analysis, and the views keep showing the program as it was until
+it is done. It is one undo step (Ctrl+Z, or the toast's Undo);
 **Imported language** goes back to the language of the import. A language
 that lays memory out differently is greyed out: import the file again in
 it.

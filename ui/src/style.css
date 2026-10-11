@@ -1246,6 +1246,7 @@ body.rk-resizing .backdrop { cursor: nwse-resize; }
 .lang-section-title { font-weight: 600; font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; }
 .lang-table { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: auto; max-height: 46vh; background: var(--bg); }
 .lang-busy { padding: 14px 12px; }
+.modal.lang .import-progress { width: 100%; margin: 2px 0 0; }
 .lang-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(120px, 1.2fr) 70px 70px 76px 76px minmax(0, 1fr); gap: 10px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border-soft); cursor: pointer; }
 .lang-row:last-child { border-bottom: 0; }
 .lang-row.lang-head { position: sticky; top: 0; background: var(--panel); color: var(--dim); font-size: 12px; cursor: default; z-index: 1; }

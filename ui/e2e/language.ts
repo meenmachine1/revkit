@@ -2,8 +2,8 @@
 // "Changing the language"): the dialog compares the processor's variants on
 // the program's code, marks the current language and auto-detection's pick,
 // and keeps Switch off while the current language is chosen; Escape closes
-// it; while a switch runs it says so (the call held back and refused
-// here). Switching itself is covered by the backend's tests
+// it; while a switch runs, the import's progress bar follows it (the call
+// held back and refused here). Switching itself is covered by the backend's tests
 // (RawRebaseTest.TheLanguageChangesInPlaceAndBack), so the shared test
 // program stays in its language for the checks after this one.
 // run.ts calls languageChecks().
@@ -40,7 +40,7 @@ export async function languageChecks(c: LanguageContext) {
     await p.context().close();
   });
 
-  await check("change language: Switch shows its progress while the program is analyzed again; a refusal gives the dialog back", async () => {
+  await check("change language: Switch shows the import's progress bar while the program is analyzed again; a refusal gives the dialog back", async () => {
     const p = await open(base);
     // Held back, then refused here: the shared program keeps its language.
     await p.route("**/revkit.v1.ProjectService/SetProgramLanguage", async (route) => {
@@ -55,10 +55,12 @@ export async function languageChecks(c: LanguageContext) {
     assert(another, "another language of the processor to pick");
     await p.selectOption("[data-testid=lang-other]", another);
     await p.click("[data-testid=lang-apply]");
-    await p.waitForSelector("[data-testid=lang-progress]:not([hidden])");
-    assert(/analyzing the program again/.test((await p.textContent("[data-testid=lang-progress]")) ?? ""), "what it is doing");
+    const bar = "[data-testid=lang-dialog] [data-testid=import-progress]";
+    await p.waitForSelector(`${bar}:not([hidden])`);
+    assert((await p.getAttribute(`${bar} [data-testid=import-bar]`, "aria-label")) === "Language switch progress", "the bar is the switch's");
+    assert(/^Switching to /.test((await p.textContent(`${bar} [data-testid=import-progress-text]`)) ?? ""), "what it is doing");
     assert(await p.isDisabled("[data-testid=lang-apply]"), "Switch is off while it runs");
-    await p.waitForSelector("[data-testid=lang-progress]", { state: "hidden", timeout: 10000 });
+    await p.waitForSelector(bar, { state: "hidden", timeout: 10000 });
     assert(!(await p.isDisabled("[data-testid=lang-apply]")), "Switch is back after the refusal");
     await p.keyboard.press("Escape");
     await p.context().close();

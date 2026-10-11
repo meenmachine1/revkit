@@ -608,6 +608,14 @@ message SetProgramLanguageRequest {
   Provenance provenance = 4;
   // Check that it can be done; change nothing.
   bool validate_only = 5;
+  // A random id the client chooses (at most 128 characters) to follow the
+  // switch with GetImportProgress (the program's project, this as the
+  // import_id) while this call runs: loading in the language, then the
+  // import's analysis in its phases (FUNCTIONS, DATA). The program is
+  // analyzed before the change is published, so reads keep the previous
+  // revision until it is. Empty: no progress is recorded. Added in
+  // api_minor 74 (feature "language-progress").
+  string progress_id = 6;
 }
 
 message SetProgramLanguageResponse {

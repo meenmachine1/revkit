@@ -592,18 +592,20 @@ class SetImageBaseResponse(_message.Message):
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., assertion: _Optional[_Union[_assertion_pb2.Assertion, _Mapping]] = ..., image_base: _Optional[int] = ..., previous_image_base: _Optional[int] = ..., import_image_base: _Optional[int] = ...) -> None: ...
 
 class SetProgramLanguageRequest(_message.Message):
-    __slots__ = ("program_id", "language_id", "compiler_spec_id", "provenance", "validate_only")
+    __slots__ = ("program_id", "language_id", "compiler_spec_id", "provenance", "validate_only", "progress_id")
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
     LANGUAGE_ID_FIELD_NUMBER: _ClassVar[int]
     COMPILER_SPEC_ID_FIELD_NUMBER: _ClassVar[int]
     PROVENANCE_FIELD_NUMBER: _ClassVar[int]
     VALIDATE_ONLY_FIELD_NUMBER: _ClassVar[int]
+    PROGRESS_ID_FIELD_NUMBER: _ClassVar[int]
     program_id: str
     language_id: str
     compiler_spec_id: str
     provenance: _common_pb2.Provenance
     validate_only: bool
-    def __init__(self, program_id: _Optional[str] = ..., language_id: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., validate_only: _Optional[bool] = ...) -> None: ...
+    progress_id: str
+    def __init__(self, program_id: _Optional[str] = ..., language_id: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., validate_only: _Optional[bool] = ..., progress_id: _Optional[str] = ...) -> None: ...
 
 class SetProgramLanguageResponse(_message.Message):
     __slots__ = ("snapshot", "assertion", "language_id", "compiler_spec_id", "previous_language_id", "previous_compiler_spec_id")
