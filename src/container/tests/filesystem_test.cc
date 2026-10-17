@@ -5,6 +5,8 @@
 // them; and their hostile cases.
 #include "fixtures.hh"
 
+#include <chrono>
+
 namespace revkit::container {
 namespace {
 
@@ -206,7 +208,17 @@ with open(img, 'r+b') as f:
 )";
   ASSERT_TRUE(sh(py() + " " + (d / "patch.py").string() + " " + img.string() + " " + tool_path("debugfs")));
   auto s = open_path(img);
-  EXPECT_THROW(s->open_file("/f"), LimitError);
+  // A file's blocks are distinct blocks of the image: this 4 MiB image has
+  // 1,024, so the map stops there, in milliseconds instead of the seconds
+  // 4M runs took (docs/bug-scrub.md, "ext CPU").
+  const auto start = std::chrono::steady_clock::now();
+  try {
+    (void)s->open_file("/f");
+    ADD_FAILURE() << "opened";
+  } catch (const LimitError &e) {
+    EXPECT_NE(std::string(e.what()).find("more blocks than the image has"), std::string::npos) << e.what();
+  }
+  EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
 }
 
 TEST(ContainerHostile, SquashfsHardLinksShareTheirBlockList) {
@@ -223,6 +235,67 @@ TEST(ContainerHostile, SquashfsHardLinksShareTheirBlockList) {
   auto a = s->locate("/a", false), b = s->locate("/b", false);
   EXPECT_EQ(a.fs->entry(a.entry).loc0, b.fs->entry(b.entry).loc0);
   EXPECT_EQ(read_all(*s->open_file("/b")), std::string(300000, 'q'));
+}
+
+// FAT directories whose chains share their clusters: 400 subdirectories
+// of the root each start one cluster further along one 1000-cluster chain,
+// so each reads up to 4 MiB of the same clusters again. With the root's
+// 512 entries and 262,144 entries in all that is a terabyte to read from
+// a 17 MB image; the directories read are now capped at 1 GiB in all.
+TEST(ContainerHostile, FatDirectoriesSharingTheirChains) {
+  const std::uint32_t bps = 512, spc = 8, reserved = 1, root_entries = 512, clusters = 4100;
+  const std::uint32_t fat_sectors = (2 * (clusters + 2) + bps - 1) / bps;
+  const std::uint32_t root_sectors = root_entries * 32 / bps;
+  const std::uint32_t total = reserved + fat_sectors + root_sectors + clusters * spc;
+  std::vector<std::byte> img(static_cast<std::size_t>(total) * bps);
+  auto put8 = [&](std::size_t at, std::uint8_t v) { img[at] = std::byte{v}; };
+  auto put16 = [&](std::size_t at, std::uint16_t v) {
+    put8(at, static_cast<std::uint8_t>(v));
+    put8(at + 1, static_cast<std::uint8_t>(v >> 8));
+  };
+  auto put32 = [&](std::size_t at, std::uint32_t v) {
+    put16(at, static_cast<std::uint16_t>(v));
+    put16(at + 2, static_cast<std::uint16_t>(v >> 16));
+  };
+  put8(0, 0xeb);
+  put8(1, 0x3c);
+  put8(2, 0x90);
+  put16(11, bps);
+  put8(13, spc);
+  put16(14, reserved);
+  put8(16, 1);
+  put16(17, root_entries);
+  put16(19, 0);
+  put32(32, total);
+  put8(21, 0xf8);
+  put16(22, fat_sectors);
+  for (std::size_t i = 0; i < 8; ++i) put8(54 + i, static_cast<std::uint8_t>("FAT16   "[i]));
+  put8(510, 0x55);
+  put8(511, 0xaa);
+  // The FAT: clusters 3..1002 one chain.
+  const std::size_t fat = reserved * bps;
+  put16(fat, 0xfff8);
+  put16(fat + 2, 0xffff);
+  for (std::uint32_t c = 3; c < 1002; ++c) put16(fat + 2 * c, static_cast<std::uint16_t>(c + 1));
+  put16(fat + 2 * 1002, 0xffff);
+  // The root: 400 directories, the i-th starting at cluster 3 + i.
+  const std::size_t root = (reserved + fat_sectors) * bps;
+  for (std::uint32_t i = 0; i < 400; ++i) {
+    char name[12];
+    std::snprintf(name, sizeof name, "D%07u   ", i);
+    const std::size_t e = root + 32 * i;
+    for (int k = 0; k < 11; ++k) put8(e + k, static_cast<std::uint8_t>(name[k]));
+    put8(e + 11, 0x10);
+    put16(e + 26, static_cast<std::uint16_t>(3 + i));
+  }
+  Context ctx;
+  ctx.budget = std::make_shared<Budget>(ctx.limits.max_total_bytes);
+  try {
+    auto opened = open_format("fat", memory_source(std::move(img)), "shared.img", ctx);
+    ADD_FAILURE() << "opened: " << opened->description();
+  } catch (const Error &e) {
+    EXPECT_NE(std::string(e.what()).find("over 1 GiB of FAT directories"), std::string::npos) << e.what();
+  }
 }
 
 TEST(ContainerCramfs, BothByteOrders) {

@@ -28,7 +28,12 @@ struct DecodedAt {
   const lift::Instruction *insn = nullptr;
   const FlowInsn *flow = nullptr;
 };
+// `assumed(at, offset, size)`: the value a register holds at an
+// instruction where the flow doesn't know it (register_values.h), if any;
+// null: none.
+using AssumedRegister = std::function<std::optional<std::uint64_t>(std::uint64_t at, std::uint64_t offset, std::uint32_t size)>;
 void collect_data_refs(const ProgramInfo &info, ByteReader &bytes, std::uint64_t start, std::size_t count,
-                       const std::function<DecodedAt(std::uint64_t)> &at, std::vector<DataRef> &out);
+                       const std::function<DecodedAt(std::uint64_t)> &at, std::vector<DataRef> &out,
+                       const AssumedRegister *assumed = nullptr);
 
 }  // namespace revkit::analysis::detail

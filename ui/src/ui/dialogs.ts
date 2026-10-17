@@ -12,7 +12,7 @@ export interface AskOptions {
   validate?: (v: string) => string | null;
   /** Asked after `validate` passes (the daemon's validate_only): an error
    * keeps the dialog open and shows it. `controls` are the controls' values. */
-  check?: (v: string, controls: ControlValues) => Promise<string | null>;
+  check?: (v: string, controls: ControlValues, extra: string) => Promise<string | null>;
   /** Choices under the field (Set Equate's "Apply to", a reference's type,
    * operand and primary): radio groups, drop-downs and check boxes. Enter
    * on any of them saves, as on the field. */
@@ -214,7 +214,7 @@ export function askMore(o: AskOptions): Promise<AskResult | null> {
         if (!problem && o.check) {
           checking = true;
           box.classList.add("busy");
-          problem = await o.check(v, ctl.values());
+          problem = await o.check(v, ctl.values(), extra?.value ?? "");
           checking = false;
           box.classList.remove("busy");
         }

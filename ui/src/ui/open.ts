@@ -243,6 +243,9 @@ const RAW_LANGUAGES = [
   "MIPS:BE:32:default", "MIPS:LE:32:default", "PowerPC:BE:32:default", "x86:LE:32:default", "RISCV:LE:32:default",
 ];
 
+/** How long the import's last progress may take before the program opens anyway. */
+const FINAL_PROGRESS_MS = 1500;
+
 export function showOpenDialog(rk: Revkit, o: OpenOptions) {
   const restore = document.activeElement as HTMLElement | null;
   const manage = new Set(o.features ?? []).has("program-management");
@@ -836,7 +839,9 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
       if (r.libraries.length || r.librariesNotFound.length)
         toast(
           [r.libraries.length ? `Imported ${r.libraries.length} librar${r.libraries.length === 1 ? "y" : "ies"} with it (${r.libraries.map((x) => x.name).join(", ")})` : "",
-            r.librariesNotFound.length ? `not found: ${r.librariesNotFound.map((x) => x.name).join(", ")}` : ""].filter(Boolean).join("; "),
+            r.librariesNotFound.length ? `not found: ${r.librariesNotFound.map((x) => x.name).join(", ")}` : "",
+            // The extracted root file system they were looked for in (api_minor 79).
+            r.libraryRoot ? `looked for in ${r.libraryRoot}` : ""].filter(Boolean).join("; "),
           { ms: 8000 },
         );
       // Into the folder picked in the tree (older daemons: moved here).
@@ -852,8 +857,12 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
         // The bar full, with what was found, for a moment before the program opens.
         progress.finish(`Imported ${r.program?.name ?? label}`);
         busy(`Imported ${r.program?.name ?? label}; opening it…`);
+        // What was found, for the bar: briefly. Nothing waits on an answer
+        // that may not come (the browser's six connections to the daemon
+        // all held by other tabs' streams and calls, a daemon too busy to
+        // answer); the program is imported either way (docs/known-issues.md).
         try {
-          const last = await rk.projects.getImportProgress({ projectId: into, importId });
+          const last = await rk.projects.getImportProgress({ projectId: into, importId }, { timeoutMs: FINAL_PROGRESS_MS });
           if (last.done && !last.error) progress.update(last);
         } catch {
           /* the program is imported either way */
@@ -1105,7 +1114,7 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
   const libsRow = h(
     "div",
     { class: "od-libs", hidden: !libsOn },
-    h("label", { class: "od-check", title: "The shared libraries it needs (ELF DT_NEEDED, PE import DLLs) that the project lacks: beside the file, on its runpath, on these directories, then the host's /lib and /usr/lib for a file on the daemon host; two levels deep" }, libsBox, h("span", {}, "Also import the libraries it needs")),
+    h("label", { class: "od-check", title: "The shared libraries it needs (ELF DT_NEEDED, PE import DLLs) that the project lacks: beside the file, on its runpath, on these directories, then the host's /lib and /usr/lib for a file on the daemon host (for a file inside an extracted root file system under --browse-root, that root's /lib, /usr/lib and ld.so.conf directories instead); two levels deep" }, libsBox, h("span", {}, "Also import the libraries it needs")),
     libsPaths,
   );
   const importView = h(

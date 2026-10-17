@@ -79,3 +79,10 @@ race:libupb.so
 race:libprotobuf.so
 race:libcrypto.so
 race:libssl.so
+# Verified false positive (docs/bug-scrub.md, part 2): a project's store
+# writer is taken under Core::mu only in FactDb's constructor, when the
+# project is opened, on a writer no other thread can reach yet; the
+# rebase and language hooks (OnRebase, OnLanguage) take Core::mu briefly
+# under that writer later, inside a commit. TSan joins the two orders by
+# the mutex's address and reports a cycle that can't deadlock.
+deadlock:revkit::facts::FactDb::FactDb

@@ -32,6 +32,8 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <set>
 #include <thread>
 
 namespace revkit::api {
@@ -801,6 +803,71 @@ TEST(AuthPolicyUnit, EveryMethodHasAPolicy) {
   }
   EXPECT_TRUE(missing.empty()) << "no policy for " << ::testing::PrintToString(missing);
   EXPECT_EQ(static_cast<std::size_t>(methods), MethodsWithPolicy().size());
+}
+
+// A request naming a program or project (at any depth ProjectsNamedBy
+// looks) is project-scoped, so a caller limited to some projects can't
+// reach another's through it; the few that aren't say why here.
+TEST(AuthPolicyUnit, MethodsNamingAProgramAreProjectScoped) {
+  const std::set<std::string> unscoped = {
+      // Optional filters, checked when given (Authorize): the caller's own
+      // runs, and the shipped and per-user scripts without a project.
+      "revkit.v1.ScriptService/ListScriptRuns",
+      "revkit.v1.ScriptService/ListScripts",
+      // A project's library or the caller's own (SCRIPT_LIBRARY_USER).
+      "revkit.v1.ScriptService/SaveScript",
+      // Peers replicate whole daemons.
+      "revkit.v1.SyncService/FetchProgram",
+      "revkit.v1.SyncService/GetSyncState",
+      "revkit.v1.SyncService/Pull",
+      "revkit.v1.SyncService/Push",
+  };
+  std::function<bool(const gp::Descriptor *, int)> names = [&](const gp::Descriptor *d, int depth) {
+    if (depth > 4) return false;
+    for (int i = 0; i < d->field_count(); ++i) {
+      const gp::FieldDescriptor *f = d->field(i);
+      if (f->type() == gp::FieldDescriptor::TYPE_STRING &&
+          (f->name() == "project_id" || f->name() == "program_id" || f->name() == "program_ids"))
+        return true;
+      if (f->type() == gp::FieldDescriptor::TYPE_MESSAGE && !f->is_repeated() && !f->is_map() &&
+          names(f->message_type(), depth + 1))
+        return true;
+    }
+    return false;
+  };
+  const gp::DescriptorPool *pool = pb::GetServerInfoRequest::descriptor()->file()->pool();
+  std::vector<std::string> wrong;
+  for (const std::string &m : MethodsWithPolicy()) {
+    const gp::MethodDescriptor *md = pool->FindMethodByName(m.substr(0, m.find('/')) + "." + m.substr(m.find('/') + 1));
+    ASSERT_TRUE(md) << m;
+    const MethodPolicy policy = *PolicyFor(m);
+    if (names(md->input_type(), 0) && !policy.project_scoped && !unscoped.contains(m)) wrong.push_back(m);
+  }
+  EXPECT_TRUE(wrong.empty()) << "name a program but aren't project-scoped: " << ::testing::PrintToString(wrong);
+  // An optional project a limited caller names is still checked.
+  auth::Principal limited;
+  limited.kind = auth::PrincipalKind::kUser;
+  limited.name = "carol";
+  limited.role = auth::Role::kEditor;
+  limited.projects = {"mine"};
+  pb::ListScriptsRequest scripts;
+  EXPECT_TRUE(Authorize(&limited, "revkit.v1.ScriptService/ListScripts", scripts).ok());
+  scripts.set_project_id("mine");
+  EXPECT_TRUE(Authorize(&limited, "revkit.v1.ScriptService/ListScripts", scripts).ok());
+  scripts.set_project_id("theirs");
+  EXPECT_EQ(Authorize(&limited, "revkit.v1.ScriptService/ListScripts", scripts).code, StatusCode::kPermissionDenied);
+  // Another project's script library (ScriptService checks it too).
+  pb::SaveScriptRequest save;
+  save.set_project_id("theirs");
+  EXPECT_EQ(Authorize(&limited, "revkit.v1.ScriptService/SaveScript", save).code, StatusCode::kPermissionDenied);
+  save.set_project_id("mine");
+  EXPECT_TRUE(Authorize(&limited, "revkit.v1.ScriptService/SaveScript", save).ok());
+  pb::CompareLanguagesRequest compare;
+  compare.set_program_id("theirs/prog");
+  EXPECT_EQ(Authorize(&limited, "revkit.v1.ProjectService/CompareLanguages", compare).code,
+            StatusCode::kPermissionDenied);
+  compare.set_program_id("mine/prog");
+  EXPECT_TRUE(Authorize(&limited, "revkit.v1.ProjectService/CompareLanguages", compare).ok());
 }
 
 // Every non-public method refuses a caller without credentials, over the

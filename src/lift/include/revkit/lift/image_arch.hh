@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -158,6 +159,15 @@ class ImageArchitecture : private detail::OwnedTranslator, public ghidra::Sleigh
   // (ARM's conditional "movne pc, lr", which Funcdata::overrideFlow can't
   // change). Kinds are ghidra::Override values. Replaces the previous set.
   void set_pcode_overrides(std::map<std::uint64_t, std::uint32_t> overrides);
+
+  // Fallthrough overrides (Ghidra's Set Fallthrough), applied to the p-code
+  // as Ghidra's Java side applies them (PcodeEmit): at each address of
+  // `falls`, a branch to the instruction's next address goes to the
+  // override's instead, and a BRANCH there ends its p-code. Decoding at an
+  // address of `stops` fails (BadDataError), so the decompiler's flow stops
+  // there as Ghidra's does where no instruction follows one with no
+  // fallthrough. Replaces the previous sets.
+  void set_fallthroughs(std::map<std::uint64_t, std::uint64_t> falls, std::set<std::uint64_t> stops);
 
   const loader::Image &image() const { return *image_; }
   const ArchitectureOptions &options() const { return options_; }

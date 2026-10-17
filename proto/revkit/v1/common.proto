@@ -216,6 +216,17 @@ enum FactKind {
   // program, sub = ""; "<language id>|<compiler spec id>", or "" for the
   // language it was imported with.
   FACT_KIND_LANGUAGE = 18;
+  // An instruction's fallthrough, as the user sets it (api_minor 85,
+  // feature "fallthrough-override"; SetFallthrough): address = the
+  // instruction, sub = ""; the value the address control goes on at, the
+  // number 1 (it doesn't fall through) or 0 (the default: cleared).
+  FACT_KIND_FALLTHROUGH = 19;
+  // A register's value over an address range (api_minor 87, feature
+  // "register-values"; SetRegisterValue): address = the range's first
+  // byte, sub = "<register>:<hex length>"; the value in hex, or "none"
+  // (no value there). Overlapping ranges of one register compose by
+  // precedence, then recency.
+  FACT_KIND_REGISTER_VALUE = 20;
 }
 
 // Identifies one assertable fact. (program_id, kind, address, sub) is the

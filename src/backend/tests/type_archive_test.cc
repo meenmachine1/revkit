@@ -5,6 +5,8 @@
 #include "builders.hh"
 
 #include "revkit/backend/image_backend.h"
+#include "revkit/cparse/cparse.h"
+#include "type_archive.h"
 
 #include <gtest/gtest.h>
 
@@ -387,6 +389,29 @@ TEST_F(TypeArchiveTest, SelectedTypes) {
   EXPECT_EQ(resp.header_name(), "lua-debug.h");
   req.add_keys("struct no_such_thing");
   EXPECT_EQ(backend_->ExportTypeArchive(ctx_, req, resp).code, StatusCode::kNotFound);
+}
+
+// A sidecar's data model is anyone's file: sizes and alignments outside
+// 1-64 keep the profile's, as the spec path's do.
+TEST(TypeArchiveSidecar, HostileDataModelKeepsSaneLayouts) {
+  pb::TypeArchiveDataModel m;
+  m.set_profile("x86_64-linux-gnu");
+  m.set_pointer_size(0xffffffffu);
+  m.set_int_size(4096);
+  m.set_long_size(8);
+  m.set_max_alignment(1u << 30);
+  m.add_size_alignment("4294967300:8");
+  m.add_size_alignment("8:0");
+  m.add_size_alignment("16:16");
+  m.add_size_alignment("garbage");
+  const cparse::Profile p = ProfileOf(m);
+  const cparse::Profile base = *cparse::profile_named("x86_64-linux-gnu");
+  EXPECT_EQ(p.rules.pointer_size, base.rules.pointer_size);
+  EXPECT_EQ(p.rules.int_size, base.rules.int_size);
+  EXPECT_EQ(p.rules.long_size, 8u);
+  EXPECT_EQ(p.rules.max_alignment, base.rules.max_alignment);
+  ASSERT_EQ(p.rules.size_alignment.size(), 1u);
+  EXPECT_EQ(p.rules.size_alignment[0], (std::pair<std::uint32_t, std::uint32_t>{16, 16}));
 }
 
 }  // namespace

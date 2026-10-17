@@ -396,6 +396,7 @@ void StaticRow::encode(Encoder &e) const {
   e.bytes(data_field);
   e.varint(data_depth);
   facts::encode(e, data_parent);
+  e.bytes(data_settings_type);
 }
 
 StaticRow StaticRow::decode(Decoder &d) {
@@ -434,6 +435,7 @@ StaticRow StaticRow::decode(Decoder &d) {
   r.data_field = d.bytes();
   r.data_depth = facts::decode<std::uint32_t>(d);
   r.data_parent = facts::decode<std::optional<std::uint64_t>>(d);
+  r.data_settings_type = d.bytes();
   return r;
 }
 

@@ -72,6 +72,16 @@ struct Source {
   using Value = ProgramSource;
 };
 
+// The separate debug file a program read at load (debug_files.h): its path
+// and size, "" when none. Staged with Source; the queries that read
+// Program::debug() read it too, so a debug file found (or gone) since their
+// memos were made recomputes them.
+struct DebugFile {
+  static constexpr std::string_view name = "program.debug_file";
+  using Key = std::string;  // program id
+  using Value = std::string;
+};
+
 // Programs in the project at a revision, in import order.
 struct Programs {
   static constexpr std::string_view name = "project.programs";
@@ -173,8 +183,8 @@ struct Rows {
 struct Page {
   static constexpr std::string_view name = "listing.page";
   // 2: instructions' flow and targets; 3: data rows; 4: patched bytes; 5: patches through patch.page; 6: the memory map;
-  // 7: the listing's edits (typed data, field rows); 8: scalar tokens' widths
-  static constexpr std::uint32_t version = 8;
+  // 7: the listing's edits (typed data, field rows); 8: scalar tokens' widths; 9: data settings
+  static constexpr std::uint32_t version = 9;
   using Key = std::pair<std::string, std::int64_t>;  // (program id, page)
   using Value = std::vector<StaticRow>;
   static Value compute(facts::QueryContext &ctx, const Key &key);
@@ -186,7 +196,7 @@ struct Page {
 // neither keeps nor evicts the full pages the listing view uses.
 struct SearchPage {
   static constexpr std::string_view name = "listing.search_page";
-  static constexpr std::uint32_t version = 1;
+  static constexpr std::uint32_t version = 2;  // 2: data settings
   using Key = std::pair<std::string, std::int64_t>;  // (program id, page)
   using Value = std::vector<SearchRow>;
   static Value compute(facts::QueryContext &ctx, const Key &key);

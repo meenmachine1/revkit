@@ -88,7 +88,15 @@ struct Limits {
   std::uint64_t max_ops = 200'000'000;
   std::uint64_t max_op_bytes = 64ull << 20;
   std::uint64_t max_value_bytes = 16ull << 20;
+  // The latest op stamp accepted (0: any). An op stamped far in the future
+  // would sort after every edit made here until the clock caught up (and
+  // UINT64_MAX wrapped the clock to 0: every later edit lost to it), so the
+  // importer passes FutureStampLimit().
+  std::uint64_t max_stamp = 0;
 };
+
+// A day past this host's clock, as an op stamp.
+std::uint64_t FutureStampLimit();
 
 // Why an archive was refused. `unsupported`: a format or version this
 // daemon doesn't read (FAILED_PRECONDITION); otherwise it is malformed or

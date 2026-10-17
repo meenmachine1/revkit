@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -42,6 +43,12 @@ std::optional<DebugFacts> ReadDwarf(const Program &program);
 // as written, then its file name beside the binary, then <stem>.pdb beside
 // it, matching the image's CodeView GUID and age.
 std::optional<DebugFacts> ReadPdb(const Program &program);
+
+// An ELF's separate debug file (docs/backend.md "External debug files"):
+// its DWARF, read as the image's own .debug_info is, at the program's
+// addresses. Throws std::exception for a file the loader can't read.
+DebugFacts ReadDwarfFile(const Program &program, std::shared_ptr<const std::vector<std::byte>> bytes,
+                         const std::string &file);
 
 // A PDB's bytes, read for `program` whatever build it is ("Load PDB…",
 // docs/pdb.md): its facts at the image's addresses. Throws

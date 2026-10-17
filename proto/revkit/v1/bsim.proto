@@ -38,6 +38,14 @@ service BSimService {
   // similarity, with confidence, above the thresholds and through the
   // filters; or, as an overview, only how many there are.
   rpc SearchBSim(SearchBSimRequest) returns (SearchBSimResponse);
+  // Applies matches to the queried functions (api_minor 76, feature
+  // "bsim-apply"), as Ghidra's BSim results do: the match's name, its name
+  // and a skeleton signature, or its name, signature and the types it uses.
+  // From the program of the project the match's file is (its markup now,
+  // ported as PortFunctionMarkup ports it), else from the database's
+  // record (the name and prototype stored at ingest). Every pair in one
+  // revision: one undo step. Needs edit rights.
+  rpc ApplyBSimMatches(ApplyBSimMatchesRequest) returns (ApplyBSimMatchesResponse);
 }
 
 // A database's weights: Ghidra's templates' tables. 64 and 32 sign with
@@ -288,4 +296,101 @@ message SearchBSimResponse {
   uint64 scored = 2;
   uint64 total = 3;
   double seconds = 4;
+}
+
+// --- Applying matches (api_minor 76, feature "bsim-apply") ---
+
+enum BSimApplyKind {
+  BSIM_APPLY_KIND_UNSPECIFIED = 0;
+  // The match's name (never a default one, FUN_...).
+  BSIM_APPLY_KIND_NAME = 1;
+  // The name and a skeleton signature: the match's prototype with the
+  // types the target program has by name, and an empty placeholder
+  // structure (an incomplete struct of that name) for each it lacks, so
+  // nothing of another architecture's or compiler's layout comes along.
+  BSIM_APPLY_KIND_SIGNATURE = 2;
+  // The name, the signature and the types it uses: with the match's
+  // program in the project, every type the prototype reaches is defined in
+  // the target by hash (PortFunctionMarkup's SIGNATURE); from the database
+  // alone (it stores no type definitions) as SIGNATURE, with a warning.
+  BSIM_APPLY_KIND_SIGNATURE_AND_TYPES = 3;
+}
+
+// One query function and the match to apply to it.
+message BSimApplyPair {
+  // The queried function of program_id (its entry, or an address inside).
+  Address function = 1;
+  // The matched executable (its id, a unique id prefix or its unique name,
+  // as BSimMatch.executable has it) and its function's entry there
+  // (BSimMatch.function.entry).
+  string executable = 2;
+  Address match = 3;
+}
+
+message ApplyBSimMatchesRequest {
+  string project_id = 1;
+  string database = 2;
+  // The program the queried functions are in.
+  string program_id = 3;
+  // Each pair applies one match to one function; a function in two pairs
+  // gets neither (as Ghidra's apply: which one is meant?).
+  repeated BSimApplyPair pairs = 4;
+  BSimApplyKind kind = 5;
+  // Replace what the function has. Without it, as PortFunctionMarkup: a
+  // name only over a default name; a signature only over a guess (none, the
+  // decompiler's, or analysis's: inference, parameter ID).
+  bool overwrite = 6;
+  // Say what would be applied; commit nothing.
+  bool dry_run = 7;
+  // Who applies (the assertions are theirs; default the caller as a
+  // user). An empty reason becomes one naming the match.
+  Provenance provenance = 8;
+  // Apply the database's record even when the match's file is a program
+  // of the project.
+  bool database_only = 9;
+}
+
+enum BSimApplyStatus {
+  BSIM_APPLY_STATUS_UNSPECIFIED = 0;
+  BSIM_APPLY_STATUS_APPLIED = 1;    // something changed (or would, in a dry run)
+  BSIM_APPLY_STATUS_UNCHANGED = 2;  // the function already has it
+  BSIM_APPLY_STATUS_SKIPPED = 3;    // the function has its own (no overwrite), or the match a default name
+  BSIM_APPLY_STATUS_FAILED = 4;     // no such function or match, or two matches for one function
+}
+
+// What one pair did, as Ghidra's apply results list it.
+message BSimApplied {
+  // The queried function (its entry) and the match's executable and entry.
+  Address function = 1;
+  string executable_id = 2;
+  Address match = 3;
+  BSimApplyStatus status = 4;
+  // Why (skipped, failed), or the warnings applying it gave.
+  string message = 5;
+  // Where the values came from: the match's program in the project (its
+  // markup now), or empty: the database's record.
+  string from_program = 6;
+  // The function's name and signature before and after (after = before
+  // when nothing changed).
+  string name_before = 7;
+  string name_after = 8;
+  string signature_before = 9;
+  string signature_after = 10;
+  // Types defined in the target for this signature (placeholders, or the
+  // source program's definitions).
+  uint32 types = 11;
+}
+
+message ApplyBSimMatchesResponse {
+  Snapshot snapshot = 1;
+  // One per pair, in order.
+  repeated BSimApplied results = 2;
+  uint32 names = 3;
+  uint32 signatures = 4;
+  uint32 types = 5;
+  uint32 skipped = 6;
+  uint32 failed = 7;
+  // The assertions made, in order (one revision): retracting them undoes
+  // the apply.
+  repeated uint64 seqs = 8;
 }

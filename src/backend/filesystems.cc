@@ -1,5 +1,7 @@
 #include "filesystems.h"
 
+#include "open_beneath.h"
+
 #include <fcntl.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -534,18 +536,34 @@ Status ExtractFileSystem(FsSession &fss, const api::CallContext &ctx, const pb::
   stdfs::path parent = stdfs::canonical(asked.parent_path(), ec);
   if (ec) return Error(StatusCode::kNotFound, "no such directory: " + asked.parent_path().string());
   const stdfs::path dest = parent / asked.filename();
-  bool inside = false;
+  stdfs::path inside;
   for (const std::string &r : browse_roots) {
     stdfs::path root = stdfs::canonical(r, ec);
-    if (!ec && Within(dest, root)) inside = true;
+    if (!ec && Within(dest, root)) {
+      inside = std::move(root);
+      break;
+    }
   }
-  if (!inside) return Error(StatusCode::kPermissionDenied, "outside the browsable roots: " + dest.string());
-  const int pfd = ::open(parent.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if (pfd < 0) return Error(StatusCode::kNotFound, "cannot open " + parent.string());
+  if (inside.empty()) return Error(StatusCode::kPermissionDenied, "outside the browsable roots: " + dest.string());
+  // Everything was canonicalized above; it is opened from the root down
+  // without following a link, so one swapped in since (by a local user
+  // who can write under the root) is refused instead of followed out of
+  // it. Below the destination every directory and file is opened the same
+  // way (Extractor).
+  auto open_failed = [&](const stdfs::path &what) {
+    return Error(StatusCode::kNotFound, "cannot open " + what.string() + ": " + std::strerror(errno) +
+                                            (errno == ELOOP || errno == ENOTDIR ? " (a link or not a directory)" : ""));
+  };
   int dfd = -1;
-  if (asked.filename().empty() || asked.filename() == "/") {
-    dfd = pfd;
+  const bool leafless = asked.filename().empty();  // "/root/dir/"
+  if (leafless || dest == inside) {
+    dfd = OpenBeneath(inside, parent == inside || !leafless ? stdfs::path() : parent.lexically_relative(inside),
+                      O_RDONLY | O_DIRECTORY);
+    if (dfd < 0) return open_failed(dest);
   } else {
+    // dest is below the root, so its parent is the root or below it.
+    const int pfd = OpenBeneath(inside, parent.lexically_relative(inside), O_RDONLY | O_DIRECTORY);
+    if (pfd < 0) return open_failed(parent);
     if (::mkdirat(pfd, asked.filename().c_str(), 0755) != 0 && errno != EEXIST) {
       ::close(pfd);
       return Error(StatusCode::kPermissionDenied, "cannot make " + dest.string() + ": " + std::strerror(errno));
@@ -707,6 +725,86 @@ Status PlanFileSystemImport(FsSession &fss, const api::CallContext &ctx, const p
       for (ImportPlanItem &i : out) i.folders.clear();
     return Status::Ok();
   });
+}
+
+// --- Libraries of imported programs ----------------------------------------
+
+std::shared_ptr<ContainerLibraryRoot> ContainerLibraryRoot::Of(std::shared_ptr<container::Session> session,
+                                                               const std::string &path, std::function<bool()> cancelled) {
+  const Session::Node n = session->locate(path, true, cancelled);
+  return std::make_shared<ContainerLibraryRoot>(std::move(session), n.prefix, std::move(cancelled));
+}
+
+std::optional<Session::Node> ContainerLibraryRoot::Locate(const std::string &raw_path) {
+  std::vector<std::string> parts;
+  std::size_t at = 0;
+  while (at <= raw_path.size()) {
+    const std::size_t slash = raw_path.find('/', at);
+    const std::size_t end = slash == std::string::npos ? raw_path.size() : slash;
+    if (end > at) parts.push_back(raw_path.substr(at, end - at));
+    if (slash == std::string::npos) break;
+    at = slash + 1;
+  }
+  try {
+    return session_->locate(prefix_ + container::join_path(parts), true, cancelled_);
+  } catch (const container::Error &) {
+    return std::nullopt;
+  }
+}
+
+std::optional<std::string> ContainerLibraryRoot::file(const std::string &path) {
+  auto n = Locate(path);
+  if (!n) return std::nullopt;
+  const Kind k = n->fs->entry(n->entry).kind;
+  if (k != Kind::file && k != Kind::hardlink) return std::nullopt;
+  return n->path;
+}
+
+std::vector<std::string> ContainerLibraryRoot::names(const std::string &dir) {
+  std::vector<std::string> out;
+  auto n = Locate(dir);
+  if (!n || n->fs->entry(n->entry).kind != Kind::directory) return out;
+  for (std::uint32_t c : n->fs->entry(n->entry).children) out.push_back(n->fs->entry(c).name);
+  return out;
+}
+
+std::shared_ptr<const container::Source> ContainerLibraryRoot::open(const std::string &key) {
+  return session_->open_file(key, cancelled_);
+}
+
+std::vector<unsigned char> ContainerLibraryRoot::read(const std::string &key, std::uint64_t offset, std::size_t n) {
+  std::vector<unsigned char> out;
+  try {
+    std::vector<std::byte> bytes;
+    if (offset + n <= 4096) {
+      // The head only: a compressed member isn't decompressed past it.
+      const Session::Node node = session_->locate(key, true, cancelled_);
+      bytes = session_->head(node, offset + n, cancelled_);
+      bytes.erase(bytes.begin(), bytes.begin() + static_cast<std::ptrdiff_t>(std::min<std::uint64_t>(offset, bytes.size())));
+    } else {
+      auto src = open(key);
+      bytes.resize(n);
+      bytes.resize(src->read(offset, bytes));
+    }
+    out.resize(bytes.size());
+    std::memcpy(out.data(), bytes.data(), bytes.size());
+  } catch (const container::Error &) {
+    out.clear();
+  }
+  return out;
+}
+
+std::string ContainerLibraryRoot::origin(const std::string &key) {
+  try {
+    const Session::Node n = session_->locate(key, true, cancelled_);
+    std::vector<std::string> parts = n.fs->components_of(n.entry);
+    if (!parts.empty()) parts.pop_back();
+    std::string out;
+    for (const std::string &p : parts) out += "/" + p;
+    return out.empty() ? "/" : out;
+  } catch (const container::Error &) {
+    return "/";
+  }
 }
 
 }  // namespace revkit::backend

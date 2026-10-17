@@ -377,11 +377,39 @@ std::size_t Rows::weight(const Value &v) {
   return n;
 }
 
+// The data settings a listing page shows by (data_settings.h): the items'
+// and fields' over the page's addresses (from the item the first row is
+// in), and every type's defaults.
+DataSettingsMap PageDataSettings(QueryContext &ctx, facts::SpaceId space, const RowIndex &rows, std::int64_t page) {
+  DataSettingsMap out;
+  const std::int64_t first = page * RowIndex::kPageRows, last = std::min(rows.total_rows, first + RowIndex::kPageRows);
+  if (first >= last) return out;
+  auto read = [&](const facts::FactKey &k) -> std::optional<DataSettings> {
+    auto v = ctx.get<AssertedFact>(k);
+    const std::string *text = String(*v);
+    if (!text || text->empty()) return std::nullopt;
+    return DataSettings::parse(*text);
+  };
+  for (const facts::FactKey &k : facts::asserted_at(ctx, FactKind::Note, facts::Address{space, 0})) {
+    if (!k.sub.starts_with(kDataTypeSettingsPrefix)) continue;
+    if (auto s = read(k)) out.types.emplace(k.sub.substr(kDataTypeSettingsPrefix.size()), std::move(*s));
+  }
+  const std::uint64_t lo = rows.span_of_row(first).start, hi = rows.row_address(last - 1);
+  for (const facts::FactKey &k : facts::asserted_keys(ctx, FactKind::Note, {space, lo}, {space, hi})) {
+    if (k.sub != kDataSettingsTag && !k.sub.starts_with(kDataFieldSettingsPrefix)) continue;
+    if (auto s = read(k))
+      out.items.emplace(std::pair{k.addr.offset, k.sub == kDataSettingsTag ? std::string() : k.sub.substr(kDataFieldSettingsPrefix.size())},
+                        std::move(*s));
+  }
+  return out;
+}
+
 Page::Value Page::compute(QueryContext &ctx, const Key &key) {
   auto rows = ctx.get<Rows>(key.first);
   Loaded l = Load(ctx, key.first);
   QueryPatches patches(ctx, l.source->ram_space);
-  return l.program.Page(*rows, key.second, &patches);
+  const DataSettingsMap settings = PageDataSettings(ctx, l.source->ram_space, *rows, key.second);
+  return l.program.Page(*rows, key.second, &patches, settings.empty() ? nullptr : &settings);
 }
 
 std::size_t Page::weight(const Value &v) {
@@ -398,7 +426,9 @@ SearchPage::Value SearchPage::compute(QueryContext &ctx, const Key &key) {
   Loaded l = Load(ctx, key.first);
   QueryPatches patches(ctx, l.source->ram_space);
   Value out;
-  for (const StaticRow &r : l.program.Page(*rows, key.second, &patches)) out.push_back(SearchRow::From(r));
+  const DataSettingsMap settings = PageDataSettings(ctx, l.source->ram_space, *rows, key.second);
+  for (const StaticRow &r : l.program.Page(*rows, key.second, &patches, settings.empty() ? nullptr : &settings))
+    out.push_back(SearchRow::From(r));
   return out;
 }
 
@@ -1234,6 +1264,7 @@ std::size_t Decompile::weight(const Value &v) {
 
 void RegisterQueries(facts::Engine &engine) {
   engine.add_input<q::Source>();
+  engine.add_input<q::DebugFile>();
   engine.add_input<q::Programs>();
   engine.add_input<q::DecompilerOptions>();
   analysis::register_queries(engine);  // analysis.program and discovery

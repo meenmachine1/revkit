@@ -17,10 +17,34 @@ class BSimTemplate(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     BSIM_TEMPLATE_64: _ClassVar[BSimTemplate]
     BSIM_TEMPLATE_32: _ClassVar[BSimTemplate]
     BSIM_TEMPLATE_NOSIZE: _ClassVar[BSimTemplate]
+
+class BSimApplyKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    BSIM_APPLY_KIND_UNSPECIFIED: _ClassVar[BSimApplyKind]
+    BSIM_APPLY_KIND_NAME: _ClassVar[BSimApplyKind]
+    BSIM_APPLY_KIND_SIGNATURE: _ClassVar[BSimApplyKind]
+    BSIM_APPLY_KIND_SIGNATURE_AND_TYPES: _ClassVar[BSimApplyKind]
+
+class BSimApplyStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    BSIM_APPLY_STATUS_UNSPECIFIED: _ClassVar[BSimApplyStatus]
+    BSIM_APPLY_STATUS_APPLIED: _ClassVar[BSimApplyStatus]
+    BSIM_APPLY_STATUS_UNCHANGED: _ClassVar[BSimApplyStatus]
+    BSIM_APPLY_STATUS_SKIPPED: _ClassVar[BSimApplyStatus]
+    BSIM_APPLY_STATUS_FAILED: _ClassVar[BSimApplyStatus]
 BSIM_TEMPLATE_UNSPECIFIED: BSimTemplate
 BSIM_TEMPLATE_64: BSimTemplate
 BSIM_TEMPLATE_32: BSimTemplate
 BSIM_TEMPLATE_NOSIZE: BSimTemplate
+BSIM_APPLY_KIND_UNSPECIFIED: BSimApplyKind
+BSIM_APPLY_KIND_NAME: BSimApplyKind
+BSIM_APPLY_KIND_SIGNATURE: BSimApplyKind
+BSIM_APPLY_KIND_SIGNATURE_AND_TYPES: BSimApplyKind
+BSIM_APPLY_STATUS_UNSPECIFIED: BSimApplyStatus
+BSIM_APPLY_STATUS_APPLIED: BSimApplyStatus
+BSIM_APPLY_STATUS_UNCHANGED: BSimApplyStatus
+BSIM_APPLY_STATUS_SKIPPED: BSimApplyStatus
+BSIM_APPLY_STATUS_FAILED: BSimApplyStatus
 
 class BSimDatabase(_message.Message):
     __slots__ = ("id", "name", "description", "template", "settings", "lsh_k", "lsh_l", "executables", "functions", "created", "error")
@@ -400,3 +424,81 @@ class SearchBSimResponse(_message.Message):
     total: int
     seconds: float
     def __init__(self, results: _Optional[_Iterable[_Union[BSimQueryResult, _Mapping]]] = ..., scored: _Optional[int] = ..., total: _Optional[int] = ..., seconds: _Optional[float] = ...) -> None: ...
+
+class BSimApplyPair(_message.Message):
+    __slots__ = ("function", "executable", "match")
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
+    EXECUTABLE_FIELD_NUMBER: _ClassVar[int]
+    MATCH_FIELD_NUMBER: _ClassVar[int]
+    function: _common_pb2.Address
+    executable: str
+    match: _common_pb2.Address
+    def __init__(self, function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., executable: _Optional[str] = ..., match: _Optional[_Union[_common_pb2.Address, _Mapping]] = ...) -> None: ...
+
+class ApplyBSimMatchesRequest(_message.Message):
+    __slots__ = ("project_id", "database", "program_id", "pairs", "kind", "overwrite", "dry_run", "provenance", "database_only")
+    PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
+    DATABASE_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PAIRS_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    OVERWRITE_FIELD_NUMBER: _ClassVar[int]
+    DRY_RUN_FIELD_NUMBER: _ClassVar[int]
+    PROVENANCE_FIELD_NUMBER: _ClassVar[int]
+    DATABASE_ONLY_FIELD_NUMBER: _ClassVar[int]
+    project_id: str
+    database: str
+    program_id: str
+    pairs: _containers.RepeatedCompositeFieldContainer[BSimApplyPair]
+    kind: BSimApplyKind
+    overwrite: bool
+    dry_run: bool
+    provenance: _common_pb2.Provenance
+    database_only: bool
+    def __init__(self, project_id: _Optional[str] = ..., database: _Optional[str] = ..., program_id: _Optional[str] = ..., pairs: _Optional[_Iterable[_Union[BSimApplyPair, _Mapping]]] = ..., kind: _Optional[_Union[BSimApplyKind, str]] = ..., overwrite: _Optional[bool] = ..., dry_run: _Optional[bool] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., database_only: _Optional[bool] = ...) -> None: ...
+
+class BSimApplied(_message.Message):
+    __slots__ = ("function", "executable_id", "match", "status", "message", "from_program", "name_before", "name_after", "signature_before", "signature_after", "types")
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
+    EXECUTABLE_ID_FIELD_NUMBER: _ClassVar[int]
+    MATCH_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    FROM_PROGRAM_FIELD_NUMBER: _ClassVar[int]
+    NAME_BEFORE_FIELD_NUMBER: _ClassVar[int]
+    NAME_AFTER_FIELD_NUMBER: _ClassVar[int]
+    SIGNATURE_BEFORE_FIELD_NUMBER: _ClassVar[int]
+    SIGNATURE_AFTER_FIELD_NUMBER: _ClassVar[int]
+    TYPES_FIELD_NUMBER: _ClassVar[int]
+    function: _common_pb2.Address
+    executable_id: str
+    match: _common_pb2.Address
+    status: BSimApplyStatus
+    message: str
+    from_program: str
+    name_before: str
+    name_after: str
+    signature_before: str
+    signature_after: str
+    types: int
+    def __init__(self, function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., executable_id: _Optional[str] = ..., match: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., status: _Optional[_Union[BSimApplyStatus, str]] = ..., message: _Optional[str] = ..., from_program: _Optional[str] = ..., name_before: _Optional[str] = ..., name_after: _Optional[str] = ..., signature_before: _Optional[str] = ..., signature_after: _Optional[str] = ..., types: _Optional[int] = ...) -> None: ...
+
+class ApplyBSimMatchesResponse(_message.Message):
+    __slots__ = ("snapshot", "results", "names", "signatures", "types", "skipped", "failed", "seqs")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    RESULTS_FIELD_NUMBER: _ClassVar[int]
+    NAMES_FIELD_NUMBER: _ClassVar[int]
+    SIGNATURES_FIELD_NUMBER: _ClassVar[int]
+    TYPES_FIELD_NUMBER: _ClassVar[int]
+    SKIPPED_FIELD_NUMBER: _ClassVar[int]
+    FAILED_FIELD_NUMBER: _ClassVar[int]
+    SEQS_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    results: _containers.RepeatedCompositeFieldContainer[BSimApplied]
+    names: int
+    signatures: int
+    types: int
+    skipped: int
+    failed: int
+    seqs: _containers.RepeatedScalarFieldContainer[int]
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., results: _Optional[_Iterable[_Union[BSimApplied, _Mapping]]] = ..., names: _Optional[int] = ..., signatures: _Optional[int] = ..., types: _Optional[int] = ..., skipped: _Optional[int] = ..., failed: _Optional[int] = ..., seqs: _Optional[_Iterable[int]] = ...) -> None: ...

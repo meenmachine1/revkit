@@ -13,8 +13,10 @@
 #include "funcdata.hh"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <sstream>
+#include <thread>
 
 namespace revkit::lift {
 
@@ -474,6 +476,203 @@ TEST_F(Lift, RealX86_64Binary) { check_real_function(REVKIT_TEST_CC, "-O1 -fno-i
 TEST_F(Lift, RealAArch64Binary) { check_real_function(REVKIT_TEST_AARCH64_CC, "-O1 -fno-inline", "lift-aarch64"); }
 
 TEST_F(Lift, RealRiscV64Binary) { check_real_function(REVKIT_TEST_RISCV64_CC, "-O1 -fno-inline", "lift-riscv64"); }
+
+// Everything a decode gives, for comparing two engines' results.
+std::string describe(const std::optional<Instruction> &insn) {
+  if (!insn) return "none";
+  std::ostringstream out;
+  auto vn = [&](const Varnode &v) { out << " (" << v.space << ' ' << v.offset << ' ' << v.size << ' ' << v.referenced_space << ')'; };
+  out << insn->address << ' ' << insn->length << ' ' << insn->delay_slot << ' ' << insn->mnemonic << " | " << insn->text
+      << " | " << insn->unimplemented << '\n';
+  for (const Token &t : insn->tokens) {
+    out << static_cast<int>(t.kind) << ' ' << t.text << ' ' << t.operand << ' ' << t.value << ' ' << int(t.bits);
+    vn(t.reg);
+    out << '\n';
+  }
+  for (const PcodeOp &op : insn->pcode) {
+    out << op.opcode;
+    if (op.output) vn(*op.output);
+    out << " <-";
+    for (const Varnode &v : op.inputs) vn(v);
+    out << '\n';
+  }
+  return out.str();
+}
+
+// A parked Lifter's engine (docs/memory.md "SLEIGH engines") serves another
+// program of the language: it decodes that program's bytes exactly as an
+// engine built for it from the .sla does, and the parked Lifter decodes its
+// own again as before.
+TEST_F(Lift, ParkedEngineServesAnotherProgramAsAFreshOneWould) {
+  trim_spare_engines();
+  auto one = code_image(62, true, 0x401000, {0x48, 0x01, 0xd8, 0xc3});                      // add rax,rbx; ret
+  auto two = code_image(62, true, 0x401000, {0x48, 0x29, 0xd8, 0xe8, 0x10, 0x00, 0x00, 0x00});  // sub rax,rbx; call
+  Lifter a(one, "x86:LE:64:default:gcc");
+  const std::string a_add = describe(a.lift(0x401000)), a_ret = describe(a.lift(0x401003));
+  EXPECT_NE(a_add.find("ADD RAX,RBX"), std::string::npos);
+
+  const EngineStats before = engine_stats();
+  EXPECT_FALSE(a.parked());
+  EXPECT_TRUE(a.park());
+  EXPECT_TRUE(a.parked());
+  EXPECT_TRUE(a.park());  // already parked: nothing to do
+  EXPECT_EQ(engine_stats().spare, before.spare + 1);
+  EXPECT_EQ(engine_stats().live, before.live);
+
+  // b takes a's engine: no new one is built.
+  Lifter b(two, "x86:LE:64:default");
+  EXPECT_EQ(engine_stats().live, before.live);
+  EXPECT_EQ(engine_stats().spare, before.spare);
+  // With no spare left, this one decodes the .sla.
+  Lifter fresh(two, "x86:LE:64:default");
+  EXPECT_EQ(engine_stats().live, before.live + 1);
+  for (std::uint64_t addr : {0x401000, 0x401003}) {
+    const std::string got = describe(b.lift(addr));
+    EXPECT_EQ(got, describe(fresh.lift(addr))) << std::hex << addr;
+    EXPECT_EQ(got.find("ADD"), std::string::npos);
+  }
+  const std::vector<std::byte> add = {std::byte{0x48}, std::byte{0x01}, std::byte{0xd8}};
+  EXPECT_EQ(describe(b.lift(0x401000, add)), describe(fresh.lift(0x401000, add)));
+  EXPECT_EQ(b.registers().size(), fresh.registers().size());
+
+  // a gets an engine again (a new one: no spare is left) and decodes its own bytes.
+  EXPECT_EQ(describe(a.lift(0x401000)), a_add);
+  EXPECT_EQ(describe(a.lift(0x401003)), a_ret);
+  EXPECT_FALSE(a.parked());
+}
+
+// A spare keeps nothing of its program's context: the Thumb regions one
+// program painted are not another's, and the parked Lifter's own come back.
+TEST_F(Lift, ParkedEngineKeepsNoContextOfItsProgram) {
+  trim_spare_engines();
+  ElfBuilder b({.wide = false, .big = false, .machine = 40, .type = 2, .flags = 0x05000000, .entry = 0x8000});
+  b.add_load(".text", 0x8000,
+             {0x00, 0x00, 0xa0, 0xe3, 0x1e, 0xff, 0x2f, 0xe1, 0, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x20, 0x70, 0x47}, 5);
+  b.add_symbol("$a", 0x8000, 0, 0, 0, 1);
+  b.add_symbol("$t", 0x8010, 0, 0, 0, 1);
+  auto img = std::make_shared<const Image>(loader::parse(to_bytes(b.build())));
+
+  Lifter thumb(img, "ARM:LE:32:v8");
+  for (const ContextRegion &c : image_context(*img)) thumb.set_context(c.name, c.value, c.start, c.end);
+  const std::string movs = describe(thumb.lift(0x8010));
+  ASSERT_EQ(thumb.lift(0x8010)->length, 2u);
+  ASSERT_TRUE(thumb.park());
+  // Painting more while parked takes no engine back.
+  const EngineStats parked = engine_stats();
+  thumb.set_context("TMode", 1, 0x9000, 0x9010);
+  EXPECT_THROW(thumb.set_context("NoSuchVariable", 1, 0x8000), LiftError);
+  EXPECT_EQ(engine_stats().spare, parked.spare);
+
+  Lifter plain(img, "ARM:LE:32:v8");  // the spare
+  EXPECT_EQ(engine_stats().spare, parked.spare - 1);
+  EXPECT_EQ(plain.lift(0x8010)->length, 4u);  // ARM: the .pspec's default
+  EXPECT_EQ(plain.context_at("TMode", 0x8010), 0u);
+  EXPECT_EQ(describe(thumb.lift(0x8010)), movs);
+  EXPECT_EQ(thumb.context_at("TMode", 0x9004), 1u);
+}
+
+// Decoding that committed context (an ARM blx makes its target Thumb) is
+// state a rebuilt engine would lose: such a Lifter keeps its engine.
+TEST_F(Lift, LifterWithCommittedContextIsNotParked) {
+  std::vector<std::uint8_t> code(0x104, 0);
+  code[0x100] = 0xbe;  // 0x200: blx 0x100
+  code[0x101] = 0xff;
+  code[0x102] = 0xff;
+  code[0x103] = 0xfa;
+  ElfBuilder b({.wide = false, .big = false, .machine = 40, .type = 2, .flags = 0x05000000, .entry = 0x200});
+  b.add_load(".text", 0x100, code, 5);
+  auto img = std::make_shared<const Image>(loader::parse(to_bytes(b.build())));
+  Lifter used(img, "ARM:LE:32:v7");
+  ASSERT_TRUE(used.lift(0x200));
+  ASSERT_TRUE(used.context_changed());
+  EXPECT_FALSE(used.park());
+  EXPECT_FALSE(used.parked());
+  EXPECT_EQ(used.context_at("TMode", 0x100), 1u);
+}
+
+// Languages sharing one .sla can truncate its spaces differently (AArch64's
+// ilp32 has 4-byte ram addresses); a truncated engine is a spare of its own
+// language only.
+TEST_F(Lift, SparesKeepTheirLanguagesTruncation) {
+  trim_spare_engines();
+  auto img = code_image(183, true, 0x1000, {0x20, 0x00, 0x02, 0x8b});  // add x0, x1, x2
+  auto ram_size = [](Lifter &l) {
+    for (const SpaceDef &s : l.spaces())
+      if (s.name == "ram") return s.address_size;
+    return 0u;
+  };
+  Lifter ilp32(img, "AARCH64:LE:32:ilp32");
+  EXPECT_EQ(ram_size(ilp32), 4u);
+  ASSERT_TRUE(ilp32.park());
+  EXPECT_EQ(engine_stats().spare, 1u);
+  Lifter lp64(img, "AARCH64:LE:64:v8A");
+  EXPECT_EQ(ram_size(lp64), 8u);
+  EXPECT_EQ(engine_stats().spare, 1u);  // not taken
+  Lifter again(img, "AARCH64:LE:32:ilp32");
+  EXPECT_EQ(engine_stats().spare, 0u);  // taken
+  EXPECT_EQ(ram_size(again), 4u);
+  EXPECT_EQ(describe(again.lift(0x1000)), describe(Lifter(img, "AARCH64:LE:32:ilp32").lift(0x1000)));
+}
+
+// At most two spares per language; the others are freed.
+// Engines parked and taken back from several threads at once, while
+// another frees the spares and reads the counts: what the backend's
+// sweeper and every program's pools do concurrently (TSan runs this;
+// docs/bug-scrub.md). Each Lifter keeps decoding its own program's bytes.
+TEST_F(Lift, ParkingFromManyThreads) {
+  trim_spare_engines();
+  const std::vector<std::vector<std::uint8_t>> codes = {
+      {0x48, 0x01, 0xd8, 0xc3}, {0x48, 0x29, 0xd8, 0xc3}, {0x48, 0x31, 0xd8, 0xc3}, {0x48, 0x21, 0xd8, 0xc3}};
+  std::vector<std::string> expect;
+  for (const auto &c : codes) {
+    Lifter l(code_image(62, true, 0x401000, c), "x86:LE:64:default");
+    expect.push_back(describe(l.lift(0x401000)));
+  }
+  std::atomic<bool> stop{false};
+  std::atomic<int> wrong{0};
+  std::vector<std::thread> threads;
+  for (std::size_t t = 0; t < codes.size(); ++t)
+    threads.emplace_back([&, t] {
+      Lifter l(code_image(62, true, 0x401000, codes[t]), "x86:LE:64:default");
+      for (int i = 0; i < 12; ++i) {
+        if (describe(l.lift(0x401000)) != expect[t]) ++wrong;
+        l.park();
+      }
+    });
+  std::thread trimmer([&] {
+    while (!stop) {
+      (void)engine_stats();
+      trim_spare_engines();
+      std::this_thread::yield();
+    }
+  });
+  for (auto &t : threads) t.join();
+  stop = true;
+  trimmer.join();
+  EXPECT_EQ(wrong.load(), 0);
+  trim_spare_engines();
+}
+
+TEST_F(Lift, AtMostTwoSparesPerLanguage) {
+  trim_spare_engines();
+  auto img = code_image(62, true, 0x401000, {0xc3});
+  std::vector<std::unique_ptr<Lifter>> lifters;
+  for (int i = 0; i < 3; ++i) lifters.push_back(std::make_unique<Lifter>(img, "x86:LE:64:default"));
+  const EngineStats before = engine_stats();
+  for (auto &l : lifters) EXPECT_TRUE(l->park());
+  EXPECT_EQ(engine_stats().spare, 2u);
+  EXPECT_EQ(engine_stats().live, before.live - 1);
+  lifters.clear();  // parked Lifters hold no engine
+  EXPECT_EQ(engine_stats().spare, 2u);
+  {
+    Lifter last(img, "x86:LE:64:default");
+    EXPECT_EQ(engine_stats().spare, 1u);
+  }  // its end gives the engine back
+  EXPECT_EQ(engine_stats().spare, 2u);
+  trim_spare_engines();
+  EXPECT_EQ(engine_stats().spare, 0u);
+  EXPECT_EQ(engine_stats().live, before.live - 3);
+}
 
 // Small processors' specs say which of their memory is I/O registers.
 TEST_F(Lift, ProcessorVolatileRanges) {

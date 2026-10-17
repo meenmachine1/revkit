@@ -113,6 +113,18 @@ FunctionInputs assemble_function(const Program &p, const Options &o, const Funct
                      insn.kind == an::FlowKind::jump_indirect))
       for (std::uint64_t t : insn.targets)
         if (!sets.is_entry(t)) targets.push_back(t);
+    // The user's fallthrough override (SetFallthrough), for the p-code: a
+    // branch to its address (with a label there, from Ghidra's FALL_THROUGH
+    // reference), or, with none, the next address left undecoded unless
+    // the body has code there.
+    if (insn.fall_override) {
+      if (insn.falls_through) {
+        out.flow_overrides.emplace_back(insn.address, lift::fallthrough_kind({true, insn.fall_to}));
+        if (o.labels && !sets.is_entry(insn.fall_to)) targets.push_back(insn.fall_to);
+      } else if (const std::uint64_t next = insn.address + insn.length; !in_body(next)) {
+        out.flow_overrides.emplace_back(insn.address, lift::fallthrough_kind({false, next}));
+      }
+    }
   }
   // A switch through a helper (bl __gnu_thumb1_case_uqi, then the table):
   // the helper's call fixup makes the call a computed jump; the call itself

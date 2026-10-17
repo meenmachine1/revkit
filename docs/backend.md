@@ -58,6 +58,7 @@ without coordinating.
 | `Comment` | `COMMENT@addr`, `sub` = kind | the text |
 | `SetFunctionBounds` | `FUNCTION_BOUNDS@entry` | the body as an `AddressSet` (empty: the seed's body), or `0` for `remove` |
 | `FlowOverride` | `FLOW_OVERRIDE@addr` | the kind |
+| `SetFallthrough` | `FALLTHROUGH@addr` | the target as an `Address`, `1` for no fallthrough, `0` cleared |
 | `Note` | `NOTE@addr`, `sub` = tag | the text |
 | `DefineType`, and debug info types | `TYPE_DEF`, `sub` = type hash | the type record |
 | `AddMemoryRegion`, `UpdateMemoryRegion`, `RemoveMemoryRegion` | `MEMORY_REGION@0`, `sub` = `region:<id>` or `block:<hex start>` | the region or block edit (`analysis/memory.h`), `""` when removed ([memory-map.md](memory-map.md)) |
@@ -140,7 +141,7 @@ value stays valid exactly as long as those facts do.
 | --- | --- | --- |
 | `analysis.memory` | the effective memory map: the loader's blocks with the `MEMORY_REGION` edits ([memory-map.md](memory-map.md)) | `analysis.program.loaded`, `analysis.data_program.loaded`, `MEMORY_REGION` keys, the first page of an added region's bytes |
 | `analysis.program`, `analysis.data_program` | what discovery and data analysis know of the program: the loader's (unchanged without edits) with the map's mapped ranges, code, byte sources and blocks | `analysis.*.loaded`, `analysis.memory` |
-| `analysis.*` | function discovery (`src/analysis`, keyed by program id): flows (with their data references), thunks, the fixpoint, one function; data analysis (`analysis.data`, `analysis.no_return_evidence`, [data-analysis.md](data-analysis.md)) | the image's bytes (and added regions'), `analysis.program`, `analysis.data_program`, `FUNCTION_BOUNDS` and `FLOW_OVERRIDE` assertions |
+| `analysis.*` | function discovery (`src/analysis`, keyed by program id): flows (with their data references), thunks, the fixpoint, one function; data analysis (`analysis.data`, `analysis.no_return_evidence`, [data-analysis.md](data-analysis.md)) | the image's bytes (and added regions'), `analysis.program`, `analysis.data_program`, `FUNCTION_BOUNDS`, `FLOW_OVERRIDE` and `FALLTHROUGH` assertions |
 | `analysis.param_id*` | Ghidra's Decompiler Parameter ID: its plan, one function's dependencies, what it commits for one function ([param-id.md](param-id.md)); decompilations read the commits as published (`param_id.published`) by a background pass | `param_id.mode`, `analysis.functions`, `analysis.flow`, the function's decompilation's lookups |
 | `functions.table` | effective functions and bodies, names, no-return and thunk flags | `analysis.functions` |
 | `names.loader` | non-function symbols, PE import slots, with sizes | source, discovery's seeds |
@@ -208,6 +209,8 @@ User assertions are discovery's inputs, so they win and propagate:
 | `ListingEdit` disassemble | an entry: code that isn't a function (a function when asked, or once called), whose flow decodes through older cleared bytes and outside executable memory |
 | `SetNoReturn{function, no_return}` | true: a known no-return function (calls to it end their caller's flow, as an exit-like name's do); false: never inferred no-return, so callers' flow goes on after its calls ([decompiler-inputs.md](decompiler-inputs.md#no-return)) |
 | `FlowOverride{address, kind}` | the instruction's flow changes as Ghidra's flow overrides change it (`BRANCH`: a call is a jump in the function; `CALL`; `CALL_RETURN`: a tail call; `RETURN`), so bodies, callees and no-return inference follow |
+| `SetFallthrough{address, target, no_fallthrough}` | the instruction's fallthrough goes on at `target` (or nowhere) instead of the next instruction, over what the instruction and analysis say; bodies, no-return inference, references (a `FALL_THROUGH` one) and the decompiler's p-code follow ([api.md](api.md#fallthrough-overrides)) |
+| `SetRegisterValue{register_name, range, value, clear}` | not discovery: a flow's constants read the register as that value in the range, so its data references (and what data analysis lays down from them) and xrefs follow; the decompiler gets the value at an entry as a tracked register ([api.md](api.md#register-values)) |
 
 `analysis.flow` reads the overrides on the instructions it decodes, and the
 bounds at the seeds it reaches, through the 256-byte spans of the key index
@@ -389,7 +392,10 @@ computed again by the import's analysis. Deleted programs are left out.
    sessions under new ids; each source replica becomes a fresh random
    replica with dense counters, references by id remapped. Provenance,
    stamps, wall times and metadata stay, so precedence, recency, blame,
-   history, undo and reverts read as they did;
+   history, undo and reverts read as they did. An op stamped more than a
+   day past the importing daemon's clock is refused (`Limits::max_stamp`):
+   it would sort after every later edit, and one at the top of the range
+   wrapped the clock (docs/bug-scrub.md, part 2);
 3. merges them as a new peer's ops in one revision (`Transaction::merge`,
    [collab.md](collab.md)), the regions' bytes with them, and loads each
    program from its record and bytes as a peer's program loads
@@ -470,6 +476,96 @@ info's own, printed in Ghidra's notation: the test program built with `-g`
 matches exactly, and so does every compared function of the corpus's clang
 `-O2` `features.exe` against its PDB.
 
+### External debug files
+
+`api_minor` 86, feature `debug-files` (`src/backend/debug_files.{h,cc}`).
+A stripped ELF's DWARF is often in a separate file, which the binary names
+two ways: its GNU build ID note (`NT_GNU_BUILD_ID`) and its
+`.gnu_debuglink` section (a file name and the CRC-32 of that file). A
+candidate is used only when it is an ELF with `.debug_info` whose build ID
+is the program's (for a program without one, whose CRC-32 is the
+debuglink's); its sections go through the same reader as an embedded
+`.debug_info` (`inputs::read_debug_info`, then `debuginfo::import_dwarf`),
+at the binary's link-time addresses.
+
+**Where it is looked for**, in order (`FindDebugFile`):
+
+| Where | Paths |
+| --- | --- |
+| beside the binary | `<dir>/<debuglink>`, `<dir>/.debug/<debuglink>` |
+| each of the settings' `debug_dirs`, then `/usr/lib/debug` (searches only) | `<d>/.build-id/<xx>/<rest>.debug`, `<d>/<dir>/<debuglink>`, `<d>/<debuglink>` |
+| the cache | `<project_dir>/.revkit/debuginfod/<build id>/debuginfo` |
+| debuginfod servers (searches only, when on) | `GET <url>/buildid/<build id>/debuginfo`, kept in the cache |
+
+**At load** (an import, and every time a project opens) an ELF without
+`.debug_info` takes the first file found beside the binary, in
+`debug_dirs` or in the cache, never from the network or `/usr/lib/debug`
+(so what a program's analysis reads doesn't depend on what the host
+happens to have installed): its DWARF is the program's, as if embedded.
+The decompiler's inputs (local variables, types) come from it, and an
+import stages its names, prototypes, types and categories as
+`import:dwarf` assertions. `ProgramSummary` says the `build_id`, the
+`debuglink` and the `debug_file` read.
+
+**Load debug file** (`ProjectService.LoadDebugFile`, admin) does it for a
+program already open, from a path on the daemon's host, an upload, or
+`search` (the table above, `/usr/lib/debug` and the servers included). A
+file of another build is refused (`FAILED_PRECONDITION` naming both build
+IDs) unless `force`; a file that isn't an ELF with DWARF is refused even
+then. Its DWARF becomes `import:dwarf` assertions in one revision, with a
+note on the image base (`revkit:debug-file`) naming the file, and the
+response's seqs undo it (`RetractAssertions`). An exact file is also kept
+in the cache, so the program reads it at its next load: from then on the
+decompiler has its variables too (within the session that loaded it, the
+names, prototypes and types apply at once, as Load PDB's do). `search_log`
+says each place tried.
+
+**Settings** are the symbol settings' siblings (`SymbolSettings`;
+`GetSymbolSettings` and `SetSymbolSettings`, admin; kept in
+`<project_dir>/.revkit/symbols.json`): `debug_dirs`, `debuginfod` (off by
+default), `debuginfod_urls` (https only unless `debuginfod_allow_http`),
+`debug_file_max_bytes` (default 1 GiB, a read or a download) and
+`debug_cache_max_bytes` (default 4 GiB; the oldest files go first), and
+read-only `debug_cache_dir`. `GetSymbolSettingsResponse.suggested_debuginfod_urls`
+lists what the daemon's `DEBUGINFOD_URLS` names, for the UI to offer: it is
+never used unless an admin sets it. `rk-daemon --debug-dir <dir>` and
+`--debuginfod <url>` (repeatable; the latter turns fetching on) set them
+for a run. An older client's `SetSymbolSettings`, which doesn't know the
+new fields, turns fetching off and clears the directories (the safe
+direction); the Python SDK's `set_symbol_settings` keeps them.
+
+**Network and trust** ([security.md](security.md#debuginfod)): a server is
+contacted only with `debuginfod` on, by an admin's `LoadDebugFile`
+`search`; redirects are followed only on the same host (scheme, host and
+port); a file over the size limit is dropped as it arrives; what arrives
+is checked (an ELF with the program's build ID) before it is kept, and is
+then read by the loader and the DWARF reader as any binary is.
+
+**Using it.** Python: `Program.load_debug_file(path=None, *,
+local_file=None, search=False, force=False)`,
+`Client.set_debug_file_settings(dirs=, debuginfod=, urls=, allow_http=,
+max_bytes=, cache_max_bytes=)` and `Client.debuginfod_suggestions()`. MCP:
+`load_debug_file(program_id, path="", search=False, force=False)`. UI: the
+Analyze menu's *Load debug file…* and *Debug file directories and
+debuginfod…* ([ui.md](ui.md#load-debug-file)).
+
+**Tests.** `src/backend/tests/debug_files_test.cc`: a program built with
+`-g` and a build ID, split with `objcopy --only-keep-debug`, stripped and
+given a debuglink; the debuglink and its CRC (a damaged copy refused), the
+file found beside the binary, in `.debug/`, in a build-ID tree and under a
+mirrored directory; an import reading it beside the binary (the decompiler
+names a local the DWARF names); `LoadDebugFile` by path (another build's
+refused, a stripped binary refused even forced, undo), and the next load
+reading it from the cache; debuginfod from an `httplib` server on a
+loopback port: not asked while off (`DEBUGINFOD_URLS` only suggested), http
+refused unless allowed, another build's file not kept, a redirect to
+another port not followed, a same-host one followed, the size limit, then
+the cache without asking; the cache's size. `sdk/python/tests/test_debug_files.py`:
+the SDK by path and undo, the settings, a fake debuginfod (Python's
+`http.server`), MCP from the cache. Untested: a real HTTPS server (the
+client is the symbol servers', with OpenSSL's certificate checks) and the
+real internet.
+
 ## Concurrency
 
 - **Writers.** One writer per project (`Project::write_mu`, then the
@@ -496,6 +592,10 @@ matches exactly, and so does every compared function of the corpus's clang
   decompilation assembles its bundle on the calling thread (reading facts,
   never holding a worker), then waits for a worker; the import warms one
   and the SLEIGH engine that predicts bundles.
+- **Idle SLEIGH engines** are parked after `engine_idle_seconds`
+  (`rk-daemon --engine-idle`, 15 s) by a sweeper thread, keeping two
+  decoded `.sla` files per language for any program to reuse
+  ([memory.md](memory.md#sleigh-engines)).
 - **Ghidra's process-wide state.** Building engines, architectures and
   printers holds `lift::lock_ghidra_globals()` exclusively; printing holds
   it shared (in a worker, or in the daemon with `--decompile-in-process`).

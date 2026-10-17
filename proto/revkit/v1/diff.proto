@@ -808,6 +808,12 @@ message PortedFrom {
   OpId source_id = 7;
   // The Match assertion it depends on.
   uint64 match_seq = 8;
+  // A BSim match applied (api_minor 76, feature "bsim-apply"): the
+  // database and the matched executable (its sha256); function and address
+  // are then the match's entry in it. program_id is set too when the
+  // values were read from that executable's program in the project.
+  string bsim_database = 9;
+  string bsim_executable = 10;
 }
 
 // --- Comparing any two functions (api_minor 54, feature "function-compare") ---

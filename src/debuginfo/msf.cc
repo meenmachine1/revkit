@@ -27,6 +27,7 @@ Msf::Msf(std::span<const std::uint8_t> file) : file_(file) {
       throw PdbError("PDB 2.00 (small MSF) files are not supported");
     throw PdbError("not an MSF 7.00 file");
   }
+  budget_ = 4 * std::uint64_t(file.size()) + (std::uint64_t{64} << 20);
   block_size_ = le32(file, 32);
   block_count_ = le32(file, 40);
   const std::uint32_t dir_bytes = le32(file, 44);
@@ -96,6 +97,8 @@ std::vector<std::uint8_t> Msf::gather(std::span<const std::uint32_t> blocks, std
 
 std::vector<std::uint8_t> Msf::read(std::uint32_t index) const {
   if (!has_stream(index)) return {};
+  if (gathered_.fetch_add(sizes_[index]) + sizes_[index] > budget_)
+    throw PdbError("MSF streams read more than four times the file: their blocks are shared");
   return gather(blocks_[index], sizes_[index]);
 }
 

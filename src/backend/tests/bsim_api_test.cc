@@ -3,7 +3,9 @@
 // the database's settings, with names, prototypes and sizes), listed,
 // ingested again (replaced), its categories changed, deleted; a second
 // build of the same source ingested beside it finds its counterparts by
-// similarity; the errors a caller can make.
+// similarity; matches applied to a stripped build (names, skeleton
+// signatures, signatures with their types; from the program in the project
+// and from the database alone); the errors a caller can make.
 #include "builders.hh"
 
 #include "revkit/backend/image_backend.h"
@@ -56,13 +58,41 @@ int main(int argc, char **argv) {
 }
 )";
 
+// For applying matches: a structure the prototypes use.
+constexpr const char *kApplySource = R"(
+struct point { int x, y; };
+volatile int sink;
+__attribute__((noinline)) unsigned checksum(const unsigned char *p, unsigned long n) {
+  unsigned h = 2166136261u;
+  for (unsigned long i = 0; i < n; ++i) h = (h ^ p[i]) * 16777619u;
+  return h;
+}
+__attribute__((noinline)) int manhattan(const struct point *a, const struct point *b) {
+  int dx = a->x - b->x, dy = a->y - b->y;
+  return (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
+}
+__attribute__((noinline)) int classify(int c) {
+  switch (c) {
+    case 0: return 10; case 1: return 22; case 2: return 37; case 3: return 41;
+    case 4: return 58; case 5: return 63; case 6: return 79; default: return -1;
+  }
+}
+int main(int argc, char **argv) {
+  struct point a = {argc, 2}, b = {3, argc};
+  sink = (int)checksum((const unsigned char *)argv[0], 4) + manhattan(&a, &b) + classify(argc);
+  return 0;
+}
+)";
+
 class BsimApi : public ::testing::Test {
  protected:
   static void SetUpTestSuite() {
     if (std::string(REVKIT_GHIDRA_ROOT).empty()) return;
     dir_ = testing::scratch_dir("bsim-api");
     built_ = testing::compile(REVKIT_TEST_CC, kSource, "-O1 -g", dir_ / "a.out") &&
-             testing::compile(REVKIT_TEST_CC, kSource, "-O2 -fno-inline", dir_ / "b.out");
+             testing::compile(REVKIT_TEST_CC, kSource, "-O2 -fno-inline", dir_ / "b.out") &&
+             testing::compile(REVKIT_TEST_CC, kApplySource, "-O1 -g", dir_ / "debug.out") &&
+             testing::compile(REVKIT_TEST_CC, kApplySource, "-O1 -s", dir_ / "stripped.out");
   }
 
   void SetUp() override {
@@ -353,6 +383,230 @@ TEST_F(BsimApi, SearchFindsCounterpartsAndCounts) {
   EXPECT_EQ(b_->SearchBSim(ctx_, none, nr).code, StatusCode::kInvalidArgument);
   none.add_functions()->set_offset(1);
   EXPECT_EQ(b_->SearchBSim(ctx_, none, nr).code, StatusCode::kNotFound);
+}
+
+// Applying matches (api_minor 76, feature "bsim-apply"): the debug build
+// ingested, its stripped twin's functions get the names, signatures and
+// types, from the program in the project and from the database alone; one
+// revision per apply; what the function has kept without overwrite.
+TEST_F(BsimApi, ApplyMatches) {
+  Create();
+  const std::string a = Import(dir_ / "debug.out", "debug");
+  const std::string b = Import(dir_ / "stripped.out", "stripped");
+  Ingest({a});
+  // The stripped build's functions, by their best match.
+  pb::SearchBSimRequest sreq;
+  sreq.set_project_id("default");
+  sreq.set_database(db_);
+  sreq.set_program_id(b);
+  sreq.set_all_functions(true);
+  sreq.set_min_similarity(0.9);
+  sreq.set_max_matches(1);
+  sreq.set_exclude_default_names(true);
+  pb::SearchBSimResponse sr;
+  ASSERT_TRUE(b_->SearchBSim(ctx_, sreq, sr).ok());
+  std::map<std::string, pb::BSimMatch> best;     // match name -> the match
+  std::map<std::string, std::uint64_t> query;    // match name -> the stripped function
+  for (const auto &q : sr.results())
+    if (q.matches_size() > 0) {
+      best[q.matches(0).function().name()] = q.matches(0);
+      query[q.matches(0).function().name()] = q.function().offset();
+    }
+  ASSERT_TRUE(best.contains("checksum") && best.contains("manhattan") && best.contains("classify"));
+  EXPECT_EQ(best["checksum"].program_id(), a);
+
+  auto pair = [&](const std::string &name) {
+    pb::BSimApplyPair x;
+    x.mutable_function()->set_offset(query[name]);
+    x.set_executable(best[name].executable().id());
+    *x.mutable_match() = best[name].function().entry();
+    return x;
+  };
+  auto apply = [&](std::vector<pb::BSimApplyPair> pairs, pb::BSimApplyKind kind, bool overwrite = false, bool dry = false,
+                   bool db_only = false) {
+    pb::ApplyBSimMatchesRequest req;
+    req.set_project_id("default");
+    req.set_database(db_);
+    req.set_program_id(b);
+    for (auto &x : pairs) *req.add_pairs() = x;
+    req.set_kind(kind);
+    req.set_overwrite(overwrite);
+    req.set_dry_run(dry);
+    req.set_database_only(db_only);
+    pb::ApplyBSimMatchesResponse resp;
+    auto st = b_->ApplyBSimMatches(ctx_, req, resp);
+    EXPECT_TRUE(st.ok()) << st.message;
+    return resp;
+  };
+  auto function = [&](std::uint64_t entry) {
+    pb::GetFunctionRequest g;
+    g.set_program_id(b);
+    g.mutable_address()->set_offset(entry);
+    pb::GetFunctionResponse gr;
+    EXPECT_TRUE(b_->GetFunction(ctx_, g, gr).ok());
+    return gr.function();
+  };
+  auto retract = [&](const pb::ApplyBSimMatchesResponse &r) {
+    pb::RetractAssertionsRequest undo;
+    undo.set_program_id(b);
+    for (auto q : r.seqs()) undo.add_seqs(q);
+    undo.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+    undo.mutable_provenance()->set_id("t");
+    pb::RetractAssertionsResponse ur;
+    ASSERT_TRUE(b_->RetractAssertions(ctx_, undo, ur).ok());
+  };
+  const std::uint64_t cs = query["checksum"];
+  const std::string stripped_name = function(cs).name();
+  ASSERT_TRUE(stripped_name.starts_with("FUN_")) << stripped_name;
+
+  // A dry run says what would change and changes nothing.
+  auto dry = apply({pair("checksum")}, pb::BSIM_APPLY_KIND_NAME, false, true);
+  ASSERT_EQ(dry.results_size(), 1);
+  EXPECT_EQ(dry.results(0).status(), pb::BSIM_APPLY_STATUS_APPLIED);
+  EXPECT_EQ(dry.results(0).name_after(), "checksum");
+  EXPECT_EQ(dry.seqs_size(), 0);
+  EXPECT_EQ(function(cs).name(), stripped_name);
+
+  // Names for two functions: one revision, ported from the program in the project.
+  auto named = apply({pair("checksum"), pair("classify")}, pb::BSIM_APPLY_KIND_NAME);
+  EXPECT_EQ(named.names(), 2u);
+  EXPECT_EQ(named.signatures(), 0u);
+  ASSERT_EQ(named.results_size(), 2);
+  for (const auto &r : named.results()) {
+    EXPECT_EQ(r.status(), pb::BSIM_APPLY_STATUS_APPLIED) << r.message();
+    EXPECT_EQ(r.from_program(), a);
+    EXPECT_TRUE(r.name_before().starts_with("FUN_"));
+  }
+  EXPECT_EQ(named.seqs_size(), 2);
+  EXPECT_EQ(function(cs).name(), "checksum");
+  EXPECT_EQ(function(query["classify"]).name(), "classify");
+  {
+    pb::BlameRequest bl;
+    bl.mutable_key()->set_program_id(b);
+    bl.mutable_key()->set_kind(pb::FACT_KIND_NAME);
+    bl.mutable_key()->mutable_address()->set_offset(cs);
+    pb::BlameResponse blr;
+    ASSERT_TRUE(b_->Blame(ctx_, bl, blr).ok());
+    ASSERT_GT(blr.candidates_size(), 0);
+    const auto &c = blr.candidates(0);
+    EXPECT_EQ(c.provenance().kind(), pb::PROVENANCE_KIND_USER);
+    EXPECT_NE(c.provenance().reason().find("BSim match (name): checksum in debug"), std::string::npos) << c.provenance().reason();
+    EXPECT_EQ(c.ported_from().program_id(), a);
+    EXPECT_EQ(c.ported_from().bsim_database(), db_);
+    EXPECT_EQ(c.ported_from().bsim_executable(), best["checksum"].executable().id());
+    EXPECT_EQ(c.ported_from().function().offset(), best["checksum"].function().entry().offset());
+  }
+  // Again: nothing to change.
+  auto again = apply({pair("checksum")}, pb::BSIM_APPLY_KIND_NAME);
+  EXPECT_EQ(again.results(0).status(), pb::BSIM_APPLY_STATUS_UNCHANGED);
+  EXPECT_EQ(again.seqs_size(), 0);
+  // Undone in one step.
+  retract(named);
+  EXPECT_EQ(function(cs).name(), stripped_name);
+
+  // A name someone gave is kept without overwrite.
+  {
+    pb::AppendAssertionsRequest ren;
+    ren.set_program_id(b);
+    auto *as = ren.add_assertions();
+    as->mutable_body()->mutable_rename()->mutable_target()->mutable_address()->set_offset(cs);
+    as->mutable_body()->mutable_rename()->set_name("my_hash");
+    ren.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+    ren.mutable_provenance()->set_id("t");
+    pb::AppendAssertionsResponse rr;
+    ASSERT_TRUE(b_->AppendAssertions(ctx_, ren, rr).ok());
+  }
+  auto kept = apply({pair("checksum")}, pb::BSIM_APPLY_KIND_NAME);
+  EXPECT_EQ(kept.results(0).status(), pb::BSIM_APPLY_STATUS_SKIPPED);
+  EXPECT_NE(kept.results(0).message().find("my_hash keeps its name"), std::string::npos) << kept.results(0).message();
+  EXPECT_EQ(kept.skipped(), 1u);
+  EXPECT_EQ(function(cs).name(), "my_hash");
+  // From the database alone too.
+  EXPECT_EQ(apply({pair("checksum")}, pb::BSIM_APPLY_KIND_NAME, false, false, true).results(0).status(),
+            pb::BSIM_APPLY_STATUS_SKIPPED);
+  auto replaced = apply({pair("checksum")}, pb::BSIM_APPLY_KIND_NAME, true, false, true);
+  EXPECT_EQ(replaced.results(0).status(), pb::BSIM_APPLY_STATUS_APPLIED);
+  EXPECT_TRUE(replaced.results(0).from_program().empty());
+  EXPECT_EQ(function(cs).name(), "checksum");
+  {
+    pb::BlameRequest bl;
+    bl.mutable_key()->set_program_id(b);
+    bl.mutable_key()->set_kind(pb::FACT_KIND_NAME);
+    bl.mutable_key()->mutable_address()->set_offset(cs);
+    pb::BlameResponse blr;
+    ASSERT_TRUE(b_->Blame(ctx_, bl, blr).ok());
+    ASSERT_GT(blr.candidates_size(), 0);
+    EXPECT_TRUE(blr.candidates(0).ported_from().program_id().empty());
+    EXPECT_EQ(blr.candidates(0).ported_from().bsim_database(), db_);
+  }
+
+  // A skeleton signature from the database's record: the structure the
+  // stripped build lacks is an empty placeholder.
+  const std::uint64_t mh = query["manhattan"];
+  auto skel = apply({pair("manhattan")}, pb::BSIM_APPLY_KIND_SIGNATURE, false, false, true);
+  ASSERT_EQ(skel.results_size(), 1);
+  const auto &sk = skel.results(0);
+  EXPECT_EQ(sk.status(), pb::BSIM_APPLY_STATUS_APPLIED) << sk.message();
+  EXPECT_EQ(sk.name_after(), "manhattan");
+  EXPECT_NE(sk.signature_after().find("manhattan("), std::string::npos) << sk.signature_after();
+  EXPECT_NE(sk.message().find("placeholder structures for point"), std::string::npos) << sk.message();
+  EXPECT_GE(sk.types(), 1u);
+  EXPECT_EQ(skel.signatures(), 1u);
+  const pb::Function fm = function(mh);
+  EXPECT_EQ(fm.name(), "manhattan");
+  EXPECT_NE(fm.prototype().find("point"), std::string::npos) << fm.prototype();
+  auto point_type = [&]() -> pb::TypeDefinition {
+    pb::FindTypesRequest ft;
+    ft.set_program_id(b);
+    ft.set_name_contains("point");
+    pb::FindTypesResponse ftr;
+    EXPECT_TRUE(b_->FindTypes(ctx_, ft, ftr).ok());
+    for (const auto &t : ftr.types())
+      if (t.name() == "point" && t.kind() == pb::TYPE_KIND_STRUCT) return t;
+    return {};
+  };
+  EXPECT_EQ(point_type().size(), 0u) << point_type().c_definition();  // incomplete
+  // A signature someone set is kept without overwrite.
+  EXPECT_EQ(apply({pair("manhattan")}, pb::BSIM_APPLY_KIND_SIGNATURE).results(0).status(), pb::BSIM_APPLY_STATUS_UNCHANGED);
+  retract(skel);
+  EXPECT_TRUE(function(mh).name().starts_with("FUN_"));
+
+  // Signature and types from the program in the project: the structure itself.
+  auto full = apply({pair("manhattan")}, pb::BSIM_APPLY_KIND_SIGNATURE_AND_TYPES);
+  ASSERT_EQ(full.results_size(), 1);
+  EXPECT_EQ(full.results(0).status(), pb::BSIM_APPLY_STATUS_APPLIED) << full.results(0).message();
+  EXPECT_EQ(full.results(0).from_program(), a);
+  EXPECT_EQ(full.signatures(), 1u);
+  EXPECT_GE(full.types(), 1u);
+  EXPECT_EQ(function(mh).name(), "manhattan");
+  EXPECT_EQ(point_type().size(), 8u) << point_type().c_definition();
+  retract(full);
+
+  // Failures, each pair on its own: two matches for one function; an
+  // executable or a function that isn't there.
+  pb::BSimApplyPair twice = pair("checksum");
+  pb::BSimApplyPair nowhere = pair("classify");
+  nowhere.set_executable("nonesuch");
+  pb::BSimApplyPair no_match = pair("manhattan");
+  no_match.mutable_match()->set_offset(1);
+  auto bad = apply({pair("checksum"), twice, nowhere, no_match}, pb::BSIM_APPLY_KIND_NAME);
+  ASSERT_EQ(bad.results_size(), 4);
+  for (const auto &r : bad.results()) EXPECT_EQ(r.status(), pb::BSIM_APPLY_STATUS_FAILED) << r.message();
+  EXPECT_NE(bad.results(0).message().find("more than one match"), std::string::npos);
+  EXPECT_EQ(bad.failed(), 4u);
+  EXPECT_EQ(bad.seqs_size(), 0);
+  // Errors: no kind, no pairs.
+  pb::ApplyBSimMatchesRequest none;
+  none.set_project_id("default");
+  none.set_database(db_);
+  none.set_program_id(b);
+  pb::ApplyBSimMatchesResponse nr;
+  EXPECT_EQ(b_->ApplyBSimMatches(ctx_, none, nr).code, StatusCode::kInvalidArgument);
+  none.set_kind(pb::BSIM_APPLY_KIND_NAME);
+  EXPECT_EQ(b_->ApplyBSimMatches(ctx_, none, nr).code, StatusCode::kInvalidArgument);
+  *none.add_pairs() = pair("checksum");
+  none.set_database("/nonexistent/x.rkbsim");
+  EXPECT_EQ(b_->ApplyBSimMatches(ctx_, none, nr).code, StatusCode::kNotFound);
 }
 
 TEST_F(BsimApi, Errors) {

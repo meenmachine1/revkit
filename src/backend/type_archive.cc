@@ -92,8 +92,10 @@ cparse::Profile ProfileOf(const pb::TypeArchiveDataModel &m) {
   else if (m.compiler() == "clang") p.compiler = cparse::Compiler::Clang;
   else if (m.compiler() == "msvc") p.compiler = cparse::Compiler::Msvc;
   cparse::LayoutRules &r = p.rules;
+  // Sizes and alignments as the spec path takes them (1-64 bytes; a
+  // sidecar is anyone's file): another value keeps the profile's.
   auto set = [](std::uint32_t &field, std::uint32_t v) {
-    if (v) field = v;
+    if (v > 0 && v <= 64) field = v;
   };
   set(r.pointer_size, m.pointer_size());
   set(r.short_size, m.short_size());
@@ -113,15 +115,16 @@ cparse::Profile ProfileOf(const pb::TypeArchiveDataModel &m) {
     r.size_alignment.clear();
     for (const std::string &sa : m.size_alignment()) {
       const auto colon = sa.find(':');
-      if (colon == std::string::npos) continue;
+      if (colon == std::string::npos || r.size_alignment.size() >= 64) continue;
       try {
-        r.size_alignment.emplace_back(std::uint32_t(std::stoul(sa.substr(0, colon))),
-                                      std::uint32_t(std::stoul(sa.substr(colon + 1))));
+        const unsigned long size = std::stoul(sa.substr(0, colon)), align = std::stoul(sa.substr(colon + 1));
+        if (size > 0 && size <= 64 && align > 0 && align <= 64)
+          r.size_alignment.emplace_back(std::uint32_t(size), std::uint32_t(align));
       } catch (const std::exception &) {
       }
     }
   }
-  r.max_alignment = m.max_alignment();
+  if (m.max_alignment() <= 64) r.max_alignment = m.max_alignment();
   r.bitfields = m.bitfields() == "msvc" ? cparse::BitfieldModel::Msvc : cparse::BitfieldModel::Gcc;
   r.msvc_enums = m.msvc_enums();
   r.zero_width_bitfield_aligns = m.zero_width_bitfield_aligns();

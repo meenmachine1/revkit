@@ -15,6 +15,7 @@ host. `api_minor` 48, feature `filesystems`.
 - [Extracting](#extracting)
 - [Security](#security)
 - [Interfaces](#interfaces)
+- [Libraries of imported programs](#libraries-of-imported-programs)
 - [Libraries](#libraries)
 - [Tests and fuzzing](#tests-and-fuzzing)
 - [Known gaps](#known-gaps)
@@ -236,6 +237,40 @@ normalized inside their container and marked.
   which imports with the run's provenance.
 - **The UI**: File → Open file system…, and "Open as file system" in the
   Open dialog ([ui.md](ui.md#file-system-browser)).
+
+## Libraries of imported programs
+
+`api_minor` 79, feature `library-roots`. With `ImportOptions.import_libraries`
+(the batch dialog's **Also import the libraries they need, from this file
+system**), the shared libraries each imported program needs that the
+project has no program for are looked for in the file system it came from,
+not on the daemon's host: in the container layer the program is in (a
+squashfs's root, say), in order
+
+1. `library_search_paths`, as paths inside that layer (`/opt/vendor/lib`);
+2. the program's own directory (a PE's DLLs beside the exe);
+3. its `DT_RUNPATH` (else `DT_RPATH`): `$ORIGIN` its directory, absolute
+   entries from the layer's root;
+4. the directories the layer's `/etc/ld.so.conf` names, with one level of
+   `include` (`/etc/ld.so.conf.d/*.conf`);
+5. `/lib` and `/usr/lib` with their multiarch (`arm-linux-gnueabihf`) and
+   `lib64`/`lib32` forms, and `/usr/local/lib`.
+
+The first file of the name whose header has the program's format, word
+size and machine (and byte order, for ELF) is imported from its bytes,
+with its container path, into the folder of the program that needs it, as
+an item with `library_of` set; then its own libraries, to `library_depth`
+levels (0: 2), at most 64 per import. Symbolic links are followed inside
+the layer only, as everywhere in a session, so `libc.so.6 ->
+/lib/libc-2.31.so` resolves inside the image. A batch import resolves the
+programs it imports first, so a library the batch brings (by name, or by
+its `DT_SONAME`) is linked rather than imported twice. The response lists
+what was found nowhere (`libraries_not_found`, with who needs it) and
+libraries that failed to import (`library_warnings`).
+
+A root file system already extracted on the daemon's host is the same idea
+for `ImportProgram` by path: see [api.md](api.md#libraries)
+(`ImportOptions.library_root`, found by itself under a `--browse-root`).
 
 ## Libraries
 

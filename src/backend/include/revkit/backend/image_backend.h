@@ -47,6 +47,11 @@ struct ImageBackendOptions {
   // and SLEIGH engines for listing pages and instruction detail.
   unsigned decompilers_per_program = 2;
   unsigned lifters_per_program = 4;
+  // SLEIGH engines idle this long are parked (docs/memory.md "SLEIGH
+  // engines"): their decoded .sla goes to their language's spares, shared by
+  // every program of the language, and the next use takes one back (a reset,
+  // not a decode). Checked as often; 0: never.
+  unsigned engine_idle_seconds = 15;
   // Decompiler worker processes (rk-decompd) shared by every program: at
   // most this many decompilations run at once (0: decompilers_per_program).
   // A worker that crashes, hangs past its deadline or runs out of memory
@@ -88,6 +93,19 @@ struct ImageBackendOptions {
   std::string symbol_path;
   bool symbol_downloads = false;
   std::string symbol_cache;
+  // Separate debug files for ELF (docs/backend.md "External debug files"):
+  // directories searched as /usr/lib/debug is (by build ID and debuglink),
+  // whether debuginfod servers may be contacted (off by default: network
+  // access, docs/security.md), which (https only unless http is allowed),
+  // and the largest file and the cache's size (0: 1 GiB, 4 GiB). Fetched
+  // and loaded files are kept in <project_dir>/.revkit/debuginfod. Kept
+  // with the symbol settings.
+  std::vector<std::string> debug_dirs;
+  bool debuginfod = false;
+  std::vector<std::string> debuginfod_urls;
+  bool debuginfod_allow_http = false;
+  std::uint64_t debug_file_max_bytes = 0;
+  std::uint64_t debug_cache_max_bytes = 0;
   // Threads for import-time analysis (function discovery, references);
   // 0: the hardware's, at most 8.
   unsigned analysis_threads = 0;

@@ -7,7 +7,7 @@ every row with its evidence. When an item starts, move it to the roadmap;
 when it lands, strike it here.
 
 <!-- survey-summary:wishlist -->
-Of 732 Ghidra features: revkit has 325, has part of 181, lacks 226, and 0 are being built (counted by `scripts/survey_summary.py` from the survey's rows).
+Of 732 Ghidra features: revkit has 334, has part of 179, lacks 219, and 0 are being built (counted by `scripts/survey_summary.py` from the survey's rows).
 <!-- /survey-summary:wishlist -->
 
 Value is to a reverse engineer doing real work; effort is S (a day or
@@ -41,7 +41,7 @@ What is left, ranked by value to someone doing real work, then by effort.
 | Edit Function dialog | ~~Return, parameters, a calling-convention dropdown~~ *done* (`api_minor` 58, feature `calling-conventions`); ~~the user no-return flag~~ *done* (`api_minor` 66, feature `no-return`). Left: the inline flag and custom parameter storage, which no assertion kind carries yet | M |
 | ~~Slices and def-use~~ | *Done* (`api_minor` 57, feature `decompile-slices`; [ui.md](ui.md#slices), [api.md](api.md#slices)): ~~Def-use and slice data in Decompile (or a Slice RPC), shown as forward and backward slice and operator highlights, and a def-use highlight~~ | M |
 | BSim database | ~~A persistent signature store with an LSH index (reuse `src/diff/lsh.cc`), program ingest from the CLI and the API, metadata, categories~~ *done* (`api_minor` 69, feature `bsim`; [bsim.md](bsim.md)). Left: function tags | S |
-| Similar-function search | ~~From the cursor or a selection against the BSim store: thresholds, a results table~~ *done* (`api_minor` 72, feature `bsim-search`; [bsim.md](bsim.md#searching)). Left: Apply name, signature or signature and types from a hit (`PortFunctionMarkup` exists for two chosen functions) | S |
+| Similar-function search | ~~From the cursor or a selection against the BSim store: thresholds, a results table~~ *done* (`api_minor` 72, feature `bsim-search`; [bsim.md](bsim.md#searching)). ~~Left: Apply name, signature or signature and types from a hit~~ *done* (`api_minor` 76, feature `bsim-apply`; [bsim.md](bsim.md#applying-matches)) | S |
 | Debugger: dynamic listing | ~~Disassemble runtime memory (libraries, unpacked or JIT code), auto-disassembled at the pc~~ *done* (`api_minor` 62, feature `debugger-disassembly`; [debugger.md](debugger.md#runtime-disassembly)); ~~copy runtime memory into the current or a new program to capture unpacked code~~ *done* (`api_minor` 63, feature `debugger-copy`; [debugger.md](debugger.md#copying-runtime-memory)) | L |
 | Debugger: stack, watches, value hovers | ~~A stack unwind (API, `rk-dbg bt`, the UI)~~ *done* (`api_minor` 59, feature `debugger-stack`; [debugger.md](debugger.md#call-stack)); ~~watch expressions with types and changed marks~~ *done* (`api_minor` 61, feature `debugger-watches`); ~~variable values in the listing's and decompiler's hover cards at the current snapshot~~ *done* (`api_minor` 60, feature `debugger-values`; [debugger.md](debugger.md#expressions)) | M |
 | Emulator snapshots | ~~Resume from a past snapshot (step back and continue)~~ *done* (`api_minor` 65, feature `debugger-rewind`; [debugger.md](debugger.md#rewind)), and ~~emulate from a live target's or a trace's state with lazy reads~~ *done* (`api_minor` 67, feature `debugger-emulate-from`) | M–L |
@@ -57,7 +57,7 @@ What is left, ranked by value to someone doing real work, then by effort.
 | --- | --- | --- |
 | Compare: apply the rest | Global names and callee signatures from a matched pair (locals, parameters, types and comments are done) | M |
 | Analysis options | Per-analyzer enable and options, and one-shot analyzers on a selection | M |
-| Register values over ranges | MIPS gp, PPC TOC, mode registers (MIPS16, VLE, Thumb) as context | M |
+| Register values over ranges | ~~MIPS gp, PPC TOC~~ (done: api_minor 87, feature `register-values`; [api.md](api.md#register-values)); mode registers (MIPS16, VLE) as context, MIPS `gp` recovered from the code that writes it | M |
 | Namespaces and labels | User namespaces and classes, several labels at one address, function-local labels, external locations | M |
 | Stack frame | A stack frame editor, or a locals view backed by the decompiler's storage | M |
 | Decompiler options per request | Eliminate unreachable code, respect read-only, cast printing, integer format | S–M |
@@ -101,17 +101,17 @@ Listing and navigation (done ones struck; [ui.md](ui.md#byte-viewer-navigation-a
 - ~~optional listing fields (file offset, function offset, p-code)~~, and an XREF list on labels (p-code on the instruction's line, not lines under it);
 - background colours;
 - ~~Copy Special (bytes as hex, C or Python)~~ (also Base64, addresses, the listing's text);
-- a comment table;
+- ~~a comment table~~ (the Comments view, api_minor 77, feature `comment-table`);
 - an instruction info window;
-- a symbol tree with namespaces, imports and exports;
-- a relocation table;
-- a fallthrough override;
-- Clear Flow and Repair;
+- ~~a symbol tree with namespaces, imports and exports~~ (the Symbol tree view, api_minor 82, feature `symbol-tree`);
+- ~~a relocation table~~ (the Relocations view, api_minor 78, feature `relocation-table`);
+- ~~a fallthrough override~~ (api_minor 85, feature `fallthrough-override`; Auto Override over a selection is left);
+- ~~Clear Flow and Repair~~ (api_minor 83, feature `clear-flow`);
 - selections from result tables.
 
 Analysis:
 - an options UI per analyzer, and one-shot analyzers on a selection;
-- register values over ranges (MIPS gp, PPC TOC, mode registers);
+- register values over ranges: ~~MIPS gp, PPC TOC~~ (api_minor 87, feature `register-values`); mode registers;
 - ~~format-string varargs at printf call sites~~ (done, api_minor 50);
 - address tables in PE;
 - custom parameter storage and the inline flag;
@@ -124,13 +124,13 @@ Memory and import:
 - ~~batch and recursive import~~ (done: [filesystems.md](filesystems.md#importing), `rk-daemon project import-batch`);
 - ~~linking dependent libraries~~ (api_minor 70, [api.md](api.md#libraries));
 - COFF/.o relocations;
-- external debug files (build-id, debuglink, debuginfod) and source lines;
+- ~~external debug files (build-id, debuglink, debuginfod)~~ (done: api_minor 86, feature `debug-files`, [backend.md](backend.md#external-debug-files)); source lines;
 - crash dumps (minidump, ELF core);
 - device trees suggesting the memory map;
 - Android DEX/APK and boot images.
 
 Types:
-- data settings (format, endianness, charset);
+- ~~data settings (format, endianness, charset)~~ (done: api_minor 84, feature `data-settings`, [listing-edit.md](listing-edit.md#data-settings));
 - a type preview;
 - find types by size or offset;
 - replace or merge types;
@@ -146,7 +146,7 @@ Decompiler:
 - forcing a union field;
 - offset pointers;
 - splitting and merging variables;
-- exporting C for a function or the program.
+- ~~exporting C for a function or the program~~ (Export C/C++…, api_minor 80, feature `export-c`).
 
 Graphs:
 - hover previews and colours shared with the listing;

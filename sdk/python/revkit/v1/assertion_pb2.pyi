@@ -70,6 +70,46 @@ class Mutability(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     MUTABILITY_CONSTANT: _ClassVar[Mutability]
     MUTABILITY_VOLATILE: _ClassVar[Mutability]
 
+class DataFormat(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DATA_FORMAT_UNSPECIFIED: _ClassVar[DataFormat]
+    DATA_FORMAT_HEX: _ClassVar[DataFormat]
+    DATA_FORMAT_DECIMAL: _ClassVar[DataFormat]
+    DATA_FORMAT_OCTAL: _ClassVar[DataFormat]
+    DATA_FORMAT_BINARY: _ClassVar[DataFormat]
+    DATA_FORMAT_CHAR: _ClassVar[DataFormat]
+
+class DataSignedness(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DATA_SIGNEDNESS_UNSPECIFIED: _ClassVar[DataSignedness]
+    DATA_SIGNEDNESS_SIGNED: _ClassVar[DataSignedness]
+    DATA_SIGNEDNESS_UNSIGNED: _ClassVar[DataSignedness]
+
+class DataEndian(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DATA_ENDIAN_UNSPECIFIED: _ClassVar[DataEndian]
+    DATA_ENDIAN_LITTLE: _ClassVar[DataEndian]
+    DATA_ENDIAN_BIG: _ClassVar[DataEndian]
+
+class DataPadding(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DATA_PADDING_UNSPECIFIED: _ClassVar[DataPadding]
+    DATA_PADDING_PADDED: _ClassVar[DataPadding]
+    DATA_PADDING_UNPADDED: _ClassVar[DataPadding]
+
+class StringTermination(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    STRING_TERMINATION_UNSPECIFIED: _ClassVar[StringTermination]
+    STRING_TERMINATION_NUL: _ClassVar[StringTermination]
+    STRING_TERMINATION_ALL: _ClassVar[StringTermination]
+
+class PointerKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    POINTER_KIND_UNSPECIFIED: _ClassVar[PointerKind]
+    POINTER_KIND_ABSOLUTE: _ClassVar[PointerKind]
+    POINTER_KIND_IMAGE_BASE_OFFSET: _ClassVar[PointerKind]
+    POINTER_KIND_RELATIVE: _ClassVar[PointerKind]
+
 class CommentKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     COMMENT_KIND_UNSPECIFIED: _ClassVar[CommentKind]
@@ -138,6 +178,28 @@ MUTABILITY_DEFAULT: Mutability
 MUTABILITY_NORMAL: Mutability
 MUTABILITY_CONSTANT: Mutability
 MUTABILITY_VOLATILE: Mutability
+DATA_FORMAT_UNSPECIFIED: DataFormat
+DATA_FORMAT_HEX: DataFormat
+DATA_FORMAT_DECIMAL: DataFormat
+DATA_FORMAT_OCTAL: DataFormat
+DATA_FORMAT_BINARY: DataFormat
+DATA_FORMAT_CHAR: DataFormat
+DATA_SIGNEDNESS_UNSPECIFIED: DataSignedness
+DATA_SIGNEDNESS_SIGNED: DataSignedness
+DATA_SIGNEDNESS_UNSIGNED: DataSignedness
+DATA_ENDIAN_UNSPECIFIED: DataEndian
+DATA_ENDIAN_LITTLE: DataEndian
+DATA_ENDIAN_BIG: DataEndian
+DATA_PADDING_UNSPECIFIED: DataPadding
+DATA_PADDING_PADDED: DataPadding
+DATA_PADDING_UNPADDED: DataPadding
+STRING_TERMINATION_UNSPECIFIED: StringTermination
+STRING_TERMINATION_NUL: StringTermination
+STRING_TERMINATION_ALL: StringTermination
+POINTER_KIND_UNSPECIFIED: PointerKind
+POINTER_KIND_ABSOLUTE: PointerKind
+POINTER_KIND_IMAGE_BASE_OFFSET: PointerKind
+POINTER_KIND_RELATIVE: PointerKind
 COMMENT_KIND_UNSPECIFIED: CommentKind
 COMMENT_KIND_EOL: CommentKind
 COMMENT_KIND_PRE: CommentKind
@@ -161,7 +223,7 @@ ASSERTION_STATUS_RETRACTED: AssertionStatus
 ASSERTION_STATUS_DEPENDENCY_DEAD: AssertionStatus
 
 class AssertionBody(_message.Message):
-    __slots__ = ("rename", "retype", "comment", "function_bounds", "flow_override", "note", "define_type", "bind_type_name", "diff_match", "patch", "memory_region", "listing_edit", "mutability", "type_category", "operand_display", "reference", "image_base", "type_archive", "call_signature", "no_return", "language")
+    __slots__ = ("rename", "retype", "comment", "function_bounds", "flow_override", "note", "define_type", "bind_type_name", "diff_match", "patch", "memory_region", "listing_edit", "mutability", "type_category", "operand_display", "reference", "image_base", "type_archive", "call_signature", "no_return", "language", "data_settings", "fallthrough", "register_value")
     RENAME_FIELD_NUMBER: _ClassVar[int]
     RETYPE_FIELD_NUMBER: _ClassVar[int]
     COMMENT_FIELD_NUMBER: _ClassVar[int]
@@ -183,6 +245,9 @@ class AssertionBody(_message.Message):
     CALL_SIGNATURE_FIELD_NUMBER: _ClassVar[int]
     NO_RETURN_FIELD_NUMBER: _ClassVar[int]
     LANGUAGE_FIELD_NUMBER: _ClassVar[int]
+    DATA_SETTINGS_FIELD_NUMBER: _ClassVar[int]
+    FALLTHROUGH_FIELD_NUMBER: _ClassVar[int]
+    REGISTER_VALUE_FIELD_NUMBER: _ClassVar[int]
     rename: Rename
     retype: Retype
     comment: Comment
@@ -204,7 +269,10 @@ class AssertionBody(_message.Message):
     call_signature: CallSignatureOverride
     no_return: SetNoReturn
     language: ProgramLanguageBody
-    def __init__(self, rename: _Optional[_Union[Rename, _Mapping]] = ..., retype: _Optional[_Union[Retype, _Mapping]] = ..., comment: _Optional[_Union[Comment, _Mapping]] = ..., function_bounds: _Optional[_Union[SetFunctionBounds, _Mapping]] = ..., flow_override: _Optional[_Union[FlowOverride, _Mapping]] = ..., note: _Optional[_Union[Note, _Mapping]] = ..., define_type: _Optional[_Union[DefineType, _Mapping]] = ..., bind_type_name: _Optional[_Union[BindTypeName, _Mapping]] = ..., diff_match: _Optional[_Union[_diff_pb2.DiffMatchBody, _Mapping]] = ..., patch: _Optional[_Union[PatchBody, _Mapping]] = ..., memory_region: _Optional[_Union[MemoryRegionEdit, _Mapping]] = ..., listing_edit: _Optional[_Union[ListingEdit, _Mapping]] = ..., mutability: _Optional[_Union[SetMutability, _Mapping]] = ..., type_category: _Optional[_Union[SetTypeCategory, _Mapping]] = ..., operand_display: _Optional[_Union[OperandDisplay, _Mapping]] = ..., reference: _Optional[_Union[UserReference, _Mapping]] = ..., image_base: _Optional[_Union[ImageBaseBody, _Mapping]] = ..., type_archive: _Optional[_Union[TypeArchiveSetting, _Mapping]] = ..., call_signature: _Optional[_Union[CallSignatureOverride, _Mapping]] = ..., no_return: _Optional[_Union[SetNoReturn, _Mapping]] = ..., language: _Optional[_Union[ProgramLanguageBody, _Mapping]] = ...) -> None: ...
+    data_settings: SetDataSettings
+    fallthrough: SetFallthrough
+    register_value: SetRegisterValue
+    def __init__(self, rename: _Optional[_Union[Rename, _Mapping]] = ..., retype: _Optional[_Union[Retype, _Mapping]] = ..., comment: _Optional[_Union[Comment, _Mapping]] = ..., function_bounds: _Optional[_Union[SetFunctionBounds, _Mapping]] = ..., flow_override: _Optional[_Union[FlowOverride, _Mapping]] = ..., note: _Optional[_Union[Note, _Mapping]] = ..., define_type: _Optional[_Union[DefineType, _Mapping]] = ..., bind_type_name: _Optional[_Union[BindTypeName, _Mapping]] = ..., diff_match: _Optional[_Union[_diff_pb2.DiffMatchBody, _Mapping]] = ..., patch: _Optional[_Union[PatchBody, _Mapping]] = ..., memory_region: _Optional[_Union[MemoryRegionEdit, _Mapping]] = ..., listing_edit: _Optional[_Union[ListingEdit, _Mapping]] = ..., mutability: _Optional[_Union[SetMutability, _Mapping]] = ..., type_category: _Optional[_Union[SetTypeCategory, _Mapping]] = ..., operand_display: _Optional[_Union[OperandDisplay, _Mapping]] = ..., reference: _Optional[_Union[UserReference, _Mapping]] = ..., image_base: _Optional[_Union[ImageBaseBody, _Mapping]] = ..., type_archive: _Optional[_Union[TypeArchiveSetting, _Mapping]] = ..., call_signature: _Optional[_Union[CallSignatureOverride, _Mapping]] = ..., no_return: _Optional[_Union[SetNoReturn, _Mapping]] = ..., language: _Optional[_Union[ProgramLanguageBody, _Mapping]] = ..., data_settings: _Optional[_Union[SetDataSettings, _Mapping]] = ..., fallthrough: _Optional[_Union[SetFallthrough, _Mapping]] = ..., register_value: _Optional[_Union[SetRegisterValue, _Mapping]] = ...) -> None: ...
 
 class ProgramLanguageBody(_message.Message):
     __slots__ = ("language_id", "compiler_spec_id", "previous_language_id", "previous_compiler_spec_id")
@@ -218,6 +286,18 @@ class ProgramLanguageBody(_message.Message):
     previous_compiler_spec_id: str
     def __init__(self, language_id: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., previous_language_id: _Optional[str] = ..., previous_compiler_spec_id: _Optional[str] = ...) -> None: ...
 
+class SetRegisterValue(_message.Message):
+    __slots__ = ("register_name", "range", "value", "clear")
+    REGISTER_NAME_FIELD_NUMBER: _ClassVar[int]
+    RANGE_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    CLEAR_FIELD_NUMBER: _ClassVar[int]
+    register_name: str
+    range: _common_pb2.AddressRange
+    value: int
+    clear: bool
+    def __init__(self, register_name: _Optional[str] = ..., range: _Optional[_Union[_common_pb2.AddressRange, _Mapping]] = ..., value: _Optional[int] = ..., clear: _Optional[bool] = ...) -> None: ...
+
 class SetNoReturn(_message.Message):
     __slots__ = ("function", "no_return")
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
@@ -225,6 +305,16 @@ class SetNoReturn(_message.Message):
     function: _common_pb2.Address
     no_return: bool
     def __init__(self, function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., no_return: _Optional[bool] = ...) -> None: ...
+
+class SetFallthrough(_message.Message):
+    __slots__ = ("address", "target", "no_fallthrough")
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    TARGET_FIELD_NUMBER: _ClassVar[int]
+    NO_FALLTHROUGH_FIELD_NUMBER: _ClassVar[int]
+    address: _common_pb2.Address
+    target: _common_pb2.Address
+    no_fallthrough: bool
+    def __init__(self, address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., target: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., no_fallthrough: _Optional[bool] = ...) -> None: ...
 
 class CallSignatureOverride(_message.Message):
     __slots__ = ("call", "signature")
@@ -342,6 +432,40 @@ class SetMutability(_message.Message):
     length: int
     mutability: Mutability
     def __init__(self, address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., length: _Optional[int] = ..., mutability: _Optional[_Union[Mutability, str]] = ...) -> None: ...
+
+class DataSettings(_message.Message):
+    __slots__ = ("format", "signedness", "endian", "padding", "charset", "termination", "pointer_kind", "pointer_mask", "pointer_shift")
+    FORMAT_FIELD_NUMBER: _ClassVar[int]
+    SIGNEDNESS_FIELD_NUMBER: _ClassVar[int]
+    ENDIAN_FIELD_NUMBER: _ClassVar[int]
+    PADDING_FIELD_NUMBER: _ClassVar[int]
+    CHARSET_FIELD_NUMBER: _ClassVar[int]
+    TERMINATION_FIELD_NUMBER: _ClassVar[int]
+    POINTER_KIND_FIELD_NUMBER: _ClassVar[int]
+    POINTER_MASK_FIELD_NUMBER: _ClassVar[int]
+    POINTER_SHIFT_FIELD_NUMBER: _ClassVar[int]
+    format: DataFormat
+    signedness: DataSignedness
+    endian: DataEndian
+    padding: DataPadding
+    charset: str
+    termination: StringTermination
+    pointer_kind: PointerKind
+    pointer_mask: int
+    pointer_shift: int
+    def __init__(self, format: _Optional[_Union[DataFormat, str]] = ..., signedness: _Optional[_Union[DataSignedness, str]] = ..., endian: _Optional[_Union[DataEndian, str]] = ..., padding: _Optional[_Union[DataPadding, str]] = ..., charset: _Optional[str] = ..., termination: _Optional[_Union[StringTermination, str]] = ..., pointer_kind: _Optional[_Union[PointerKind, str]] = ..., pointer_mask: _Optional[int] = ..., pointer_shift: _Optional[int] = ...) -> None: ...
+
+class SetDataSettings(_message.Message):
+    __slots__ = ("address", "field", "type_name", "settings")
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    FIELD_FIELD_NUMBER: _ClassVar[int]
+    TYPE_NAME_FIELD_NUMBER: _ClassVar[int]
+    SETTINGS_FIELD_NUMBER: _ClassVar[int]
+    address: _common_pb2.Address
+    field: str
+    type_name: str
+    settings: DataSettings
+    def __init__(self, address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., field: _Optional[str] = ..., type_name: _Optional[str] = ..., settings: _Optional[_Union[DataSettings, _Mapping]] = ...) -> None: ...
 
 class PatchBody(_message.Message):
     __slots__ = ("address", "data", "original", "text", "canonical_text", "alternatives", "context")

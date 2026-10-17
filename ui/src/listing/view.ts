@@ -46,7 +46,7 @@ const SCROLLBAR_W = 12;
 const THUMB_MIN = 28;
 /** Flow arrow gutter, left of the text. */
 /** Hits that select their row but highlight nothing else (markers, badges). */
-const UNKEYED = new Set<string>(["xref", "comment", "disclosure", "mutability", "field", "pcode"]);
+const UNKEYED = new Set<string>(["xref", "comment", "disclosure", "mutability", "field", "pcode", "regvalue"]);
 
 export const GUTTER = 44;
 export const PAD_X = GUTTER + 10;
@@ -821,7 +821,7 @@ export class ListingView {
     }
     if (cx >= 0) this.setHover(hit, cx, cy);
     const overArrow = p !== null && p.x < GUTTER && this.arrowAt(p.x, p.y) !== null;
-    this.canvas.style.cursor = overArrow || (hit && ((hit.target !== undefined && hit.kind !== "type" && hit.kind !== "mutability" && hit.kind !== "field") || hit.kind === "xref")) ? "pointer" : "default";
+    this.canvas.style.cursor = overArrow || (hit && ((hit.target !== undefined && hit.kind !== "type" && hit.kind !== "mutability" && hit.kind !== "field" && hit.kind !== "regvalue") || hit.kind === "xref")) ? "pointer" : "default";
   }
 
   // ------------------------------------------------------------ rendering --
@@ -903,7 +903,11 @@ export class ListingView {
     const jumps: { from: number; to: number | undefined; target: bigint; conditional: boolean }[] = [];
     for (let i = lo; i <= hi; i++) {
       const r = this.cache.get(i);
-      if (!r || !isJump(r)) continue;
+      if (!r) continue;
+      // A fallthrough override (Ghidra's FallthroughFlowArrow).
+      if (r.kind === RowKind.Instruction && r.fallthrough !== null)
+        jumps.push({ from: i, to: byAddr.get(r.fallthrough), target: r.fallthrough, conditional: false });
+      if (!isJump(r)) continue;
       for (const t of r.flowTargets) jumps.push({ from: i, to: byAddr.get(t), target: t, conditional: r.flow === Flow.CondBranch });
     }
     this.jumpCache = { key, jumps };

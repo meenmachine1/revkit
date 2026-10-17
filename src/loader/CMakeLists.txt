@@ -8,6 +8,7 @@ add_library(revkit_loader STATIC
   language.cc
   pe.cc
   raw.cc
+  relocations.cc
   sections.cc)
 add_library(revkit::loader ALIAS revkit_loader)
 target_include_directories(revkit_loader PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

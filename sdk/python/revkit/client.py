@@ -111,6 +111,7 @@ _FACT_KINDS = {
     "equate": common_pb2.FACT_KIND_EQUATE,
     "reference": common_pb2.FACT_KIND_REFERENCE,
     "call_signature": common_pb2.FACT_KIND_CALL_SIGNATURE,
+    "register_value": common_pb2.FACT_KIND_REGISTER_VALUE,
 }
 
 _COMMENT_KINDS = {
@@ -223,6 +224,88 @@ def mutability_body(addr: AddressLike, length: int, mutability: str) -> assertio
     m = assertion_pb2.SetMutability(address=address(addr), length=int(length),
                                     mutability=_choice(_MUTABILITIES, mutability, "mutability"))
     return assertion_pb2.AssertionBody(mutability=m)
+
+
+# Data settings (api_minor 84, feature "data-settings"; docs/listing-edit.md#data-settings).
+_DATA_FORMATS = {
+    "": assertion_pb2.DATA_FORMAT_UNSPECIFIED,
+    "hex": assertion_pb2.DATA_FORMAT_HEX,
+    "decimal": assertion_pb2.DATA_FORMAT_DECIMAL,
+    "dec": assertion_pb2.DATA_FORMAT_DECIMAL,
+    "octal": assertion_pb2.DATA_FORMAT_OCTAL,
+    "binary": assertion_pb2.DATA_FORMAT_BINARY,
+    "char": assertion_pb2.DATA_FORMAT_CHAR,
+}
+_DATA_SIGNS = {"": assertion_pb2.DATA_SIGNEDNESS_UNSPECIFIED, "signed": assertion_pb2.DATA_SIGNEDNESS_SIGNED,
+               "unsigned": assertion_pb2.DATA_SIGNEDNESS_UNSIGNED}
+_DATA_ENDIANS = {"": assertion_pb2.DATA_ENDIAN_UNSPECIFIED, "little": assertion_pb2.DATA_ENDIAN_LITTLE,
+                 "big": assertion_pb2.DATA_ENDIAN_BIG}
+_DATA_PADDINGS = {"": assertion_pb2.DATA_PADDING_UNSPECIFIED, "padded": assertion_pb2.DATA_PADDING_PADDED,
+                  "unpadded": assertion_pb2.DATA_PADDING_UNPADDED}
+_STRING_TERMINATIONS = {"": assertion_pb2.STRING_TERMINATION_UNSPECIFIED, "nul": assertion_pb2.STRING_TERMINATION_NUL,
+                        "all": assertion_pb2.STRING_TERMINATION_ALL}
+_POINTER_KINDS = {"": assertion_pb2.POINTER_KIND_UNSPECIFIED, "absolute": assertion_pb2.POINTER_KIND_ABSOLUTE,
+                  "imagebase": assertion_pb2.POINTER_KIND_IMAGE_BASE_OFFSET,
+                  "imagebaseoffset": assertion_pb2.POINTER_KIND_IMAGE_BASE_OFFSET,
+                  "ibo": assertion_pb2.POINTER_KIND_IMAGE_BASE_OFFSET,
+                  "relative": assertion_pb2.POINTER_KIND_RELATIVE}
+
+
+def data_settings(
+    *,
+    format: Optional[str] = None,
+    signed: Optional[bool] = None,
+    endian: Optional[str] = None,
+    padding: Optional[str] = None,
+    charset: Optional[str] = None,
+    termination: Optional[str] = None,
+    pointer: Optional[str] = None,
+    mask: Optional[int] = None,
+    shift: Optional[int] = None,
+) -> assertion_pb2.DataSettings:
+    """A ``DataSettings`` message; None (or "") leaves a setting to the type's
+    default. ``format`` "hex", "decimal", "octal", "binary" or "char";
+    ``signed`` True or False; ``endian`` "little" or "big"; ``padding``
+    "padded" or "unpadded"; ``charset`` "US-ASCII", "ISO-8859-1",
+    "windows-1252", "UTF-8", "UTF-16", "UTF-16LE", "UTF-16BE", "UTF-32",
+    "UTF-32LE" or "UTF-32BE"; ``termination`` "nul" or "all"; ``pointer``
+    "absolute", "image-base" (an RVA) or "relative" (to the pointer's
+    address), after ``mask`` keeps the stored value's bits and ``shift``
+    shifts it left (negative: right)."""
+    s = assertion_pb2.DataSettings(
+        format=_choice(_DATA_FORMATS, format, "format"),
+        endian=_choice(_DATA_ENDIANS, endian, "endian"),
+        padding=_choice(_DATA_PADDINGS, padding, "padding"),
+        termination=_choice(_STRING_TERMINATIONS, termination, "termination"),
+        pointer_kind=_choice(_POINTER_KINDS, pointer, "pointer"),
+        charset=charset or "",
+    )
+    if signed is not None:
+        s.signedness = assertion_pb2.DATA_SIGNEDNESS_SIGNED if signed else assertion_pb2.DATA_SIGNEDNESS_UNSIGNED
+    if mask is not None:
+        s.pointer_mask = int(mask)
+    if shift is not None:
+        s.pointer_shift = int(shift)
+    return s
+
+
+def data_settings_body(addr: Optional[AddressLike] = None, *, field: str = "", type_name: str = "",
+                       settings: Optional[assertion_pb2.DataSettings] = None, **kw) -> assertion_pb2.AssertionBody:
+    """How a data item displays (Ghidra's Data Settings): the item at ``addr``
+    (``field``: a struct field's row, its ``data_field`` path "hdr.magic"), or
+    with ``type_name`` instead the type's defaults (Ghidra's Default
+    Settings; a row's ``data_settings_type``). Give ``settings`` or the
+    ``data_settings`` keywords; none set removes them."""
+    if settings is None:
+        settings = data_settings(**kw)
+    elif kw:
+        raise ValueError("data_settings_body: give settings or setting keywords, not both")
+    b = assertion_pb2.SetDataSettings(field=field, type_name=type_name, settings=settings)
+    if addr is not None:
+        b.address.CopyFrom(address(addr))
+    elif not type_name:
+        raise ValueError("data_settings_body: give an address (an item) or type_name (a type's defaults)")
+    return assertion_pb2.AssertionBody(data_settings=b)
 
 
 # Equates and user references (api_minor 39, features "equates" and
@@ -357,6 +440,24 @@ def reference_body(
     elif not remove:
         raise ValueError("reference: give a type (" + ", ".join(repr(k) for k in _REFERENCE_TYPES) + ")")
     return assertion_pb2.AssertionBody(reference=r)
+
+
+@dataclass
+class ExportedC:
+    """Ghidra's C/C++ export of a program (``Program.export_c``): the source
+    (``<name>.c``) and, when asked for, a header of the program's types and
+    the functions' prototypes (``<name>.h``); ``functions`` decompiled,
+    ``failed`` the entries the decompiler failed on (a comment in the source
+    says why), ``notes`` on types the header can't reproduce."""
+
+    source_name: str
+    source: str
+    header_name: str = ""
+    header: str = ""
+    functions: int = 0
+    failed: list = field(default_factory=list)
+    notes: list = field(default_factory=list)
+    revision: int = 0
 
 
 @dataclass(frozen=True)
@@ -1448,6 +1549,46 @@ class Client:
             req.min_confidence = min_confidence
         return self._call(self._stubs.bsim.SearchBSim, req)
 
+    _BSIM_APPLY_KINDS = {"name": bsim_pb2.BSIM_APPLY_KIND_NAME, "signature": bsim_pb2.BSIM_APPLY_KIND_SIGNATURE,
+                         "signature_and_types": bsim_pb2.BSIM_APPLY_KIND_SIGNATURE_AND_TYPES,
+                         "types": bsim_pb2.BSIM_APPLY_KIND_SIGNATURE_AND_TYPES}
+
+    def bsim_apply(self, database: str, program_id: str, pairs: Sequence, kind: Union[str, int] = "name", *,
+                   overwrite: bool = False, dry_run: bool = False, database_only: bool = False,
+                   project_id: str = "default", actor: Optional[str] = None,
+                   reason: str = "") -> bsim_pb2.ApplyBSimMatchesResponse:
+        """Applies BSim matches to the program's functions (api_minor 76, feature "bsim-apply";
+        docs/bsim.md, "Applying matches"), as Ghidra's BSim results do. ``pairs``: each a
+        ``(function, match)`` with ``match`` a ``BSimMatch`` from ``bsim_search`` (its
+        executable and function), or ``(function, executable, match_entry)``, or a
+        ``BSimApplyPair``. ``kind``: ``"name"``, ``"signature"`` (the name and a skeleton
+        signature: types the program lacks become empty placeholder structures) or
+        ``"signature_and_types"`` (with the types themselves, when the match's file is a
+        program of the project). Without ``overwrite`` a name goes only over a default one and
+        a signature only over a guess. Every pair in one revision: retracting ``seqs`` undoes
+        it. Per pair ``results`` say what happened (status, message, before and after)."""
+        out = []
+        for p in pairs:
+            if isinstance(p, bsim_pb2.BSimApplyPair):
+                out.append(p)
+                continue
+            p = tuple(p)
+            if len(p) == 2:
+                fn, m = p
+                exe, entry = m.executable.id, m.function.entry.offset
+            elif len(p) == 3:
+                fn, exe, entry = p
+            else:
+                raise ValueError("a pair is (function, match) or (function, executable, match_entry)")
+            out.append(bsim_pb2.BSimApplyPair(function=address(fn), executable=exe, match=address(entry)))
+        k = self._BSIM_APPLY_KINDS.get(kind, kind) if isinstance(kind, str) else kind
+        if isinstance(k, str):
+            raise ValueError(f"kind: one of {sorted(self._BSIM_APPLY_KINDS)}")
+        req = bsim_pb2.ApplyBSimMatchesRequest(
+            project_id=project_id, database=database, program_id=program_id, pairs=out, kind=k,
+            overwrite=overwrite, dry_run=dry_run, database_only=database_only, provenance=self._prov(actor, reason))
+        return self._call(self._stubs.bsim.ApplyBSimMatches, req)
+
     def delete_bsim_executables(self, database: str, executables: Sequence[str], *,
                                 project_id: str = "default") -> bsim_pb2.DeleteBSimExecutablesResponse:
         req = bsim_pb2.DeleteBSimExecutablesRequest(project_id=project_id, database=database,
@@ -1505,6 +1646,29 @@ class Client:
         else:
             raise ValueError("name or address is required")
         return self._call(self._stubs.projects.ResolveImport, req).resolved
+
+    def library_importers(
+        self,
+        program_id: str,
+        *,
+        address: Optional[int] = None,
+        name: str = "",
+        include_references: bool = True,
+        max_references: int = 0,
+    ) -> query_pb2.ListLibraryImportersResponse:
+        """References back from a library (api_minor 81, feature ``library-importers``):
+        the project's programs whose imports resolve to ``program_id``, each import that does
+        (``importers[].resolved``: its name, thunk and slot in the importer, the function's
+        ``address`` here), and with ``include_references`` the importer's references to it
+        (``importers[].references``, at most ``max_references`` each, default 50). One export
+        by ``address`` (the function there) or ``name``; neither: every import of the library."""
+        req = query_pb2.ListLibraryImportersRequest(
+            program_id=program_id, include_references=include_references, max_references=max_references)
+        if address is not None:
+            req.address.offset = address
+        elif name:
+            req.name = name
+        return self._call(self._stubs.queries.ListLibraryImporters, req)
 
     def delete_program(self, program_id: str) -> project_pb2.DeleteProgramResponse:
         """Deletes a program softly (feature ``program-management``): hidden from
@@ -1639,9 +1803,53 @@ class Client:
     def set_symbol_settings(self, symbol_path: str, *, downloads: bool = False, cache_dir: str = "") -> project_pb2.SymbolSettings:
         """Sets the daemon's symbol path (``SetSymbolSettings``; an admin's).
         ``downloads`` lets it contact the servers the path names: network
-        access on the daemon's host (docs/security.md)."""
-        req = project_pb2.SetSymbolSettingsRequest(
-            settings=project_pb2.SymbolSettings(symbol_path=symbol_path, downloads=downloads, cache_dir=cache_dir))
+        access on the daemon's host (docs/security.md). The debug file
+        settings (``set_debug_file_settings``) stay as they are."""
+        settings = project_pb2.SymbolSettings()
+        settings.CopyFrom(self.symbol_settings())
+        settings.symbol_path, settings.downloads, settings.cache_dir = symbol_path, downloads, cache_dir
+        req = project_pb2.SetSymbolSettingsRequest(settings=settings)
+        return self._call(self._stubs.projects.SetSymbolSettings, req).settings
+
+    def debuginfod_suggestions(self) -> list:
+        """The servers the daemon's DEBUGINFOD_URLS names: a suggestion, never
+        used unless set with ``set_debug_file_settings(urls=...)``."""
+        r = self._call(self._stubs.projects.GetSymbolSettings, project_pb2.GetSymbolSettingsRequest())
+        return list(r.suggested_debuginfod_urls)
+
+    def set_debug_file_settings(
+        self,
+        *,
+        dirs: Optional[Sequence[str]] = None,
+        debuginfod: Optional[bool] = None,
+        urls: Optional[Sequence[str]] = None,
+        allow_http: Optional[bool] = None,
+        max_bytes: Optional[int] = None,
+        cache_max_bytes: Optional[int] = None,
+    ) -> project_pb2.SymbolSettings:
+        """Where ELF debug files are looked for and fetched (api_minor 86,
+        feature ``debug-files``; ``SetSymbolSettings``, an admin's): ``dirs``
+        searched as /usr/lib/debug is (build ID and debuglink), ``debuginfod``
+        (contact the servers: network access, off by default), ``urls`` (https
+        unless ``allow_http``), the largest file and the cache's size. What is
+        left out (None) stays as it is; the symbol path too."""
+        settings = project_pb2.SymbolSettings()
+        settings.CopyFrom(self.symbol_settings())
+        if dirs is not None:
+            del settings.debug_dirs[:]
+            settings.debug_dirs.extend(os.fspath(d) for d in dirs)
+        if urls is not None:
+            del settings.debuginfod_urls[:]
+            settings.debuginfod_urls.extend(urls)
+        if debuginfod is not None:
+            settings.debuginfod = debuginfod
+        if allow_http is not None:
+            settings.debuginfod_allow_http = allow_http
+        if max_bytes is not None:
+            settings.debug_file_max_bytes = int(max_bytes)
+        if cache_max_bytes is not None:
+            settings.debug_cache_max_bytes = int(cache_max_bytes)
+        req = project_pb2.SetSymbolSettingsRequest(settings=settings)
         return self._call(self._stubs.projects.SetSymbolSettings, req).settings
 
     def upload(self, source: Union[str, os.PathLike, bytes], *, file_name: str = "", chunk: int = 4 << 20) -> str:
@@ -1772,6 +1980,7 @@ class Client:
         import_libraries: bool = False,
         library_search_paths: Sequence[str] = (),
         library_depth: int = 0,
+        library_root: str = "",
         folder_id: str = "",
     ) -> project_pb2.ImportProgramResponse:
         """Imports a file. ``format`` forces "elf", "pe" or a loader plugin by name;
@@ -1796,6 +2005,12 @@ class Client:
         file and its runpath, then the host's library directories for a file
         imported by ``path``; ``library_depth`` levels deep (0: 2). They are in
         ``response.libraries``; those found nowhere in ``libraries_not_found``.
+        ``library_root`` (api_minor 79, feature "library-roots") names the root
+        file system they are in, a directory under the daemon's
+        ``--browse-root`` (an extracted firmware root): ``/lib``, ``/usr/lib``,
+        the runpath and ``/etc/ld.so.conf`` are read inside it instead of the
+        host's. Without it, a file imported by ``path`` from such a tree under a
+        ``--browse-root`` uses that tree (``response.library_root``).
         ``folder_id`` puts the program (and its libraries) in that folder."""
         opts = project_pb2.ImportOptions()
         if options is not None:
@@ -1822,6 +2037,8 @@ class Client:
             opts.library_search_paths.extend(library_search_paths)
         if library_depth:
             opts.library_depth = library_depth
+        if library_root:
+            opts.library_root = library_root
         req = project_pb2.ImportProgramRequest(project_id=project_id, name=name, options=opts, provenance=self.provenance)
         if folder_id:
             req.folder_id = folder_id
@@ -2257,6 +2474,9 @@ class FileSystem:
         keep_folders: bool = False,
         analyze: bool = True,
         options: Optional[project_pb2.ImportOptions] = None,
+        import_libraries: bool = False,
+        library_search_paths: Sequence[str] = (),
+        library_depth: int = 0,
         timeout: Optional[float] = None,
     ) -> filesystem_pb2.ImportFromFileSystemResponse:
         """Imports files as programs (editor of the project). One file named
@@ -2266,12 +2486,27 @@ class FileSystem:
         (``detect_raw``) that raw detection identifies. ``preview`` imports
         nothing and says what would be; ``max_programs`` caps the count
         (default 100). ``folder`` is an id or a path in the project
-        (``keep_folders`` recreates the container's directories under it)."""
+        (``keep_folders`` recreates the container's directories under it).
+
+        ``import_libraries`` (api_minor 79, feature "library-roots") also
+        imports the shared libraries the programs need that the project lacks,
+        from the same file system: beside each program, its runpath,
+        ``library_search_paths`` (paths inside the container),
+        ``/etc/ld.so.conf`` and the standard library directories of the
+        container's root; ``library_depth`` levels deep (0: 2). They are items
+        with ``library_of`` set; those found nowhere are in
+        ``libraries_not_found``."""
         project = project_id or self.project_id
         opts = project_pb2.ImportOptions()
         if options is not None:
             opts.CopyFrom(options)
         opts.analyze = analyze
+        if import_libraries:
+            opts.import_libraries = True
+        if library_search_paths:
+            opts.library_search_paths.extend(library_search_paths)
+        if library_depth:
+            opts.library_depth = library_depth
         req = filesystem_pb2.ImportFromFileSystemRequest(
             session_id=self.session_id, project_id=project,
             folder_id=self._client.folder_id(project, folder) if folder else "",
@@ -2639,6 +2874,35 @@ class Program:
             raise ValueError("load_pdb needs a path, a local_file or symbol_path=True")
         return self.client._call(self.client.stubs.projects.LoadPdb, req)
 
+    def load_debug_file(
+        self,
+        path: Optional[Union[str, os.PathLike]] = None,
+        *,
+        local_file: Optional[Union[str, os.PathLike, bytes]] = None,
+        search: bool = False,
+        force: bool = False,
+        actor: Optional[str] = None,
+        reason: str = "",
+    ) -> project_pb2.LoadDebugFileResponse:
+        """Loads an ELF's separate debug file (``LoadDebugFile``, api_minor 86,
+        feature ``debug-files``): ``path`` on the daemon's host, a
+        ``local_file`` sent with :meth:`Client.upload`, or with ``search`` the
+        one the program's build ID or .gnu_debuglink names, looked up beside
+        the binary, in the settings' directories, /usr/lib/debug, the cache,
+        then (only when an admin turned them on) debuginfod servers. Its DWARF
+        becomes import:dwarf assertions; another build's file needs
+        ``force``. ``search_log`` says where it looked."""
+        req = project_pb2.LoadDebugFileRequest(program_id=self.id, force=force, provenance=self.client._prov(actor, reason))
+        if search:
+            req.search = True
+        elif local_file is not None:
+            req.upload_id = self.client.upload(local_file)
+        elif path is not None:
+            req.path = os.fspath(path)
+        else:
+            raise ValueError("load_debug_file needs a path, a local_file or search=True")
+        return self.client._call(self.client.stubs.projects.LoadDebugFile, req)
+
     def read_memory(self, addr: AddressLike, length: int) -> bytes:
         req = query_pb2.ReadMemoryRequest(program_id=self.id, address=address(addr), length=length, read=self._read())
         return self._q("ReadMemory", req).data
@@ -2962,6 +3226,65 @@ class Program:
                 call.cancel()
 
         return stream()
+
+    def export_c(
+        self,
+        entries: Optional[Sequence[AddressLike]] = None,
+        *,
+        header: bool = True,
+        name: str = "",
+        directory: Optional[str] = None,
+        timeout_ms: int = 0,
+        parallelism: int = 0,
+        progress: Optional[Callable[[int, int], None]] = None,
+    ) -> "ExportedC":
+        """Ghidra's C/C++ exporter (``ExportC``, api_minor 80, feature
+        "export-c"): ``entries`` (None: every function) decompiled into one
+        ``<name>.c`` in address order and, with ``header``, a ``<name>.h`` of
+        the program's types (as ``export_type_archive(scope="all")``),
+        Ghidra's built-in type names and each function's prototype, which
+        the source includes. ``name`` defaults to the program's.
+        ``progress(done, total)`` is called while the functions decompile.
+        With ``directory``, the files are written there too."""
+        req = query_pb2.ExportCRequest(program_id=self.id, read=self._read(), header=header, name=name,
+                                       timeout_ms=timeout_ms, parallelism=parallelism)
+        if entries is None:
+            req.all = True
+        else:
+            req.functions.extend(address(e) for e in entries)
+            if not req.functions:
+                raise ValueError("export_c: no functions given (None exports every one)")
+        out = ExportedC(source_name="", source="")
+        parts = []
+        call = self.client.stubs.queries.ExportC(req, timeout=None)
+        try:
+            for m in call:
+                out.revision = m.snapshot.revision
+                if m.source_name:
+                    out.source_name = m.source_name
+                if m.header_name:
+                    out.header_name, out.header = m.header_name, m.header
+                    out.notes = list(m.notes)
+                if m.source_part:
+                    parts.append(m.source_part)
+                if progress is not None and m.total and not m.source_part and not m.finished:
+                    progress(m.done, m.total)
+                if m.finished:
+                    out.functions = m.functions
+                    out.failed = [a.offset for a in m.failed]
+        except grpc.RpcError as e:
+            raise _error(e) from None
+        finally:
+            call.cancel()
+        out.source = "".join(parts)
+        if directory is not None:
+            os.makedirs(directory, exist_ok=True)
+            with open(os.path.join(directory, out.source_name), "w", encoding="utf-8", newline="") as f:
+                f.write(out.source)
+            if out.header_name:
+                with open(os.path.join(directory, out.header_name), "w", encoding="utf-8", newline="") as f:
+                    f.write(out.header)
+        return out
 
     def instructions(
         self,
@@ -3316,6 +3639,52 @@ class Program:
         if first is not None or last is not None:
             req.range.CopyFrom(address_range(first if first is not None else 0, last if last is not None else (1 << 64) - 1))
         return self._paged("ListData", req, "data", page_size)
+
+    def symbol_tree(self, *path: str, name_contains: str = "", page_size: int = 500) -> Iterator[query_pb2.SymbolTreeNode]:
+        """Ghidra's symbol tree, one level (``ListSymbolTree``, api_minor 82,
+        feature "symbol-tree"): no ``path`` lists the folders (Imports,
+        Exports, Functions, Labels, Classes, Namespaces, each with
+        ``.children``); ``symbol_tree("Imports")`` the libraries,
+        ``symbol_tree("Imports", lib)`` their imports,
+        ``symbol_tree("Classes", "geo::Circle")`` a class's members,
+        ``symbol_tree("Namespaces", "geo", "util")`` a namespace's inner
+        scopes and symbols. Each node has ``.name``, ``.kind``, ``.address``
+        (symbols), ``.full_name`` and ``.children`` (scopes)."""
+        req = query_pb2.ListSymbolTreeRequest(program_id=self.id, read=self._read(), path=list(path),
+                                              name_contains=name_contains)
+        return self._paged("ListSymbolTree", req, "nodes", page_size)
+
+    def relocations(self, text_contains: str = "", *, first: Optional[AddressLike] = None,
+                    last: Optional[AddressLike] = None, page_size: int = 1000) -> Iterator[query_pb2.ProgramRelocation]:
+        """The relocations the file carries, in address order (``ListRelocations``,
+        api_minor 78, feature "relocation-table"): ELF dynamic and object
+        relocations, PE base relocations. Each has ``.address``, ``.type`` and
+        ``.type_name`` ("R_X86_64_JUMP_SLOT"), ``.kind``, ``.symbol``,
+        ``.addend``, ``.target`` (when ``HasField("target")``; ``.target_name``) and
+        ``.original`` (the bytes there). ``text_contains`` matches the symbol
+        or the type name, in any case."""
+        req = query_pb2.ListRelocationsRequest(program_id=self.id, read=self._read(), text_contains=text_contains)
+        if first is not None or last is not None:
+            req.range.CopyFrom(address_range(first if first is not None else 0, last if last is not None else (1 << 64) - 1))
+        return self._paged("ListRelocations", req, "relocations", page_size)
+
+    def comments(self, *kinds: str, text_contains: str = "", first: Optional[AddressLike] = None,
+                 last: Optional[AddressLike] = None, page_size: int = 1000) -> Iterator[query_pb2.ProgramComment]:
+        """Every comment of the program in address order (``ListComments``,
+        api_minor 77, feature "comment-table"): the kinds named ("eol",
+        "pre", "post", "plate", "repeatable", "decompiler"; none: all), with
+        ``.address``, ``.kind``, ``.text``, ``.function_name``, ``.label``,
+        ``.origin``."""
+        ks = []
+        for k in kinds:
+            name = "COMMENT_KIND_" + k.upper()
+            if name not in assertion_pb2.CommentKind.keys():
+                raise ValueError(f"unknown comment kind {k!r}")
+            ks.append(assertion_pb2.CommentKind.Value(name))
+        req = query_pb2.ListCommentsRequest(program_id=self.id, read=self._read(), kinds=ks, text_contains=text_contains)
+        if first is not None or last is not None:
+            req.range.CopyFrom(address_range(first if first is not None else 0, last if last is not None else (1 << 64) - 1))
+        return self._paged("ListComments", req, "comments", page_size)
 
     def strings(self, text_contains: str = "", *, min_length: int = 0) -> Iterator[query_pb2.DefinedData]:
         """The strings data analysis found (``ListData``, category STRING), in
@@ -4097,6 +4466,93 @@ class Program:
         b = assertion_pb2.SetNoReturn(function=address(function), no_return=no_return)
         return self.append(assertion_pb2.AssertionBody(no_return=b), **kw)
 
+    def set_fallthrough(self, addr: AddressLike, target: Optional[AddressLike] = None, **kw):
+        """Sets where control goes on after the instruction at ``addr``
+        (``SetFallthrough``, api_minor 85, feature ``fallthrough-override``;
+        Ghidra's Set Fallthrough): to ``target`` instead of the next
+        instruction (inline data after a call, say), or with ``target`` None,
+        nowhere: the instruction doesn't fall through. Function bodies, the
+        listing's flow, the function graph and references follow it, and the
+        decompiler sees a branch to ``target``. A ``target`` at the next
+        instruction clears the override. Undo with
+        ``retract(*[a.seq for a in resp.assertions])``."""
+        b = assertion_pb2.SetFallthrough(address=address(addr))
+        if target is None:
+            b.no_fallthrough = True
+        else:
+            b.target.CopyFrom(address(target))
+        return self.append(assertion_pb2.AssertionBody(fallthrough=b), **kw)
+
+    def clear_fallthrough(self, addr: AddressLike, **kw):
+        """Gives the instruction at ``addr`` its own fallthrough back (Ghidra's
+        Clear Fallthrough), whoever set the override: one assertion, so one
+        undo step."""
+        b = assertion_pb2.SetFallthrough(address=address(addr))
+        return self.append(assertion_pb2.AssertionBody(fallthrough=b), **kw)
+    # -- register values (api_minor 87, feature "register-values"; docs/api.md "Register values") --
+
+    def _register_ranges(self, first, last, function):
+        if function is not None:
+            if first is not None or last is not None:
+                raise ValueError("give a range (first, last) or a function, not both")
+            f = self.function(function, containing=True)
+            if not f.body:
+                raise ValueError(f"no function at {int(address(function).offset):#x}")
+            return [address_range(r.first.offset, r.last.offset) for r in f.body]
+        if first is None:
+            raise ValueError("a range (first, last) or a function is required")
+        return [address_range(first, first if last is None else last)]
+
+    def set_register_value(self, register: str, value: int, first: Optional[AddressLike] = None,
+                           last: Optional[AddressLike] = None, *, function: Optional[AddressLike] = None,
+                           **kw) -> assertion_pb2.AppendAssertionsResponse:
+        """Says ``register`` holds ``value`` over [first, last] (inclusive;
+        ``last`` defaults to ``first``), or over the body of the function at
+        or containing ``function`` (``SetRegisterValue``, api_minor 87,
+        feature ``register-values``; Ghidra's Set Register Values). Analysis's
+        constants (MIPS ``gp``- and PowerPC ``r2``-relative references) and
+        the decompiler (the value at a function's entry) take it as known
+        there. One revision: undo with ``retract(*[a.seq for a in
+        resp.assertions])``."""
+        bodies = [assertion_pb2.AssertionBody(register_value=assertion_pb2.SetRegisterValue(
+            register_name=register, range=r, value=int(value))) for r in self._register_ranges(first, last, function)]
+        return self.append(*bodies, **kw)
+
+    def clear_register_value(self, register: str, first: Optional[AddressLike] = None,
+                             last: Optional[AddressLike] = None, *, function: Optional[AddressLike] = None,
+                             **kw) -> assertion_pb2.AppendAssertionsResponse:
+        """Says ``register`` has no value over the range (or the function's
+        body): what analysis assumed there (the loader's MIPS ``_gp``, the
+        PowerPC TOC) or an older value goes. One revision, like
+        ``set_register_value``."""
+        bodies = [assertion_pb2.AssertionBody(register_value=assertion_pb2.SetRegisterValue(
+            register_name=register, range=r, clear=True)) for r in self._register_ranges(first, last, function)]
+        return self.append(*bodies, **kw)
+
+    def register_values(self, register: str = "", *, first: Optional[AddressLike] = None,
+                        last: Optional[AddressLike] = None, page_size: int = 1000) -> Iterator[query_pb2.RegisterValueRange]:
+        """The register values over ranges (``ListRegisterValues``, api_minor
+        87, feature ``register-values``; Ghidra's register manager), by
+        register then address: ``.register_name``, ``.range``, ``.value``,
+        ``.origin`` (the assertion, or analysis's rule
+        "analysis.register_values:mips-gp"), ``.key`` (the assertion's)."""
+        req = query_pb2.ListRegisterValuesRequest(program_id=self.id, read=self._read(), register_name=register)
+        if first is not None or last is not None:
+            req.range.CopyFrom(address_range(first if first is not None else 0, last if last is not None else (1 << 64) - 1))
+        return self._paged("ListRegisterValues", req, "ranges", page_size)
+
+    def register_value(self, register: str, addr: AddressLike) -> Optional[int]:
+        """The value ``register`` holds at ``addr``, or None."""
+        for r in self.register_values(register, first=addr, last=addr):
+            return r.value
+        return None
+
+    def value_registers(self) -> List[query_pb2.RegisterDescription]:
+        """The registers values may be set on (``.name``, ``.size`` in bytes)."""
+        req = query_pb2.ListRegisterValuesRequest(program_id=self.id, read=self._read())
+        req.page.page_size = 1
+        return list(self._q("ListRegisterValues", req).registers)
+
     # -- listing edits (api_minor 30, feature "listing-edit"; docs/listing-edit.md) --
     # Each is one AppendAssertions; undo with retract(*[a.seq for a in resp.assertions])
     # (a define_data response also holds the TYPE_DEF assertions of a type it parsed).
@@ -4117,6 +4573,29 @@ class Program:
         analysis starts nothing in them until a later edit."""
         return self.append(clear_code_body(addr, length), **kw)
 
+    def plan_clear_flow(self, addr: AddressLike, *, follow_calls: bool = False) -> query_pb2.PlanClearFlowResponse:
+        """Ghidra's Clear Flow and Repair, planned (``PlanClearFlow``,
+        api_minor 83, feature "clear-flow"): the code the flow from ``addr``
+        reaches that nothing else reaches (``.ranges``), how many
+        instructions it reaches and how many stay because other code reaches
+        them (``.instructions``, ``.kept``), and the functions whose entry
+        goes (``.functions``). ``follow_calls`` also takes the callees only
+        this flow calls. Writes nothing; ``clear_flow`` applies it."""
+        req = query_pb2.PlanClearFlowRequest(program_id=self.id, read=self._read(), address=address(addr),
+                                             follow_calls=follow_calls)
+        return self._q("PlanClearFlow", req)
+
+    def clear_flow(self, addr: AddressLike, *, follow_calls: bool = False,
+                   **kw) -> tuple:
+        """Clear Flow and Repair: ``plan_clear_flow``'s ranges cleared
+        (``clear_code`` each) in one append, so one undo step reverts it.
+        Returns ``(plan, response)``; the response is None when the plan
+        clears nothing."""
+        plan = self.plan_clear_flow(addr, follow_calls=follow_calls)
+        if not plan.ranges:
+            return plan, None
+        return plan, self.append(*(clear_code_body(r.address.offset, r.length) for r in plan.ranges), **kw)
+
     def disassemble(self, addr: AddressLike, isa: Optional[str] = None, function: bool = False,
                     **kw) -> assertion_pb2.AppendAssertionsResponse:
         """Disassembles from ``addr`` (``isa``: None, "arm" or "thumb");
@@ -4127,6 +4606,31 @@ class Program:
                        **kw) -> assertion_pb2.AppendAssertionsResponse:
         """Marks [addr, addr + length) "constant", "volatile", "normal" or "default"."""
         return self.append(mutability_body(addr, length, mutability), **kw)
+
+    # -- data settings (api_minor 84, feature "data-settings"; docs/listing-edit.md#data-settings) --
+
+    _SETTING_KEYS = ("format", "signed", "endian", "padding", "charset", "termination", "pointer", "mask", "shift")
+
+    def set_data_settings(self, addr: AddressLike, field: str = "", *,
+                          settings: Optional[assertion_pb2.DataSettings] = None,
+                          **kw) -> assertion_pb2.AppendAssertionsResponse:
+        """How the data item at ``addr`` displays (Ghidra's Data Settings):
+        ``set_data_settings(a, format="decimal", signed=True)``,
+        ``set_data_settings(a, charset="ISO-8859-1")``,
+        ``set_data_settings(a, pointer="image-base")``; ``field`` a struct
+        field's row ("hdr.magic"). Settings left out fall back to the type's
+        defaults; none at all removes the item's. Only the listing's display
+        changes. Undo with ``retract``."""
+        opts = {k: kw.pop(k) for k in list(kw) if k in self._SETTING_KEYS}
+        return self.append(data_settings_body(addr, field=field, settings=settings, **opts), **kw)
+
+    def set_type_data_settings(self, type_name: str, *, settings: Optional[assertion_pb2.DataSettings] = None,
+                               **kw) -> assertion_pb2.AppendAssertionsResponse:
+        """A type's default settings (Ghidra's Default Settings), for every data
+        row of that type (``ListingRow.data_settings_type``: "uint32_t",
+        "string", "pointer", "undefined4") its own settings leave unset."""
+        opts = {k: kw.pop(k) for k in list(kw) if k in self._SETTING_KEYS}
+        return self.append(data_settings_body(type_name=type_name, settings=settings, **opts), **kw)
 
     # -- equates (api_minor 39, feature "equates"; docs/api.md "Equates and user references") --
     # Each is one AppendAssertions; undo with retract(*[a.seq for a in resp.assertions])
@@ -4593,6 +5097,13 @@ class Program:
         if not functions:
             kw.setdefault("all_functions", True)
         return self.client.bsim_search(database, self.id, functions, **kw)
+
+    def bsim_apply(self, database: str, pairs: Sequence, kind: Union[str, int] = "name",
+                   **kw) -> bsim_pb2.ApplyBSimMatchesResponse:
+        """Applies BSim matches to this program's functions (``Client.bsim_apply``):
+        ``pairs`` of ``(function, match)``, ``kind`` ``"name"``, ``"signature"`` or
+        ``"signature_and_types"``."""
+        return self.client.bsim_apply(database, self.id, pairs, kind, **kw)
 
     def fid_matches(self) -> analysis_pb2.ListFidMatchesResponse:
         """Function ID's last run on this program: every function with a match, its

@@ -8,7 +8,7 @@ import { errText, fmtAddr, provBadge } from "../data/format";
 import { h, overlayRoot } from "./dom";
 import { VirtualRows } from "./vlist";
 
-const KIND: Record<number, string> = {
+export const KIND: Record<number, string> = {
   [XrefKind.CALL]: "call",
   [XrefKind.JUMP]: "jump",
   [XrefKind.CONDITIONAL_JUMP]: "cjump",
@@ -18,7 +18,20 @@ const KIND: Record<number, string> = {
   [XrefKind.DATA_WRITE]: "write",
   [XrefKind.DATA_POINTER]: "ptr",
   [XrefKind.THUNK]: "thunk",
+  [XrefKind.FALLTHROUGH]: "fall",
 };
+
+/** One reference to a library's export from a program that imports it (ListLibraryImporters). */
+export interface ImporterRef {
+  programId: string;
+  programName: string;
+  /** Where in the importer: the referencing instruction, else the import's thunk or slot. */
+  address: bigint;
+  /** "call", "read", ... or "import" (the thunk itself, nothing references it). */
+  kind: string;
+  /** Its function in the importer, if any. */
+  fn: string;
+}
 
 const ROW_H = 30;
 const PAGE = 2000;
@@ -33,6 +46,8 @@ export async function showXrefs(
   go: (a: bigint) => void,
   /** An import thunk: where it goes ("libc.so.6!strlen", feature program-libraries) and opening it there. */
   external?: { text: string; open: () => void },
+  /** A library's export: the programs that import it and their references (feature library-importers). */
+  importers?: { load: () => Promise<ImporterRef[]>; open: (programId: string, address: bigint) => void },
 ) {
   const restore = document.activeElement as HTMLElement | null;
   const list = h("div", { class: "palette-list xrefs-list", role: "listbox", "aria-label": `References to ${name}`, "data-testid": "xrefs-list" });
@@ -45,7 +60,9 @@ export async function showXrefs(
         h("button", { class: "link mono", type: "button", "data-testid": "xrefs-external", title: "Open the library program at the function", onclick: () => { close(false); external.open(); } }, external.text),
       )
     : null;
-  const box = h("div", { class: "modal palette xrefs", role: "dialog", "aria-modal": "true", "aria-label": `References to ${name}`, tabindex: "-1", "data-testid": "xrefs" }, title, ext, list, h("div", { class: "modal-hint" }, "↑↓ PgUp PgDn select · Enter go · Esc close"));
+  // From the programs that import it (a library's export), filled in once loaded.
+  const imp = importers ? h("div", { class: "xrefs-importers", hidden: true, "data-testid": "xrefs-importers" }) : null;
+  const box = h("div", { class: "modal palette xrefs", role: "dialog", "aria-modal": "true", "aria-label": `References to ${name}`, tabindex: "-1", "data-testid": "xrefs" }, title, ext, imp, list, h("div", { class: "modal-hint" }, "↑↓ PgUp PgDn select · Enter go · Esc close"));
   const backdrop = h("div", { class: "backdrop top" }, box);
   const items: Xref[] = [];
   let total = 0;
@@ -140,5 +157,32 @@ export async function showXrefs(
   overlayRoot().append(backdrop);
   box.focus();
   rows.count = 1;
+  if (importers && imp)
+    void importers.load().then(
+      (refs) => {
+        if (!refs.length) return;
+        const shown = refs.slice(0, 200);
+        imp.replaceChildren(
+          h("div", { class: "dim" }, `From programs that import it (${refs.length.toLocaleString()}${refs.length > shown.length ? `, ${shown.length} shown` : ""})`),
+          ...shown.map((r) =>
+            h(
+              "button",
+              {
+                class: "link mono xrefs-importer",
+                type: "button",
+                "data-testid": "xrefs-importer",
+                "data-program": r.programId,
+                title: `Open ${r.programName} at 0x${r.address.toString(16)}`,
+                onclick: () => { close(false); importers.open(r.programId, r.address); },
+              },
+              h("span", { class: "badge b-xref" }, r.kind),
+              ` ${r.programName}!${r.fn || `0x${r.address.toString(16)}`}`,
+            ),
+          ),
+        );
+        imp.hidden = false;
+      },
+      () => {},
+    );
   await fetchMore();
 }

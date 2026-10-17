@@ -61,6 +61,7 @@ collaboration and the change events every other edit has.
 
 - [Using it](#using-it)
 - [How each edit steers analysis](#how-each-edit-steers-analysis)
+- [Data settings](#data-settings)
 - [What an edit recomputes](#what-an-edit-recomputes)
 - [Known gaps](#known-gaps)
 
@@ -185,6 +186,117 @@ to the bytes' value, volatile ones are kept and never forwarded,
 `normal` stops a read-only block's folding, `default` cancels older
 edits over its range.
 
+## Data settings
+
+Ghidra's *Data > Settings* and *Default Settings* (`api_minor` 84,
+feature `data-settings`): how a defined datum displays, per item, per
+struct field, or for every item of a type. A `SetDataSettings` body
+carries a `DataSettings`:
+
+| Setting | Values | Applies to |
+| --- | --- | --- |
+| `format` | hex (`2ah`), decimal (`42`), octal (`52o`), binary (`101010b`), char (`'*'`, the bytes most significant first) | integers, chars, bools, enums, undefined bytes, array elements |
+| `signedness` | signed, unsigned | integers |
+| `endian` | little, big (default: the program's) | integers, floats, pointers, UTF-16 and UTF-32 strings |
+| `padding` | padded (leading zeros to the width), unpadded | hex, octal, binary |
+| `charset` | US-ASCII, ISO-8859-1, windows-1252, UTF-8, UTF-16 (in `endian`), UTF-16LE, UTF-16BE, UTF-32, UTF-32LE, UTF-32BE | strings (defined or data analysis's), char arrays |
+| `termination` | at the first NUL, every character (NULs as `\0`) | strings, char arrays |
+| `pointer_kind` | absolute, image-base offset (an RVA), relative to the pointer | pointers (defined or data analysis's) |
+| `pointer_mask`, `pointer_shift` | the stored value's bits, then a left shift (negative: right), before the kind | pointers |
+
+Mutability, Ghidra's other data setting, is `SetMutability` over the
+item's bytes; the UI's dialog asserts both in one step.
+
+(With this, a string's or char array's bytes that aren't UTF-8 show as
+`\xNN` whatever its settings: they used to reach clients as invalid UTF-8,
+which protobuf clients refuse to read.)
+
+**Stored apart from the definition.** A data definition's `CODE_UNIT`
+mark is untouched: settings are `NOTE` keys with reserved tags, so every
+data definition made before them reads exactly as it did, and with no
+settings a row shows exactly as before.
+
+| Key | Settings of |
+| --- | --- |
+| `NOTE@item`, tag `revkit:data-settings` | the item: its row and, for an array, each element's |
+| `NOTE@item`, tag `revkit:data-settings:<field>` | a struct field's row (`field` is its `data_field` path, `hdr.magic`) |
+| `NOTE@0`, tag `revkit:data-type-settings:<type>` | every row of the type (its `data_settings_type`: the element's C type, or `string`, `unicode`, `unicode32`, `pointer`, `undefinedN` for data analysis's rows) |
+
+The value is text (`format=decimal;sign=signed`); an empty one removes
+them. Each setting a row's own settings leave unset comes from its type's
+defaults, then from how the type shows. A daemon from before this feature
+opens such a project and imports its archive (`NOTE` is a fact kind it
+knows; it reads the settings as notes, which only its next-note
+navigation sees), and shows the rows as it always did. `Note` bodies
+can't use the reserved tags, and next-note navigation skips them.
+
+**What follows them.** `listing.page` reads the settings of its rows'
+items (and the type defaults) as inputs, so the listing, listing search
+and copy show the values as set, and an edit re-renders only the pages
+of the item (a type's defaults: every page). Settings stay when the data
+is cleared or defined again, as comments do, and apply to whatever data
+row starts there; analysis's own data takes them too. Rebasing moves an
+item's settings with it; a type's stay the type's. Only the display
+changes: the definition's extent, references (a pointer's reference is
+still its absolute target), the decompiler and data analysis don't.
+
+**Using it.** The listing's Data menu has *Settings…*: a form with
+"This item" or "Every `<type>`", the settings that apply to the row's
+kind, and the item's mutability ([ui.md](ui.md#data-settings)). Python:
+
+```python
+prog.set_data_settings(prog.symbol("threshold"), format="decimal", signed=True)
+prog.set_data_settings(cfg, "hdr.magic", format="hex", padding="padded")   # a struct field
+prog.set_data_settings(banner, charset="ISO-8859-1", termination="all")
+prog.set_data_settings(rva_slot, pointer="image-base")
+prog.set_type_data_settings("uint32_t", format="decimal")                 # every uint32_t
+prog.set_data_settings(prog.symbol("threshold"))                          # none: removed
+```
+
+MCP `set_data_settings` (an address and field, or `type_name`), and the
+TypeScript builder `setDataSettings(address | { address, field } |
+{ typeName }, options)`.
+
+## Clear Flow and Repair
+
+Ghidra's *Clear Flow and Repair* (`api_minor` 83, feature `clear-flow`):
+`QueryService.PlanClearFlow` plans it and a client asserts the plan as
+ClearCode edits in one `AppendAssertions`, so it is one revision and one
+undo step, with the user's provenance like any other edit. The plan:
+
+1. The flow from the instruction: fallthrough, branches, jumps and the
+   targets of recovered jump tables, in the flow graphs of the functions
+   that hold it; with `follow_calls`, also into the functions it calls.
+2. Less what other code reaches: from the entry of every other function
+   with code in that span (and of every callee something outside the flow
+   calls), the flow that doesn't pass through the start. Those
+   instructions stay code: that is the repair, since flows into the
+   cleared code from outside keep what they reach.
+3. The rest, merged into ranges where they touch, are the ClearCode
+   edits; the functions whose entries are in them go (`functions`).
+
+Since a ClearCode edit lets nothing start in its bytes, code that flowed
+into the start before stops there afterwards, the way Ghidra's repair
+leaves the start cleared. The listing's *Clear flow and repair* (the
+right-click menu and the palette), the SDK's `Program.plan_clear_flow()`
+and `clear_flow()`, and MCP `clear_flow` (with `dry_run`) use it.
+
+## Fallthrough overrides
+
+Ghidra's *Set Fallthrough* and *Clear Fallthrough* (`api_minor` 85,
+feature `fallthrough-override`): a `SetFallthrough` assertion says where
+control goes on after an instruction, instead of the next one, or that it
+doesn't go on ([api.md](api.md#fallthrough-overrides)). It steers
+discovery like the edits above: `analysis.flow` reads `FALLTHROUGH` keys
+through the key index's spans, so only the flows that decode the
+instruction run again, then the fixpoint, and the rows, references and
+decompilations that read them. The bytes it skips (inline data after a
+call) stay out of the body and show as undefined, ready for Data. The
+listing marks the instruction (`⤷ fallthrough: <address>` or `⤷ no
+fallthrough`, after the operands, with a flow arrow to the address),
+and its menu has *Set fallthrough…* and *Clear fallthrough*
+([ui.md](ui.md#fallthrough-overrides)).
+
 ## What an edit recomputes
 
 An edit changes `analysis.units` (all the program's marks, a cheap
@@ -209,3 +321,10 @@ their row windows, references, labels) plus the edit's own range.
   Thumb (the context wins).
 - Clear doesn't take away names, comments or types asserted in the
   bytes; Ghidra's "Clear With Options" isn't offered.
+- Data settings are display only: a pointer shown as an image-base offset
+  or masked still makes its reference to the absolute value analysis
+  read, and the decompiler, the Data view (`ListData`) and hover cards
+  show values as their types do. Charsets beyond the ten listed
+  (Shift-JIS, EBCDIC, other code pages) aren't offered. Ghidra's
+  per-instance settings on a nested struct's array elements are kept per
+  field path, not per element.

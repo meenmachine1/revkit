@@ -154,6 +154,7 @@ class XrefKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     XREF_KIND_DATA_WRITE: _ClassVar[XrefKind]
     XREF_KIND_DATA_POINTER: _ClassVar[XrefKind]
     XREF_KIND_THUNK: _ClassVar[XrefKind]
+    XREF_KIND_FALLTHROUGH: _ClassVar[XrefKind]
 
 class XrefDirection(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -283,6 +284,7 @@ XREF_KIND_DATA_READ: XrefKind
 XREF_KIND_DATA_WRITE: XrefKind
 XREF_KIND_DATA_POINTER: XrefKind
 XREF_KIND_THUNK: XrefKind
+XREF_KIND_FALLTHROUGH: XrefKind
 XREF_DIRECTION_UNSPECIFIED: XrefDirection
 XREF_DIRECTION_TO: XrefDirection
 XREF_DIRECTION_FROM: XrefDirection
@@ -403,7 +405,7 @@ class Label(_message.Message):
     def __init__(self, name: _Optional[str] = ..., primary: _Optional[bool] = ..., origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., demangled: _Optional[_Union[_common_pb2.DemangledName, _Mapping]] = ...) -> None: ...
 
 class ListingRow(_message.Message):
-    __slots__ = ("row", "address", "length", "kind", "bytes", "block", "labels", "function", "function_entry", "tokens", "comments", "xref_to_count", "data_type", "data_type_hash", "header", "flow", "flow_targets", "flow_override", "flow_override_origin", "patched", "original_bytes", "data_field", "data_parent", "data_depth", "data_components", "data_collapsed", "unit_origin", "mutability", "mutability_origin", "call_signature", "call_signature_origin")
+    __slots__ = ("row", "address", "length", "kind", "bytes", "block", "labels", "function", "function_entry", "tokens", "comments", "xref_to_count", "data_type", "data_type_hash", "header", "flow", "flow_targets", "flow_override", "flow_override_origin", "patched", "original_bytes", "data_field", "data_parent", "data_depth", "data_components", "data_collapsed", "unit_origin", "mutability", "mutability_origin", "call_signature", "call_signature_origin", "data_settings", "data_settings_origin", "data_settings_type", "data_type_settings", "fallthrough_override", "fallthrough", "fallthrough_origin", "register_values")
     ROW_FIELD_NUMBER: _ClassVar[int]
     ADDRESS_FIELD_NUMBER: _ClassVar[int]
     LENGTH_FIELD_NUMBER: _ClassVar[int]
@@ -435,6 +437,14 @@ class ListingRow(_message.Message):
     MUTABILITY_ORIGIN_FIELD_NUMBER: _ClassVar[int]
     CALL_SIGNATURE_FIELD_NUMBER: _ClassVar[int]
     CALL_SIGNATURE_ORIGIN_FIELD_NUMBER: _ClassVar[int]
+    DATA_SETTINGS_FIELD_NUMBER: _ClassVar[int]
+    DATA_SETTINGS_ORIGIN_FIELD_NUMBER: _ClassVar[int]
+    DATA_SETTINGS_TYPE_FIELD_NUMBER: _ClassVar[int]
+    DATA_TYPE_SETTINGS_FIELD_NUMBER: _ClassVar[int]
+    FALLTHROUGH_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
+    FALLTHROUGH_FIELD_NUMBER: _ClassVar[int]
+    FALLTHROUGH_ORIGIN_FIELD_NUMBER: _ClassVar[int]
+    REGISTER_VALUES_FIELD_NUMBER: _ClassVar[int]
     row: int
     address: _common_pb2.Address
     length: int
@@ -466,7 +476,27 @@ class ListingRow(_message.Message):
     mutability_origin: _common_pb2.FactOrigin
     call_signature: str
     call_signature_origin: _common_pb2.FactOrigin
-    def __init__(self, row: _Optional[int] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., length: _Optional[int] = ..., kind: _Optional[_Union[ListingRowKind, str]] = ..., bytes: _Optional[bytes] = ..., block: _Optional[str] = ..., labels: _Optional[_Iterable[_Union[Label, _Mapping]]] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., function_entry: _Optional[bool] = ..., tokens: _Optional[_Iterable[_Union[ListingToken, _Mapping]]] = ..., comments: _Optional[_Iterable[_Union[CommentView, _Mapping]]] = ..., xref_to_count: _Optional[int] = ..., data_type: _Optional[str] = ..., data_type_hash: _Optional[str] = ..., header: _Optional[_Union[ListingHeader, _Mapping]] = ..., flow: _Optional[_Union[FlowKind, str]] = ..., flow_targets: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., flow_override: _Optional[_Union[_assertion_pb2.FlowOverrideKind, str]] = ..., flow_override_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., patched: _Optional[bool] = ..., original_bytes: _Optional[bytes] = ..., data_field: _Optional[str] = ..., data_parent: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., data_depth: _Optional[int] = ..., data_components: _Optional[int] = ..., data_collapsed: _Optional[bool] = ..., unit_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., mutability: _Optional[_Union[_assertion_pb2.Mutability, str]] = ..., mutability_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., call_signature: _Optional[str] = ..., call_signature_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ...) -> None: ...
+    data_settings: _assertion_pb2.DataSettings
+    data_settings_origin: _common_pb2.FactOrigin
+    data_settings_type: str
+    data_type_settings: _assertion_pb2.DataSettings
+    fallthrough_override: bool
+    fallthrough: _common_pb2.Address
+    fallthrough_origin: _common_pb2.FactOrigin
+    register_values: _containers.RepeatedCompositeFieldContainer[RegisterAssumption]
+    def __init__(self, row: _Optional[int] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., length: _Optional[int] = ..., kind: _Optional[_Union[ListingRowKind, str]] = ..., bytes: _Optional[bytes] = ..., block: _Optional[str] = ..., labels: _Optional[_Iterable[_Union[Label, _Mapping]]] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., function_entry: _Optional[bool] = ..., tokens: _Optional[_Iterable[_Union[ListingToken, _Mapping]]] = ..., comments: _Optional[_Iterable[_Union[CommentView, _Mapping]]] = ..., xref_to_count: _Optional[int] = ..., data_type: _Optional[str] = ..., data_type_hash: _Optional[str] = ..., header: _Optional[_Union[ListingHeader, _Mapping]] = ..., flow: _Optional[_Union[FlowKind, str]] = ..., flow_targets: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., flow_override: _Optional[_Union[_assertion_pb2.FlowOverrideKind, str]] = ..., flow_override_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., patched: _Optional[bool] = ..., original_bytes: _Optional[bytes] = ..., data_field: _Optional[str] = ..., data_parent: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., data_depth: _Optional[int] = ..., data_components: _Optional[int] = ..., data_collapsed: _Optional[bool] = ..., unit_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., mutability: _Optional[_Union[_assertion_pb2.Mutability, str]] = ..., mutability_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., call_signature: _Optional[str] = ..., call_signature_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., data_settings: _Optional[_Union[_assertion_pb2.DataSettings, _Mapping]] = ..., data_settings_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., data_settings_type: _Optional[str] = ..., data_type_settings: _Optional[_Union[_assertion_pb2.DataSettings, _Mapping]] = ..., fallthrough_override: _Optional[bool] = ..., fallthrough: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., fallthrough_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., register_values: _Optional[_Iterable[_Union[RegisterAssumption, _Mapping]]] = ...) -> None: ...
+
+class RegisterAssumption(_message.Message):
+    __slots__ = ("register_name", "value", "analysis", "origin")
+    REGISTER_NAME_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    ANALYSIS_FIELD_NUMBER: _ClassVar[int]
+    ORIGIN_FIELD_NUMBER: _ClassVar[int]
+    register_name: str
+    value: int
+    analysis: bool
+    origin: _common_pb2.FactOrigin
+    def __init__(self, register_name: _Optional[str] = ..., value: _Optional[int] = ..., analysis: _Optional[bool] = ..., origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ...) -> None: ...
 
 class RowWindow(_message.Message):
     __slots__ = ("first_row", "row_count")
@@ -513,7 +543,7 @@ class Operand(_message.Message):
     def __init__(self, index: _Optional[int] = ..., tokens: _Optional[_Iterable[_Union[ListingToken, _Mapping]]] = ..., references: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ...) -> None: ...
 
 class InstructionDetail(_message.Message):
-    __slots__ = ("address", "length", "bytes", "mnemonic", "tokens", "operands", "flow", "flow_targets", "fall_through", "flow_override", "flow_override_origin", "pcode", "function", "origin")
+    __slots__ = ("address", "length", "bytes", "mnemonic", "tokens", "operands", "flow", "flow_targets", "fall_through", "flow_override", "flow_override_origin", "pcode", "function", "origin", "fallthrough_override", "fallthrough_origin")
     ADDRESS_FIELD_NUMBER: _ClassVar[int]
     LENGTH_FIELD_NUMBER: _ClassVar[int]
     BYTES_FIELD_NUMBER: _ClassVar[int]
@@ -528,6 +558,8 @@ class InstructionDetail(_message.Message):
     PCODE_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
     ORIGIN_FIELD_NUMBER: _ClassVar[int]
+    FALLTHROUGH_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
+    FALLTHROUGH_ORIGIN_FIELD_NUMBER: _ClassVar[int]
     address: _common_pb2.Address
     length: int
     bytes: bytes
@@ -542,7 +574,9 @@ class InstructionDetail(_message.Message):
     pcode: _containers.RepeatedCompositeFieldContainer[PcodeOp]
     function: _common_pb2.Address
     origin: _common_pb2.Derivation
-    def __init__(self, address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., length: _Optional[int] = ..., bytes: _Optional[bytes] = ..., mnemonic: _Optional[str] = ..., tokens: _Optional[_Iterable[_Union[ListingToken, _Mapping]]] = ..., operands: _Optional[_Iterable[_Union[Operand, _Mapping]]] = ..., flow: _Optional[_Union[FlowKind, str]] = ..., flow_targets: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., fall_through: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., flow_override: _Optional[_Union[_assertion_pb2.FlowOverrideKind, str]] = ..., flow_override_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., pcode: _Optional[_Iterable[_Union[PcodeOp, _Mapping]]] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., origin: _Optional[_Union[_common_pb2.Derivation, _Mapping]] = ...) -> None: ...
+    fallthrough_override: bool
+    fallthrough_origin: _common_pb2.FactOrigin
+    def __init__(self, address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., length: _Optional[int] = ..., bytes: _Optional[bytes] = ..., mnemonic: _Optional[str] = ..., tokens: _Optional[_Iterable[_Union[ListingToken, _Mapping]]] = ..., operands: _Optional[_Iterable[_Union[Operand, _Mapping]]] = ..., flow: _Optional[_Union[FlowKind, str]] = ..., flow_targets: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., fall_through: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., flow_override: _Optional[_Union[_assertion_pb2.FlowOverrideKind, str]] = ..., flow_override_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., pcode: _Optional[_Iterable[_Union[PcodeOp, _Mapping]]] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., origin: _Optional[_Union[_common_pb2.Derivation, _Mapping]] = ..., fallthrough_override: _Optional[bool] = ..., fallthrough_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ...) -> None: ...
 
 class Xref(_message.Message):
     __slots__ = ("from_address", "to_address", "kind", "operand_index", "from_function", "from_function_name", "to_name", "direction", "origin", "primary")

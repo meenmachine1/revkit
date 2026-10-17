@@ -2,7 +2,8 @@
 a database created at a path and attached, two builds of one program
 ingested (names, prototypes from debug info, sizes), listed, renamed and
 categorized, ingested again (replaced), deleted, detached; rk-bsim reads
-the same files."""
+the same files. Matches applied to a stripped build (api_minor 76, feature
+"bsim-apply")."""
 
 import json
 import os
@@ -12,6 +13,7 @@ import subprocess
 import pytest
 
 from revkit import Client, Daemon
+from revkit.v1 import bsim_pb2
 
 SOURCE = r"""
 volatile int sink;
@@ -44,6 +46,7 @@ def builds(tmp_path_factory):
     (d / "p.c").write_text(SOURCE)
     subprocess.run([cc, "-O1", "-g", str(d / "p.c"), "-o", str(d / "p-O1")], check=True)
     subprocess.run([cc, "-O2", str(d / "p.c"), "-o", str(d / "p-O2")], check=True)
+    subprocess.run([cc, "-O1", "-s", str(d / "p.c"), "-o", str(d / "p-O1s")], check=True)
     return d
 
 
@@ -114,3 +117,42 @@ def test_bsim_database_lifecycle(rk, builds, tmp_path):
     assert rk.bsim_databases() == []
     rk.attach_bsim_database(path)
     assert rk.bsim_databases()[0].executables == 1
+
+
+def test_bsim_apply(rk, builds, tmp_path):
+    if "bsim-apply" not in rk.server_info().features:
+        pytest.skip("daemon without feature bsim-apply")
+    path = str(tmp_path / "apply.rkbsim")
+    rk.create_bsim_database("apply", path=path)
+    a = rk.import_program("default", path=str(builds / "p-O1"), name="debug").program.program_id
+    s = rk.import_program("default", path=str(builds / "p-O1s"), name="stripped").program.program_id
+    rk.bsim_ingest(path, [a])
+    prog = rk.program(s)
+    hits = prog.bsim_search(path, min_similarity=0.9, max_matches=1, exclude_default_names=True)
+    pairs = [(q.function.offset, q.matches[0]) for q in hits.results
+             if q.matches and q.matches[0].function.name in ("checksum", "classify")]
+    assert len(pairs) == 2, hits
+    for entry, _ in pairs:
+        assert prog.function(entry).name.startswith("FUN_")
+
+    dry = prog.bsim_apply(path, pairs, "name", dry_run=True)
+    assert dry.names == 2 and not dry.seqs
+    done = prog.bsim_apply(path, pairs, "signature", reason="sdk test")
+    assert done.names == 2 and done.signatures >= 1 and len(done.seqs) >= 2, done
+    assert all(r.status == bsim_pb2.BSIM_APPLY_STATUS_APPLIED and r.from_program == a for r in done.results), done
+    for entry, m in pairs:
+        f = prog.function(entry)
+        assert f.name == m.function.name
+    sig = {r.name_after: r.signature_after for r in done.results}
+    assert "checksum(" in sig["checksum"], sig
+    again = prog.bsim_apply(path, pairs, "name")
+    assert all(r.status == bsim_pb2.BSIM_APPLY_STATUS_UNCHANGED for r in again.results) and not again.seqs
+    # One revision: retracting its seqs undoes every pair.
+    prog.retract(*done.seqs)
+    for entry, _ in pairs:
+        assert prog.function(entry).name.startswith("FUN_")
+    # From the database alone, as (function, executable, entry).
+    entry, m = pairs[0]
+    one = rk.bsim_apply(path, s, [(entry, m.executable.name, m.function.entry.offset)], "name", database_only=True)
+    assert one.results[0].status == bsim_pb2.BSIM_APPLY_STATUS_APPLIED and not one.results[0].from_program
+    assert prog.function(entry).name == m.function.name

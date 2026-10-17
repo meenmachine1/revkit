@@ -285,7 +285,29 @@ class Backend {
   virtual Status ListData(const CallContext &, const pb::ListDataRequest &, pb::ListDataResponse &) {
     return Error(StatusCode::kUnimplemented, "ListData is not implemented by this backend");
   }
+  virtual Status PlanClearFlow(const CallContext &, const pb::PlanClearFlowRequest &, pb::PlanClearFlowResponse &) {
+    return Error(StatusCode::kUnimplemented, "PlanClearFlow is not implemented by this backend");
+  }
+  virtual Status ListSymbolTree(const CallContext &, const pb::ListSymbolTreeRequest &, pb::ListSymbolTreeResponse &) {
+    return Error(StatusCode::kUnimplemented, "ListSymbolTree is not implemented by this backend");
+  }
+  virtual Status ListComments(const CallContext &, const pb::ListCommentsRequest &, pb::ListCommentsResponse &) {
+    return Error(StatusCode::kUnimplemented, "ListComments is not implemented by this backend");
+  }
+  virtual Status ListRegisterValues(const CallContext &, const pb::ListRegisterValuesRequest &, pb::ListRegisterValuesResponse &) {
+    return Error(StatusCode::kUnimplemented, "ListRegisterValues is not implemented by this backend");
+  }
+  virtual Status ListRelocations(const CallContext &, const pb::ListRelocationsRequest &, pb::ListRelocationsResponse &) {
+    return Error(StatusCode::kUnimplemented, "ListRelocations is not implemented by this backend");
+  }
+  virtual Status ListLibraryImporters(const CallContext &, const pb::ListLibraryImportersRequest &,
+                                      pb::ListLibraryImportersResponse &) {
+    return Error(StatusCode::kUnimplemented, "ListLibraryImporters is not implemented by this backend");
+  }
   // PDBs and the symbol path (api_minor 49, feature "pdb-load").
+  virtual Status LoadDebugFile(const CallContext &, const pb::LoadDebugFileRequest &, pb::LoadDebugFileResponse &) {
+    return Error(StatusCode::kUnimplemented, "LoadDebugFile is not implemented by this backend");
+  }
   virtual Status LoadPdb(const CallContext &, const pb::LoadPdbRequest &, pb::LoadPdbResponse &) {
     return Error(StatusCode::kUnimplemented, "LoadPdb is not implemented by this backend");
   }
@@ -315,6 +337,10 @@ class Backend {
   virtual Status DecompileMany(const CallContext &, const pb::DecompileManyRequest &,
                                const std::function<bool(const pb::DecompileManyResponse &)> & /*write*/) {
     return Error(StatusCode::kUnimplemented, "DecompileMany is not implemented by this backend");
+  }
+  virtual Status ExportC(const CallContext &, const pb::ExportCRequest &,
+                         const std::function<bool(const pb::ExportCResponse &)> & /*write*/) {
+    return Error(StatusCode::kUnimplemented, "ExportC is not implemented by this backend");
   }
   virtual Status FindBytes(const CallContext &, const pb::FindBytesRequest &, pb::FindBytesResponse &) {
     return Error(StatusCode::kUnimplemented, "FindBytes is not implemented by this backend");
@@ -570,6 +596,7 @@ class Backend {
   RK_BSIM_RPC(UpdateBSimExecutable)
   RK_BSIM_RPC(DeleteBSimExecutables)
   RK_BSIM_RPC(SearchBSim)  // api_minor 72
+  RK_BSIM_RPC(ApplyBSimMatches)  // api_minor 76
 #undef RK_BSIM_RPC
 
   // SubscriptionService. On success, `sink` has already received the Hello

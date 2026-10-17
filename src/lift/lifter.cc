@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <atomic>
 #include <map>
 #include <mutex>
 #include <set>
@@ -117,10 +118,13 @@ class PcodeCollector : public ghidra::PcodeEmit {
   std::vector<Slot> slots_;
 };
 
+std::atomic<std::size_t> g_engines_live{0};
+
 // Sleigh with access to the parse tree of a decoded instruction.
 class Engine : public ghidra::Sleigh {
  public:
-  using ghidra::Sleigh::Sleigh;
+  Engine(ghidra::LoadImage *loader, ghidra::ContextDatabase *context) : ghidra::Sleigh(loader, context) { ++g_engines_live; }
+  ~Engine() override { --g_engines_live; }
   const ghidra::ParserContext &parsed(const ghidra::Address &addr) const {
     return *obtainContext(addr, ghidra::ParserContext::pcode);
   }
@@ -477,6 +481,96 @@ std::vector<VolatileRange> processor_volatile_ranges(const std::string &language
   return out;
 }
 
+namespace {
+
+// Spare engines (docs/memory.md "SLEIGH engines"): an engine's decoded
+// .sla is most of its memory (35 MB for x86-64) and of its build time, and
+// depends on the language alone. A Lifter that lets its engine go (park(),
+// a rebuild, its end) leaves it here, its program's image and context
+// detached (Sleigh::reset); the next Lifter of that language (any program's)
+// takes it and attaches its own, as Ghidra does for a new program
+// (Sleigh::reset, then initialize() reregisters the context variables). A
+// few per language are kept; one engine is used by one Lifter at a time.
+//
+// Keyed by the .sla and the language's space truncations, not the .sla
+// alone: languages sharing one .sla (x86-64 and its compat32 variant) may
+// truncate its spaces differently, and a truncation stays in the engine.
+// What else differs between them (the .pspec's context) is painted afresh
+// on every build.
+struct SpareEngines {
+  std::mutex mu;
+  std::map<std::string, std::vector<std::unique_ptr<Engine>>> by_key;
+  std::size_t count = 0;
+};
+SpareEngines &spares() {
+  static auto *s = new SpareEngines;  // never destroyed: engines may outlive static teardown order
+  return *s;
+}
+constexpr std::size_t kSparesPerLanguage = 2;
+
+std::unique_ptr<Engine> take_spare(const std::string &key) {
+  SpareEngines &s = spares();
+  std::lock_guard lock(s.mu);
+  auto it = s.by_key.find(key);
+  if (it == s.by_key.end() || it->second.empty()) return nullptr;
+  std::unique_ptr<Engine> e = std::move(it->second.back());
+  it->second.pop_back();
+  --s.count;
+  return e;
+}
+
+void give_spare(const std::string &key, std::unique_ptr<Engine> e) {
+  // Nothing of the program it served stays reachable from it.
+  e->reset(nullptr, nullptr);
+  SpareEngines &s = spares();
+  {
+    std::lock_guard lock(s.mu);
+    auto &v = s.by_key[key];
+    if (v.size() < kSparesPerLanguage) {
+      v.push_back(std::move(e));
+      ++s.count;
+      return;
+    }
+  }
+  e.reset();  // over the limit: freed, outside the lock
+}
+
+// Processor specs, parsed once: their <context_data> paints each engine's
+// context database when it is built.
+const ghidra::Element *pspec_root(const std::string &path) {
+  struct Doc {
+    std::unique_ptr<ghidra::DocumentStorage> store;
+    const ghidra::Element *root = nullptr;
+  };
+  static std::mutex mu;
+  static auto *docs = new std::map<std::string, Doc>;
+  std::lock_guard lock(mu);
+  Doc &d = (*docs)[path];
+  if (!d.store) {
+    d.store = std::make_unique<ghidra::DocumentStorage>();
+    d.root = d.store->openDocument(path)->getRoot();
+  }
+  return d.root;
+}
+
+}  // namespace
+
+EngineStats engine_stats() {
+  SpareEngines &s = spares();
+  std::lock_guard lock(s.mu);
+  return {g_engines_live.load(), s.count};
+}
+
+void trim_spare_engines() {
+  std::map<std::string, std::vector<std::unique_ptr<Engine>>> gone;
+  SpareEngines &s = spares();
+  {
+    std::lock_guard lock(s.mu);
+    gone.swap(s.by_key);
+    s.count = 0;
+  }
+}
+
 struct Lifter::Impl {
   struct Setting {
     std::string name;
@@ -490,6 +584,7 @@ struct Lifter::Impl {
   std::string sla_path;
   std::string pspec_path;
   std::vector<ghidra::TruncationTag> truncations;
+  std::string spare_key;  // the spares this language's engines share (SpareEngines)
   std::vector<Setting> settings;
 
   std::unique_ptr<loader::GhidraLoadImage> loadimage;
@@ -503,7 +598,8 @@ struct Lifter::Impl {
 
   // SLEIGH caches decoded instructions and context lookups, and its context
   // database can't take new variables once populated, so any context change
-  // rebuilds the engine from scratch.
+  // rebuilds the engine: reset with a fresh context database (its decoded
+  // .sla kept), or a spare one of the language, or a new one.
   Engine &engine() {
     if (stale) {
       try {
@@ -517,18 +613,37 @@ struct Lifter::Impl {
     return *sleigh;
   }
 
+  // Lets the engine go to the spares (park(), a rebuild, the end).
+  void release_engine() {
+    printer.reset();
+    if (sleigh) give_spare(spare_key, std::move(sleigh));
+    stale = true;
+  }
+  ~Impl() { release_engine(); }
+
   void build() {
     auto globals = lock_ghidra_globals();
     printer.reset();
-    sleigh.reset();
+    std::unique_ptr<Engine> reused = std::move(sleigh);
+    if (!reused) reused = take_spare(spare_key);
+    // The old database goes after the engine stops pointing at it.
+    std::unique_ptr<ghidra::ContextInternal> old = std::move(context);
     context = std::make_unique<ghidra::ContextInternal>();
-    sleigh = std::make_unique<Engine>(window.get(), context.get());
 
     ghidra::DocumentStorage store;
     std::istringstream sla("<sleigh>" + sla_path + "</sleigh>");
     ghidra::Element *root = store.parseDocument(sla)->getRoot();
     store.registerTag(root);
-    {
+    if (reused) {
+      // A decoded .sla: attach this program's bytes and a fresh context
+      // database (initialize() only reregisters the context variables).
+      reused->reset(window.get(), context.get());
+      sleigh = std::move(reused);
+      old.reset();
+      sleigh->initialize(store);
+    } else {
+      old.reset();
+      sleigh = std::make_unique<Engine>(window.get(), context.get());
       // Decoding the .sla file is most of the cost and touches no global
       // state (as for ImageArchitecture), so engines build in parallel.
       globals.unlock();
@@ -536,7 +651,12 @@ struct Lifter::Impl {
         std::unique_lock<std::shared_mutex> &lock;
         ~Relock() { lock.lock(); }
       } relock{globals};
-      sleigh->initialize(store);
+      try {
+        sleigh->initialize(store);
+      } catch (...) {
+        sleigh.reset();  // half decoded: neither reused nor a spare
+        throw;
+      }
     }
     for (const ghidra::TruncationTag &t : truncations) sleigh->truncateSpace(t);
     window->attach(sleigh->getDefaultCodeSpace());
@@ -565,8 +685,8 @@ struct Lifter::Impl {
   // The language's default context (e.g. x86-64 longMode, ARM TMode) lives in
   // <context_data> of its .pspec, as for a Ghidra Architecture.
   void apply_pspec_context() {
-    ghidra::DocumentStorage store;
-    ghidra::Element *root = store.openDocument(pspec_path)->getRoot();
+    const ghidra::Element *root = pspec_root(pspec_path);
+    if (root == nullptr) return;
     for (const ghidra::Element *child : root->getChildren()) {
       if (child->getName() != "context_data") continue;
       ghidra::XmlDecode decoder(sleigh.get(), child);
@@ -588,6 +708,9 @@ Lifter::Lifter(std::shared_ptr<const loader::Image> image, const std::string &la
     impl_->pspec_path = find_spec_file(desc->getProcessorSpec());
     for (ghidra::int4 i = 0; i < desc->numTruncations(); ++i) impl_->truncations.push_back(desc->getTruncation(i));
   }
+  impl_->spare_key = impl_->sla_path;
+  for (const ghidra::TruncationTag &t : impl_->truncations)
+    impl_->spare_key += "\n" + t.getName() + ":" + std::to_string(t.getSize());
   impl_->image = std::move(image);
   impl_->loadimage = std::make_unique<loader::GhidraLoadImage>(impl_->image, impl_->language);
   impl_->window = std::make_unique<WindowLoadImage>(*impl_->loadimage);
@@ -703,7 +826,8 @@ void Lifter::set_context(const std::string &name, std::uint32_t value, std::uint
   // built (its variables are the language's, whatever was set since); the
   // rebuild itself waits for the next decode, so many settings cost one
   // rebuild, not one each.
-  if (!impl_->sleigh) impl_->engine();
+  // (A parked Lifter keeps that database: no engine is taken back for this.)
+  if (!impl_->context) impl_->engine();
   try {
     const ghidra::ContextDatabase &db = *impl_->context;  // base API; ContextInternal hides it
     db.getDefaultValue(name);                             // throws for unknown names
@@ -787,6 +911,15 @@ std::optional<Instruction> Lifter::lift_window(std::uint64_t address, std::span<
   forget();
   return insn;
 }
+
+bool Lifter::park() {
+  if (!impl_->sleigh) return true;
+  if (context_changed()) return false;  // decoding committed context a rebuild would lose
+  impl_->release_engine();
+  return true;
+}
+
+bool Lifter::parked() const { return !impl_->sleigh; }
 
 bool Lifter::context_changed() const {
   return !impl_->stale && impl_->context && impl_->encode_context() != impl_->built_context;

@@ -6,6 +6,7 @@
 #include "revkit/facts/address.h"
 
 #include <concepts>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -233,7 +234,10 @@ struct Codec<std::vector<T>> {
   static std::vector<T> decode(Decoder &d) {
     std::size_t n = d.count();
     std::vector<T> v;
-    v.reserve(n);
+    // n is at most the bytes left, but an element may be much larger than
+    // its encoding (an AddressRange is 32 bytes from as few as 4): grow
+    // past the first 4096 as elements actually decode.
+    v.reserve(std::min<std::size_t>(n, 4096));
     for (std::size_t i = 0; i < n; ++i) v.push_back(Codec<T>::decode(d));
     return v;
   }
@@ -343,8 +347,14 @@ struct Codec<AddressSet> {
     Codec<std::vector<AddressRange>>::encode(e, s.ranges());
   }
   static AddressSet decode(Decoder &d) {
+    // Sorted first: add() inserts into a sorted vector, so ranges in
+    // descending order (a hostile archive's or peer's) cost O(n^2).
+    std::vector<AddressRange> ranges = Codec<std::vector<AddressRange>>::decode(d);
+    std::sort(ranges.begin(), ranges.end(), [](const AddressRange &a, const AddressRange &b) {
+      return a.first.space != b.first.space ? a.first.space < b.first.space : a.first.offset < b.first.offset;
+    });
     AddressSet s;
-    for (const auto &r : Codec<std::vector<AddressRange>>::decode(d)) s.add(r);
+    for (const auto &r : ranges) s.add(r);
     return s;
   }
 };

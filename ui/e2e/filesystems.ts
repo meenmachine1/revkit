@@ -3,7 +3,8 @@
 // daemon host, a gzip and a tar opened in place inside a zip, Info with the
 // container path, a program imported and opened; then "Open as file
 // system" in the Open dialog for an uploaded zip, and Import programs
-// below… with its preview, cap and import. run.ts calls fileSystemChecks()
+// below… with its preview, cap and import (and the libraries they need,
+// looked for in the zip). run.ts calls fileSystemChecks()
 // with its helpers.
 
 import type { Page } from "playwright";
@@ -133,8 +134,12 @@ export async function fileSystemChecks(c: FileSystemContext) {
     await p.waitForFunction(() => document.querySelectorAll("[data-testid=fs-batch-item][data-action=import]").length === 2);
     assert((await imports.count()) === 2, "both programs");
     const before = (await programs()).length;
+    // Their libraries from the zip (feature library-roots): libc isn't in it.
+    await p.check("[data-testid=fs-batch-libraries]");
     await p.click("[data-testid=fs-batch-go]");
     await p.waitForFunction(() => /Imported 2 programs/.test(document.querySelector("[data-testid=fs-status]")?.textContent ?? ""), null, { timeout: 120000 });
+    const said = (await p.textContent("[data-testid=fs-status]")) ?? "";
+    assert(said.includes("not in the file system: libc.so.6"), `the libraries looked for in the zip: ${said}`);
     const after = await programs();
     assert(after.length === before + 2, `two more programs: ${after.length} after ${before}`);
     assert(after.some((x) => x.containerPath === "zip://fw.zip!/bin/prog"), `bin/prog's container path: ${JSON.stringify(after)}`);

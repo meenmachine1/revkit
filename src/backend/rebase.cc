@@ -1,5 +1,7 @@
 #include "rebase.h"
 
+#include "data_settings.h"
+
 #include "revkit/analysis/memory.h"
 #include "revkit/analysis/user_refs.h"
 #include "revkit/v1/assertion.pb.h"
@@ -34,8 +36,9 @@ std::optional<std::uint64_t> Hex(std::string_view s) {
 class BackendRelocator final : public facts::Relocator {
  public:
   bool moves(const facts::FactKey &k) const override {
+    // (A type's default data settings are the program's, at 0: not an address.)
     return k.kind != FactKind::TypeDef && k.kind != FactKind::MemoryRegion && k.kind != FactKind::Rebase &&
-           k.kind != FactKind::Language;
+           k.kind != FactKind::Language && !(k.kind == FactKind::Note && k.sub.starts_with(kDataTypeSettingsPrefix));
   }
 
   std::optional<std::string> sub(const facts::FactKey &k, const facts::Shift &shift) const override {

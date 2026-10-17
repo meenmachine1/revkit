@@ -10,6 +10,7 @@
 
 import { HeaderKind, RowKind, TokenKind, type ListingRow } from "../data/types";
 import { NO_FIELDS, fieldsVersion, fileOffsetText, fnOffsetText, pcodeAt, xrefsAt, type FieldFlags } from "./fields";
+import { fmtAddr } from "../data/format";
 import type { Theme } from "./theme";
 
 export const enum C {
@@ -110,7 +111,7 @@ export interface Run {
 }
 
 /** What a hit on a row means. */
-export type HotKind = "token" | "label" | "xref" | "comment" | "mnemonic" | "signature" | "type" | "override" | "callsig" | "plugin" | "disclosure" | "mutability" | "field" | "pcode";
+export type HotKind = "token" | "label" | "xref" | "comment" | "mnemonic" | "signature" | "type" | "override" | "fallthrough" | "callsig" | "plugin" | "disclosure" | "mutability" | "field" | "pcode" | "regvalue";
 
 /** FlowOverrideKind names, as shown on a row. */
 export const OVERRIDE_TEXT: Record<number, string> = { 1: "none", 2: "branch", 3: "call", 4: "call-return", 5: "return" };
@@ -380,11 +381,25 @@ function commentRuns(r: ListingRow, cols: Columns, end: number, runs: Run[], hot
     hot.push({ kind: "override", key: "\0override", col, len: text.length, target: r.address });
     col += text.length + 2;
   }
+  if (r.fallthroughOverride) {
+    // The user's fallthrough (feature fallthrough-override); a click follows it.
+    const text = r.fallthrough !== null ? `⤷ fallthrough: ${fmtAddr(r.fallthrough)}` : "⤷ no fallthrough";
+    runs.push({ color: C.Override, col, text });
+    hot.push({ kind: "fallthrough", key: "\0fallthrough", col, len: text.length, target: r.fallthrough ?? r.address });
+    col += text.length + 2;
+  }
   if (r.callSignature) {
     // A call's signature override (feature call-signature-override).
     const text = `⤷ signature: ${r.callSignature}`;
     runs.push({ color: C.Override, col, text });
     hot.push({ kind: "callsig", key: "\0callsig", col, len: text.length, target: r.address });
+    col += text.length + 2;
+  }
+  // Register values from here (feature register-values): Ghidra's "assume gp = 0x...".
+  for (const v of r.registerValues ?? []) {
+    const text = `assume ${v.register} = 0x${v.value.toString(16)}`;
+    runs.push({ color: C.Override, col, text });
+    hot.push({ kind: "regvalue", key: "\0regvalue:" + v.register, col, len: text.length, target: r.address });
     col += text.length + 2;
   }
   if (r.comment) {

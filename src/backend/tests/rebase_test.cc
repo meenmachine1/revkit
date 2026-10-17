@@ -12,12 +12,14 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <regex>
 #include <sstream>
+#include <thread>
 
 namespace revkit::backend {
 namespace {
@@ -126,11 +128,12 @@ class RebaseTest : public ::testing::Test {
     if (!fs::exists(Corpus("elf-x86_64/gcc-O2/debug/cjson"))) GTEST_SKIP() << "no corpus";
   }
 
-  std::unique_ptr<api::Backend> Make(const fs::path &project_dir = {}) {
+  std::unique_ptr<api::Backend> Make(const fs::path &project_dir = {}, unsigned engine_idle_seconds = 15) {
     ImageBackendOptions o;
     o.ghidra_root = REVKIT_GHIDRA_ROOT;
     o.project_dir = project_dir.string();
     o.param_id = inputs::ParamIdMode::off;
+    o.engine_idle_seconds = engine_idle_seconds;
     return MakeImageBackend(o);
   }
 
@@ -711,6 +714,73 @@ TEST_F(RawRebaseTest, TheLanguageChangesInPlaceAndBack) {
   Retract(*b, fw, changed.assertion().seq());
   EXPECT_EQ(language(), "ARM:LE:32:v4:default");
   EXPECT_EQ(Entry(*b, fw, "reset_vectors"), 0u);
+}
+
+// The language switch analyzes the new revision before it is published,
+// while readers keep reading the old one, and the engine sweeper parks
+// engines every second meanwhile (TSan runs this; docs/bug-scrub.md). Every
+// read sees one language or the other, analyzed: never a program without
+// its functions.
+TEST_F(RawRebaseTest, ReadersAndTheSweeperDuringALanguageSwitch) {
+  auto b = Make({}, 1);
+  pb::ImportProgramRequest req;
+  req.set_project_id("default");
+  req.set_path((dir_ / "fw.bin").string());
+  pb::ImportOptions *o = req.mutable_options();
+  o->set_format("raw");
+  o->set_language_id("ARM:LE:32:v4");
+  o->set_compiler_spec_id("default");
+  o->set_has_image_base(true);
+  o->set_image_base(0);
+  pb::ImportProgramResponse imported;
+  auto st = b->ImportProgram(ctx_, req, imported);
+  ASSERT_TRUE(st.ok()) << st.message;
+  const std::string fw = imported.program().program_id();
+  std::atomic<bool> done{false};
+  std::atomic<int> reads{0}, bad{0};
+  auto reader = [&] {
+    while (!done) {
+      pb::GetProgramSummaryRequest r;
+      r.set_program_id(fw);
+      pb::GetProgramSummaryResponse s;
+      if (!b->GetProgramSummary(ctx_, r, s).ok()) ++bad;
+      const std::string lang = s.summary().language().language_id();
+      if (lang != "ARM:LE:32:v4" && lang != "ARM:LE:32:v4t") ++bad;
+      pb::ListFunctionsRequest lf;
+      lf.set_program_id(fw);
+      lf.mutable_page()->set_page_size(50);
+      pb::ListFunctionsResponse fns;
+      if (!b->ListFunctions(ctx_, lf, fns).ok() || fns.functions_size() == 0) ++bad;
+      pb::GetInstructionRequest gi;
+      gi.set_program_id(fw);
+      gi.mutable_address()->set_offset(0);
+      pb::GetInstructionResponse insn;
+      (void)b->GetInstruction(ctx_, gi, insn);
+      ++reads;
+      // Now and then idle long enough for the sweeper to park engines.
+      if (reads % 16 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    }
+  };
+  std::vector<std::thread> readers;
+  for (int i = 0; i < 2; ++i) readers.emplace_back(reader);
+  for (int round = 0; round < 2; ++round) {
+    pb::SetProgramLanguageRequest set;
+    set.set_program_id(fw);
+    *set.mutable_provenance() = User();
+    set.set_language_id("ARM:LE:32:v4t");
+    pb::SetProgramLanguageResponse changed;
+    st = b->SetProgramLanguage(ctx_, set, changed);
+    ASSERT_TRUE(st.ok()) << st.message;
+    ASSERT_TRUE(changed.has_assertion());
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    Retract(*b, fw, changed.assertion().seq());
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+  done = true;
+  for (auto &t : readers) t.join();
+  EXPECT_GT(reads.load(), 0);
+  EXPECT_EQ(bad.load(), 0);
+  b.reset();  // stops the sweeper
 }
 
 // A language change and a rebase together persist, and neither undoes the

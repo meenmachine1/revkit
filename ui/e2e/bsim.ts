@@ -4,7 +4,9 @@
 // B's page, Find similar functions (the function list's menu) shows the
 // BSim view with checksum's match in A first, a double click opens the two
 // side by side in Compare; All functions lists the matched ones; the
-// Overview counts. run.ts calls bsimChecks().
+// Overview counts. With feature bsim-apply, on a stripped build: Apply name
+// on one hit (the toast's Undo takes it back), then each function's best
+// (Ctrl+A) with Apply signature in one step. run.ts calls bsimChecks().
 
 import type { Page } from "playwright";
 import { execFileSync } from "node:child_process";
@@ -55,6 +57,7 @@ export async function bsimChecks(c: BsimContext) {
   try {
     execFileSync("cc", ["-O1", "-g", path.join(d, "p.c"), "-o", path.join(d, "bsim-O1")]);
     execFileSync("cc", ["-O2", path.join(d, "p.c"), "-o", path.join(d, "bsim-O2")]);
+    execFileSync("cc", ["-O1", "-s", path.join(d, "p.c"), "-o", path.join(d, "bsim-O1s")]);
   } catch {
     return c.log("  (bsim: no C compiler, skipped)");
   }
@@ -113,4 +116,58 @@ export async function bsimChecks(c: BsimContext) {
     await shot(p, "bsim-overview");
   });
   await p.context().close();
+
+  if (!info.features?.includes("bsim-apply")) return c.log("  (bsim: no feature bsim-apply, apply skipped)");
+  const s = await imp("bsim-O1s");
+  const q = await c.page(`program=${encodeURIComponent(s)}&user=e2e&theme=dark`);
+  type Row = { function: string; address?: string; match?: string; applied?: string };
+  const sview = () => q.evaluate("window.__revkit.app.bsim?.describe()") as Promise<{ mode: string; picked: number[]; rows: Row[] }>;
+  const nameAt = async (addr: string) =>
+    (await rpc<{ function: { name: string } }>(base, "QueryService/GetFunction", { programId: s, address: { offset: BigInt(addr).toString() } })).function.name;
+  const wait = async <T>(what: string, get: () => Promise<T>, pred: (v: T) => boolean, ms = 30000) => {
+    const end = Date.now() + ms;
+    let v = await get();
+    while (!pred(v)) {
+      if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${JSON.stringify(v)}`);
+      await q.waitForTimeout(150);
+      v = await get();
+    }
+    return v;
+  };
+
+  await check("bsim: Apply name on a stripped build's hit renames the function; the toast's Undo takes it back; Ctrl+A and Apply signature apply each function's best in one step", async () => {
+    await q.evaluate("window.__revkit.app.showView('bsim')");
+    await q.fill("[data-testid=bsim-similarity]", "0.9");
+    await q.click("[data-testid=bsim-search-all]");
+    const all = await wait("all functions", sview, (x) => x.mode === "all" && x.rows.some((r) => r.match === "checksum"));
+    const i = all.rows.findIndex((r) => r.match === "checksum");
+    const addr = all.rows[i].address!;
+    assert(all.rows[i].function.startsWith("FUN_"), `stripped: ${JSON.stringify(all.rows[i])}`);
+    await q.locator("[data-testid=bsim-row]").nth(i).click();
+    await q.click("[data-testid=bsim-apply-name]");
+    const named = await wait("checksum applied", sview, (x) => x.rows[i]?.applied === "applied");
+    assert(named.rows[i].function === "checksum", `the row's function renamed: ${JSON.stringify(named.rows[i])}`);
+    assert((await nameAt(addr)) === "checksum", "the program's function is checksum");
+    await shot(q, "bsim-applied");
+    await q.locator("#toasts button", { hasText: "Undo" }).last().click();
+    await wait("undone", () => nameAt(addr), (n) => n.startsWith("FUN_"));
+
+    await q.locator("[data-testid=bsim-table]").focus();
+    await q.keyboard.press("Control+a");
+    const picked = await wait("each function's best", sview, (x) => x.picked.length >= 2);
+    const names = picked.picked.map((k) => picked.rows[k].match);
+    assert(names.includes("checksum") && names.includes("classify"), `picked: ${names.join(", ")}`);
+    await q.click("[data-testid=bsim-apply-signature]");
+    const done = await wait("applied", sview, (x) => x.picked.every((k) => !!x.rows[k].applied));
+    for (const k of done.picked) {
+      const r = done.rows[k];
+      if (r.match !== "checksum" && r.match !== "classify") continue;
+      assert(r.applied === "applied" && r.function === r.match, `renamed: ${JSON.stringify(r)}`);
+      assert((await nameAt(r.address!)) === r.match, `${r.match} in the program`);
+    }
+    // Ctrl+Z on the tab undoes the whole apply.
+    await q.evaluate("window.__revkit.app.redoOrUndo('undo')");
+    await wait("undone", () => nameAt(addr), (n) => n.startsWith("FUN_"));
+  });
+  await q.context().close();
 }

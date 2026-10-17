@@ -71,6 +71,8 @@ struct Options {
   std::string symbol_path;
   std::string symbol_cache;
   bool symbol_downloads = false;
+  std::vector<std::string> debug_dirs;
+  std::vector<std::string> debuginfod_urls;
   revkit::backend::InferMode infer_prototypes = revkit::backend::InferMode::automatic;
   bool function_id = true;
   std::string param_id = "auto";
@@ -78,6 +80,7 @@ struct Options {
   unsigned decompilers = 2;
   bool decompile_in_process = false;
   unsigned analysis_threads = 0;
+  unsigned engine_idle = 15;
   double decompile_timeout = 30;
   std::size_t decompile_max_varnodes = std::size_t{1} << 20;
   bool web_root_set = false;
@@ -132,6 +135,8 @@ void usage(std::ostream &os) {
         "  --decompile-in-process  decompile in the daemon instead of workers (debugging under gdb only:\n"
         "                          a decompiler crash then ends the daemon)\n"
         "  --analysis-threads <n>  threads for import-time analysis (default: the hardware's, at most 8)\n"
+        "  --engine-idle <s>       let SLEIGH engines idle for <s> seconds go, keeping two per language\n"
+        "                          for reuse (default 15; 0: keep them; docs/memory.md)\n"
         "  --decompile-timeout <s> stop a decompilation after <s> seconds (default 30, as Ghidra; 0: none)\n"
         "  --decompile-max-varnodes <n>  stop a decompilation past <n> varnodes, about 1 KB each\n"
         "                          (default 1048576; 0: none)\n"
@@ -154,6 +159,11 @@ void usage(std::ostream &os) {
         "  --symbol-downloads      let Load PDB download from the path's symbol servers (network\n"
         "                          access; off by default: docs/security.md)\n"
         "  --symbol-cache <dir>    where downloads go when an entry names no cache\n"
+        "  --debug-dir <dir>       look ELF debug files up there too, by build ID and debuglink\n"
+        "                          (repeatable; docs/backend.md \"External debug files\")\n"
+        "  --debuginfod <url>      let Load debug file fetch from this https debuginfod server\n"
+        "                          (repeatable; network access, off by default: docs/security.md;\n"
+        "                          DEBUGINFOD_URLS is only suggested in the settings)\n"
         "  --retain <n>            revisions kept readable per project (default 256)\n"
         "  --memo-budget <MiB>     derived facts kept in memory per project before the oldest\n"
         "                          are evicted (default 2048; tests run smaller daemons)\n"
@@ -315,6 +325,7 @@ std::optional<Options> parse_args(int argc, char **argv) {
     else if (arg == "--decompilers" && (v = value())) opt.decompilers = static_cast<unsigned>(std::stoul(v));
     else if (arg == "--decompile-in-process") opt.decompile_in_process = true;
     else if (arg == "--analysis-threads" && (v = value())) opt.analysis_threads = static_cast<unsigned>(std::stoul(v));
+    else if (arg == "--engine-idle" && (v = value())) opt.engine_idle = static_cast<unsigned>(std::stoul(v));
     else if (arg == "--decompile-timeout" && (v = value())) opt.decompile_timeout = std::stod(v);
     else if (arg == "--decompile-max-varnodes" && (v = value())) opt.decompile_max_varnodes = std::stoull(v);
     else if (arg == "--project-dir" && (v = value())) opt.project_dir = v;
@@ -322,6 +333,8 @@ std::optional<Options> parse_args(int argc, char **argv) {
     else if (arg == "--symbol-path" && (v = value())) opt.symbol_path = v;
     else if (arg == "--symbol-cache" && (v = value())) opt.symbol_cache = v;
     else if (arg == "--symbol-downloads") opt.symbol_downloads = true;
+    else if (arg == "--debug-dir" && (v = value())) opt.debug_dirs.emplace_back(v);
+    else if (arg == "--debuginfod" && (v = value())) opt.debuginfod_urls.emplace_back(v);
     else if (arg == "--infer-prototypes" && i + 1 < argc &&
              (std::string_view(argv[i + 1]) == "auto" || std::string_view(argv[i + 1]) == "on" ||
               std::string_view(argv[i + 1]) == "off")) {
@@ -499,6 +512,7 @@ std::shared_ptr<revkit::api::Backend> make_backend(const Options &opt) {
   image.decompile_workers = opt.decompilers;
   image.decompile_in_process = opt.decompile_in_process;
   image.analysis_threads = opt.analysis_threads;
+  image.engine_idle_seconds = opt.engine_idle;
   image.decompile_timeout_seconds = opt.decompile_timeout;
   image.decompile_max_varnodes = opt.decompile_max_varnodes;
   image.project_dir = opt.project_dir;
@@ -506,6 +520,9 @@ std::shared_ptr<revkit::api::Backend> make_backend(const Options &opt) {
   image.symbol_path = opt.symbol_path;
   image.symbol_cache = opt.symbol_cache;
   image.symbol_downloads = opt.symbol_downloads;
+  image.debug_dirs = opt.debug_dirs;
+  image.debuginfod_urls = opt.debuginfod_urls;
+  image.debuginfod = !opt.debuginfod_urls.empty();
   image.infer_prototypes = opt.infer_prototypes;
   image.function_id = opt.function_id;
   image.param_id = revkit::inputs::parse_param_id_mode(opt.param_id).value_or(revkit::inputs::ParamIdMode::automatic);

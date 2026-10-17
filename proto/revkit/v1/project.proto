@@ -145,6 +145,13 @@ service ProjectService {
   // servers may be contacted (off by default: network access, see
   // docs/security.md) and the download cache. An admin's.
   rpc GetSymbolSettings(GetSymbolSettingsRequest) returns (GetSymbolSettingsResponse);
+  // Loads an ELF's separate debug file into an open program (api_minor
+  // 85, feature "debug-files"; admin): a file on the daemon's host, an
+  // upload, or the one the program's build ID or .gnu_debuglink names,
+  // found locally or (when an admin turned it on) on debuginfod servers.
+  // Its DWARF becomes import:dwarf assertions in one revision. A file of
+  // another build is refused unless `force`.
+  rpc LoadDebugFile(LoadDebugFileRequest) returns (LoadDebugFileResponse);
   rpc SetSymbolSettings(SetSymbolSettingsRequest) returns (SetSymbolSettingsResponse);
 
   // Folders (api_minor 37, feature "project-folders"; docs/api.md,
@@ -554,6 +561,51 @@ message LoadPdbResponse {
   repeated uint64 assertion_seqs = 10;
 }
 
+// Load debug file (api_minor 86, feature "debug-files"): an ELF's separate
+// debug file. Its DWARF becomes import:dwarf assertions, as an embedded
+// .debug_info does at import.
+message LoadDebugFileRequest {
+  string program_id = 1;
+  oneof source {
+    // A file on the daemon's host (admin).
+    string path = 2;
+    // A file sent with UploadChunk.
+    string upload_id = 3;
+    // Look it up by the program's build ID and .gnu_debuglink: beside the
+    // binary, the settings' debug_dirs, /usr/lib/debug, the cache, then
+    // the debuginfod servers when they are on.
+    bool search = 4;
+  }
+  // Load a file whose build ID (or CRC) isn't the program's.
+  bool force = 5;
+  Provenance provenance = 6;
+}
+
+message LoadDebugFileResponse {
+  Snapshot snapshot = 1;
+  // The file read (the cache's copy for a download).
+  string debug_file = 2;
+  // Its build ID (or, without one, its CRC-32) is the program's.
+  bool exact = 3;
+  // Where it came from: "file", "upload", "beside the binary",
+  // "directory <dir>", "cache", "debuginfod <url>".
+  string source = 4;
+  uint32 functions = 5;
+  uint32 variables = 6;
+  uint32 types = 7;
+  // A forced mismatch, and the reader's diagnostics.
+  repeated string warnings = 8;
+  // With search: each place tried.
+  repeated string search_log = 9;
+  // The assertions it made (RetractAssertions undoes the load).
+  repeated uint64 assertion_seqs = 10;
+  // The program's build ID, and whether the file was kept in the cache
+  // (exact files are: the decompiler reads them when the program next
+  // loads).
+  string build_id = 11;
+  bool cached = 12;
+}
+
 message SymbolSettings {
   // _NT_SYMBOL_PATH syntax: "srv*C:\\cache*https://msdl.microsoft.com/download/symbols;D:\\pdbs".
   string symbol_path = 1;
@@ -561,12 +613,33 @@ message SymbolSettings {
   bool downloads = 2;
   // Where a server entry without its own cache stores what it fetches.
   string cache_dir = 3;
+  // Separate debug files for ELF (api_minor 86, feature "debug-files";
+  // docs/backend.md "External debug files"). Directories searched as
+  // /usr/lib/debug is: .build-id/xx/yyyy.debug, then the .gnu_debuglink
+  // name under <dir>/<the binary's directory>/ and <dir>/.
+  repeated string debug_dirs = 4;
+  // debuginfod servers may be contacted (default off: network access,
+  // docs/security.md), and which, in order ("https://debuginfod.example").
+  bool debuginfod = 5;
+  repeated string debuginfod_urls = 6;
+  // http:// servers too (default: https only).
+  bool debuginfod_allow_http = 7;
+  // The largest debug file read or fetched (0: 1 GiB), and the cache's
+  // size (0: 4 GiB); the oldest files go first.
+  uint64 debug_file_max_bytes = 8;
+  uint64 debug_cache_max_bytes = 9;
+  // Read only: where fetched and loaded debug files are kept, by build ID
+  // ("<project_dir>/.revkit/debuginfod"; "" without a project directory).
+  string debug_cache_dir = 10;
 }
 
 message GetSymbolSettingsRequest {}
 
 message GetSymbolSettingsResponse {
   SymbolSettings settings = 1;
+  // The servers the daemon's DEBUGINFOD_URLS names: a suggestion to show,
+  // never used unless set in debuginfod_urls (api_minor 86).
+  repeated string suggested_debuginfod_urls = 2;
 }
 
 message SetSymbolSettingsRequest {
@@ -1205,6 +1278,18 @@ message ImportOptions {
   repeated string library_search_paths = 16;
   // 1: its own libraries; 2: theirs too; ... 0 means 2; at most 8.
   uint32 library_depth = 17;
+  // The root file system the program's libraries are in (api_minor 79,
+  // feature "library-roots"): a directory on the daemon's host under a
+  // --browse-root, an extracted firmware root, say. "/lib", "/usr/lib", the
+  // runpath and /etc/ld.so.conf's directories are looked up inside it, with
+  // symbolic links followed inside it only, instead of the host's own
+  // library directories. Empty: for a file imported by path that lies under
+  // a --browse-root, the nearest directory above it that looks like a root
+  // file system (lib or usr/lib, and bin, sbin, usr/bin or etc), if any
+  // (ImportProgramResponse.library_root says which). A container import
+  // (FileSystemService.ImportFromFileSystem) always looks in the program's
+  // own container, and its library_search_paths are paths in it.
+  string library_root = 18;
 }
 
 // A memory region declared at import (ImportOptions.regions).
@@ -1239,6 +1324,10 @@ message ImportProgramResponse {
   // with it, and the ones needed but found nowhere.
   repeated ProgramInfo libraries = 5;
   repeated MissingLibrary libraries_not_found = 6;
+  // The root file system the libraries were looked for in
+  // (ImportOptions.library_root, or the one found); empty: the host's
+  // directories (api_minor 79).
+  string library_root = 7;
 }
 
 // A library needed but not found on the search paths.
@@ -1378,6 +1467,12 @@ message ProgramSummary {
   // Where the image was imported (api_minor 42, feature "rebase"):
   // image_base differs after SetImageBase.
   Address import_image_base = 10;
+  // An ELF's GNU build ID (lower-case hex) and .gnu_debuglink file name,
+  // and the separate debug file its DWARF was read from at load, if any
+  // (api_minor 86, feature "debug-files").
+  string build_id = 11;
+  string debuglink = 12;
+  string debug_file = 13;
 }
 
 message LanguageInfo {

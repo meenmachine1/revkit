@@ -392,6 +392,10 @@ void MachineRuntime::build() {
       if (d.spec.config.find("size") == nullptr)
         if (auto size = d.p->default_size()) d.size = *size;
       if (d.size == 0) throw MachineError("peripheral " + d.spec.name + " has size 0");
+      // An editor's machine (or a plugin's default size): past the top of
+      // the address space it wrapped, and the device mapped nothing.
+      if (d.size - 1 > UINT64_MAX - d.base)
+        throw MachineError("peripheral " + d.spec.name + " at " + hexs(d.base) + " runs past the end of memory");
       // Its registers are MMIO.
       const std::uint64_t last = d.base + d.size - 1;
       bool covered = true;

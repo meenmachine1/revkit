@@ -63,12 +63,14 @@ import { searchChecks } from "./search";
 import { demangleChecks } from "./demangle";
 import { hoverChecks } from "./hover";
 import { classesChecks } from "./classes";
+import { debugFileChecks } from "./debugfiles";
 import { projectTypesChecks } from "./projecttypes";
 import { fidChecks } from "./fid";
 import { callsiteChecks } from "./callsite";
 import { compareChecks } from "./compare";
 import { uiPolishChecks } from "./uipolish";
 import { editFunctionChecks } from "./editfunction";
+import { regValuesChecks } from "./regvalues";
 import { bsimChecks } from "./bsim";
 import { keymapChecks } from "./keymap";
 import { dialogSizeChecks } from "./dialogsize";
@@ -264,6 +266,8 @@ interface VisRow {
   dataType: string;
   flow: number;
   flowOverride: number;
+  /** The fallthrough override's address (hex), "none", or null without one. */
+  fallthrough: string | null;
   targets: string[];
   func: string | null;
   entry: boolean;
@@ -581,6 +585,130 @@ async function main() {
     await until(a, "comment here", (s) => (s.comment ?? "").includes("hash state"));
     await b.evaluate(`window.__revkit.app.navigate(0x${s0.address}n)`);
     await until(b, "comment in page B", (s) => s.address === s0.address && (s.comment ?? "").includes("hash state"));
+  });
+
+  await check("comment table: both comments listed; a filter; a click goes there", async () => {
+    type Row = { address: string; kind: string; fn: string; text: string };
+    const rowsOf = (s: Snap) => (s as unknown as { comments: Row[] | null }).comments ?? [];
+    await a.evaluate("window.__revkit.app.showView('comments')");
+    let s = await until(a, "both comments listed", (s) => rowsOf(s).some((r) => r.text === "hash state") && rowsOf(s).some((r) => r.text === "decomp note"));
+    const hash = rowsOf(s).find((r) => r.text === "hash state")!;
+    assert(hash.kind === "EOL" && hash.fn !== "", `the EOL comment: ${JSON.stringify(hash)}`);
+    assert(rowsOf(s).find((r) => r.text === "decomp note")!.kind === "Pre", "the decompiler's is a pre-comment");
+    await a.fill("[data-testid=comments-filter]", "hash");
+    s = await until(a, "filtered", (s) => rowsOf(s).length === 1);
+    await a.locator("[data-testid=comment-row]").first().click();
+    await until(a, "the listing at the comment", (s) => s.address === hash.address);
+    // A double-click opens the comment dialog with the comment in it.
+    await a.locator("[data-testid=comment-row]").first().dblclick();
+    await a.waitForSelector("[data-testid=ask] .ask-input");
+    const value = await a.inputValue("[data-testid=ask] .ask-input");
+    assert(value === "hash state", `the dialog's text: ${JSON.stringify(value)}`);
+    await a.keyboard.press("Escape");
+    await a.waitForSelector("[data-testid=ask]", { state: "detached" });
+    await a.fill("[data-testid=comments-filter]", "");
+    // The view shares the side dock with the decompiler, which the next checks use.
+    await a.evaluate("window.__revkit.app.showView('decomp')");
+    await a.evaluate("window.__revkit.app.showView('listing')");
+  });
+
+  await check("relocations: the PLT slots by type, a filter, a click goes there, a double-click to a pointer's target", async () => {
+    type Row = { address: string; type: string; symbol: string; target: string; targetName: string };
+    const rowsOf = (s: Snap) => (s as unknown as { relocations: Row[] | null }).relocations ?? [];
+    await a.evaluate("window.__revkit.app.showView('relocations')");
+    let s = await until(a, "relocations listed", (s) => rowsOf(s).some((r) => r.type === "R_X86_64_JUMP_SLOT" && r.symbol === "strlen"));
+    const relative = rowsOf(s).find((r) => r.type === "R_X86_64_RELATIVE" && r.target !== "");
+    assert(relative !== undefined, `a RELATIVE relocation with a target: ${JSON.stringify(rowsOf(s).slice(0, 5))}`);
+    await a.fill("[data-testid=relocations-filter]", "strlen");
+    s = await until(a, "filtered", (s) => rowsOf(s).length === 1);
+    const slot = rowsOf(s)[0];
+    await a.locator("[data-testid=relocation-row]").first().click();
+    await until(a, "the listing at the slot", (s) => s.address === slot.address);
+    await a.fill("[data-testid=relocations-filter]", "RELATIVE");
+    await until(a, "the RELATIVE ones", (s) => rowsOf(s).length > 0 && rowsOf(s).every((r) => r.type === "R_X86_64_RELATIVE"));
+    const row = a.locator(`[data-testid=relocation-row][data-address="${relative!.address}"]`);
+    if ((await row.count()) > 0) {
+      await row.dblclick();
+      await until(a, "the listing at the target", (s) => s.address === relative!.target);
+    }
+    await a.fill("[data-testid=relocations-filter]", "");
+    await a.evaluate("window.__revkit.app.showView('decomp')");
+    await a.evaluate("window.__revkit.app.showView('listing')");
+  });
+
+  await check("export c: every function with a header, then the one at the cursor alone", async () => {
+    type X = { which: string; status: string; sourceName: string; source: string; headerName: string; header: string; functions: number };
+    const xc = (s: Snap) => (s as unknown as { exportC: X | null }).exportC;
+    await palette(a, "checksum");
+    await until(a, "at checksum", (s) => s.label === "checksum");
+    await a.focus("#listing-canvas");
+    await a.keyboard.press("Control+Shift+P");
+    await a.waitForSelector("[data-testid=palette-input]");
+    await a.fill("[data-testid=palette-input]", ">File: Export C/C++");
+    await a.waitForFunction(() => (document.querySelector(".palette-item.active .pi-label")?.textContent ?? "").startsWith("File: Export C/C++"));
+    await a.keyboard.press("Enter");
+    await a.waitForSelector("[data-testid=export-c]");
+    await a.click("[data-testid=xc-export]");
+    let s = await until(a, "exported", (s) => (xc(s)?.functions ?? 0) > 0, 60000);
+    let x = xc(s)!;
+    assert(x.sourceName === "prog.c" && x.headerName === "prog.h", `the files: ${x.sourceName} ${x.headerName}`);
+    assert(x.source.includes("/* checksum @ 0x") && x.source.includes("/* main @ 0x") && x.source.includes('#include "prog.h"'), "both functions in the .c");
+    assert(x.header.includes("checksum(") && x.header.includes("typedef unsigned int uint;"), "the prototypes and built-in types in the .h");
+    assert(/prog\.c and prog\.h: \d+ functions/.test(x.status), `the status: ${x.status}`);
+    await a.selectOption("[data-testid=xc-which]", "current");
+    await a.uncheck("[data-testid=xc-header]");
+    await a.click("[data-testid=xc-export]");
+    s = await until(a, "one function", (s) => xc(s)?.functions === 1 && xc(s)?.headerName === "");
+    x = xc(s)!;
+    assert(x.source.includes("/* checksum @ 0x") && !x.source.includes("/* main @ 0x"), "only checksum");
+    await a.click("[data-testid=xc-close]");
+    await a.waitForSelector("[data-testid=export-c]", { state: "detached" });
+  });
+
+  await check("symbol tree: the folders, Functions expanded and filtered, a click goes there, an import under its library", async () => {
+    type Row = { path: string; more: boolean; name: string; kind: number; address: string; children: number };
+    const rowsOf = (s: Snap) => (s as unknown as { symtree: Row[] | null }).symtree ?? [];
+    const row = (path: string) => a.locator(`[data-testid=symtree-row][data-path="${path}"]`);
+    await a.evaluate("window.__revkit.app.showView('symtree')");
+    let s = await until(a, "the folders", (s) => rowsOf(s).map((r) => r.name).join(",") === "Imports,Exports,Functions,Labels,Classes,Namespaces");
+    assert(rowsOf(s).find((r) => r.name === "Functions")!.children >= 3, "Functions counts the functions");
+    await row("Functions").click();
+    s = await until(a, "the functions", (s) => rowsOf(s).some((r) => r.path === "Functions/checksum"));
+    const checksum = rowsOf(s).find((r) => r.path === "Functions/checksum")!;
+    await row("Functions/checksum").click();
+    await until(a, "the listing at checksum", (s) => s.address === checksum.address);
+    await a.fill("[data-testid=symtree-filter]", "twice");
+    await until(a, "filtered", (s) => {
+      const fns = rowsOf(s).filter((r) => r.path.startsWith("Functions/"));
+      return fns.length === 1 && fns[0].name === "twice";
+    });
+    await a.fill("[data-testid=symtree-filter]", "");
+    await until(a, "unfiltered", (s) => rowsOf(s).some((r) => r.path === "Functions/checksum"));
+    await row("Imports").click();
+    await until(a, "a library", (s) => rowsOf(s).some((r) => r.path === "Imports/<EXTERNAL>"));
+    await row("Imports/<EXTERNAL>").click();
+    await until(a, "strlen imported", (s) => rowsOf(s).some((r) => r.path === "Imports/<EXTERNAL>/strlen" && r.address !== ""));
+    await a.evaluate("window.__revkit.app.showView('decomp')");
+    await a.evaluate("window.__revkit.app.showView('listing')");
+  });
+
+  await check("clear flow: twice's flow cleared from the palette in one step, Ctrl+Z brings it back", async () => {
+    await palette(a, "twice");
+    let s = await until(a, "at twice", (s) => s.label === "twice" && s.rowKind === 1);
+    const at = s.address;
+    const before = s.functionCount;
+    await a.focus("#listing-canvas");
+    await a.keyboard.press("Control+Shift+P");
+    await a.waitForSelector("[data-testid=palette-input]");
+    await a.fill("[data-testid=palette-input]", ">Clear flow and repair");
+    await a.waitForFunction(() => (document.querySelector(".palette-item.active .pi-label")?.textContent ?? "").startsWith("Clear flow and repair"));
+    await a.keyboard.press("Enter");
+    s = await until(a, "twice gone", (s) => s.functionCount === before - 1);
+    await until(b, "page B sees it", (s) => s.functionCount === before - 1);
+    await a.focus("#listing-canvas");
+    await a.keyboard.press("Control+z");
+    s = await until(a, "twice back", (s) => s.functionCount === before);
+    assert(s.address === at, `still at twice: ${s.address}`);
   });
 
   await check("undo (Ctrl+Z) retracts, in reverse order, everywhere", async () => {
@@ -930,7 +1058,10 @@ async function main() {
   if (wants("opendialog.ts")) await openDialogChecks({ base, exe, check, open, rpc, assert });
 
   // Shared libraries (e2e/libraries.ts): imported with a program, an import's library function, the Libraries dialog.
-  if (wants("libraries.ts")) await librariesChecks({ base, tmp, check, open, rpc, assert });
+  if (wants("libraries.ts")) await librariesChecks({
+    base, tmp, check, open, rpc, assert,
+    until: (p, what, pred, ms) => until(p, what, pred as unknown as (s: Snap) => boolean, ms) as never,
+  });
 
   // Change language (e2e/language.ts): the variant comparison, and the refusals.
   if (wants("language.ts")) await languageChecks({ base, check, open, rpc, assert });
@@ -2619,6 +2750,19 @@ async function main() {
     },
   });
 
+  // Separate debug files (e2e/debugfiles.ts): Load debug file… and its settings.
+  if (wants("debugfiles.ts")) await debugFileChecks({
+    base, dir: tmp, check, rpc, assert, log,
+    page: async (query) => {
+      const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => log(`  [pageerror] ${e.message}`));
+      await p.goto(`${base}/?${query}`);
+      await p.waitForSelector("body[data-ready='1']", { timeout: 20000 });
+      return p;
+    },
+  });
+
   // Project-wide types and the Archives section (e2e/projecttypes.ts).
   if (wants("projecttypes.ts")) await projectTypesChecks({
     base, dir: tmp, check, rpc, assert, log,
@@ -2673,6 +2817,19 @@ async function main() {
 
   // Edit Function and the calling conventions (e2e/editfunction.ts).
   if (wants("editfunction.ts")) await editFunctionChecks({
+    base, dir: tmp, check, rpc, assert, log,
+    page: async (query) => {
+      const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => log(`  [pageerror] ${e.message}`));
+      await p.goto(`${base}/?${query}`);
+      await p.waitForSelector("body[data-ready='1']", { timeout: 20000 });
+      return p;
+    },
+  });
+
+  // Register values over ranges (e2e/regvalues.ts).
+  if (wants("regvalues.ts")) await regValuesChecks({
     base, dir: tmp, check, rpc, assert, log,
     page: async (query) => {
       const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });

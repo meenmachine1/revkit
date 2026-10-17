@@ -44,12 +44,42 @@ import { ask, askFields, choose } from "../ui/dialogs";
 import "../emu/emu.css";
 import "./debug.css";
 
-/** Another project program (a library the pc is in) in a new tab, at an address. */
-function openLibrary(programId: string, address?: bigint) {
+/** Another project program (a library the pc is in) in a new tab, at an address; with `follow`, the
+ * tab follows that session's pc while it is in the program (followDebugger). */
+function openLibrary(programId: string, address?: bigint, follow?: string) {
   const u = new URL(location.href);
   u.searchParams.set("program", programId);
+  if (follow) u.searchParams.set("follow", follow);
+  else u.searchParams.delete("follow");
   u.hash = address !== undefined ? `#${address.toString(16)}` : "";
   window.open(u.toString(), "_blank", "noopener");
+}
+
+/** Where a session's pc is, for the library tabs that follow it (PcMessage). */
+export const PC_CHANNEL = "revkit-debug-pc";
+/** One stop's pc, posted on PC_CHANNEL: `programId` the library program it is in ("" none: in
+ * the program itself, or elsewhere), `address` there (hex); `running` while it runs. */
+export interface PcMessage {
+  session: string;
+  programId: string;
+  address: string;
+  running: boolean;
+  /** A tab that just opened asks the session's panel where the pc is. */
+  ask?: boolean;
+}
+let pcChannel: BroadcastChannel | null | undefined;
+const pcPanels = new Set<{ answerPc(session: string): void }>();
+function channel(): BroadcastChannel | null {
+  if (pcChannel === undefined) {
+    pcChannel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(PC_CHANNEL);
+    if (pcChannel) pcChannel.onmessage = (ev: MessageEvent<PcMessage>) => {
+      if (ev.data?.ask) for (const p of pcPanels) p.answerPc(ev.data.session);
+    };
+  }
+  return pcChannel;
+}
+function postPc(m: PcMessage) {
+  channel()?.postMessage(m);
 }
 
 export interface DebuggerHost {
@@ -266,6 +296,9 @@ export class DebuggerPanel {
     /** An emulator from the session's state (feature debugger-emulate-from). */
     readonly emulateFrom = false,
   ) {
+    // Answer the library tabs that ask where this session's pc is.
+    pcPanels.add(this);
+    channel();
     const button = (id: string, label: string, title: string, run: () => void, testid = `emu-${id}`) =>
       (this.buttons[id] = h("button", { class: "btn emu-btn", type: "button", title, "data-testid": testid, onclick: run }, label));
     this.title = h("span", { class: "dim dbg-title", "data-testid": "emu-title" });
@@ -748,6 +781,8 @@ export class DebuggerPanel {
       // An emulator from another session's state: back to that session.
       const p = this.parent;
       this.parent = null;
+      // Busy until the process's state is shown: not the emulator's under the process's name.
+      this.busy = true;
       await this.rk.debugger.closeDebugSession({ sessionId: s.sessionId }).catch(() => {});
       this.generation++;
       this.session = p.session;
@@ -759,14 +794,17 @@ export class DebuggerPanel {
       this.title.textContent = p.label;
       try {
         const st = await this.rk.debugger.getDebugState({ sessionId: p.session.sessionId, state: { includeThreads: true } });
+        this.busy = false;
         await this.apply(st.state ?? null, st.state?.lastStop ?? null);
       } catch (e) {
+        this.busy = false;
         this.host.notify(`Debugger: ${errText(e)}`, true);
         await this.close(hide);
       }
       return;
     }
     this.generation++;
+    if (s) postPc({ session: s.sessionId, programId: "", address: "", running: false });
     this.session = null;
     this.state = null;
     this.stop = null;
@@ -883,6 +921,8 @@ export class DebuggerPanel {
     this.status.textContent = text;
     this.status.title = stop?.detail ?? "";
     this.showLibraryLink(this.pc === null ? loc : undefined);
+    // The library tabs following this session (openLibrary's follow): where the pc is now.
+    if (!this.historical) this.postLibraryPc();
     this.status.classList.toggle("fault", FAULTS.has(kind));
     this.status.dataset.kind = this.running ? "running" : what;
     this.frame = 0;
@@ -1292,8 +1332,22 @@ export class DebuggerPanel {
     if (!id || !loc) return;
     const at = loc.libraryAddress?.offset;
     this.libLink.textContent = `Open ${loc.module}${loc.libraryFunction ? ` at ${loc.libraryFunction}` : ""}`;
-    this.libLink.title = `Open ${id} in a new tab, at 0x${at !== undefined ? hx(at) : "?"} (its listing and decompiler)`;
-    this.libLink.onclick = () => openLibrary(id, at);
+    this.libLink.title = `Open ${id} in a new tab, at 0x${at !== undefined ? hx(at) : "?"} (its listing and decompiler); it follows the pc while it is in ${loc.module}`;
+    const follow = this.session?.sessionId;
+    this.libLink.onclick = () => openLibrary(id, at, follow);
+  }
+
+  /** Where the pc is, for the library tabs following this session (PC_CHANNEL). */
+  private postLibraryPc() {
+    if (!this.session) return;
+    const loc = this.state?.pc;
+    const lib = this.pc === null && loc?.libraryProgramId && loc.libraryAddress ? loc : undefined;
+    postPc({ session: this.session.sessionId, programId: lib?.libraryProgramId ?? "", address: lib ? lib.libraryAddress!.offset.toString(16) : "", running: this.running });
+  }
+
+  /** A tab following `session` asked where the pc is. */
+  answerPc(session: string) {
+    if (this.session?.sessionId === session && !this.historical) this.postLibraryPc();
   }
 
   private frameText(f: DebugFrame): string {

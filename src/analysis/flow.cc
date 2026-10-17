@@ -2,6 +2,7 @@
 
 #include "data_internal.h"
 #include "internal.h"
+#include "revkit/analysis/register_values.h"
 
 #include <algorithm>
 #include <map>
@@ -44,7 +45,9 @@ void FlowInsn::encode(facts::Encoder &e) const {
                                  (no_return ? kNoReturn : 0) | (tail_call ? kTailCall : 0) | (delay ? kDelay : 0) |
                                  (resolved ? kResolved : 0)));
   if (delay) e.varint(delay);
-  facts::encode(e, conditional);
+  // The second byte: conditional, and a fallthrough override.
+  e.u8(static_cast<std::uint8_t>((conditional ? 1 : 0) | (fall_override ? 2 : 0)));
+  if (fall_override) e.svarint(static_cast<std::int64_t>(fall_to - address));
   e.varint(targets.size());
   for (std::uint64_t t : targets) e.svarint(static_cast<std::int64_t>(t - address));
 }
@@ -61,7 +64,11 @@ FlowInsn FlowInsn::decode(facts::Decoder &d) {
   if ((k & 0x07) > static_cast<unsigned>(FlowKind::ret)) throw facts::DecodeError("bad flow kind");
   f.kind = static_cast<FlowKind>(k & 0x07);
   if (k & kDelay) f.delay = facts::decode<std::uint32_t>(d);
-  f.conditional = facts::decode<bool>(d);
+  const std::uint8_t more = d.u8();
+  if (more > 3) throw facts::DecodeError("bad flow flags");
+  f.conditional = (more & 1) != 0;
+  f.fall_override = (more & 2) != 0;
+  if (f.fall_override) f.fall_to = f.address + static_cast<std::uint64_t>(d.svarint());
   std::size_t n = d.count();
   for (std::size_t i = 0; i < n; ++i) f.targets.push_back(f.address + static_cast<std::uint64_t>(d.svarint()));
   return f;
@@ -114,7 +121,7 @@ FlowGraph FlowGraph::decode(facts::Decoder &d) {
     if (at >= g.insns.size()) throw facts::DecodeError("bad reference");
     r.insn = static_cast<std::uint32_t>(at);
     const std::uint8_t k = d.u8();
-    if ((k & 0x0f) > static_cast<unsigned>(RefKind::data_write) || (k & 0xe0) != 0) throw facts::DecodeError("bad reference kind");
+    if ((k & 0x0f) > static_cast<unsigned>(RefKind::fallthrough) || (k & 0xe0) != 0) throw facts::DecodeError("bad reference kind");
     r.kind = static_cast<RefKind>(k & 0x0f);
     r.delay_slot = (k & 0x10) != 0;
     r.to = g.insns[r.insn].address + static_cast<std::uint64_t>(d.svarint());
@@ -150,10 +157,22 @@ const FlowInsn *FlowGraph::at(std::uint64_t address) const {
 
 // ---- assertions ----
 
+std::optional<FallthroughOverride> fallthrough_override(const facts::FactValue &v) {
+  if (const auto *to = std::get_if<facts::Address>(&v)) return FallthroughOverride{true, to->offset};
+  if (const auto *k = std::get_if<std::int64_t>(&v); k && *k == kNoFallthrough) return FallthroughOverride{false, 0};
+  return std::nullopt;
+}
+
 namespace detail {
 
 facts::FactValue Assertions::value(facts::FactKind kind, std::uint64_t a) {
-  auto &span = spans_[{kind, a >> facts::kSpanShift}];
+  // (Flow asks at every instruction it decodes: consecutive ones share a span.)
+  const std::pair<facts::FactKind, std::uint64_t> at{kind, a >> facts::kSpanShift};
+  if (last_ == nullptr || last_key_ != at) {
+    last_ = &spans_[at];
+    last_key_ = at;
+  }
+  auto &span = *last_;
   if (!span) span = ctx_.get<facts::AssertedSpan>(facts::BucketKey{kind, space_, a >> facts::kSpanShift});
   if (!std::binary_search(span->begin(), span->end(), std::pair{a, std::string()})) return {};
   return *ctx_.get<facts::AssertedFact>(facts::FactKey{kind, facts::Address{space_, a}, {}});
@@ -165,6 +184,10 @@ FlowOverride Assertions::flow_override(std::uint64_t a) {
   if (!k || *k < static_cast<std::int64_t>(FlowOverride::none) || *k > static_cast<std::int64_t>(FlowOverride::ret))
     return FlowOverride::none;
   return static_cast<FlowOverride>(*k);
+}
+
+std::optional<FallthroughOverride> Assertions::fallthrough(std::uint64_t a) {
+  return fallthrough_override(value(facts::FactKind::Fallthrough, a));
 }
 
 std::vector<UserRef> Assertions::references(std::uint64_t a) {
@@ -269,11 +292,13 @@ ThunkInfo JumpStub::compute(facts::QueryContext &ctx, const Location &addr) {
   // that, so it leaves RISC-V PLT stubs unnamed.)
   constexpr int kMaxInstructions = 5;
   std::vector<std::pair<std::uint64_t, std::uint32_t>> written;
+  // A fallthrough override on the way makes it no stub.
+  detail::Assertions asserted(ctx, info->space);
   std::uint64_t a = start;
   for (int n = 0; n < kMaxInstructions; ++n) {
     if (!info->is_code(a)) return none;
     auto insn = decoder.decode(a, bytes, tagged);
-    if (!insn || insn->unimplemented) return none;
+    if (!insn || insn->unimplemented || asserted.fallthrough(a)) return none;
     const std::uint64_t end = a + insn->length + insn->delay_slot;
     if (insn->pcode.empty()) {
       if (n != 0) return none;
@@ -488,10 +513,11 @@ ThunkInfo Thunk::compute(facts::QueryContext &ctx, const Location &addr) {
   if (!info->is_code(start)) return {};
   ByteReader bytes(ctx, *info);
   Decoder decoder(*info);
+  detail::Assertions asserted(ctx, info->space);
   std::uint64_t a = start;
   for (int n = 0; n < 2; ++n) {
     auto insn = decoder.decode(a, bytes, start != addr.address);
-    if (!insn || insn->unimplemented) return {};
+    if (!insn || insn->unimplemented || asserted.fallthrough(a)) return {};
     const std::uint64_t end = a + insn->length + insn->delay_slot;
     if (insn->pcode.empty() && n == 0) {
       a = end;
@@ -721,7 +747,7 @@ static FlowGraph compute_flow(facts::QueryContext &ctx, const Location &entry) {
       const FlowInsn &f = it->second.flow;
       if (f.kind == FlowKind::jump_indirect || (f.kind == FlowKind::jump && constant_jumps.contains(x))) jump = &it->second;
       else if (f.kind != FlowKind::fall || !f.falls_through) return;
-      else x += f.length;
+      else x = f.fallthrough();
     }
     if (!jump || jump->flow.no_return) return;
     const bool constant = jump->flow.kind == FlowKind::jump;
@@ -975,31 +1001,83 @@ static FlowGraph compute_flow(facts::QueryContext &ctx, const Location &entry) {
         for (auto t = d.flow.targets.rbegin(); t != d.flow.targets.rend(); ++t)
           if (*t != a) work.push_back({*t, a, true});
       }
+      // The user's fallthrough override (Ghidra's Set Fallthrough): over
+      // whatever the instruction and analysis say (a jump made to fall
+      // through, a call to a no-return function going on), control goes on
+      // at its address, or stops.
+      if (auto ft = asserted.fallthrough(a)) {
+        d.flow.fall_override = true;
+        d.flow.falls_through = ft->falls;
+        d.flow.fall_to = ft->falls ? ft->to : 0;
+      }
       if (!d.flow.falls_through) break;
-      const std::uint64_t next = a + d.flow.length;
-      if (next < a) break;
+      const std::uint64_t next = d.flow.fallthrough();
+      if (!d.flow.fall_override && next < a) break;
       pred = a;
       has_pred = true;
       a = next;
     }
   }
 
-  detail::collect_data_refs(*info, bytes, start, done.size(),
-                            [&](std::uint64_t a) -> detail::DecodedAt {
-                              auto it = done.find(a);
-                              if (it == done.end()) return {};
-                              return {&it->second.insn, &it->second.flow};
-                            },
-                            out.data_refs);
+  auto decoded_at = [&](std::uint64_t a) -> detail::DecodedAt {
+    auto it = done.find(a);
+    if (it == done.end()) return {};
+    return {&it->second.insn, &it->second.flow};
+  };
+  // Register values over ranges (register_values.h): what the flow doesn't
+  // know of a register with a value there reads as that value. The
+  // references only they find are the instructions' references too.
+  RegisterValueReader regvals(ctx, entry.program);
+  std::vector<DataRef> assumed_refs;
+  if (regvals.empty()) {
+    detail::collect_data_refs(*info, bytes, start, done.size(), decoded_at, out.data_refs);
+  } else {
+    const detail::AssumedRegister assumed = [&](std::uint64_t at, std::uint64_t offset, std::uint32_t size) {
+      return regvals.value(at, offset, size, info->big_endian);
+    };
+    detail::collect_data_refs(*info, bytes, start, done.size(), decoded_at, out.data_refs, &assumed);
+    if (info->references) {
+      std::vector<DataRef> plain;
+      detail::collect_data_refs(*info, bytes, start, done.size(), decoded_at, plain);
+      std::set_difference(out.data_refs.begin(), out.data_refs.end(), plain.begin(), plain.end(), std::back_inserter(assumed_refs));
+    }
+  }
+  std::size_t next_assumed = 0;
   out.insns.reserve(done.size());
   for (auto &[addr, d] : done) {
     const auto index = static_cast<std::uint32_t>(out.insns.size());
     if (info->references) {
+      const std::size_t first_ref = out.refs.size();
       detail::references(d.insn, *info, index, false, out.refs);
       // A delay slot's own references, from it decoded on its own.
-      if (d.flow.delay != 0 && d.flow.delay < d.flow.length)
-        if (auto slot = decoder.decode(addr + (d.flow.length - d.flow.delay), bytes, tagged))
-          detail::references(*slot, *info, index, true, out.refs);
+      const bool slot = d.flow.delay != 0 && d.flow.delay < d.flow.length;
+      if (slot)
+        if (auto s = decoder.decode(addr + (d.flow.length - d.flow.delay), bytes, tagged))
+          detail::references(*s, *info, index, true, out.refs);
+      // The references register values found: from the delay slot when
+      // there is one (a branch itself doesn't load or store).
+      while (next_assumed < assumed_refs.size() && assumed_refs[next_assumed].from < addr) ++next_assumed;
+      bool added = false;
+      for (; next_assumed < assumed_refs.size() && assumed_refs[next_assumed].from == addr; ++next_assumed) {
+        const DataRef &r = assumed_refs[next_assumed];
+        if (!info->is_mapped(r.to)) continue;
+        const RefKind kind = r.access == DataAccess::read    ? RefKind::data_read
+                             : r.access == DataAccess::write ? RefKind::data_write
+                                                             : RefKind::data_pointer;
+        out.refs.push_back({index, kind, slot, r.to});
+        added = true;
+      }
+      if (added) {
+        auto from = out.refs.begin() + static_cast<std::ptrdiff_t>(first_ref);
+        std::sort(from, out.refs.end(), [](const FlowRef &x, const FlowRef &y) {
+          return std::tie(x.delay_slot, x.to, x.kind) < std::tie(y.delay_slot, y.to, y.kind);
+        });
+        out.refs.erase(std::unique(from, out.refs.end(),
+                                   [](const FlowRef &x, const FlowRef &y) {
+                                     return x.delay_slot == y.delay_slot && x.to == y.to && x.kind == y.kind;
+                                   }),
+                       out.refs.end());
+      }
     }
     // Words loaded from code (literal pools): data, and what they hold may
     // be a function's address, or (as Ghidra's ARM constant references
@@ -1042,6 +1120,17 @@ static FlowGraph compute_flow(facts::QueryContext &ctx, const Location &entry) {
                                    }),
                        out.refs.end());
       }
+    }
+    // A fallthrough override's address, as Ghidra's FALL_THROUGH
+    // reference (kept sorted among the instruction's references).
+    if (info->references && d.flow.fall_override && d.flow.falls_through) {
+      const FlowRef r{index, RefKind::fallthrough, false, d.flow.fall_to};
+      auto from = out.refs.end();
+      while (from != out.refs.begin() && std::prev(from)->insn == index) --from;
+      auto pos = std::find_if(from, out.refs.end(), [&](const FlowRef &x) {
+        return x.delay_slot || std::tie(x.to, x.kind) > std::tie(r.to, r.kind);
+      });
+      out.refs.insert(pos, r);
     }
     out.insns.push_back(std::move(d.flow));
   }

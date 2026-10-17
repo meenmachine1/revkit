@@ -10,6 +10,7 @@
 #include "revkit/lift/lifter.hh"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <functional>
 #include <map>
@@ -72,6 +73,8 @@ class ByteReader {
 // Drops the pool's idle engines (release_idle_decoders()), destroying
 // them on `threads` when given.
 void pool_clear(facts::ThreadPool *threads = nullptr);
+// Parks the idle engines once the pool has been unused for `idle_for` (park_decoders()).
+std::size_t pool_park(std::chrono::steady_clock::duration idle_for);
 // Builds `n` engines for `language` (without its compiler) on `threads`
 // (prepare_decoders()).
 void pool_prepare(const std::string &language, unsigned n, facts::ThreadPool &threads);
@@ -322,7 +325,7 @@ class Evaluator {
 // callee without thunks ever depending on each other in a cycle.
 struct JumpStub {
   static constexpr std::string_view name = "analysis.stub";
-  static constexpr std::uint32_t version = 4;  // 4: patches through patch.page
+  static constexpr std::uint32_t version = 5;  // 4: patches through patch.page; 5: fallthrough overrides
   using Key = Location;
   using Value = ThunkInfo;
   static Value compute(facts::QueryContext &ctx, const Key &addr);
@@ -392,7 +395,7 @@ std::optional<std::int64_t> prologue_frame(const ProgramInfo &info, std::uint64_
 bool named_no_return(facts::QueryContext &ctx, const ProgramKey &program, const ProgramInfo &info,
                      std::uint64_t target);
 
-// The asserted FUNCTION_BOUNDS and FLOW_OVERRIDE values at one address in
+// The asserted FUNCTION_BOUNDS, FLOW_OVERRIDE and FALLTHROUGH values at one address in
 // the program's code space, read through the key index's spans so a query
 // depends on the assertions near what it looked at.
 class Assertions {
@@ -402,6 +405,8 @@ class Assertions {
   // FUNCTION_BOUNDS at `a`: absent, an AddressSet, or kNotAFunction.
   facts::FactValue bounds(std::uint64_t a) { return value(facts::FactKind::FunctionBounds, a); }
   FlowOverride flow_override(std::uint64_t a);
+  // FALLTHROUGH at `a`: the user's fallthrough override, if any.
+  std::optional<FallthroughOverride> fallthrough(std::uint64_t a);
   // The live REFERENCE keys at `a` (user references, user_refs.h).
   std::vector<UserRef> references(std::uint64_t a);
 
@@ -411,6 +416,8 @@ class Assertions {
   facts::QueryContext &ctx_;
   facts::SpaceId space_;
   std::map<std::pair<facts::FactKind, std::uint64_t>, facts::Ref<facts::AssertedSpan::Value>> spans_;
+  std::pair<facts::FactKind, std::uint64_t> last_key_{};
+  facts::Ref<facts::AssertedSpan::Value> *last_ = nullptr;  // spans_[last_key_]
 };
 
 // Applies a flow override to one instruction's flow, as Ghidra's

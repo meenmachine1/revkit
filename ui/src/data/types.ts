@@ -2,7 +2,7 @@
 // these, never protobuf messages; src/data/listingSource.ts maps
 // revkit.v1 GetListing rows into them.
 
-import type { DemangledName, FactOrigin } from "@revkit/api";
+import type { DataSettings, DemangledName, FactOrigin } from "@revkit/api";
 
 /** Header rows (plate comment lines, signatures, labels, pre-comments) are
  * display lines above a code unit, numbered by the daemon. */
@@ -85,9 +85,18 @@ export interface ListingRow {
   /** Effective flow override (revkit.v1 FlowOverrideKind, 0 = none). */
   flowOverride: number;
   flowOverrideOrigin?: FactOrigin;
+  /** The user's fallthrough override (feature fallthrough-override; Ghidra's
+   * Set Fallthrough): set, with `fallthrough` where control goes on after
+   * the instruction (null: it doesn't fall through). */
+  fallthroughOverride: boolean;
+  fallthrough: bigint | null;
+  fallthroughOrigin?: FactOrigin;
   /** A call's signature override as C (feature call-signature-override; "" if none) and who set it. */
   callSignature: string;
   callSignatureOrigin?: FactOrigin;
+  /** Register values from here (feature register-values; Ghidra's "assume gp = 0x..."):
+   * where a range starts and at a function's entry. */
+  registerValues: { register: string; value: bigint; analysis: boolean; origin?: FactOrigin }[];
   /** A global's asserted type (or a data row's type). */
   dataType: string;
   /** Its definition's hash (GetTypes), for the hover card's layout. */
@@ -117,6 +126,13 @@ export interface ListingRow {
   /** revkit.v1 Mutability over the row's first byte (0: no edit), and who set it. */
   mutability: number;
   mutabilityOrigin?: FactOrigin;
+  /** Data settings (feature data-settings): the row's own (its item's; a
+   * struct field's own) and who set them, the type its defaults are kept
+   * by, and that type's defaults. The operands already show them. */
+  dataSettings?: DataSettings;
+  dataSettingsOrigin?: FactOrigin;
+  dataSettingsType?: string;
+  dataTypeSettings?: DataSettings;
 }
 
 export interface RowsResult {

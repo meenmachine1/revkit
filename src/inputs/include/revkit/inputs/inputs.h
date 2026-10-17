@@ -145,8 +145,12 @@ struct DebugInfo;  // debug.cc
 
 // The image's DWARF and, for a PE, the PDB that matches it, looked up as
 // rk-debuginfo does (the debug directory's path, its file name beside
-// `binary`, then <stem>.pdb). Null if there is neither.
-std::shared_ptr<const DebugInfo> read_debug_info(const loader::Image &image, const std::filesystem::path &binary);
+// `binary`, then <stem>.pdb). Null if there is neither. An ELF without
+// .debug_info takes `debug_file`'s, a separate debug file (the caller
+// found and checked it: docs/backend.md, "External debug files"), read
+// as the image's own would be.
+std::shared_ptr<const DebugInfo> read_debug_info(const loader::Image &image, const std::filesystem::path &binary,
+                                                 std::shared_ptr<const loader::Bytes> debug_file = nullptr);
 
 // ---- analysis ----
 

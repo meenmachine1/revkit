@@ -6,6 +6,7 @@
 // library program.
 #include "builders.hh"
 
+#include "libraries.h"
 #include "revkit/backend/image_backend.h"
 #include "revkit/debug/gdb_remote.hh"
 #include "revkit/loader/load.hh"
@@ -16,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 
 namespace revkit::backend {
 namespace {
@@ -27,14 +29,25 @@ using api::CallContext;
 constexpr const char *kLibrary = R"(
 __attribute__((noinline)) int lib_add(int a, int b) { return a + b + 1000; }
 int lib_twice(int a) { return lib_add(a, a); }
+// A frame of its own (no frame pointer at -O1) around a call: unwinding out
+// of it needs the library's CFI.
+__attribute__((noinline)) int lib_leaf(int a) { return a * 3 + 1; }
+__attribute__((noinline)) int lib_deep(int a) {
+  volatile int buf[16];
+  for (int i = 0; i < 16; ++i) buf[i] = a + i;
+  int r = lib_leaf(buf[a & 15]);
+  return r + buf[0] + buf[15];
+}
 )";
 
 constexpr const char *kProgram = R"(
 int lib_add(int a, int b);
 int lib_twice(int a);
+int lib_deep(int a);
 int main(int argc, char **argv) {
   (void)argv;
-  return (lib_add(argc, 2) + lib_twice(argc)) & 0x7f;
+  int r = lib_add(argc, 2) + lib_twice(argc);
+  return (r + lib_deep(argc)) & 0x7f;
 }
 )";
 
@@ -60,11 +73,29 @@ class Libraries : public ::testing::Test {
     if (std::string(REVKIT_GHIDRA_ROOT).empty()) GTEST_SKIP() << "GHIDRA_ROOT not configured";
     if (!built_) GTEST_SKIP() << "no C compiler that builds a shared library";
   }
-  void Open(bool live = false) {
+  void Open(bool live = false, std::vector<std::string> browse_roots = {}) {
     ImageBackendOptions o;
     o.ghidra_root = REVKIT_GHIDRA_ROOT;
     o.debug_live = live;
+    o.browse_roots = std::move(browse_roots);
     backend_ = MakeImageBackend(o);
+  }
+  // An extracted root file system under <dir>/fw/rootfs: the program in
+  // /usr/bin, the library in /opt/vendor/lib (named by /etc/ld.so.conf's
+  // include) as libmylib.so.1, with libmylib.so an absolute symlink to it
+  // (resolved inside the root, not on the host), and a link that tries to
+  // climb out.
+  static fs::path MakeRootFs() {
+    const fs::path root = dir_ / "fw" / "rootfs";
+    fs::remove_all(dir_ / "fw");
+    for (const char *d : {"usr/bin", "lib", "etc/ld.so.conf.d", "opt/vendor/lib"}) fs::create_directories(root / d);
+    fs::copy_file(exe_, root / "usr/bin/prog");
+    fs::copy_file(lib_, root / "opt/vendor/lib/libmylib.so.1");
+    fs::create_symlink("/opt/vendor/lib/libmylib.so.1", root / "opt/vendor/lib/libmylib.so");
+    fs::create_symlink("../../../../../../../../../../etc/passwd", root / "lib/escape");
+    std::ofstream(root / "etc/ld.so.conf") << "# comment\ninclude /etc/ld.so.conf.d/*.conf\n";
+    std::ofstream(root / "etc/ld.so.conf.d/vendor.conf") << "/opt/vendor/lib\n";
+    return root;
   }
   // The program, uploaded (so the host's own libraries aren't searched),
   // with the libraries found beside it.
@@ -199,6 +230,47 @@ TEST_F(Libraries, ImportedWithTheProgramAndItsImportsResolved) {
   rr.set_name("no_such_import");
   EXPECT_EQ(backend_->ResolveImport(ctx_, rr, resolved).code, api::StatusCode::kNotFound);
 
+  // References back from the library: prog imports lib_add, main calls it.
+  EXPECT_GE(info.api_minor(), 81u);
+  EXPECT_NE(std::find(info.features().begin(), info.features().end(), "library-importers"), info.features().end());
+  pb::ListLibraryImportersRequest li;
+  li.set_program_id(lib);
+  li.mutable_address()->set_offset(lib_functions.at("lib_add") + 1);  // inside it: the function
+  li.set_include_references(true);
+  pb::ListLibraryImportersResponse back;
+  auto bst = backend_->ListLibraryImporters(ctx_, li, back);
+  ASSERT_TRUE(bst.ok()) << bst.message;
+  ASSERT_EQ(back.importers_size(), 1);
+  EXPECT_EQ(back.importers(0).program_id(), prog);
+  EXPECT_EQ(back.importers(0).program_name(), "prog");
+  EXPECT_EQ(back.importers(0).library(), "libmylib.so");
+  EXPECT_EQ(back.importers(0).resolved().name(), "lib_add");
+  EXPECT_EQ(back.importers(0).resolved().thunk().offset(), add->thunk().offset());
+  bool from_main = false;
+  for (const auto &x : back.importers(0).references()) {
+    from_main |= x.from_function_name() == "main" && x.kind() == pb::XREF_KIND_CALL;
+    EXPECT_NE(x.from_function().offset(), add->thunk().offset()) << "the thunk's own jump is left out";
+  }
+  EXPECT_TRUE(from_main);
+  // Every import of it: lib_add and lib_twice; by name; none from prog itself.
+  li.clear_address();
+  li.set_include_references(false);
+  back.Clear();
+  ASSERT_TRUE(backend_->ListLibraryImporters(ctx_, li, back).ok());
+  std::set<std::string> names;
+  for (const auto &u : back.importers()) names.insert(u.resolved().name());
+  EXPECT_TRUE(names.count("lib_add") && names.count("lib_twice"));
+  EXPECT_EQ(back.importers(0).references_size(), 0);
+  li.set_name("lib_twice");
+  back.Clear();
+  ASSERT_TRUE(backend_->ListLibraryImporters(ctx_, li, back).ok());
+  ASSERT_EQ(back.importers_size(), 1);
+  EXPECT_EQ(back.importers(0).resolved().address().offset(), lib_functions.at("lib_twice"));
+  li.set_program_id(prog);
+  back.Clear();
+  ASSERT_TRUE(backend_->ListLibraryImporters(ctx_, li, back).ok());
+  EXPECT_EQ(back.importers_size(), 0);
+
   // A link: libc.so.6 is (say) the library program; then found by name again.
   pb::LinkProgramLibraryRequest link;
   link.set_program_id(prog);
@@ -218,6 +290,108 @@ TEST_F(Libraries, ImportedWithTheProgramAndItsImportsResolved) {
   EXPECT_EQ(linked.library().resolution(), pb::LIBRARY_RESOLUTION_NONE);
   link.set_target_program_id(prog);
   EXPECT_EQ(backend_->LinkProgramLibrary(ctx_, link, linked).code, api::StatusCode::kInvalidArgument);
+}
+
+TEST_F(Libraries, ARootFileSystemIsSearchedInsideItself) {
+  const fs::path root = fs::canonical(MakeRootFs());
+  // Found from the program, below the browse root, not above it.
+  EXPECT_EQ(libs::FindRootFileSystem(root / "usr/bin/prog", dir_ / "fw"), root);
+  EXPECT_EQ(libs::FindRootFileSystem(root / "usr/bin/prog", root / "usr"), std::nullopt);
+  auto r = libs::HostRoot(root);
+  // An absolute link is from the root; one climbing out stops at it.
+  EXPECT_EQ(r->file("/opt/vendor/lib/libmylib.so"), (root / "opt/vendor/lib/libmylib.so.1").string());
+  EXPECT_EQ(r->file("/lib/escape"), std::nullopt);
+  EXPECT_EQ(r->file("/../../../../etc/passwd"), std::nullopt);
+  EXPECT_EQ(r->origin((root / "usr/bin/prog").string()), "/usr/bin");
+  const loader::Image exe = loader::load_file(exe_);
+  const auto dirs = libs::RootSearchDirs(*r, {}, "/usr/bin", exe);
+  EXPECT_EQ(dirs.front(), "/usr/bin");
+  EXPECT_NE(std::find(dirs.begin(), dirs.end(), "/opt/vendor/lib"), dirs.end());
+  EXPECT_NE(std::find(dirs.begin(), dirs.end(), "/usr/lib"), dirs.end());
+  EXPECT_EQ(libs::FindLibraryIn(*r, "libmylib.so", dirs, exe), (root / "opt/vendor/lib/libmylib.so.1").string());
+  EXPECT_EQ(libs::FindLibraryIn(*r, "libc.so.6", dirs, exe), std::nullopt);
+}
+
+TEST_F(Libraries, ImportedFromTheProgramsRootFileSystem) {
+  const fs::path root = fs::canonical(MakeRootFs());
+  Open(false, {(dir_ / "fw").string()});
+  pb::GetServerInfoResponse info;
+  ASSERT_TRUE(backend_->GetServerInfo(ctx_, {}, info).ok());
+  EXPECT_GE(info.api_minor(), 79u);
+  EXPECT_NE(std::find(info.features().begin(), info.features().end(), "library-roots"), info.features().end());
+
+  pb::ImportProgramRequest req;
+  req.set_project_id("default");
+  req.set_path((root / "usr/bin/prog").string());
+  req.mutable_options()->set_import_libraries(true);
+  req.mutable_options()->set_library_depth(1);
+  req.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+  pb::ImportProgramResponse resp;
+  auto st = backend_->ImportProgram(ctx_, req, resp);
+  ASSERT_TRUE(st.ok()) << st.message;
+  EXPECT_EQ(resp.library_root(), root.string());
+  ASSERT_EQ(resp.libraries_size(), 1);
+  EXPECT_EQ(resp.libraries(0).name(), "libmylib.so");
+  // libc isn't in the root, and the host's isn't looked at instead.
+  bool libc_missing = false;
+  for (const auto &m : resp.libraries_not_found()) libc_missing |= m.name() == "libc.so.6";
+  EXPECT_TRUE(libc_missing);
+  const auto libs = Libs(resp.program().program_id());
+  const pb::ProgramLibrary *my = Find(libs, "libmylib.so");
+  ASSERT_NE(my, nullptr);
+  EXPECT_EQ(my->program_id(), resp.libraries(0).program_id());
+
+  // library_root must be under a --browse-root.
+  pb::ImportProgramRequest bad = req;
+  bad.mutable_options()->set_library_root(dir_.string());
+  pb::ImportProgramResponse bad_resp;
+  EXPECT_EQ(backend_->ImportProgram(ctx_, bad, bad_resp).code, api::StatusCode::kPermissionDenied);
+  Open();
+  EXPECT_EQ(backend_->ImportProgram(ctx_, bad, bad_resp).code, api::StatusCode::kFailedPrecondition);
+}
+
+TEST_F(Libraries, ImportedFromTheSameContainer) {
+  const fs::path root = MakeRootFs();
+  const fs::path tar = dir_ / "rootfs.tar";
+  fs::remove(tar);
+  if (std::system(("tar -C " + root.string() + " -cf " + tar.string() + " . 2>/dev/null").c_str()) != 0)
+    GTEST_SKIP() << "no tar";
+  Open();
+  pb::OpenFileSystemRequest open;
+  open.set_project_id("default");
+  open.set_host_path(tar.string());
+  pb::OpenFileSystemResponse opened;
+  auto st = backend_->OpenFileSystem(ctx_, open, opened);
+  ASSERT_TRUE(st.ok()) << st.message;
+
+  pb::ImportFromFileSystemRequest req;
+  req.set_session_id(opened.session_id());
+  req.set_project_id("default");
+  req.add_paths("/usr/bin/prog");
+  req.mutable_options()->set_import_libraries(true);
+  req.mutable_options()->set_library_depth(1);
+  req.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+  pb::ImportFromFileSystemResponse resp;
+  st = backend_->ImportFromFileSystem(ctx_, req, resp);
+  ASSERT_TRUE(st.ok()) << st.message;
+  ASSERT_EQ(resp.items_size(), 2);
+  EXPECT_EQ(resp.imported(), 2u);
+  const pb::FileSystemImport &prog = resp.items(0), &lib = resp.items(1);
+  EXPECT_EQ(prog.action(), "imported");
+  EXPECT_EQ(lib.action(), "imported");
+  EXPECT_EQ(lib.library_of(), "prog");
+  EXPECT_EQ(lib.path(), "/opt/vendor/lib/libmylib.so.1");
+  EXPECT_EQ(lib.container_path(), "tar://rootfs.tar!/opt/vendor/lib/libmylib.so.1");
+  EXPECT_EQ(lib.program().name(), "libmylib.so");
+  EXPECT_EQ(lib.program().container_path(), lib.container_path());
+  bool libc_missing = false;
+  for (const auto &m : resp.libraries_not_found()) libc_missing |= m.name() == "libc.so.6" && m.needed_by() == "prog";
+  EXPECT_TRUE(libc_missing);
+  const auto libs = Libs(prog.program().program_id());
+  const pb::ProgramLibrary *my = Find(libs, "libmylib.so");
+  ASSERT_NE(my, nullptr);
+  EXPECT_EQ(my->program_id(), lib.program().program_id());
+  EXPECT_GE(my->imports_resolved(), 2u);
 }
 
 TEST_F(Libraries, TheDebuggerNamesALibraryFrameFromTheLibraryProgram) {
@@ -296,6 +470,31 @@ TEST_F(Libraries, TheDebuggerNamesALibraryFrameFromTheLibraryProgram) {
   bool main_found = false;
   for (const auto &f : frames.frames()) main_found |= f.function() == "main" && f.pc().has_program_address();
   EXPECT_TRUE(main_found);
+
+  // Out of lib_deep, whose frame has no frame pointer: the library's own CFI
+  // unwinds lib_leaf and lib_deep, back to main.
+  ASSERT_TRUE(lib_functions.count("lib_leaf"));
+  sb.clear_add();
+  sb.add_add()->mutable_address()->set_offset(lib_functions.at("lib_leaf") + static_cast<std::uint64_t>(mine->library_slide()));
+  ASSERT_TRUE(backend_->SetDebugBreakpoints(ctx_, sb, sbr).ok());
+  pb::GetDebugBacktraceResponse deep;
+  for (int i = 0; i < 4; ++i) {  // past lib_add's other hits
+    r = resume(pb::DEBUG_RUN_MODE_RUN);
+    ASSERT_EQ(r.stop().kind(), pb::DEBUG_STOP_KIND_BREAKPOINT) << r.stop().detail();
+    if (r.state().pc().library_function() == "lib_leaf") break;
+  }
+  ASSERT_EQ(r.state().pc().library_function(), "lib_leaf");
+  deep.Clear();
+  ASSERT_TRUE(backend_->GetDebugBacktrace(ctx_, bt, deep).ok());
+  std::string stack;
+  for (const auto &f : deep.frames()) stack += f.function() + " (" + f.how() + ") ";
+  ASSERT_GE(deep.frames_size(), 3) << stack;
+  EXPECT_EQ(deep.frames(0).function(), "lib_leaf") << stack;
+  EXPECT_EQ(deep.frames(1).function(), "lib_deep") << stack;
+  EXPECT_EQ(deep.frames(1).how(), "cfi") << stack;
+  EXPECT_EQ(deep.frames(2).function(), "main") << stack;
+  EXPECT_EQ(deep.frames(2).how(), "cfi") << stack;
+  EXPECT_TRUE(deep.frames(2).pc().has_program_address()) << stack;
 
   // Its disassembly names it "libmylib.so!lib_add".
   pb::DisassembleDebugMemoryRequest dr;

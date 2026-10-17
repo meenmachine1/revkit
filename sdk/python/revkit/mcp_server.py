@@ -45,7 +45,7 @@ from google.protobuf.json_format import MessageToDict
 from revkit import (Client, RevkitError, __version__, debug_stop_kind, detect_confidence, format_memory_region, format_provenance,
                     patching, provenance)
 from revkit.expr import ExprError, is_number, parse_number
-from revkit.v1 import assertion_pb2, auth_pb2, decompile_pb2, diff_pb2, filesystem_pb2, listing_pb2, patch_pb2, project_pb2, query_pb2, types_pb2
+from revkit.v1 import assertion_pb2, auth_pb2, bsim_pb2, decompile_pb2, diff_pb2, filesystem_pb2, listing_pb2, patch_pb2, project_pb2, query_pb2, types_pb2
 
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
@@ -98,7 +98,8 @@ statically linked library functions Function ID named (MSVC runtime, attached li
 shows a program's memory; add_memory_region maps RAM, memory-mapped I/O or another file's bytes the code
 refers to (firmware loaded as raw bytes knows only its image). Where analysis got the listing wrong,
 clear_code, disassemble_here and define_data say what bytes are, and set_mutability marks memory constant
-or volatile for the decompiler. set_equate names a constant (O_RDONLY, an enum member) and convert_operand
+or volatile for the decompiler; set_data_settings shows a data item (or every item of a type) in decimal,
+another charset or byte order; set_fallthrough sends flow on past inline data after a call. set_equate names a constant (O_RDONLY, an enum member) and convert_operand
 shows it as a char or decimal, in the listing and the decompiler; add_reference adds a reference analysis
 missed (an indirect call's target) and remove_reference deletes a wrong one. To give a program structs and
 other types, parse_c checks C declarations (a header, a struct you write) and import_header makes them the
@@ -582,23 +583,31 @@ def create_server(
     def import_from_filesystem(session_id: str, paths: list[str], reason: str, project_id: str = "",
                                folder: str = "", recursive: bool = False, descend: bool = False,
                                programs_only: bool = False, detect_raw: bool = False, preview: bool = False,
-                               max_programs: int = 0, keep_folders: bool = False, analyze: bool = True) -> dict:
+                               max_programs: int = 0, keep_folders: bool = False, analyze: bool = True,
+                               import_libraries: bool = False) -> dict:
         """Imports files from an open file system as programs (batch import). One file
         named alone is imported whatever it is; directories (``recursive``: and below)
         and containers inside them (``descend``) give their programs only (ELF, PE, raw
         images whose header names the processor, or with ``detect_raw`` those raw
         detection identifies). ``preview`` imports nothing and says what would be;
         ``max_programs`` caps the count (default 100). Each program records its
-        container path."""
+        container path. ``import_libraries`` also imports the shared libraries they need from the
+        same file system (beside each program, its runpath, the container's /lib, /usr/lib and
+        ld.so.conf directories): items with ``library_of``; ``libraries_not_found`` the rest."""
         fs = _fs(session_id)
         with reasoned(reason):
             r = fs.import_(paths, project_id=project_id, folder=folder, recursive=recursive, descend=descend,
                            programs_only=programs_only, detect_raw=detect_raw, preview=preview,
-                           max_programs=max_programs, keep_folders=keep_folders, analyze=analyze)
-        return {"imported": r.imported, "skipped": r.skipped, "failed": r.failed, "capped": r.capped,
-                "items": [{"path": i.path, "action": i.action, "reason": i.reason, "detected": i.detected,
-                           **({"program_id": i.program.program_id, "folder": i.program.folder_path or "/"}
-                              if i.program.program_id else {})} for i in r.items]}
+                           max_programs=max_programs, keep_folders=keep_folders, analyze=analyze,
+                           import_libraries=import_libraries)
+        out = {"imported": r.imported, "skipped": r.skipped, "failed": r.failed, "capped": r.capped,
+               "items": [{"path": i.path, "action": i.action, "reason": i.reason, "detected": i.detected,
+                          **({"library_of": i.library_of} if i.library_of else {}),
+                          **({"program_id": i.program.program_id, "folder": i.program.folder_path or "/"}
+                             if i.program.program_id else {})} for i in r.items]}
+        if r.libraries_not_found:
+            out["libraries_not_found"] = [{"name": m.name, "needed_by": m.needed_by} for m in r.libraries_not_found]
+        return out
 
     @server.tool(annotations=WRITE)
     @guarded
@@ -774,7 +783,7 @@ def create_server(
         return out
 
     _XREF_KINDS = ("", "call", "jump", "conditional_jump", "indirect_call", "indirect_jump", "data_read", "data_write",
-                   "data_pointer", "thunk")
+                   "data_pointer", "thunk", "fallthrough")
 
     @server.tool(annotations=READ)
     @guarded
@@ -782,7 +791,8 @@ def create_server(
               kind: str = "") -> dict:
         """Cross-references to ("to"), from ("from") or both ("both") an address, a page at a time (limit, then
         offset); kind keeps one kind: "call", "jump", "conditional_jump", "indirect_call", "indirect_jump",
-        "data_read", "data_write", "data_pointer" (address taken) or "thunk". "total" counts them all."""
+        "data_read", "data_write", "data_pointer" (address taken), "thunk" or "fallthrough" (a fallthrough override's
+        address). "total" counts them all."""
         _choice("direction", direction, ("to", "from", "both"))
         _choice("kind", kind.lower(), _XREF_KINDS)
         prog = rk.program(program_id)
@@ -1011,6 +1021,110 @@ def create_server(
 
     @server.tool(annotations=READ)
     @guarded
+    def symbol_tree(program_id: str, path: Optional[list[str]] = None, contains: str = "", limit: int = 200,
+                    offset: int = 0) -> dict:
+        """Ghidra's symbol tree, one level at a time. No path: the folders Imports, Exports, Functions,
+        Labels, Classes, Namespaces with their sizes. ["Imports"]: libraries ("<EXTERNAL>" when the file
+        doesn't say); ["Imports", lib]: its imports; ["Exports"]; ["Functions"]; ["Labels"]; ["Classes"]:
+        every class by qualified name; ["Classes", "geo::Circle"]: its members; ["Namespaces", "geo", ...]:
+        a namespace's inner namespaces, classes and symbols. contains filters by name (any case). Each node:
+        name, kind, address (symbols), full_name, children (scopes)."""
+        prog = rk.program(program_id)
+        limit, offset = max(1, min(limit, 5000)), max(0, offset)
+        req = query_pb2.ListSymbolTreeRequest(program_id=program_id, read=prog._read(), path=list(path or []),
+                                              name_contains=contains)
+        req.page.page_size = 5000
+        nodes, total = [], 0
+        while True:
+            resp = prog._q("ListSymbolTree", req)
+            total = resp.total
+            nodes.extend(resp.nodes)
+            if len(nodes) >= offset + limit or not resp.page.next_page_token:
+                break
+            req.page.page_token = resp.page.next_page_token
+        out = []
+        for n in nodes[offset:offset + limit]:
+            e = {"name": n.name, "kind": query_pb2.SymbolTreeNodeKind.Name(n.kind).removeprefix("SYMBOL_TREE_NODE_KIND_").lower()}
+            if n.HasField("address"):
+                e["address"] = _hex(n.address.offset)
+            if n.full_name and n.full_name != n.name:
+                e["full_name"] = n.full_name
+            if n.children:
+                e["children"] = n.children
+            if n.library:
+                e["library"] = n.library
+            out.append(e)
+        result = {"path": list(path or []), "nodes": out, "total": total, "offset": offset}
+        if offset + len(out) < total:
+            result.update(_more(f"more nodes: call again with offset={offset + len(out)}", next_offset=offset + len(out)))
+        return result
+
+    @server.tool(annotations=READ)
+    @guarded
+    def list_relocations(program_id: str, contains: str = "", limit: int = 200, offset: int = 0, first: str = "",
+                         last: str = "") -> dict:
+        """The relocations the file carries (Ghidra's relocation table), in address order: ELF dynamic and
+        object relocations, PE base relocations. contains matches the symbol or the type name (any case);
+        first..last narrows to an address range. Each: address, type (its name, e.g. R_X86_64_JUMP_SLOT),
+        kind (relative, irelative, jump_slot, glob_dat, absolute, other), symbol, addend, target (where it
+        points once applied, when that is known here, with its name) and the bytes there (hex)."""
+        prog = rk.program(program_id)
+        limit = max(1, min(limit, 5000))
+        req = query_pb2.ListRelocationsRequest(program_id=program_id, read=prog._read(), text_contains=contains)
+        if first or last:
+            req.range.first.offset = at(program_id, first) if first else 0
+            req.range.last.offset = at(program_id, last) if last else (1 << 64) - 1
+        out, skipped, total = [], 0, 0
+        req.page.page_size = 5000
+        while True:
+            resp = prog._q("ListRelocations", req)
+            total = resp.total
+            for r in resp.relocations:
+                if skipped < offset:
+                    skipped += 1
+                    continue
+                if len(out) == limit:
+                    break
+                e = {"address": _hex(r.address.offset), "type": r.type_name,
+                     "kind": query_pb2.RelocationKind.Name(r.kind).removeprefix("RELOCATION_KIND_").lower(),
+                     "addend": r.addend, "bytes": r.original.hex()}
+                if r.symbol:
+                    e["symbol"] = r.symbol
+                if r.HasField("target"):
+                    e["target"] = _hex(r.target.offset)
+                    if r.target_name:
+                        e["target_name"] = r.target_name
+                out.append(e)
+            if len(out) == limit or not resp.page.next_page_token:
+                break
+            req.page.page_token = resp.page.next_page_token
+        result = {"format": resp.format, "total": total, "relocations": out, "offset": offset}
+        if offset + len(out) < total:
+            result.update(_more(f"more relocations: call again with offset={offset + len(out)}",
+                                next_offset=offset + len(out)))
+        return result
+
+    @server.tool(annotations=READ)
+    @guarded
+    def list_comments(program_id: str, kinds: Optional[list[str]] = None, contains: str = "", limit: int = 200) -> dict:
+        """Every comment of a program (Ghidra's comment window), in address order: kinds among "eol", "pre",
+        "post", "plate", "repeatable", "decompiler" (default all); contains filters by text, case-insensitively.
+        Each: address, kind, text, the function it is in, who wrote it."""
+        out = []
+        for c in rk.program(program_id).comments(*(kinds or []), text_contains=contains, page_size=min(max(limit, 1), 1000)):
+            e = {"address": _hex(c.address.offset), "kind": assertion_pb2.CommentKind.Name(c.kind).removeprefix("COMMENT_KIND_").lower(),
+                 "text": c.text}
+            if c.function_name:
+                e["function"] = c.function_name
+            if c.label:
+                e["label"] = c.label
+            out.append(e)
+            if len(out) >= limit:
+                break
+        return {"comments": out}
+
+    @server.tool(annotations=READ)
+    @guarded
     def list_data(program_id: str, category: str = "", text_contains: str = "", limit: int = 100, offset: int = 0,
                   first: str = "", last: str = "") -> dict:
         """Defined data, a page at a time (limit, then offset): category "string", "pointer", "typed" (typed
@@ -1030,6 +1144,17 @@ def create_server(
         r = rk.program(program_id).load_pdb(path or None, symbol_path=from_symbol_path, force=force, reason="mcp load_pdb")
         return {"pdb_file": r.pdb_file, "exact": r.exact, "source": r.source, "functions": r.functions,
                 "variables": r.variables, "types": r.types, "warnings": list(r.warnings), "revision": r.snapshot.revision}
+
+    @server.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=True))
+    @guarded
+    def load_debug_file(program_id: str, path: str = "", search: bool = False, force: bool = False) -> dict:
+        """Loads a stripped Linux (ELF) program's separate debug file: a path on the daemon's host, or (search) the
+        one its build ID or .gnu_debuglink names, looked up locally and, only if an admin enabled them, on debuginfod
+        servers. Another build's file needs force. Its names, prototypes and types become import:dwarf assertions."""
+        r = rk.program(program_id).load_debug_file(path or None, search=search, force=force, reason="mcp load_debug_file")
+        return {"debug_file": r.debug_file, "exact": r.exact, "source": r.source, "build_id": r.build_id,
+                "functions": r.functions, "variables": r.variables, "types": r.types, "warnings": list(r.warnings),
+                "search_log": list(r.search_log)[:50], "revision": r.snapshot.revision, "seqs": list(r.assertion_seqs)}
 
     @server.tool(annotations=READ)
     @guarded
@@ -1440,6 +1565,39 @@ def create_server(
             "mismatches": r.mismatches,
         }
 
+    @server.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False))
+    @guarded
+    def export_c(program_id: str, function_addresses: Optional[list[str]] = None, header: bool = True,
+                 directory: str = "", file_name: str = "") -> dict:
+        """Ghidra's C/C++ exporter: functions (function_addresses; default every one) decompiled into one .c
+        file in address order and, with header, a .h of the program's types, Ghidra's built-in type names and
+        each function's prototype. With directory (on this MCP server's machine), both files are written
+        there and only their paths and counts come back; without it the texts come back when the source is
+        at most 200 kB (else an error asking for a directory). file_name: the files' name without the
+        extension (default the program's)."""
+        prog = rk.program(program_id)
+        entries = [at(program_id, a) for a in function_addresses] if function_addresses else None
+        r = prog.export_c(entries, header=header, name=file_name, directory=directory or None)
+        out = {"source_name": r.source_name, "functions": r.functions,
+               "failed": [_hex(a) for a in r.failed][:50], "revision": r.revision}
+        if r.header_name:
+            out["header_name"] = r.header_name
+        if r.notes:
+            out["notes"] = r.notes[:20]
+        if directory:
+            import os
+            out["source_path"] = os.path.join(directory, r.source_name)
+            if r.header_name:
+                out["header_path"] = os.path.join(directory, r.header_name)
+            return out
+        if len(r.source) + len(r.header) > 200_000:
+            return {"error": f"the export is {len(r.source) + len(r.header):,} bytes: give a directory to write it to, "
+                             "or fewer function_addresses", **out}
+        out["source"] = r.source
+        if r.header_name:
+            out["header"] = r.header
+        return out
+
     @server.tool(annotations=WRITE)
     @guarded
     def import_type_archive(program_id: str, header: str, sidecar: str, reason: str) -> dict:
@@ -1701,11 +1859,71 @@ def create_server(
 
     @server.tool(annotations=WRITE)
     @guarded
+    def set_fallthrough(program_id: str, address: str, reason: str, target: str = "", no_fallthrough: bool = False,
+                        clear: bool = False) -> dict:
+        """Set where control goes on after an instruction (Ghidra's Set Fallthrough): target, instead of the next
+        instruction (inline data after a call, a jump over junk); no_fallthrough, nowhere; clear, back to its own
+        (Clear Fallthrough). Function bodies, the listing, the function graph, references and the decompiler (a
+        branch to target) follow it."""
+        if sum((bool(target), no_fallthrough, clear)) != 1:
+            raise ValueError("give one of target, no_fallthrough or clear")
+        prog = rk.program(program_id)
+        a = at(program_id, address)
+        if clear:
+            return write_result(prog.clear_fallthrough(a, reason=reason))
+        return write_result(prog.set_fallthrough(a, None if no_fallthrough else at(program_id, target), reason=reason))
+
+    @server.tool(annotations=WRITE)
+    @guarded
     def set_no_return(program_id: str, function_address: str, no_return: bool, reason: str) -> dict:
         """Say whether a function returns (Ghidra's Set No-Return): true, calls to it end their caller's flow
         (function bodies, the listing and the decompiler stop after the call); false, it returns, even where
         analysis decided it doesn't (exit-like names, no path to a return)."""
         return write_result(rk.program(program_id).set_no_return(at(program_id, function_address), no_return, reason=reason))
+
+    @server.tool(annotations=WRITE)
+    @guarded
+    def set_register_value(program_id: str, register: str, reason: str, value: str = "", first: str = "", last: str = "",
+                           function_address: str = "", clear: bool = False) -> dict:
+        """Say a register holds a constant over an address range (Ghidra's Set Register Values): MIPS gp, the
+        PowerPC TOC (r2) or small data base (r13). Analysis's references and the decompiler then resolve
+        register-relative loads to globals there. The range is first..last (last defaults to first) or a
+        function's body (function_address); value is a number ("0x418ff0"). clear says the register has no
+        value there instead (over analysis's own, such as the loader's _gp). One undo step (undo_changes with
+        seqs)."""
+        p = rk.program(program_id)
+        kw = {"function": at(program_id, function_address)} if function_address else {}
+        lo = at(program_id, first) if first else None
+        hi = at(program_id, last) if last else None
+        if clear:
+            resp = p.clear_register_value(register, lo, hi, reason=reason, **kw)
+        elif not value:
+            raise ValueError("value is required (or clear)")
+        else:
+            resp = p.set_register_value(register, int(value, 0), lo, hi, reason=reason, **kw)
+        # A function's body may be several ranges: one assertion each, one revision.
+        return {**write_result(resp), "seqs": [a.seq for a in resp.assertions]}
+
+    @server.tool(annotations=READ)
+    @guarded
+    def list_register_values(program_id: str, register: str = "", first: str = "", last: str = "", limit: int = 200) -> dict:
+        """Register values over address ranges (Ghidra's register manager): each range with its register,
+        value and who set it ("analysis:mips-gp" for the loader's _gp, else the assertion's author); optionally
+        one register and ranges overlapping first..last. Also the registers values can be set on."""
+        p = rk.program(program_id)
+        lo = at(program_id, first) if first else None
+        hi = at(program_id, last) if last else None
+        out = []
+        for r in p.register_values(register, first=lo, last=hi, page_size=min(max(limit, 1), 1000)):
+            if r.origin.HasField("derived"):
+                who = "analysis:" + r.origin.derived.rule.split(":", 1)[-1]
+            else:
+                who = format_provenance(r.origin.asserted.provenance)
+            out.append({"register": r.register_name, "first": _hex(r.range.first.offset), "last": _hex(r.range.last.offset),
+                        "value": _hex(r.value), "set_by": who})
+            if len(out) >= limit:
+                break
+        return {"ranges": out, "registers": [r.name for r in p.value_registers()]}
 
     @server.tool(annotations=READ)
     @guarded
@@ -1800,6 +2018,28 @@ def create_server(
         or define_data. Undo with undo_changes."""
         return listing_result(rk.program(program_id).clear_code(at(program_id, address), length, reason=reason))
 
+    @server.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, open_world_hint=False))
+    @guarded
+    def clear_flow(program_id: str, address: str, reason: str, follow_calls: bool = False, dry_run: bool = False) -> dict:
+        """Ghidra's Clear Flow and Repair: clear the code the flow from an instruction reaches (fallthrough,
+        branches, jumps, jump tables) that no other code reaches; what other code reaches stays code. With
+        follow_calls, also the functions only this flow calls. Functions whose entry is cleared go. dry_run
+        returns the plan (ranges, counts, functions) without clearing. Undo with undo_changes on every seq
+        returned (one revision)."""
+        prog = rk.program(program_id)
+        a = at(program_id, address)
+        plan = prog.plan_clear_flow(a, follow_calls=follow_calls)
+        out = {"ranges": [{"address": _hex(r.address.offset), "length": r.length} for r in plan.ranges][:200],
+               "instructions": plan.instructions, "kept": plan.kept,
+               "functions": [_hex(f.offset) for f in plan.functions]}
+        if dry_run or not plan.ranges:
+            out["dry_run"] = dry_run
+            return out
+        from revkit.client import clear_code_body
+        resp = prog.append(*(clear_code_body(r.address.offset, r.length) for r in plan.ranges), reason=reason)
+        out.update({"ok": True, "revision": resp.snapshot.revision, "seqs": [x.seq for x in resp.assertions]})
+        return out
+
     @server.tool(annotations=WRITE)
     @guarded
     def disassemble_here(program_id: str, address: str, reason: str, isa: str = "", function: bool = False) -> dict:
@@ -1815,6 +2055,33 @@ def create_server(
         "volatile" (memory-mapped I/O: reads are never folded), "normal" (writable) or "default" (as the
         memory map says). Undo with undo_changes."""
         return listing_result(rk.program(program_id).set_mutability(at(program_id, address), length, mutability, reason=reason))
+
+    @server.tool(annotations=WRITE)
+    @guarded
+    def set_data_settings(program_id: str, reason: str, address: str = "", field: str = "", type_name: str = "",
+                          format: str = "", signed: Optional[bool] = None, endian: str = "", padding: str = "",
+                          charset: str = "", termination: str = "", pointer: str = "", mask: Optional[str] = None,
+                          shift: Optional[int] = None) -> dict:
+        """Change how a defined data item displays in the listing (Ghidra's Data Settings): give address (the
+        item; field a struct field's path such as "hdr.magic"), or type_name instead for that type's default
+        settings (every row of the type, e.g. "uint32_t", "string", "pointer", "undefined4"). format "hex",
+        "decimal", "octal", "binary" or "char"; signed true/false; endian "little" or "big"; padding "padded"
+        or "unpadded"; charset for strings ("US-ASCII", "ISO-8859-1", "windows-1252", "UTF-8", "UTF-16",
+        "UTF-16LE", "UTF-16BE", "UTF-32", "UTF-32LE", "UTF-32BE"); termination "nul" or "all"; pointer
+        "absolute", "image-base" (an RVA) or "relative", after mask (hex) and shift. Empty leaves a setting
+        to the type's default; none at all removes them. Display only: definitions, references and the
+        decompiler don't change. Undo with undo_changes."""
+        from revkit.client import data_settings_body
+        if bool(address) == bool(type_name):
+            raise ValueError("give address (an item's settings) or type_name (a type's default settings)")
+        body = data_settings_body(at(program_id, address) if address else None, field=field, type_name=type_name,
+                                  format=format or None, signed=signed, endian=endian or None, padding=padding or None,
+                                  charset=charset or None, termination=termination or None, pointer=pointer or None,
+                                  mask=int(mask, 16) if mask else None, shift=shift)
+        resp = rk.program(program_id).append(body, reason=reason)
+        out = write_result(resp)
+        out["seqs"] = [a.seq for a in resp.assertions]
+        return out
 
     # -- equates and user references (api_minor 39, features "equates", "user-references") --
 
@@ -1999,18 +2266,22 @@ def create_server(
     @guarded
     def import_program(project_id: str, path: str, name: str = "", language_id: str = "", image_base: str = "",
                        format: str = "", raw_offset: str = "", regions: Optional[list[str]] = None,
-                       import_libraries: bool = False, library_search_paths: Optional[list[str]] = None) -> dict:
+                       import_libraries: bool = False, library_search_paths: Optional[list[str]] = None,
+                       library_root: str = "") -> dict:
         """Import a file on the daemon's host into a project (needs an admin token when the daemon has accounts).
         ELF and PE are detected; for raw firmware give format "raw", a language_id (list_languages, or
         detect_raw_layout's suggestion) and an image_base, and where they apply raw_offset (bytes of header
         before the image) and regions ("name:start:size[:perms][:init|uninit|volatile]", hex: RAM, MMIO).
         import_libraries also imports the shared libraries it needs that the project lacks (found in
         library_search_paths, beside the file and on its runpath, then the host's /lib and /usr/lib), two levels
-        deep; the result lists them and the ones found nowhere."""
+        deep; the result lists them and the ones found nowhere. library_root names the root file system they
+        are in instead of the host's (a directory under the daemon's --browse-root, an extracted firmware root);
+        a file inside such a tree under a --browse-root uses it by itself (the result's library_root)."""
         r = rk.import_program(project_id, path=path, name=name, language_id=language_id,
                               image_base=_addr(image_base) if image_base else None, format=format,
                               raw_offset=_num(raw_offset) if raw_offset else 0, regions=regions or (),
-                              import_libraries=import_libraries, library_search_paths=library_search_paths or ())
+                              import_libraries=import_libraries, library_search_paths=library_search_paths or (),
+                              library_root=library_root)
         return _d(r)
 
     def _resolved(i) -> dict:
@@ -2058,6 +2329,30 @@ def create_server(
         if address:
             return _resolved(rk.resolve_import(program_id, address=_addr(address)))
         return _resolved(rk.resolve_import(program_id, name=name))
+
+    @server.tool(annotations=READ)
+    @guarded
+    def list_library_importers(program_id: str, address: str = "", name: str = "",
+                               include_references: bool = True) -> dict:
+        """References back from a library program: the project's programs whose imports resolve to it, each
+        import that does (its thunk in the importer and the function here), and the importer's references to
+        it (calls of the thunk: from_address and from_function in the importer's program_id). One export by
+        address (the function there) or name; neither: every import of the library."""
+        r = rk.library_importers(program_id, address=_addr(address) if address else None, name=name,
+                                 include_references=include_references)
+        out = []
+        for i in r.importers:
+            item = {"program_id": i.program_id, "program_name": i.program_name, "library": i.library,
+                    "import": _resolved(i.resolved)}
+            if include_references:
+                item["references"] = [{"from": _hex(x.from_address.offset), "to": _hex(x.to_address.offset),
+                                       "kind": listing_pb2.XrefKind.Name(x.kind).removeprefix("XREF_KIND_").lower(),
+                                       **({"from_function": x.from_function_name} if x.from_function_name else {})}
+                                      for x in i.references]
+                if i.references_truncated:
+                    item["references_truncated"] = True
+            out.append(item)
+        return {"importers": out}
 
     @server.tool(annotations=WRITE)
     @guarded
@@ -2368,6 +2663,45 @@ def create_server(
         rows.sort(key=lambda x: (-x["hits"], x["entry"]))
         return {"database": db, "functions": len(rows), "with_hits": sum(1 for x in rows if x["hits"]),
                 "results": [x for x in rows if x["hits"]][:limit]}
+
+    @server.tool(annotations=WRITE)
+    @guarded
+    def bsim_apply(program_id: str, matches: list[dict], reason: str, kind: str = "name", database: str = "",
+                   overwrite: bool = False, dry_run: bool = False, project_id: str = "default") -> dict:
+        """Apply BSim matches (from bsim_search) to the program's functions, as Ghidra's BSim results do. matches:
+        [{"address": the queried function, "executable_id": the match's, "entry": the match's}, ...] (the fields
+        bsim_search returns: the result's entry as address, the match's executable_id and entry). kind: "name",
+        "signature" (the name and a skeleton signature: types the program lacks become empty placeholder
+        structures) or "signature_and_types" (with the types themselves when the match's file is a program of this
+        project). Without overwrite a name replaces only a default one (FUN_...) and a signature only a guess.
+        A function given two matches gets neither. One revision; undo_changes with the result's seqs undoes it."""
+        db = _bsim_db(database, project_id)
+        pairs = []
+        for m in matches:
+            fn = m.get("address") or m.get("function_address")
+            exe = m.get("executable_id") or m.get("executable")
+            entry = m.get("entry") or m.get("match_entry")
+            if not fn or not exe or not entry:
+                raise ValueError("each match needs address, executable_id and entry")
+            pairs.append((at(program_id, str(fn)), str(exe), _addr(str(entry))))
+        r = rk.bsim_apply(db, program_id, pairs, kind, overwrite=overwrite, dry_run=dry_run, project_id=project_id,
+                          reason=reason)
+        status = {bsim_pb2.BSIM_APPLY_STATUS_APPLIED: "applied", bsim_pb2.BSIM_APPLY_STATUS_UNCHANGED: "unchanged",
+                  bsim_pb2.BSIM_APPLY_STATUS_SKIPPED: "skipped", bsim_pb2.BSIM_APPLY_STATUS_FAILED: "failed"}
+        rows = []
+        for x in r.results:
+            row = {"address": _hex(x.function.offset), "status": status.get(x.status, "?"),
+                   "name": x.name_after, "was": x.name_before}
+            if x.signature_after != x.signature_before:
+                row["signature"] = x.signature_after
+                row["signature_was"] = x.signature_before
+            if x.message:
+                row["message"] = x.message
+            if x.from_program:
+                row["from_program"] = x.from_program
+            rows.append(row)
+        return {"database": db, "names": r.names, "signatures": r.signatures, "types": r.types, "skipped": r.skipped,
+                "failed": r.failed, "seqs": list(r.seqs), "dry_run": dry_run, "results": rows}
 
     @server.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False))
     @guarded

@@ -12,6 +12,7 @@
 #include "revkit/infer/infer.h"
 #include "revkit/infer/types_bridge.h"
 #include "revkit/inputs/codec.h"
+#include "revkit/analysis/register_values.h"
 #include "revkit/inputs/ghidra_types.h"
 #include "revkit/lift/abi.hh"
 
@@ -121,6 +122,13 @@ const Program &Loaded(QueryContext &ctx, const std::string &program, std::shared
   return *keep;
 }
 
+// As Loaded, for a query that reads its debug info: the separate debug
+// file read at load is an input of it.
+const Program &LoadedWithDebug(QueryContext &ctx, const std::string &program, std::shared_ptr<const Program> &keep) {
+  (void)ctx.get<q::DebugFile>(program);
+  return Loaded(ctx, program, keep);
+}
+
 // Discovery's results through the query context, for revkit::inputs.
 class ContextAnalysis final : public inputs::Analysis {
  public:
@@ -179,7 +187,7 @@ struct InputsTimer {
 
 InputsStatic::Value InputsStatic::compute(QueryContext &ctx, const Key &program) {
   std::shared_ptr<const Program> keep;
-  const Program &p = Loaded(ctx, program, keep);
+  const Program &p = LoadedWithDebug(ctx, program, keep);
   ContextAnalysis analysis(ctx, program);  // reads analysis.program, never the functions
   inputs::Program ip{p.image_ptr(), p.language().id(), &analysis, p.debug()};
   InputsTimer timer{"inputs.static"};
@@ -194,7 +202,7 @@ std::size_t InputsStatic::weight(const Value &v) {
 
 InputsProgram::Value InputsProgram::compute(QueryContext &ctx, const Key &program) {
   std::shared_ptr<const Program> keep;
-  const Program &p = Loaded(ctx, program, keep);
+  const Program &p = LoadedWithDebug(ctx, program, keep);
   auto st = ctx.get<InputsStatic>(program);
   ContextAnalysis analysis(ctx, program);
   analysis.functions();
@@ -259,7 +267,7 @@ InputsFunction::Value InputsFunction::compute(QueryContext &ctx, const Key &key)
   auto sets = ctx.get<InputsSets>(program);
   auto facts = ctx.get<InputsAddress>(key);
   std::shared_ptr<const Program> keep;
-  const Program &p = Loaded(ctx, program, keep);
+  const Program &p = LoadedWithDebug(ctx, program, keep);
   ContextAnalysis analysis(ctx, program);
   inputs::Program ip{p.image_ptr(), p.language().id(), &analysis, p.debug()};
   static const std::vector<lift::LocalFacts> kNone;
@@ -1002,7 +1010,22 @@ std::vector<std::pair<std::uint64_t, std::string>> QueryLookup::flow_overrides(s
   return function_slice(entry)->flow_overrides;
 }
 
-std::vector<lift::TrackedFacts> QueryLookup::tracked(std::uint64_t entry) { return address(entry)->tracked; }
+std::vector<lift::TrackedFacts> QueryLookup::tracked(std::uint64_t entry) {
+  std::vector<lift::TrackedFacts> out = address(entry)->tracked;
+  // Register values over ranges (docs/api.md, "Register values"): what the
+  // map says at the entry, over the inputs' defaults for those registers
+  // (a user's value replaces one, a user's clear removes it).
+  auto at = query([&] { return ctx_->get<an::RegisterValuesAt>(an::Location{an::ProgramKey{program_}, entry}); });
+  for (const auto &[name, value] : *at) {
+    std::erase_if(out, [&](const lift::TrackedFacts &t) { return t.register_name == name; });
+    if (!value) continue;
+    lift::TrackedFacts t;
+    t.register_name = name;
+    t.value = *value;
+    out.push_back(std::move(t));
+  }
+  return out;
+}
 
 void QueryLookup::reset() {
   addresses_.clear();

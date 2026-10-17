@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+
 #include <filesystem>
 #include <thread>
 #include <unistd.h>
@@ -22,8 +24,11 @@ class TempDir {
  public:
   TempDir() {
     const auto *info = ::testing::UnitTest::GetInstance()->current_test_info();
-    path_ = fs::temp_directory_path() /
-            ("revkit-facts-" + std::to_string(::getpid()) + "-" + info->name());
+    // A parameterized test's name has a '/' ("Get/1"): one directory, not
+    // two (the outer one was left behind).
+    std::string name = info->name();
+    std::replace(name.begin(), name.end(), '/', '_');
+    path_ = fs::temp_directory_path() / ("revkit-facts-" + std::to_string(::getpid()) + "-" + name);
     fs::remove_all(path_);
   }
   ~TempDir() { fs::remove_all(path_); }

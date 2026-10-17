@@ -15,6 +15,7 @@
 #include <set>
 #include <tuple>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <sstream>
 
@@ -86,20 +87,32 @@ class ImageSleigh : public ghidra::Sleigh {
 
   ghidra::int4 oneInstruction(ghidra::PcodeEmit &emit, const ghidra::Address &baseaddr) const override {
     try {
-      if (!overrides_.empty()) {
-        auto it = overrides_.find(baseaddr.getOffset());
-        if (it != overrides_.end()) {
-          OverrideEmit rewrite(emit, it->second);
-          return ghidra::Sleigh::oneInstruction(rewrite, baseaddr);
-        }
+      // Where a fallthrough override leaves no instruction (Ghidra's
+      // decompiler finds none in the listing there): flow stops.
+      if (!stops_.empty() && stops_.contains(baseaddr.getOffset()))
+        throw ghidra::BadDataError("no instruction after a fallthrough override");
+      const auto fall = falls_.empty() ? falls_.end() : falls_.find(baseaddr.getOffset());
+      std::optional<FallthroughEmit> fallthrough;
+      if (fall != falls_.end()) fallthrough.emplace(emit, baseaddr, fall->second);
+      ghidra::PcodeEmit &out = fallthrough ? static_cast<ghidra::PcodeEmit &>(*fallthrough) : emit;
+      ghidra::int4 length;
+      auto it = overrides_.empty() ? overrides_.end() : overrides_.find(baseaddr.getOffset());
+      if (it != overrides_.end()) {
+        OverrideEmit rewrite(out, it->second);
+        length = ghidra::Sleigh::oneInstruction(rewrite, baseaddr);
+      } else {
+        length = ghidra::Sleigh::oneInstruction(out, baseaddr);
       }
-      return ghidra::Sleigh::oneInstruction(emit, baseaddr);
+      if (fallthrough) fallthrough->finish(baseaddr.getOffset() + static_cast<std::uint64_t>(length));
+      return length;
     } catch (const ghidra::DataUnavailError &e) {
       throw ghidra::BadDataError(e.explain);
     }
   }
 
   std::map<std::uint64_t, std::uint32_t> overrides_;
+  std::map<std::uint64_t, std::uint64_t> falls_;
+  std::set<std::uint64_t> stops_;
 
  private:
   // Passes p-code on, changing the instruction's computed jump as a flow
@@ -147,6 +160,51 @@ class ImageSleigh : public ghidra::Sleigh {
 
     ghidra::PcodeEmit &to_;
     std::uint32_t kind_;
+  };
+
+  // Holds an instruction's p-code back, then passes it on with its
+  // fallthrough going to the override's address, as Ghidra's PcodeEmit
+  // applies a fallthrough override: a BRANCH or CBRANCH to the next
+  // instruction goes there instead, and a BRANCH there ends the p-code (so
+  // the last op, or a relative branch past it, doesn't fall through).
+  class FallthroughEmit : public ghidra::PcodeEmit {
+   public:
+    FallthroughEmit(ghidra::PcodeEmit &to, const ghidra::Address &at, std::uint64_t target)
+        : to_(to), at_(at), target_(target) {}
+    void dump(const ghidra::Address &addr, ghidra::OpCode opc, ghidra::VarnodeData *outvar, ghidra::VarnodeData *vars,
+              ghidra::int4 isize) override {
+      Op op{addr, opc, outvar != nullptr, outvar != nullptr ? *outvar : ghidra::VarnodeData{}, {}};
+      op.in.assign(vars, vars + isize);
+      ops_.push_back(std::move(op));
+    }
+    // `next`: where the instruction (and its delay slots) ends.
+    void finish(std::uint64_t next) {
+      ghidra::AddrSpace *code = at_.getSpace();
+      for (Op &op : ops_) {
+        if ((op.opc == ghidra::CPUI_BRANCH || op.opc == ghidra::CPUI_CBRANCH) && !op.in.empty() &&
+            op.in[0].space == code && op.in[0].offset == next)
+          op.in[0].offset = target_;
+        to_.dump(op.addr, op.opc, op.has_out ? &op.out : nullptr, op.in.data(), static_cast<ghidra::int4>(op.in.size()));
+      }
+      ghidra::VarnodeData dest;
+      dest.space = code;
+      dest.offset = target_;
+      dest.size = static_cast<ghidra::uint4>(code->getAddrSize());
+      to_.dump(at_, ghidra::CPUI_BRANCH, nullptr, &dest, 1);
+    }
+
+   private:
+    struct Op {
+      ghidra::Address addr;
+      ghidra::OpCode opc;
+      bool has_out;
+      ghidra::VarnodeData out;
+      std::vector<ghidra::VarnodeData> in;
+    };
+    ghidra::PcodeEmit &to_;
+    ghidra::Address at_;
+    std::uint64_t target_;
+    std::vector<Op> ops_;
   };
 
  public:
@@ -786,6 +844,13 @@ void ImageArchitecture::buildContext(ghidra::DocumentStorage &) { context = new 
 void ImageArchitecture::set_pcode_overrides(std::map<std::uint64_t, std::uint32_t> overrides) {
   if (auto *sleigh = dynamic_cast<const ImageSleigh *>(translate))
     const_cast<ImageSleigh *>(sleigh)->overrides_ = std::move(overrides);
+}
+
+void ImageArchitecture::set_fallthroughs(std::map<std::uint64_t, std::uint64_t> falls, std::set<std::uint64_t> stops) {
+  if (auto *sleigh = dynamic_cast<const ImageSleigh *>(translate)) {
+    const_cast<ImageSleigh *>(sleigh)->falls_ = std::move(falls);
+    const_cast<ImageSleigh *>(sleigh)->stops_ = std::move(stops);
+  }
 }
 
 void ImageArchitecture::add_image_symbols() {

@@ -4,6 +4,7 @@
 #include "internal.h"
 #include "revkit/analysis/memory.h"
 #include "revkit/analysis/data.h"
+#include "revkit/analysis/register_values.h"
 
 #include <algorithm>
 #include <atomic>
@@ -122,7 +123,7 @@ bool leads_to_indirect_jump(const FlowGraph &g, std::uint64_t a) {
     if (!i) return false;
     if (i->kind == FlowKind::jump_indirect) return true;
     if (i->kind != FlowKind::fall || !i->falls_through) return false;
-    a += i->length;
+    a = i->fallthrough();
   }
   return false;
 }
@@ -375,7 +376,8 @@ Walk Discovery::walk(std::uint64_t e) const {
         bool callee_returns = insn->targets.empty();
         for (std::uint64_t t : insn->targets) {
           w.calls.push_back(t);
-          if (no_return_.contains(t)) fall = false;
+          // (The user's fallthrough override says where it goes on.)
+          if (no_return_.contains(t) && !insn->fall_override) fall = false;
           else callee_returns = true;
         }
         if (insn->tail_call && callee_returns) w.returns = true;  // returns with its callee
@@ -400,7 +402,10 @@ Walk Discovery::walk(std::uint64_t e) const {
         break;
       case FlowKind::fall: break;
     }
-    if (fall) go(a + insn->length, index + 1, By::fall);
+    if (fall) {
+      if (insn->fall_override) go(insn->fall_to, kOutside, By::fall);
+      else go(a + insn->length, index + 1, By::fall);
+    }
   }
   // A switch through a helper calls the helper.
   for (const auto &[from, helper] : g.case_calls) {
@@ -611,7 +616,7 @@ bool Discovery::credible(std::uint64_t e, detail::ByteReader &bytes, detail::Dec
       }
     }
     if (insn->kind != FlowKind::fall || !insn->falls_through) break;
-    at += insn->length;
+    at = insn->fallthrough();
   }
   // Everything it reaches without leaving through a call or another entry.
   at = start;
@@ -1251,6 +1256,7 @@ void register_queries(facts::Engine &engine) {
   engine.add_query<Functions>();
   engine.add_query<Function>();
   register_unit_queries(engine);
+  register_register_value_queries(engine);
   register_data_queries(engine);
 }
 

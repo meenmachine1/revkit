@@ -94,6 +94,11 @@ class BSimServiceStub:
                 request_serializer=revkit_dot_v1_dot_bsim__pb2.SearchBSimRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_bsim__pb2.SearchBSimResponse.FromString,
                 _registered_method=True)
+        self.ApplyBSimMatches = channel.unary_unary(
+                '/revkit.v1.BSimService/ApplyBSimMatches',
+                request_serializer=revkit_dot_v1_dot_bsim__pb2.ApplyBSimMatchesRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_bsim__pb2.ApplyBSimMatchesResponse.FromString,
+                _registered_method=True)
 
 
 class BSimServiceServicer:
@@ -181,6 +186,19 @@ class BSimServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ApplyBSimMatches(self, request, context):
+        """Applies matches to the queried functions (api_minor 76, feature
+        "bsim-apply"), as Ghidra's BSim results do: the match's name, its name
+        and a skeleton signature, or its name, signature and the types it uses.
+        From the program of the project the match's file is (its markup now,
+        ported as PortFunctionMarkup ports it), else from the database's
+        record (the name and prototype stored at ingest). Every pair in one
+        revision: one undo step. Needs edit rights.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_BSimServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -233,6 +251,11 @@ def add_BSimServiceServicer_to_server(servicer, server):
                     servicer.SearchBSim,
                     request_deserializer=revkit_dot_v1_dot_bsim__pb2.SearchBSimRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_bsim__pb2.SearchBSimResponse.SerializeToString,
+            ),
+            'ApplyBSimMatches': grpc.unary_unary_rpc_method_handler(
+                    servicer.ApplyBSimMatches,
+                    request_deserializer=revkit_dot_v1_dot_bsim__pb2.ApplyBSimMatchesRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_bsim__pb2.ApplyBSimMatchesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -515,6 +538,33 @@ class BSimService:
             '/revkit.v1.BSimService/SearchBSim',
             revkit_dot_v1_dot_bsim__pb2.SearchBSimRequest.SerializeToString,
             revkit_dot_v1_dot_bsim__pb2.SearchBSimResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ApplyBSimMatches(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.BSimService/ApplyBSimMatches',
+            revkit_dot_v1_dot_bsim__pb2.ApplyBSimMatchesRequest.SerializeToString,
+            revkit_dot_v1_dot_bsim__pb2.ApplyBSimMatchesResponse.FromString,
             options,
             channel_credentials,
             insecure,

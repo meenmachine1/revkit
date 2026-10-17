@@ -4,12 +4,15 @@
 #include "type_record.h"
 
 #include "revkit/debuginfo/dwarf.h"
+#include "revkit/debuginfo/image.h"
+#include "revkit/loader/load.hh"
 #include "revkit/debuginfo/pdb.h"
 #include "revkit/types/describe.h"
 #include "revkit/inputs/debug_info.h"
 
 #include <algorithm>
 #include <set>
+#include <stdexcept>
 
 namespace revkit::backend {
 
@@ -97,6 +100,21 @@ std::optional<DebugFacts> ReadPdb(const Program &program) {
   DebugFacts out = Collect(program, debug->store, *debug->pdb, 0);
   out.source = "pdb";
   out.file = debug->pdb_file;
+  return out;
+}
+
+DebugFacts ReadDwarfFile(const Program &program, std::shared_ptr<const std::vector<std::byte>> bytes,
+                         const std::string &file) {
+  const loader::Image separate = loader::parse_elf(std::move(bytes));
+  debuginfo::ImageSections sections = debuginfo::dwarf_sections(separate);
+  if (sections.sections.get(".debug_info").empty()) throw std::runtime_error("it has no .debug_info");
+  types::TypeStore store;
+  const debuginfo::DebugInfo info = debuginfo::import_dwarf(sections.sections, store);
+  const loader::Image &image = program.image();
+  DebugFacts out = Collect(program, store, info, image.image_base - image.file_base);
+  out.diagnostics.insert(out.diagnostics.begin(), sections.warnings.begin(), sections.warnings.end());
+  out.source = "dwarf";
+  out.file = file;
   return out;
 }
 

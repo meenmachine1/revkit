@@ -23,9 +23,9 @@ has a private hook: if the UI can do it, a script or an agent can too.
 | Service | RPCs | File |
 | --- | --- | --- |
 | `MetaService` | `GetServerInfo` (API version, features, limits), `RestartDaemon` (admins; `api_minor` 55, feature `daemon-restart`) | `meta.proto` |
-| `ProjectService` | `ListProjects`, `OpenProject`, `CloseProject`, `ListPrograms`, `ImportProgram`, `GetProgramSummary`, `ListHostFiles`, `ListLanguages`, `RenameProgram`, `DeleteProgram`, `GetImportProgress` (`api_minor` 22, feature `import-progress`; [below](#import-progress)), `DetectRawLayout`, `GetRawDetectProgress`, `CancelRawDetect` (`api_minor` 23, feature `raw-detect`; [below](#raw-layout-detection)), `AddMemoryRegion`, `UpdateMemoryRegion`, `RemoveMemoryRegion` (`api_minor` 24, feature `memory-map`; [memory-map.md](memory-map.md)) | `project.proto` |
+| `ProjectService` | `ListProjects`, `OpenProject`, `CloseProject`, `ListPrograms`, `ImportProgram`, `GetProgramSummary`, `ListHostFiles`, `ListLanguages`, `RenameProgram`, `DeleteProgram`, `GetImportProgress` (`api_minor` 22, feature `import-progress`; [below](#import-progress)), `DetectRawLayout`, `GetRawDetectProgress`, `CancelRawDetect` (`api_minor` 23, feature `raw-detect`; [below](#raw-layout-detection)), `AddMemoryRegion`, `UpdateMemoryRegion`, `RemoveMemoryRegion` (`api_minor` 24, feature `memory-map`; [memory-map.md](memory-map.md)), `LoadPdb`, `GetSymbolSettings`, `SetSymbolSettings` (`api_minor` 49, feature `pdb-load`; [pdb.md](pdb.md)), `LoadDebugFile` (`api_minor` 86, feature `debug-files`; [backend.md](backend.md#external-debug-files)) | `project.proto` |
 | `AssertionService` | `AppendAssertions`, `RetractAssertions`, `GetHistory`, `Blame`, `ListAssertions`, `RevertByProvenance` | `assertion.proto` |
-| `QueryService` | `GetMemoryMap`, `ReadMemory`, `ListFunctions`, `ListSymbols`, `GetFunction`, `GetListing`, `GetInstruction`, `GetXrefs`, `Decompile`, `GetTypes`, `FindTypes`, `GetFunctionGraph`, `ListData`, `GetClassHierarchy` (`api_minor` 45, feature `msvc-rtti`; [below](#msvc-classes)); `ListCallingConventions` (`api_minor` 58, feature `calling-conventions`; [below](#calling-conventions)); batch reads for scripts `DecompileMany` and `ListInstructions` (server streams) and `FindBytes` (`api_minor` 29, feature `script-batch`; [below](#batch-reads-for-scripts), [scripting.md](scripting.md)); the searches `SearchMemory`, `SearchText`, `SearchScalars` and `SearchDecompiled`, `FindTypeUses` (`api_minor` 53, feature `type-uses`) (server streams; `api_minor` 41, feature `search`; [below](#search)) | `query.proto` (models in `listing.proto`, `decompile.proto`, `types.proto`) |
+| `QueryService` | `GetMemoryMap`, `ReadMemory`, `ListFunctions`, `ListSymbols`, `GetFunction`, `GetListing`, `GetInstruction`, `GetXrefs`, `Decompile`, `GetTypes`, `FindTypes`, `GetFunctionGraph`, `ListData`, `ListComments` (`api_minor` 77, feature `comment-table`), `ListRelocations` (`api_minor` 78, feature `relocation-table`), `ExportC` (`api_minor` 80, feature `export-c`; server stream), `ListSymbolTree` (`api_minor` 82, feature `symbol-tree`), `PlanClearFlow` (`api_minor` 83, feature `clear-flow`), `ListRegisterValues` (`api_minor` 87, feature `register-values`; [below](#register-values)), `GetClassHierarchy` (`api_minor` 45, feature `msvc-rtti`; [below](#msvc-classes)); `ListCallingConventions` (`api_minor` 58, feature `calling-conventions`; [below](#calling-conventions)); batch reads for scripts `DecompileMany` and `ListInstructions` (server streams) and `FindBytes` (`api_minor` 29, feature `script-batch`; [below](#batch-reads-for-scripts), [scripting.md](scripting.md)); the searches `SearchMemory`, `SearchText`, `SearchScalars` and `SearchDecompiled`, `FindTypeUses` (`api_minor` 53, feature `type-uses`) (server streams; `api_minor` 41, feature `search`; [below](#search)) | `query.proto` (models in `listing.proto`, `decompile.proto`, `types.proto`) |
 | `SubscriptionService` | `Subscribe` (server stream) | `subscription.proto` |
 | `AnalysisService` | `ListAnalyzers`, `StartAnalysis`, `CancelAnalysis`, `GetAnalysisStatus`. Since `api_minor` 28 (feature `background-inference`, when the daemon infers prototypes: `rk-daemon --infer-prototypes auto`, the default) the analyzer `infer.prototypes` runs in the background after import as a job `GetAnalysisStatus` lists while it runs (with its phase and progress; `idle` is false until it ends), `CancelAnalysis` stops it, `StartAnalysis` with `infer.prototypes` queues it again; its prototypes reach decompilations and `GetFunction` (origin `derived: infer.prototypes`) when it finishes ([infer.md](infer.md)). Function ID (`api_minor` 51, feature `function-id`; [below](#function-id), [fid.md](fid.md)): `ListFidDatabases`, `AttachFidDatabase`, `DetachFidDatabase`, `ListFidMatches`, `ApplyFidMatch`, `RejectFidMatch`, `CreateFidDatabase`, and the analyzer `function-id` in the background after import | `analysis.proto` |
 | `PluginService` | `ListPlugins`, `RunCommand`, `GetPluginFacts` (WebAssembly plugins, [plugins.md](plugins.md)) | `plugin.proto` |
@@ -38,7 +38,7 @@ has a private hook: if the UI can do it, a script or an agent can too.
 | `PatchService` | `Assemble`, `PatchInstruction`, `PatchBytes`, `ListPatches`, `RevertPatches`, `ExportProgram`, `DetectChecksum`, `GetExportSettings`, `SetExportSettings`, `OpenOriginal`: assembling, byte patches as assertions, export with checksum fixups (`api_minor` 27, features `patch`, `assemble`, `export-fixups`; [patching.md](patching.md), [below](#patching)) | `patch.proto` |
 | `ScriptService` | `ListScripts`, `GetScript`, `RunScript` (server stream: started, output, progress, prompts, then result or error; or trust_required), `AnswerPrompt`, `CancelScript`, `UpdateContext`, `SaveScript`, `ListScriptRuns`: Python scripts the daemon runs in host processes with a run token acting as the caller (`api_minor` 31, feature `scripts-host`; [below](#scripts-the-daemon-runs), [scripting.md](scripting.md#the-daemons-script-service)); `SetupScriptPython` (server stream) makes the Python they run with (`api_minor` 33, feature `scripts-setup`); the Python console, `RunScript{interactive}` with `CompleteConsole` and `CancelScript{interrupt}` (`api_minor` 43, features `script-console`, `script-completion`; [scripting.md](scripting.md#the-console)) | `script.proto` |
 | `FileSystemService` | `OpenFileSystem`, `ListFileSystem`, `ReadFileSystemFile`, `GetFileSystemFileInfo`, `ImportFromFileSystem`, `ExtractFromFileSystem`, `CloseFileSystem`, `ListFileSystems`: archives, compressed files, file system images and firmware packages as trees of files, nested to any depth; reading, describing, importing (one or a batch) and extracting their files (`api_minor` 48, feature `filesystems`; [below](#container-file-systems), [filesystems.md](filesystems.md)) | `filesystem.proto` |
-| `BSimService` | `CreateBSimDatabase`, `AttachBSimDatabase`, `DetachBSimDatabase`, `ListBSimDatabases`, `IngestBSim`, `ListBSimExecutables`, `ListBSimFunctions`, `UpdateBSimExecutable`, `DeleteBSimExecutables`, `SearchBSim`: BSim signature databases, persistent stores of executables' functions and their feature vectors with an LSH index; ingesting a project's programs, listing, categorizing and deleting what is stored (`api_minor` 69, feature `bsim`); functions similar to a program's, with thresholds, filters and an overview (`api_minor` 72, feature `bsim-search`; [bsim.md](bsim.md)) | `bsim.proto` |
+| `BSimService` | `CreateBSimDatabase`, `AttachBSimDatabase`, `DetachBSimDatabase`, `ListBSimDatabases`, `IngestBSim`, `ListBSimExecutables`, `ListBSimFunctions`, `UpdateBSimExecutable`, `DeleteBSimExecutables`, `SearchBSim`: BSim signature databases, persistent stores of executables' functions and their feature vectors with an LSH index; ingesting a project's programs, listing, categorizing and deleting what is stored (`api_minor` 69, feature `bsim`); functions similar to a program's, with thresholds, filters and an overview (`api_minor` 72, feature `bsim-search`); `ApplyBSimMatches`: a match's name, signature, or signature and types applied to the queried function, one revision for many (`api_minor` 76, feature `bsim-apply`; [bsim.md](bsim.md#applying-matches)) | `bsim.proto` |
 | `DebugService` | `CreateDebugSession` (the emulator, a GDB remote stub, a launched or attached process, a saved trace), `CloseDebugSession`, `ListDebugSessions`, `ResumeDebugSession`, `WaitDebugSession`, `InterruptDebugSession`, `GetDebugState`, `WriteDebugRegisters`, `ReadDebugMemory`, `WriteDebugMemory`, `SetDebugBreakpoints`, `SelectDebugThread`, `ListDebugModules`, `GetDebugTimeline`, `SaveDebugTrace`, `ListDebugTraces`, `DeleteDebugTrace`: debug sessions with a recorded timeline, the caller's state rather than facts; state and memory can be read at any recorded snapshot (`api_minor` 14, features `debugger`, and `debugger-live` with `rk-daemon --debug-live`). The emulator target on a machine (`api_minor` 20, feature `firmware-emulation`): `WriteDebugInput`, `GetDebugMachine`. The call stack (`api_minor` 59, feature `debugger-stack`): `GetDebugBacktrace`. Values (`api_minor` 60, feature `debugger-values`): `EvaluateDebug`; watches in a function's frame, `DebugEvalItem.frame_function` (`api_minor` 61, feature `debugger-watches`). Runtime disassembly (`api_minor` 62, feature `debugger-disassembly`): `DisassembleDebugMemory`. Copying runtime memory into the program (`api_minor` 63, feature `debugger-copy`): `CopyDebugMemory`. Conditional breakpoints (`api_minor` 64, feature `debugger-conditions`): `DebugBreakpointSpec.condition`, `ignore_count`, `disabled`, `SetDebugBreakpointsRequest.update`. Rewinding the emulator (`api_minor` 65, feature `debugger-rewind`): `RewindDebugSession`, `DebugState.rewindable`. An emulator from another session's state (`api_minor` 67, feature `debugger-emulate-from`): `DebugEmulatorTarget.from_session`, `from_snapshot`. Hooks the client answers (`api_minor` 68, feature `debugger-hooks`): `SetDebugHooks`, `AnswerDebugHook`, `DebugStop.hook` | `debugger.proto` |
 
 **Authentication** (`api_minor` 13, [security.md](security.md)). Unless the
@@ -150,6 +150,8 @@ blame-able. Retracting a retraction reinstates its target.
 | `SetFunctionBounds{entry, body, remove}` | `FUNCTION_BOUNDS@entry` |
 | `FlowOverride{address, kind}` | `FLOW_OVERRIDE@addr` |
 | `SetNoReturn{function, no_return}` | `NO_RETURN@entry`: whether calls to the function end their caller's flow (true) or it returns even where analysis says it doesn't (false); the address must be a function's entry (`api_minor` 66, feature `no-return`; [decompiler-inputs.md](decompiler-inputs.md#no-return)) |
+| `SetFallthrough{address, target, no_fallthrough}` | `FALLTHROUGH@addr`: where control goes on after the instruction, instead of the next one (`target`), nowhere (`no_fallthrough`), or, with neither, its own again (Ghidra's Set and Clear Fallthrough; `api_minor` 85, feature `fallthrough-override`; [below](#fallthrough-overrides)) |
+| `SetRegisterValue{register_name, range, value, clear}` | `REGISTER_VALUE@range.first`, `sub` = `<register>:<hex length>`: the register holds `value` over the range (`clear`: no value there), which analysis's references and the decompiler take as known (Ghidra's Set Register Values; `api_minor` 87, feature `register-values`; [below](#register-values)) |
 | `Note{address, tag, text}` | `NOTE@addr`, `sub = tag` |
 | `DefineType{TypeNode}` | `TYPE_DEF`, `sub` = the type's content hash (`api_minor` 4, feature `define-types`) |
 | `BindTypeName{type}` | `TYPE_DEF`, `sub` = `name:<struct\|union\|enum\|typedef> <name>` (`api_minor` 11, feature `type-names`) |
@@ -158,11 +160,12 @@ blame-able. Retracting a retraction reinstates its target.
 | `MemoryRegionEdit{region_id, block_start, …}` (Add/Update/RemoveMemoryRegion only) | `MEMORY_REGION` at address 0, `sub` = `region:<id>` (a region added after import) or `block:<hex start>` (an edit to an image block); `""` removes it (`api_minor` 24, feature `memory-map`) |
 | `ListingEdit{address, clear{length} \| disassemble{instruction_set, function} \| data{type, count, string, layout, collapsed}}` | `CODE_UNIT@address`, `sub` = `clear:<hex length>`, `code` or `data`: what the bytes are, as Ghidra's Clear Code Bytes, Disassemble and Data menu say; overlapping edits compose newest first; a data definition's type is parsed and laid out by the server, which fills `size`, `type_hash` and `type_name` and defines new types in the same request (`api_minor` 30, feature `listing-edit`; [listing-edit.md](listing-edit.md)) |
 | `SetMutability{address, length, mutability}` | `MUTABILITY@address`, `sub` = the length in hex: constant, volatile, writable (`NORMAL`) or as the memory map says (`DEFAULT`) for the decompiler (`api_minor` 30) |
+| `SetDataSettings{address, field \| type_name, settings}` | `NOTE@address`, `sub` = `revkit:data-settings` (the item) or `revkit:data-settings:<field>` (a struct field's row); with `type_name`, `NOTE@0`, `sub` = `revkit:data-type-settings:<type>` (the type's defaults): how a data item displays, Ghidra's Data Settings and Default Settings (`DataSettings`: format, signedness, endian, padding, charset, termination, pointer kind, mask and shift); settings with nothing set remove them. NOTE keys, so older daemons open such projects and import their archives; `Note` bodies can't use these tags (`api_minor` 84, feature `data-settings`; [listing-edit.md](listing-edit.md#data-settings)) |
 | `OperandDisplay{address, operand_index, value, format \| equate{name \| enum_type_hash, member}, constant_hash, apply_to}` | `EQUATE@address`, `sub` = `<operand>:<hex value>` (or `h<hex hash>:<hex value>` for a decompiler constant no operand holds): how one scalar shows in the listing and the decompiler, Ghidra's Convert and Set Equate (`api_minor` 39, feature `equates`; [below](#equates-and-user-references)) |
 | `UserReference{from, operand_index, to, type, primary, remove}` | `REFERENCE@from`, `sub` = `<operand>:<hex to>` or `i:<hex to>` (the whole instruction): a reference the user added, or deleted (`api_minor` 39, feature `user-references`; [below](#equates-and-user-references)) |
 | `ImageBaseBody{image_base, previous_image_base, import_image_base}` (SetImageBase only) | `REBASE` at address 0: the program's image base; every other key of the program reads at its address moved by the base's difference from the import base, and keeps it image-relative in the log (`api_minor` 42, feature `rebase`; [memory-map.md](memory-map.md#rebase-setting-the-image-base)) |
 
-`SetFunctionBounds`, `FlowOverride` and `SetNoReturn` steer function discovery on the
+`SetFunctionBounds`, `FlowOverride`, `SetFallthrough` and `SetNoReturn` steer function discovery on the
 image backend (feature `function-discovery`): an asserted entry is a
 discovery seed (an empty `body` means the body discovery finds), `remove`
 says no function starts there, and an override changes the instruction's
@@ -489,15 +492,89 @@ How assertions resolve:
   (taken), `CONDITIONAL_FALSE`, `UNCONDITIONAL`, `SWITCH` (a recovered
   jump table's cases). A block starts at the entry, at a jump target and
   after a block-ending instruction (branch, jump, return, computed jump,
-  halt, a call to a no-return function, a tail call); calls don't end
-  blocks. Blocks control leaves the function from are `exit`. Cut at 50,000
-  instructions (`truncated`).
+  halt, a call to a no-return function, a tail call, an instruction with
+  a fallthrough override); calls don't end blocks. A fallthrough
+  override's address starts a block too, with a `FALL_THROUGH` edge to it
+  (none for no fallthrough). Blocks control leaves the function from are
+  `exit`. Cut at 50,000 instructions (`truncated`).
 - **Defined data.** `ListData` (`api_minor` 11, feature `data-list`)
   lists the program's defined data in address order: data analysis's
   strings, pointers and accessed `undefinedN`, and globals whose type is
   asserted, each with its value (a string's characters, a pointer's
   target), label, reference count and origin; filtered by category and
   text, paged by token or `offset`.
+- **Comments.** `ListComments` (`api_minor` 77, feature `comment-table`)
+  lists every comment of the program (Ghidra's comment window) in address
+  order, then kind: its kind, text, the function it is in, the address's
+  label and who wrote it; filtered by kinds, text (case-insensitive) and
+  an address range, paged by token at one revision. The UI's Comments
+  view ([ui.md](ui.md#comments)), the SDK's `Program.comments()` and MCP
+  `list_comments` use it.
+- **Data settings** (`api_minor` 84, feature `data-settings`). A DATA
+  row's tokens show its value as its settings say (`SetDataSettings`
+  above), and the row carries them: `data_settings` (its own: the item's,
+  for a struct field its own) with `data_settings_origin`,
+  `data_settings_type` (the type its defaults are kept by: the element's
+  C type, or `string`, `unicode`, `pointer`, `undefined4` for data
+  analysis's rows) and `data_type_settings` (that type's defaults).
+  Listing search (`SearchText`) reads the rows as shown.
+  [listing-edit.md](listing-edit.md#data-settings).
+- **Register values** (`api_minor` 87, feature `register-values`).
+  `ListRegisterValues` lists the ranges where a register holds a value,
+  by register then address, with who set each: an assertion
+  (`SetRegisterValue`, its `key`) or analysis's default from the loader
+  (`origin.derived.rule` `analysis.register_values:mips-gp`); filtered by
+  register and address range, paged. `registers` names the registers
+  values may be set on ([below](#register-values)).
+- **Clear Flow and Repair** (`api_minor` 83, feature `clear-flow`).
+  `PlanClearFlow` plans Ghidra's Clear Flow and Repair from an instruction
+  (`follow_calls`: into its callees too): the `ranges` whose ClearCode
+  edits clear the code only that flow reaches, the `instructions` it
+  reaches, the ones other code reaches and that stay (`kept`), and the
+  `functions` whose entries go. It writes nothing; a client asserts the
+  ranges in one `AppendAssertions` (one undo step;
+  [listing-edit.md](listing-edit.md#clear-flow-and-repair)).
+- **Symbol tree** (`api_minor` 82, feature `symbol-tree`).
+  `ListSymbolTree` lists one level of Ghidra's symbol tree: with no
+  `path`, the folders Imports, Exports, Functions, Labels, Classes and
+  Namespaces with their sizes (`children`); `["Imports"]` the libraries
+  (`<EXTERNAL>` when the file doesn't say), `["Imports", lib]` its imports
+  (at the thunk, else the slot); `["Exports"]`, `["Functions"]`,
+  `["Labels"]`; `["Classes"]` every class by its qualified name (the
+  demangler's scopes and MSVC RTTI's), `["Classes", "geo::Circle", ...]` a
+  class's members and inner classes; `["Namespaces", "geo", ...]` a
+  namespace's inner namespaces, classes and symbols. Namespaces come from
+  the effective names at the revision (split at the top-level `::`), so a
+  rename into `ns::name` moves a symbol. Each node has `name` (within its
+  scope), `kind`, `address` (symbols), `full_name` and `children`;
+  `name_contains` filters a level, paged by token. The UI's Symbol tree
+  ([ui.md](ui.md#symbol-tree)), the SDK's `Program.symbol_tree()` and MCP
+  `symbol_tree` use it.
+- **Export C** (`api_minor` 80, feature `export-c`). `ExportC` is
+  Ghidra's C/C++ exporter as a server stream: the request's `functions`
+  (or `all`) decompiled at one revision, as `DecompileMany` would, with
+  progress messages (`done` of `total`) meanwhile; then a message with the
+  file names (`<name>.c`, and `<name>.h` with `header`) and the header,
+  then the source in parts of at most 1 MiB in address order, and a
+  `finished` message with the count and the entries the decompiler failed
+  on (the source says why in a comment). The header has Ghidra's built-in
+  type names, the program's named types (as `ExportTypeArchive` with
+  `TYPE_ARCHIVE_SCOPE_ALL` writes them, with its `notes`), a typedef of
+  each tag, and each function's prototype. The UI's Export C/C++…
+  ([ui.md](ui.md#export-c)), the SDK's `Program.export_c()` and MCP
+  `export_c` use it.
+- **Relocations.** `ListRelocations` (`api_minor` 78, feature
+  `relocation-table`) lists the relocations the file carries, in address
+  order (Ghidra's relocation table): ELF dynamic and object relocations,
+  and a PE's base relocations (`format` says which). Each has its raw
+  `type` and `type_name`, a `kind` (RELATIVE, IRELATIVE, JUMP_SLOT,
+  GLOB_DAT, ABSOLUTE or OTHER), the `symbol`, the `addend` (explicit for
+  RELA, else the stored word), the `target` when it points into this
+  program (with `target_name`) and the `original` bytes there; filtered by
+  an address range and a text in the symbol or type name, paged by token at
+  one revision. The UI's Relocations view ([ui.md](ui.md#relocations)), the
+  SDK's `Program.relocations()`, MCP `list_relocations` and the Ghidra
+  shim's `getRelocationTable()` use it.
 - **Memory map** (`api_minor` 24, feature `memory-map`;
   [memory-map.md](memory-map.md)). `GetMemoryMap` lists every program's
   blocks, whatever its format, in address order: the image's own (as
@@ -624,6 +701,48 @@ libraries to other project programs").
   who needs them); a library that fails to import is a warning. Reading the
   host's files is an import by path, so it needs admin (as `ImportProgram`
   does); the search never leaves the directories named.
+- **The program's own root file system** (`api_minor` 79, feature
+  `library-roots`): firmware's libraries are in its root file system, not
+  the host's, so the host's directories give the wrong libc or none.
+  - **An extracted root on the host.** `ImportOptions.library_root` names
+    it (a directory under a `--browse-root`; else `PERMISSION_DENIED`, and
+    `FAILED_PRECONDITION` with no `--browse-root`). Without it, a file
+    imported by path that lies under a `--browse-root` uses the nearest
+    directory above it, at or below that root and not `/`, that has `lib`
+    or `usr/lib` and one of `bin`, `sbin`, `usr/bin` or `etc` (one named
+    `usr` or `local` is passed over). `ImportProgramResponse.library_root`
+    says which root was used. Inside it, after `library_search_paths` (host
+    directories, as before): the file's directory, its runpath (`$ORIGIN`
+    the file's directory, absolute entries inside the root), the
+    directories the root's `/etc/ld.so.conf` names (one level of
+    `include`, globs in the last component), then `/lib` and `/usr/lib`
+    with their multiarch and 64-bit forms and `/usr/local/lib`, instead of
+    the host's. Symbolic links are followed inside the root only (an
+    absolute target is from the root, `..` stops there, 40 hops), each
+    component checked with `lstat`, so nothing outside it is read. A PE
+    looks beside the exe.
+  - **A container** ([filesystems.md](filesystems.md#libraries-of-imported-programs)):
+    `FileSystemService.ImportFromFileSystem` with `import_libraries` looks
+    in the container layer each program came from, the same way, with
+    `library_search_paths` as paths inside it; libraries found are
+    imported from their bytes with their container path, as items with
+    `library_of` (the program that needs them) in the program's folder;
+    `libraries_not_found` and `library_warnings` list the rest. This reads
+    only the session, so it needs editor, as the import does.
+- **References back from a library** (`QueryService.ListLibraryImporters`,
+  `api_minor` 81, feature `library-importers`): for a library program, the
+  project's programs whose imports resolve to it (as above: a link, else
+  the name or soname, then the export lookup), each import that does
+  (`LibraryImporter.resolved`: its name, thunk and slot in the importer, the
+  function's `address` here), and with `include_references` the importer's
+  references to it: to the thunk, and to the slot but for the thunk's own
+  jump through it (at most `max_references` each, 50 by default, 1000 at
+  most; `references_truncated` past that). One export by `address` (the
+  function at or containing it) or `name`; neither gives every import of
+  the library. The importers are read at their head; ordered by name, then
+  by slot. A viewer's call. SDK `Client.library_importers`, MCP
+  `list_library_importers`; the UI's References dialog lists them
+  ([ui.md](ui.md#libraries)).
 - **The debugger** ([debugger.md](debugger.md#libraries)): a runtime module
   that is another project program (the library of its name the program
   links, else a program of its name or soname) is mapped:
@@ -1090,6 +1209,56 @@ name, the PDB importer under its `LF_UDT_SRC_LINE` file's, and a header
 import (`ParseCNamedType.category`) under the header's name, with
 `existing_category` the program's current one.
 
+### Fallthrough overrides
+
+Ghidra's Set Fallthrough and Clear Fallthrough (`api_minor` 85, feature
+`fallthrough-override`). `SetFallthrough{address, target}` says control
+goes on at `target` after the instruction at `address` instead of at the
+next instruction: the usual case is a call followed by inline data (an
+argument block, a string the callee skips) or a jump over junk bytes.
+`no_fallthrough` says it doesn't go on at all; neither clears the
+override, whoever set it (a `target` at the next instruction of one that
+falls through clears it too, as Ghidra's `setFallThrough` does). Each is
+one assertion: one undo step, with the request's provenance and reason.
+An instruction is required at `address` and `target` must be in memory.
+
+On the image backend the override wins over what the instruction and
+analysis say (a jump made to fall through, a call to a no-return function
+going on):
+
+- **Discovery** (`analysis.flow`, `analysis.functions`, no-return
+  inference, thunks): the flow goes on at `target`, so the bytes between
+  stay out of the function's body; with `no_fallthrough` the body ends
+  there. An instruction with an override is no thunk's.
+- **The listing**: `ListingRow.fallthrough_override`, `fallthrough` (unset
+  for none) and `fallthrough_origin`; `InstructionDetail.fall_through` is
+  the override's (unset for none), with `fallthrough_override` and
+  `fallthrough_origin`.
+- **References**: an `XREF_KIND_FALLTHROUGH` reference from the
+  instruction to `target` (Ghidra's `FALL_THROUGH`), on no operand.
+- **The function graph** (`GetFunctionGraph`), Clear Flow and Repair
+  (`PlanClearFlow`), the version-tracking and BSim block structure, the
+  Function ID hash's extent and the stack-variable walk follow it.
+- **The decompiler**, as Ghidra's Java side changes the p-code it sends
+  (`PcodeEmit`): a `BRANCH` or `CBRANCH` the instruction makes to its next
+  address goes to `target` instead, and a `BRANCH` to `target` ends its
+  p-code. With `no_fallthrough` the p-code is unchanged, as in Ghidra, and
+  the next address, when the function's body has no code there, doesn't
+  decode, so the decompiler's flow stops there (`halt_baddata()`), as
+  Ghidra's does where no instruction follows
+  ([decompiler-inputs.md](decompiler-inputs.md#fallthrough-overrides)).
+- The emulator runs the instructions' own p-code, as Ghidra's does: it
+  doesn't follow overrides.
+- Not yet: Ghidra's Auto Override (an override for every instruction
+  before data in a selection), and the Ghidra interop
+  ([ghidra-interop.md](ghidra-interop.md)) doesn't carry fallthrough
+  overrides either way.
+
+The SDK has `Program.set_fallthrough(addr, target)` (`None`: no
+fallthrough) and `clear_fallthrough(addr)`; MCP `set_fallthrough`
+(`target`, `no_fallthrough` or `clear`). The UI's listing menu has Set
+fallthrough… and Clear fallthrough ([ui.md](ui.md#fallthrough-overrides)).
+
 ### Equates and user references
 
 Ghidra's Set Equate, Convert and Equates Table, and its References
@@ -1312,6 +1481,109 @@ c_prototype | type_hash=)`, `remove_call_signature(call)` and
 `call_signature(call)`; `fact_key` kind `"call_signature"`; **MCP**:
 `override_call_signature` (an empty prototype removes it); **TypeScript**:
 an `AssertionBody` with `callSignature`.
+
+### Register values
+
+`api_minor` 87, feature `register-values` (Ghidra's Set Register Values,
+Clear Register Values and the register manager; the UI's in
+[ui.md](ui.md#register-values)). A register holds a constant wherever
+code runs in an address range, and analysis and the decompiler take it as
+known there: MIPS `gp`, so `gp`-relative loads and stores reach the small
+data they address; the PowerPC 64 TOC in `r2`; PowerPC 32's small data
+bases in `r13` and `r2`; any register a program keeps constant over a
+range (a segment-like base).
+
+**Analysis's values** come from the ELF file, as Ghidra's MIPS and
+PowerPC support sets them (`ProgramInfo::register_defaults`,
+`src/analysis/program.cc`):
+
+| Processor | Register and value | Where | Origin |
+| --- | --- | --- | --- |
+| MIPS | `gp` = `DT_MIPS_GP_VALUE` (the loader's `_mips_gp_value`), else the `_gp` (or `_GP`) symbol (`MipsAddressAnalyzer`), else `__gnu_local_gp`, else the GOT's base + 0x7ff0 (`.got`, or `DT_PLTGOT`; the ABI's `gp`, as Ghidra's MIPS relocations compute it) | the executable memory | `mips-gp` |
+| PowerPC 64, ELFv1 | `r2` = the TOC of the function's `.opd` descriptor (`PowerPC64_ElfExtension.markupDescriptorEntry`) | each function's entry | `ppc64-opd` |
+| PowerPC 64, ELFv2 | `r2` = the TOC base: `.TOC.`, else `.got` + 0x8000, else `.toc`'s start (Ghidra's `TOC_BASE` prefers `.toc`) | the executable memory | `ppc64-toc` |
+| PowerPC 64, ELFv2 | `r12` = the function's global entry, which it computes `r2` from (`setEntryPointContext`) | each function symbol's address and the entry point | `ppc64-entry` |
+| PowerPC 32 | `r13` = `_SDA_BASE_`, `r2` = `_SDA2_BASE_` (EABI small data; Ghidra sets them when relocations use them, revkit wherever the symbols are defined) | the executable memory | `ppc-sda`, `ppc-sda2` |
+
+RISC-V's `gp` (`__global_pointer$`) stays a decompiler input only
+([decompiler-inputs.md](decompiler-inputs.md)). Not done: Ghidra's
+recovery of a `gp` the code writes (`_gp_1`, from `MipsAddressAnalyzer`'s
+"Recover global GP register writes"), which a stripped MIPS image without
+a GOT would need, and `t9` at a MIPS function's entry.
+
+**The user's values.** `SetRegisterValue{register_name, range, value,
+clear}` keys `REGISTER_VALUE` at `range.first`, `sub`
+`"<register>:<hex length>"` (`gp:18`); the value is the value in hex, or
+`none` for `clear`. It goes through `AppendAssertions` like any edit: one
+undo step (several ranges, a function's body, in one request), blame,
+history, revert by provenance, replicated to peers and kept in project
+archives. Overlapping ranges of one register compose like `MUTABILITY`:
+each byte goes to the live assertion of the highest precedence, then the
+most recent, and all of them over analysis's values; a `clear` takes away
+what is under it (analysis's `_gp` over a function, an older value).
+
+- `register_name` is the language's register, matched exactly and then
+  ignoring case, and stored as the language spells it (`GP` is `gp`); at
+  most 8 bytes, and not a context register: `TMode`, MIPS16's or VLE's
+  mode decide how code decodes, which Disassemble ARM / Thumb
+  ([listing-edit.md](listing-edit.md)) sets.
+- `value` must fit the register; `range.first` and `range.last` must be
+  in memory, `first` no later than `last`.
+
+**How they are used** (`src/analysis/register_values.h`):
+
+- *References.* A flow's constants (`analysis.flow`'s data references,
+  [data-analysis.md](data-analysis.md) step 1) start with the values at
+  the instruction: a register with a value there that the flow doesn't
+  know (never written on the path, written with an unknown value such as
+  `lw gp, 16(sp)` after a call, forgotten at a call) reads as that value.
+  The loads, stores and addresses found only through them are the
+  instruction's references too (xrefs: from a delay slot when there is
+  one), so data analysis defines and labels what they reach
+  (`DAT_`, strings, pointers), and the listing shows the target after the
+  operand that names the register, as Ghidra does:
+  `lw at,-0x7fe0(gp)=>counter`. A value the code computes (`lui gp, …;
+  addiu gp, …`) wins over the range's.
+- *The decompiler* takes the values at a function's entry as tracked
+  registers (`getTrackedRegisters`), over the inputs' own (a clear removes
+  analysis's), so `*(int *)(unaff_gp + -0x7fe0)` is `counter`.
+- *Invalidation.* An edit invalidates the listing over its range (the
+  marks), the decompilations of the functions over it, and what the
+  references then changed (rows, labels, xrefs; as for a flow override).
+  A rebase moves the ranges, not the values.
+
+`ListRegisterValues{register_name, range}` returns the painted map
+(`RegisterValueRange`: register, range, value, `origin`, and `key` for an
+assertion's), by register then address, and `registers` (the registers
+values may be set on, with their sizes). `ListingRow.register_values`
+(`RegisterAssumption`: register, value, `analysis`, `origin`) marks the
+row where a range starts and a function's entry row, as Ghidra's
+`assume gp = 0x418ff0`. **Python**: `Program.set_register_value(register,
+value, first, last=None, function=None)`, `clear_register_value(...)`,
+`register_values(register="", first=, last=)`, `register_value(register,
+addr)`, `value_registers()`; **MCP**: `set_register_value` (with `clear`),
+`list_register_values`; **TypeScript**: an `AssertionBody` with
+`registerValue`.
+
+**Measured** on the firmware corpus's fwkit sources (FreeRTOS, lwIP,
+littlefs, monocypher; `corpus/firmware`) built with clang 18 and ld.lld at
+`-O2` as a little-endian MIPS32 program with small data (`-G 8`, `_gp` in
+the linker script) and as a PowerPC 64 ELFv2 program, with analysis's
+register values and with every range cleared (the same daemon, so the
+feature off). The corpus's own MIPS and PowerPC images are raw and built
+with `-G0` (U-Boot keeps `gd` elsewhere), so the firmware gate's figures
+are unchanged.
+
+| Program | | Data references | Function → global references | Functions whose C has `unaff_gp`, `in_r2`, `in_r12` | Global names in the C |
+| --- | --- | ---: | ---: | ---: | ---: |
+| fwkit MIPS `-G 8` (571 functions) | without | 2778 | 6 | 186 | 402 |
+| | with `gp` | 3527 | 352 | 0 | 741 |
+| fwkit PowerPC 64 ELFv2 (906 functions) | without | 0 | 0 | 618 | 177 |
+| | with `r2`, `r12` | 3398 | 550 | 0 | 1193 |
+
+("Function → global references": distinct pairs of a function and a
+symbol-table object it reads, writes or takes the address of; "global
+names": symbol-table objects named in each function's C, summed.)
 
 ### Structures from pointer use
 
@@ -2013,6 +2285,50 @@ then frozen.
 - `api_minor` increments with each additive change. Branches developed in
   parallel may each bump it; on merge, each additive change takes the next
   number, which is why clients should check features rather than numbers.
+  87 added register values over ranges: `SetRegisterValue` assertions
+  (`FACT_KIND_REGISTER_VALUE`), `QueryService.ListRegisterValues`
+  (`RegisterValueRange`, `RegisterDescription`),
+  `ListingRow.register_values` (`RegisterAssumption`) and analysis's MIPS
+  `gp` and PowerPC TOC (feature `register-values`;
+  [above](#register-values));
+  86 added `ProjectService.LoadDebugFile` (`LoadDebugFileRequest`/`Response`:
+  an ELF's separate debug file by path, upload or search),
+  `SymbolSettings.debug_dirs`, `debuginfod`, `debuginfod_urls`,
+  `debuginfod_allow_http`, `debug_file_max_bytes`, `debug_cache_max_bytes`
+  and `debug_cache_dir`, `GetSymbolSettingsResponse.suggested_debuginfod_urls`,
+  and `ProgramSummary.build_id`, `debuglink`, `debug_file` (feature
+  `debug-files`; [backend.md](backend.md#external-debug-files));
+  85 added `SetFallthrough` assertions (`FACT_KIND_FALLTHROUGH`,
+  `ListingRow.fallthrough_override`, `fallthrough`, `fallthrough_origin`,
+  `InstructionDetail.fallthrough_override`, `fallthrough_origin`,
+  `XREF_KIND_FALLTHROUGH`; feature `fallthrough-override`;
+  [Fallthrough overrides](#fallthrough-overrides));
+  84 added `SetDataSettings` assertions (`AssertionBody.data_settings`,
+  `DataSettings` and its enums) and `ListingRow.data_settings`,
+  `data_settings_origin`, `data_settings_type`, `data_type_settings`
+  (feature `data-settings`; [listing-edit.md](listing-edit.md#data-settings));
+  83 added `QueryService.PlanClearFlow` (`ClearFlowRange`; feature
+  `clear-flow`; [listing-edit.md](listing-edit.md#clear-flow-and-repair));
+  82 added `QueryService.ListSymbolTree` (`SymbolTreeNode`,
+  `SymbolTreeNodeKind`; feature `symbol-tree`; [Queries](#queries));
+  81 added `QueryService.ListLibraryImporters` (`LibraryImporter`; feature
+  `library-importers`; [above](#libraries));
+  80 added `QueryService.ExportC` (server stream; feature `export-c`;
+  [Queries](#queries));
+  79 added `ImportOptions.library_root`, `ImportProgramResponse.library_root`,
+  and libraries in container imports (`ImportFromFileSystem` with
+  `import_libraries`: `FileSystemImport.library_of`,
+  `ImportFromFileSystemResponse.libraries_not_found` and
+  `library_warnings`; feature `library-roots`;
+  [above](#libraries));
+  78 added `QueryService.ListRelocations` (`ProgramRelocation`,
+  `RelocationKind`; feature `relocation-table`; [ui.md](ui.md#relocations));
+  77 added `QueryService.ListComments` (`ProgramComment`; feature
+  `comment-table`; [ui.md](ui.md#comments));
+  76 added `BSimService.ApplyBSimMatches` (`BSimApplyKind`,
+  `BSimApplyPair`, `BSimApplied`, `BSimApplyStatus`) and
+  `PortedFrom.bsim_database` and `bsim_executable` (feature `bsim-apply`;
+  [bsim.md](bsim.md#applying-matches));
   74 added `SetProgramLanguageRequest.progress_id`, followed with
   `GetImportProgress` (feature `language-progress`;
   [above](#changing-a-programs-language));
@@ -2465,10 +2781,27 @@ How it fits together:
   `remove_memory_region` and `memory_map(rejected=...)` (feature
   `memory-map`) edit and read the memory map after import
   ([memory-map.md](memory-map.md#using-it)).
-- `Program.define_data`, `clear_code`, `disassemble` and `set_mutability`
+- `Program.set_fallthrough` and `clear_fallthrough` (feature
+  `fallthrough-override`; [Fallthrough overrides](#fallthrough-overrides)).
+- `Program.define_data`, `clear_code`, `clear_flow` (and `plan_clear_flow`; feature `clear-flow`), `disassemble` and `set_mutability`
   (feature `listing-edit`, [listing-edit.md](listing-edit.md#using-it)),
   and the buffered script edits `define_data`, `clear`, `disassemble` and
   `set_mutability`.
+- `Program.load_debug_file(path=None, *, local_file=None, search=False,
+  force=False)`, `Client.set_debug_file_settings(dirs=, debuginfod=, urls=,
+  allow_http=, max_bytes=, cache_max_bytes=)` and
+  `Client.debuginfod_suggestions()` (feature `debug-files`;
+  [backend.md](backend.md#external-debug-files)); `set_symbol_settings`
+  keeps the debug file settings.
+- `Program.set_data_settings(addr, field="", format=, signed=, endian=,
+  padding=, charset=, termination=, pointer=, mask=, shift=)` and
+  `set_type_data_settings(type_name, ...)` (feature `data-settings`;
+  `data_settings` and `data_settings_body` build the message and body):
+  how a data item, a struct field or every item of a type displays
+  ([listing-edit.md](listing-edit.md#data-settings)).
+- `Program.set_register_value`, `clear_register_value` (over a range or
+  a function's body), `register_values`, `register_value` and
+  `value_registers` (feature `register-values`; [above](#register-values)).
 - `Program.convert`, `set_equate`, `set_enum_equate`, `clear_display`,
   `equates()` (the table folded from `ListAssertions`), `rename_equate`,
   `remove_equate`, `enums_with_value`, `add_reference`,
@@ -2572,7 +2905,8 @@ await importHeader(rk, programId, parsed, { keys: ["struct cJSON"], rename: { "s
 // type the program has, by hash, in C ("__revkit_type_<hash>").
 ```
 
-`clearCode`, `disassemble`, `defineData` and `setMutability`
+`clearCode`, `disassemble`, `defineData`, `setMutability` and
+`setDataSettings` (feature `data-settings`, `DATA_SETTINGS_FEATURE`)
 (`listingEdit`, feature `listing-edit`, `LISTING_EDIT_FEATURE`) build the
 `AppendAssertions` bodies of the listing's edits; `listingEditOf(resp)`
 finds the edit in a response (`sdk/ts/test/listing_edit.ts`, run by
@@ -2674,7 +3008,7 @@ daemon's features.
 | Group | Tools |
 | --- | --- |
 | Start | `about` |
-| Programs | `list_programs`, `program_summary`, `analysis_status`, `list_languages`, `detect_raw_layout` (admin; read-only: suggestions with hex addresses, a confidence per answer, evidence, tie group, the refusal), `import_program` (admin; `raw_offset` and `regions` for raw images) |
+| Programs | `list_programs`, `program_summary`, `analysis_status`, `list_languages`, `detect_raw_layout` (admin; read-only: suggestions with hex addresses, a confidence per answer, evidence, tie group, the refusal), `import_program` (admin; `raw_offset` and `regions` for raw images), `load_pdb` (a PE's PDB; feature `pdb-load`), `load_debug_file` (a stripped ELF's separate debug file by path, or found by build ID and debuglink, and on debuginfod servers only when an admin turned them on; feature `debug-files`) |
 | Project | `create_folder` (a path, with its parents), `move_to_folder`, `rename_folder`, `delete_folder`, `export_project` (a .rkproj on the server's machine; programs, folders, annotations only), `import_project` (admin; into a new or an existing project, binaries by local path); `list_programs` shows each program's folder |
 | Code | `list_functions` (filters: named or unnamed, thunks, decompile failures, an address range; sorted by address or name), `search_symbols`, `get_function`, `disassemble` (with the address to continue from), `decompile` (by line; with variable storage keys, and the struct fields it uses: name, offset and the struct's hash), `instruction` (p-code), `function_graph` (by block; optionally without instructions), `callers`, `callees`, `xrefs` (by kind), `list_classes` (C++ classes from MSVC RTTI; feature `msvc-rtti`), `list_calling_conventions` (the compiler spec's models and their C spelling; feature `calling-conventions`) |
 | Navigation | `find_next` (the next or previous function, label, instruction, data, undefined bytes, different byte or note; feature `find-next`), `overview` (each block's and each slice's bytes by kind and entropy, and the high-entropy regions; feature `overview`) |
@@ -2682,12 +3016,12 @@ daemon's features.
 | File systems | `open_filesystem` (a local file, a host path or a program's stored file; archives, compressed files, file system images, firmware packages), `list_filesystem` (with what each file is), `read_filesystem_file`, `filesystem_file_info` (hashes, the container path, the container it holds), `import_from_filesystem` (one file, or a batch: programs below folders and inside nested containers, with `preview` and `max_programs`), `close_filesystem` |
 | Code | `list_functions`, `search_symbols`, `get_function`, `disassemble`, `decompile` (with variable storage keys, and the struct fields it uses: name, offset and the struct's hash), `instruction` (p-code), `function_graph`, `callers`, `callees`, `xrefs` |
 | Search | `search_memory` (hex with wildcards, strings in ASCII/UTF-8/UTF-16, decimals, floats, binary, regex; the label and code unit of each match), `search_text` (what the listing shows: comments, labels, signatures, instructions, data; plain or regex), `search_scalars` (a value or range in operands and data), `search_decompiled` (C of every function or those listed), `find_type_uses` (where a struct or one field is used, with each field use's access; feature `type-uses`), `slice_decompiled` (where a variable's value comes from or flows to in the C; feature `decompile-slices`) |
-| Data and types | `list_strings`, `search_strings` (a substring in any case, a regular expression, case-sensitive, a minimum length), `list_data`, `read_memory`, `find_types` (with each type's category, and a `category` filter), `get_type`, `parse_c` (C declarations checked against the program: new, replaces or identical, diagnostics), `export_type_archive` (a type archive's header and sidecar: named types, a category, the user's or all), `list_type_archives` (the library archives the project applies: on or off, what each gives the program; feature `project-types`) |
+| Data and types | `list_strings`, `search_strings` (a substring in any case, a regular expression, case-sensitive, a minimum length), `list_data`, `list_comments` (every comment, by kind and text), `list_relocations` (the relocation table: type names, symbols, targets), `export_c` (the program as a .c and a .h, into a directory or inline), `symbol_tree` (Ghidra's symbol tree a level at a time: imports by library, exports, classes, namespaces), `read_memory`, `find_types` (with each type's category, and a `category` filter), `get_type`, `parse_c` (C declarations checked against the program: new, replaces or identical, diagnostics), `export_type_archive` (a type archive's header and sidecar: named types, a category, the user's or all), `list_type_archives` (the library archives the project applies: on or off, what each gives the program; feature `project-types`) |
 | Memory map | `memory_map`, `add_memory_region` (RAM, MMIO, or a file's bytes by host path), `update_memory_region`, `remove_memory_region` |
-| Edits | `rename`, `rename_variable`, `retype` (a global's type or a function's prototype, from a C declaration), `retype_variable`, `rename_field` and `retype_field` (a struct's or union's field, by the struct's name or hash and the field's name or offset: its next version laid out by `ParseC` and bound in one edit, as the UI's Types view does), `import_header` (define C declarations' types and bind their names, one edit), `import_type_archive` (an archive's types, checked against its hashes, one edit; nothing when the program has them), `set_type_category`, `move_types_to_project` and `copy_types_to_program` (project-wide types), `set_type_archive` (a library archive on or off for the project), `set_comment`, `add_note`, `create_function`, `remove_function`, `set_flow_override`, `override_call_signature` (one call's prototype; feature `call-signature-override`); from the listing (feature `listing-edit`): `define_data`, `clear_code`, `disassemble_here`, `set_mutability`; equates and references (features `equates`, `user-references`): `convert_operand`, `set_equate`, `list_equates`, `rename_equate`, `remove_equate`, `add_reference`, `remove_reference`, `set_primary_reference`; structures (feature `auto-struct`): `auto_structure` (Auto Create, or with `fill` Auto Fill in, from a variable's use; previews, `apply` defines it and retypes the variable), `create_structure` (from the data in a range) |
+| Edits | `rename`, `rename_variable`, `retype` (a global's type or a function's prototype, from a C declaration), `retype_variable`, `rename_field` and `retype_field` (a struct's or union's field, by the struct's name or hash and the field's name or offset: its next version laid out by `ParseC` and bound in one edit, as the UI's Types view does), `import_header` (define C declarations' types and bind their names, one edit), `import_type_archive` (an archive's types, checked against its hashes, one edit; nothing when the program has them), `set_type_category`, `move_types_to_project` and `copy_types_to_program` (project-wide types), `set_type_archive` (a library archive on or off for the project), `set_comment`, `add_note`, `create_function`, `remove_function`, `set_flow_override`, `set_fallthrough` (where control goes on after an instruction, nowhere, or `clear`; feature `fallthrough-override`), `override_call_signature` (one call's prototype; feature `call-signature-override`), `set_register_value` and `list_register_values` (a register's value over a range, MIPS `gp` or the PowerPC TOC; feature `register-values`); from the listing (feature `listing-edit`): `define_data`, `clear_code`, `clear_flow` (Clear Flow and Repair; feature `clear-flow`), `disassemble_here`, `set_mutability`, `set_data_settings` (an item's, a field's or a type's display; feature `data-settings`); equates and references (features `equates`, `user-references`): `convert_operand`, `set_equate`, `list_equates`, `rename_equate`, `remove_equate`, `add_reference`, `remove_reference`, `set_primary_reference`; structures (feature `auto-struct`): `auto_structure` (Auto Create, or with `fill` Auto Fill in, from a variable's use; previews, `apply` defines it and retypes the variable), `create_structure` (from the data in a range) |
 | Review | `blame`, `list_my_changes`, `undo_changes`, `revert_my_changes` |
 | Plugins | `list_plugins`, `plugin_facts`, `run_plugin_command` (dry run by default) |
-| BSim | `bsim_databases` (each attached database and, optionally, its executables), `bsim_ingest` (programs into a database), `bsim_search` (functions similar to one, or to every function of a program), `bsim_overview` (how many matches each function has) |
+| BSim | `bsim_databases` (each attached database and, optionally, its executables), `bsim_ingest` (programs into a database), `bsim_search` (functions similar to one, or to every function of a program), `bsim_overview` (how many matches each function has), `bsim_apply` (matches' names, signatures, or signatures and types to the queried functions; feature `bsim-apply`) |
 | Function ID | `fid_matches` (a program's matches, statuses and candidates; `run` runs it again), `apply_fid_match`, `reject_fid_match`, `fid_databases`, `attach_fid_database` (admin; `detach`), `create_fid_database` (admin) |
 | Comparing programs | `compare_programs`, `list_diff_sessions`, `diff_matches` (with what changed), `diff_unmatched`, `diff_function` (each changed instruction), `diff_accept`, `diff_reject`, `diff_set_match`, `diff_unmatch`, `diff_apply_markup`, `diff_port_function` (one function's markup through a match, either way); any two functions (feature `function-compare`): `compare_functions` (what changed, the variables paired, the comments), `port_function_markup` |
 | Scripts | `list_scripts` (the daemon's libraries with metadata, and whether it runs scripts for you), `run_script` (to the end, `args` answering prompts by name; an unconfirmed user or project script comes back as `trust_required` with its source, to show the user before passing `confirm_sha256`) |

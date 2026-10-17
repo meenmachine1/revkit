@@ -708,6 +708,8 @@ GoogleTest fixtures check this on every build.
 - Linked images only: no relocation of `.o` files, no split DWARF
   (`.dwo`/`.dwp`, skeleton units), no `.debug_types` (DWARF 4 type units),
   no supplementary files (`DW_FORM_GNU_ref_alt`, `.gnu_debugaltlink`).
+  (A stripped ELF's separate debug file, found by build ID or
+  `.gnu_debuglink`, is read as its own: [backend.md](backend.md#external-debug-files).)
 - Location lists are skipped, not decoded; of `.debug_line` only the
   header's file names are read (for `DW_AT_decl_file`); nothing reads
   `.debug_frame` or `.debug_loclists`.

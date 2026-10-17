@@ -1,6 +1,7 @@
 #include "symbol_server.h"
 
-#include <httplib.h>
+#include "http_fetch.h"
+
 #include <zlib.h>
 
 #include <algorithm>
@@ -308,33 +309,28 @@ std::optional<FoundPdb> FindPdb(const SymbolSettings &settings, std::string_view
     const std::size_t path_at = e.location.find('/', scheme_end + 3);
     const std::string origin = path_at == std::string::npos ? e.location : e.location.substr(0, path_at);
     const std::string prefix = path_at == std::string::npos ? std::string() : e.location.substr(path_at);
-    httplib::Client client(origin);
-    client.set_follow_location(true);
-    client.set_connection_timeout(settings.timeout_seconds, 0);
-    client.set_read_timeout(settings.timeout_seconds, 0);
-    client.set_default_headers({{"User-Agent", "Microsoft-Symbol-Server/10.0.0.0"}});
+    // msdl.microsoft.com answers from a CDN: a redirect to another host is
+    // followed over https only, and never from https to http.
+    HttpGetOptions get;
+    get.user_agent = "Microsoft-Symbol-Server/10.0.0.0";
+    get.timeout_seconds = settings.timeout_seconds;
+    get.max_bytes = settings.max_bytes;
+    get.cross_origin_https = true;
     for (const std::string &file : {name, compressed}) {
-      const std::string url_path = prefix + "/" + name + "/" + key + "/" + file;
+      // The name goes into the path percent-encoded: a ?, # or % in it is
+      // the name's, not the URL's.
+      const std::string url_path =
+          prefix + "/" + PercentEncodeSegment(name) + "/" + PercentEncodeSegment(key) + "/" + PercentEncodeSegment(file);
       std::string body;
-      bool too_big = false;
-      auto res = client.Get(url_path, [&](const char *data, std::size_t n) {
-        if (body.size() + n > settings.max_bytes) {
-          too_big = true;
-          return false;
-        }
-        body.append(data, n);
-        return true;
-      });
-      if (too_big) {
-        log.push_back(e.location + url_path + ": larger than allowed");
-        continue;
-      }
-      if (!res) {
-        log.push_back(e.location + url_path + ": " + httplib::to_string(res.error()));
+      const HttpGetResult res = HttpGetBounded(
+          origin, url_path, get, [&] { std::string().swap(body); },
+          [&](const char *data, std::size_t n) { body.append(data, n); });
+      if (res.kind == HttpGetResult::Kind::kUnreachable) {
+        log.push_back(res.url + ": " + res.error);
         break;  // the server can't be reached: the .pd_ won't be either
       }
-      if (res->status != 200) {
-        log.push_back(e.location + url_path + ": HTTP " + std::to_string(res->status));
+      if (res.kind != HttpGetResult::Kind::kOk) {
+        log.push_back(res.url + ": " + res.error);
         continue;
       }
       std::string pdb;  // not a copy of the body: both are up to max_bytes

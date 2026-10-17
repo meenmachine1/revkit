@@ -3,6 +3,48 @@
 What is requested but not built yet, and what is in flight. Each entry says
 what it is and why; design notes go in the feature's own doc when work starts.
 
+## Now (2026-10-15)
+
+Picked up again after v0.1.1, three at a time:
+
+- **BSim stage 3: apply a match: done.** The name, a skeleton signature,
+  or the signature and its types from search hits to the queried
+  functions, the way Ghidra's BSim results do, many in one undo step
+  (`ApplyBSimMatches`, `api_minor` 76, feature `bsim-apply`;
+  [bsim.md](bsim.md#applying-matches)).
+- **Comments view: done.** Ghidra's comment window:
+  `QueryService.ListComments`, SDK `comments()`, MCP `list_comments`
+  (`api_minor` 77, feature `comment-table`; [ui.md](ui.md#comments)).
+- **The rest of that branch's queue** (wishlist): ~~symbol tree~~
+  (*done*: the Symbol tree view, `api_minor` 82, feature `symbol-tree`;
+  [ui.md](ui.md#symbol-tree)),
+  ~~relocation table~~ (*done*: the Relocations view, `api_minor` 78,
+  feature `relocation-table`; [ui.md](ui.md#relocations)), ~~fallthrough override~~ (*done*:
+  `SetFallthrough`, `api_minor` 85, feature `fallthrough-override`;
+  [api.md](api.md#fallthrough-overrides)), ~~Clear Flow and Repair~~ (*done*: `api_minor` 83,
+  feature `clear-flow`; [listing-edit.md](listing-edit.md#clear-flow-and-repair)), ~~external debug files
+  (debuginfod, opt-in like symbol servers)~~ (*done*: build ID, debuglink,
+  opt-in debuginfod, `LoadDebugFile`, `api_minor` 86, feature `debug-files`;
+  [backend.md](backend.md#external-debug-files)), ~~data settings~~ (*done*:
+  `SetDataSettings` per item, field or type, `api_minor` 84, feature
+  `data-settings`; [listing-edit.md](listing-edit.md#data-settings)), ~~export C~~
+  (*done*: `ExportC`, `api_minor` 80, feature `export-c`;
+  [ui.md](ui.md#export-c)), ~~register values over ranges~~ (*done*: MIPS
+  `gp`, the PowerPC TOC and the user's values, `api_minor` 87, feature
+  `register-values`; [api.md](api.md#register-values)).
+- **Library follow-ups**: ~~search a container or root file system for
+  libraries~~ (done: `api_minor` 79, feature `library-roots`;
+  [filesystems.md](filesystems.md#libraries-of-imported-programs)), ~~a
+  library's CFI for unwinding~~ (done:
+  [debugger.md](debugger.md#libraries); PE unwind data is left),
+  ~~references back from a library~~ (done: `api_minor` 81, feature
+  `library-importers`; [api.md](api.md#libraries)), ~~the library tab
+  following the pc~~ (done: [debugger.md](debugger.md#libraries)).
+- **Then the end-phase bug scrub: done** ([bug-scrub.md](bug-scrub.md),
+  part 2): the rest of TSan, a final ASan and UBSan run with `python_sdk`,
+  17 new fuzz harnesses, and the security review; its fixes are on master
+  and what is left is listed there.
+
 ## Feature requests (not started)
 
 Ghidra features revkit lacks, ranked, are in [wishlist.md](wishlist.md)
@@ -175,6 +217,32 @@ _None at the moment._
   types for calls into libc: done with the library archives (below).
 
 ## Done
+
+### The Open dialog's stall after an import
+
+Fixed 2026-10-15 (it was in [known-issues.md](known-issues.md)): after an
+import answered, the Open dialog asked for the import's last progress
+(for the bar) and waited for that answer before opening the program,
+with no time limit. When the answer doesn't come it stayed at "Imported
+…; opening it…". It now waits at most 1.5 s, and the progress polls give
+up on a poll after 10 s and ask again. Headless Chrome against a test
+daemon didn't reproduce the stall without help: 57 raw imports of
+`fwkit-cortexm3-O2.bin`, by path and by the file chooser, with and
+without detection, from the empty workspace and from a program, three at
+once with up to 0.8 s of random delay on every call, and with three or
+four other tabs holding live streams. Five other tabs (the browser's six
+connections to the daemon all held) stall everything, the import as
+well. Holding back `GetImportProgress` after the import answered gives
+the reported symptom exactly; the e2e check "a raw import opens its
+program even when the import's last progress gets no answer" does that.
+
+### SLEIGH engines shared across programs of a language
+
+Done 2026-10-15 ([memory.md](memory.md#sleigh-engines)): SLEIGH engines
+idle for 15 s (`rk-daemon --engine-idle`) are parked by a sweeper, two
+decoded `.sla` files kept per language (and space truncation) for any
+program's next engine to reuse with `Sleigh::reset`. An idle daemon with
+8 tiny programs and lua holds 302 MB instead of 1051 MB.
 
 ### Project-wide types
 
@@ -461,12 +529,7 @@ an assertion that analysis, the decompiler and the emulator follow.
 
 ## Later
 
-- **Bug scrub** (decided 2026-10-07: iterate fast now, scrub at the end):
-  ASan, UBSan and TSan over the whole test suite, fuzzing the parsers
-  (loaders, cparse, the detector, SLEIGH on hostile bytes, project
-  archives: `project_archive_fuzzer`, container formats:
-  `container_<format>_fuzzer` and `container_codecs_fuzzer`, Function ID
-  databases: `fuzz_fid_db`), and a security
-  review of the daemon, parsers and sandboxes. Until then, changes land on
-  the default build, the default tests and the accuracy gates.
+- ~~**Bug scrub**~~ (*done* 2026-10-16: [bug-scrub.md](bug-scrub.md),
+  parts 1 and 2): ASan, UBSan and TSan over the test suites, fuzzing the
+  parsers, and a security review of the daemon, parsers and sandboxes.
 - Mach-O.

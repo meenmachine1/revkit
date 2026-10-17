@@ -9,3 +9,8 @@ foreach(format zip tar cpio ar iso9660 gzip bzip2 xz lzma zstd lz4 squashfs ext 
   target_link_libraries(container_${name}_fuzzer PRIVATE revkit::container)
   target_link_options(container_${name}_fuzzer PRIVATE -fsanitize=fuzzer)
 endforeach()
+
+# Sessions: nesting, paths and identification (docs/bug-scrub.md).
+add_executable(container_session_fuzzer container_session_fuzzer.cc)
+target_link_libraries(container_session_fuzzer PRIVATE revkit::container)
+target_link_options(container_session_fuzzer PRIVATE -fsanitize=fuzzer)

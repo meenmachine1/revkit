@@ -7,15 +7,19 @@
 #include "revkit/decompd/bundle.h"
 #include "revkit/decompd/pool.h"
 #include "revkit/facts/fact_db.h"
+#include "revkit/lift/lifter.hh"
 #include "revkit/loader/load.hh"
 
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <random>
+#include <set>
 #include <thread>
 
 namespace revkit::backend {
@@ -1573,6 +1577,53 @@ TEST_F(ImageBackendTest, ParallelImportsAndDecompiles) {
   EXPECT_EQ(failures.load(), 0);
 }
 
+// SLEIGH engines idle for engine_idle_seconds are parked by the sweeper
+// (docs/memory.md "SLEIGH engines"): the decoded .sla of one stays as a
+// spare of the language, the others are freed, and every program decodes
+// and decompiles as before when it next needs an engine.
+TEST_F(ImageBackendTest, SweeperParksIdleEngines) {
+  ImageBackendOptions o;
+  o.ghidra_root = REVKIT_GHIDRA_ROOT;
+  o.engine_idle_seconds = 1;
+  backend_ = MakeImageBackend(o);
+  lift::trim_spare_engines();
+  const std::vector<std::string> ids = {Import(exe_, "one"), Import(exe_, "two")};
+  auto detail = [&](const std::string &id, std::uint64_t at) {
+    pb::GetInstructionRequest req;
+    req.set_program_id(id);
+    req.mutable_address()->set_offset(at);
+    pb::GetInstructionResponse resp;
+    EXPECT_TRUE(backend_->GetInstruction(ctx_, req, resp).ok());
+    return resp.instruction().ShortDebugString();
+  };
+  std::map<std::string, std::pair<std::string, std::string>> before;
+  std::map<std::string, std::uint64_t> fns;
+  for (const std::string &id : ids) {
+    fns = Functions(id);
+    before[id] = {detail(id, fns.at("checksum")), Text(Decompile(id, fns.at("twice")))};
+    ASSERT_FALSE(before[id].first.empty());
+  }
+  const lift::EngineStats busy = lift::engine_stats();
+  ASSERT_GT(busy.live, 1u);
+
+  lift::EngineStats now = busy;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+  while (std::chrono::steady_clock::now() < deadline) {
+    now = lift::engine_stats();
+    if (now.spare > 0 && now.live < busy.live) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  EXPECT_GT(now.spare, 0u);
+  EXPECT_LT(now.live, busy.live);
+
+  for (const std::string &id : ids) {
+    EXPECT_EQ(detail(id, fns.at("checksum")), before[id].first);
+    EXPECT_EQ(detail(id, fns.at("main")).empty(), false);
+    EXPECT_EQ(Text(Decompile(id, fns.at("twice"))), before[id].second);
+  }
+  backend_.reset();  // stops the sweeper
+}
+
 // On a stripped binary the daemon's functions are function discovery's:
 // the entries, names and bodies rk-lift --analyze reports, which runs the
 // same analysis over a fact store of its own (sdk/python's
@@ -1771,6 +1822,341 @@ int main(int argc, char **argv) {
   EXPECT_EQ(Decompile(id, h).text(), h0);
   EXPECT_EQ(body_bytes(g), g_bytes);
   EXPECT_TRUE(function(die).no_return());
+}
+
+// Ghidra's Set Fallthrough (SetFallthrough, FACT_KIND_FALLTHROUGH): f calls
+// a function with four bytes of inline data after the call (which don't
+// decode), then goes on. With the call's fallthrough set past the data,
+// f's body, its listing row, references, graph and decompiled C go on there;
+// with no fallthrough they stop at the call; cleared, as analysis has it.
+TEST_F(ImageBackendTest, FallthroughOverrideRedirectsFlow) {
+  constexpr const char *kInline = R"(
+volatile int sink;
+__attribute__((noinline, used)) void takes_inline(void) { sink = 7; }
+__attribute__((naked, noinline)) void f(void) {
+  __asm__("call takes_inline\n"
+          ".byte 0xff, 0xff, 0xff, 0xff\n"
+          "movl $3, sink(%rip)\n"
+          "ret\n");
+}
+int main(void) {
+  f();
+  return 0;
+}
+)";
+  auto exe = testing::scratch_dir("image-backend-fallthrough") / "inline";
+  if (!testing::compile(REVKIT_TEST_CC, kInline, "-O1 -fno-pie -no-pie -fcf-protection=none", exe))
+    GTEST_SKIP() << "no C compiler";
+  const std::string id = Import(exe);
+  auto fns = Functions(id);
+  ASSERT_TRUE(fns.contains("f") && fns.contains("takes_inline"));
+  const std::uint64_t f = fns.at("f");
+  const std::uint64_t after = f + 9;  // the call (5 bytes), the data (4)
+  auto body = [&](std::uint64_t entry) {
+    pb::GetFunctionRequest req;
+    req.set_program_id(id);
+    req.mutable_address()->set_offset(entry);
+    pb::GetFunctionResponse resp;
+    EXPECT_TRUE(backend_->GetFunction(ctx_, req, resp).ok());
+    std::set<std::uint64_t> in;
+    for (const auto &r : resp.function().body())
+      for (std::uint64_t a = r.first().offset(); a <= r.last().offset(); ++a) in.insert(a);
+    return in;
+  };
+  auto set = [&](std::optional<std::uint64_t> target, bool none, api::Status *status = nullptr) {
+    pb::AppendAssertionsRequest req;
+    req.set_program_id(id);
+    req.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+    req.mutable_provenance()->set_reason("inline data after the call");
+    auto *b = req.add_assertions()->mutable_body()->mutable_fallthrough();
+    b->mutable_address()->set_offset(f);
+    if (target) b->mutable_target()->set_offset(*target);
+    b->set_no_fallthrough(none);
+    pb::AppendAssertionsResponse resp;
+    auto st = backend_->AppendAssertions(ctx_, req, resp);
+    if (status) *status = st;
+    else EXPECT_TRUE(st.ok()) << st.message;
+    return resp;
+  };
+  auto row_at = [&](std::uint64_t a) {
+    pb::GetListingRequest req;
+    req.set_program_id(id);
+    req.mutable_addresses()->mutable_start()->set_offset(a);
+    req.mutable_addresses()->mutable_end()->set_offset(a);
+    pb::GetListingResponse resp;
+    EXPECT_TRUE(backend_->GetListing(ctx_, req, resp).ok());
+    for (const auto &r : resp.rows())
+      if (r.address().offset() == a && r.kind() == pb::LISTING_ROW_KIND_INSTRUCTION) return r;
+    return pb::ListingRow{};
+  };
+  auto xref_kinds_to = [&](std::uint64_t a) {
+    pb::GetXrefsRequest req;
+    req.set_program_id(id);
+    req.mutable_address()->set_offset(a);
+    pb::GetXrefsResponse resp;
+    EXPECT_TRUE(backend_->GetXrefs(ctx_, req, resp).ok());
+    std::set<std::pair<std::uint64_t, int>> out;
+    for (const auto &x : resp.xrefs()) out.insert({x.from_address().offset(), x.kind()});
+    return out;
+  };
+  auto graph = [&] {
+    pb::GetFunctionGraphRequest req;
+    req.set_program_id(id);
+    req.mutable_function()->set_offset(f);
+    pb::GetFunctionGraphResponse g;
+    EXPECT_TRUE(backend_->GetFunctionGraph(ctx_, req, g).ok());
+    return g;
+  };
+
+  // As analysis has it: the flow stops at the data.
+  const std::set<std::uint64_t> body0 = body(f);
+  EXPECT_FALSE(body0.contains(after));
+  const std::string c0 = Decompile(id, f).text();
+  EXPECT_EQ(c0.find("sink = 3"), std::string::npos) << c0;
+  EXPECT_FALSE(row_at(f).fallthrough_override());
+
+  // Past the data: the body, the row, the reference, the instruction's
+  // detail, the graph and the decompiler go on at `after`.
+  auto set1 = set(after, false);
+  ASSERT_EQ(set1.assertions_size(), 1);
+  const std::set<std::uint64_t> body1 = body(f);
+  EXPECT_TRUE(body1.contains(after));
+  EXPECT_FALSE(body1.contains(f + 5));  // the data stays out
+  const pb::ListingRow row = row_at(f);
+  EXPECT_TRUE(row.fallthrough_override());
+  EXPECT_EQ(row.fallthrough().offset(), after);
+  EXPECT_TRUE(row.fallthrough_origin().has_asserted());
+  EXPECT_TRUE(xref_kinds_to(after).contains({f, pb::XREF_KIND_FALLTHROUGH}));
+  {
+    pb::GetInstructionRequest ir;
+    ir.set_program_id(id);
+    ir.mutable_address()->set_offset(f);
+    pb::GetInstructionResponse iresp;
+    ASSERT_TRUE(backend_->GetInstruction(ctx_, ir, iresp).ok());
+    EXPECT_TRUE(iresp.instruction().fallthrough_override());
+    EXPECT_EQ(iresp.instruction().fall_through().offset(), after);
+  }
+  const pb::GetFunctionGraphResponse g1 = graph();
+  ASSERT_EQ(g1.blocks_size(), 2);
+  ASSERT_EQ(g1.edges_size(), 1);
+  EXPECT_EQ(g1.edges(0).kind(), pb::FLOW_EDGE_KIND_FALL_THROUGH);
+  EXPECT_EQ(g1.blocks(static_cast<int>(g1.edges(0).to_block())).range().first().offset(), after);
+  const std::string c1 = Decompile(id, f).text();
+  EXPECT_NE(c1.find("takes_inline()"), std::string::npos) << c1;
+  EXPECT_NE(c1.find("sink = 3"), std::string::npos) << c1;
+  EXPECT_EQ(c1.find("halt_baddata"), std::string::npos) << c1;
+
+  // No fallthrough: the call ends f (and the decompiler stops there).
+  auto set2 = set(std::nullopt, true);
+  EXPECT_EQ(body(f), (std::set<std::uint64_t>{f, f + 1, f + 2, f + 3, f + 4}));
+  EXPECT_TRUE(row_at(f).fallthrough_override());
+  EXPECT_FALSE(row_at(f).has_fallthrough());
+  EXPECT_FALSE(xref_kinds_to(after).contains({f, pb::XREF_KIND_FALLTHROUGH}));
+  const std::string c2 = Decompile(id, f).text();
+  EXPECT_EQ(c2.find("sink = 3"), std::string::npos) << c2;
+
+  // Cleared (Clear Fallthrough): as analysis has it, as is a target at
+  // the next instruction.
+  auto set3 = set(std::nullopt, false);
+  EXPECT_FALSE(row_at(f).fallthrough_override());
+  EXPECT_EQ(body(f), body0);
+  set(f + 5, false);
+  EXPECT_FALSE(row_at(f).fallthrough_override());
+  EXPECT_EQ(Decompile(id, f).text(), c0);
+
+  // An instruction is required, and target and no_fallthrough don't go together.
+  api::Status st;
+  pb::AppendAssertionsRequest bad;
+  bad.set_program_id(id);
+  bad.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+  auto *b = bad.add_assertions()->mutable_body()->mutable_fallthrough();
+  b->mutable_address()->set_offset(0x10);
+  b->set_no_fallthrough(true);
+  pb::AppendAssertionsResponse bad_resp;
+  EXPECT_FALSE(backend_->AppendAssertions(ctx_, bad, bad_resp).ok());
+  set(after, true, &st);
+  EXPECT_FALSE(st.ok());
+}
+
+// Register values over ranges (docs/api.md, "Register values"): a MIPS
+// program built with small data (-G 8) reaches its globals through gp.
+// Analysis takes gp from the loader's _gp, so the decompiler names them and
+// the loads and stores refer to them; a user's clear over a function takes
+// that away there, a user's value gives it back, and retracting both
+// restores analysis's.
+TEST_F(ImageBackendTest, RegisterValuesResolveGpRelativeGlobals) {
+  if (std::string(REVKIT_TEST_CLANG).empty() || std::string(REVKIT_TEST_LLD).empty())
+    GTEST_SKIP() << "no clang and ld.lld for MIPS";
+  auto dir = testing::scratch_dir("image-backend-regvalues");
+  const auto src = dir / "g.c", obj = dir / "g.o", exe = dir / "g.elf";
+  {
+    std::ofstream out(src);
+    out << R"(
+int counter;
+int limit = 7;
+__attribute__((noinline)) int bump(int x) { counter += x; return counter < limit; }
+void __start(void) { for (;;) if (!bump(3)) limit = 0; }
+)";
+  }
+  const std::string cc = std::string(REVKIT_TEST_CLANG) + " --target=mipsel-linux-gnu -O1 -fno-pic -mno-abicalls -G 8 -c " +
+                         src.string() + " -o " + obj.string() + " 2>/dev/null";
+  const std::string ld = std::string(REVKIT_TEST_LLD) + " -e __start -o " + exe.string() + " " + obj.string() + " 2>/dev/null";
+  if (std::system(cc.c_str()) != 0 || std::system(ld.c_str()) != 0) GTEST_SKIP() << "can't build a MIPS binary";
+  loader::Image image = loader::load_file(exe);
+  std::uint64_t gp = 0, counter = 0, limit = 0;
+  for (const loader::Symbol &sym : image.symbols) {
+    if (sym.name == "_gp") gp = sym.value;
+    if (sym.name == "counter") counter = sym.value;
+    if (sym.name == "limit") limit = sym.value;
+  }
+  ASSERT_NE(gp, 0u);
+  ASSERT_NE(counter, 0u);
+
+  pb::ImportProgramRequest imp;
+  imp.set_project_id("default");
+  imp.set_path(exe.string());
+  pb::ImportProgramResponse imported;
+  auto st = backend_->ImportProgram(ctx_, imp, imported);
+  if (!st.ok()) GTEST_SKIP() << "no MIPS language: " << st.message;
+  const std::string id = imported.program().program_id();
+  auto fns = Functions(id);
+  ASSERT_TRUE(fns.contains("bump"));
+  const std::uint64_t bump = fns.at("bump");
+
+  auto list = [&](const std::string &reg = {}) {
+    pb::ListRegisterValuesRequest req;
+    req.set_program_id(id);
+    req.set_register_name(reg);
+    pb::ListRegisterValuesResponse resp;
+    auto s = backend_->ListRegisterValues(ctx_, req, resp);
+    EXPECT_TRUE(s.ok()) << s.message;
+    return resp;
+  };
+  auto set = [&](const std::string &reg, std::uint64_t first, std::uint64_t last, std::optional<std::uint64_t> value,
+                 api::Status *status = nullptr) {
+    pb::AppendAssertionsRequest req;
+    req.set_program_id(id);
+    req.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+    req.mutable_provenance()->set_id("alice");
+    auto *b = req.add_assertions()->mutable_body()->mutable_register_value();
+    b->set_register_name(reg);
+    b->mutable_range()->mutable_first()->set_offset(first);
+    b->mutable_range()->mutable_last()->set_offset(last);
+    if (value) b->set_value(*value);
+    else b->set_clear(true);
+    pb::AppendAssertionsResponse resp;
+    auto s = backend_->AppendAssertions(ctx_, req, resp);
+    if (status) *status = s;
+    else EXPECT_TRUE(s.ok()) << s.message;
+    return resp;
+  };
+  auto retract = [&](const pb::AppendAssertionsResponse &done) {
+    pb::RetractAssertionsRequest req;
+    req.set_program_id(id);
+    req.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+    for (const auto &a : done.assertions()) req.add_seqs(a.seq());
+    pb::RetractAssertionsResponse resp;
+    EXPECT_TRUE(backend_->RetractAssertions(ctx_, req, resp).ok());
+  };
+  auto refs_to = [&](std::uint64_t to) {
+    pb::GetXrefsRequest req;
+    req.set_program_id(id);
+    req.mutable_address()->set_offset(to);
+    req.set_direction(pb::XREF_DIRECTION_TO);
+    pb::GetXrefsResponse resp;
+    EXPECT_TRUE(backend_->GetXrefs(ctx_, req, resp).ok());
+    std::set<std::string> from;
+    for (const auto &x : resp.xrefs()) from.insert(x.from_function_name());
+    return from;
+  };
+  auto row_text = [&](std::uint64_t a) {
+    pb::GetListingRequest req;
+    req.set_program_id(id);
+    req.mutable_addresses()->mutable_start()->set_offset(a);
+    req.mutable_addresses()->set_max_rows(1);
+    pb::GetListingResponse resp;
+    EXPECT_TRUE(backend_->GetListing(ctx_, req, resp).ok());
+    std::string out;
+    for (const auto &row : resp.rows())
+      if (row.address().offset() == a)
+        for (const auto &t : row.tokens()) out += t.text();
+    return out;
+  };
+  auto entry_marks = [&](std::uint64_t a) {
+    pb::GetListingRequest req;
+    req.set_program_id(id);
+    req.mutable_addresses()->mutable_start()->set_offset(a);
+    req.mutable_addresses()->set_max_rows(1);
+    pb::GetListingResponse resp;
+    EXPECT_TRUE(backend_->GetListing(ctx_, req, resp).ok());
+    std::string out;
+    for (const auto &row : resp.rows())
+      for (const auto &m : row.register_values()) out += m.register_name() + "=" + std::to_string(m.value()) + (m.analysis() ? "a " : " ");
+    return out;
+  };
+
+  // Analysis's gp, from _gp, over the code.
+  pb::ListRegisterValuesResponse l0 = list("GP");
+  ASSERT_GE(l0.ranges_size(), 1);
+  EXPECT_EQ(l0.ranges(0).register_name(), "gp");
+  EXPECT_EQ(l0.ranges(0).value(), gp);
+  EXPECT_EQ(l0.ranges(0).origin().derived().rule(), "analysis.register_values:mips-gp");
+  bool named_gp = false;
+  for (const auto &r : l0.registers()) named_gp = named_gp || r.name() == "gp";
+  EXPECT_TRUE(named_gp);
+  const std::string c0 = Decompile(id, bump).text();
+  EXPECT_NE(c0.find("counter"), std::string::npos) << c0;
+  EXPECT_NE(c0.find("limit"), std::string::npos) << c0;
+  EXPECT_EQ(c0.find("unaff_gp"), std::string::npos) << c0;
+  EXPECT_TRUE(refs_to(counter).contains("bump"));
+  EXPECT_TRUE(refs_to(limit).contains("bump"));
+  EXPECT_EQ(entry_marks(bump), "gp=" + std::to_string(gp) + "a ");
+  // The load shows its target, as Ghidra's "lw at,-0x7fe0(gp)=>counter".
+  EXPECT_NE(row_text(bump).find("=>counter"), std::string::npos) << row_text(bump);
+
+  // Cleared over bump: gp is unknown there (and only there).
+  const std::uint64_t bump_last = bump + 0x17;
+  auto cleared = set("gp", bump, bump_last, std::nullopt);
+  const std::string c1 = Decompile(id, bump).text();
+  EXPECT_NE(c1.find("unaff_gp"), std::string::npos) << c1;
+  EXPECT_FALSE(refs_to(counter).contains("bump"));
+  EXPECT_TRUE(refs_to(limit).contains("__start"));
+  EXPECT_EQ(entry_marks(bump), "");
+  EXPECT_EQ(row_text(bump).find("=>"), std::string::npos) << row_text(bump);
+  pb::ListRegisterValuesResponse l1 = list("gp");
+  for (const auto &r : l1.ranges())
+    EXPECT_TRUE(r.range().last().offset() < bump || r.range().first().offset() > bump_last) << r.DebugString();
+
+  // The user's value: the globals again, set by alice.
+  auto valued = set("gp", bump, bump_last, gp);
+  const std::string c2 = Decompile(id, bump).text();
+  EXPECT_NE(c2.find("counter"), std::string::npos) << c2;
+  EXPECT_TRUE(refs_to(counter).contains("bump"));
+  EXPECT_EQ(entry_marks(bump), "gp=" + std::to_string(gp) + " ");
+  bool alices = false;
+  const pb::ListRegisterValuesResponse l2 = list("gp");
+  for (const auto &r : l2.ranges())
+    if (r.range().first().offset() == bump) {
+      alices = r.origin().asserted().provenance().id() == "alice" && r.key().kind() == pb::FACT_KIND_REGISTER_VALUE;
+      EXPECT_EQ(r.range().last().offset(), bump_last);
+    }
+  EXPECT_TRUE(alices);
+
+  // Not a register; a value too wide for it.
+  api::Status bad;
+  set("nosuchreg", bump, bump, 1, &bad);
+  EXPECT_FALSE(bad.ok());
+  set("gp", bump, bump, std::uint64_t{1} << 40, &bad);
+  EXPECT_FALSE(bad.ok());
+  set("gp", bump_last, bump, 1, &bad);
+  EXPECT_FALSE(bad.ok());
+
+  // Retracted: analysis's again.
+  retract(valued);
+  retract(cleared);
+  EXPECT_EQ(Decompile(id, bump).text(), c0);
+  EXPECT_TRUE(refs_to(counter).contains("bump"));
+  std::filesystem::remove_all(dir);
 }
 
 }  // namespace

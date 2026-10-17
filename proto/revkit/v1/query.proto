@@ -27,6 +27,15 @@ service QueryService {
   // Functions and labels by effective name, in address order (page_size
   // default 500, max 5000). Added in api_minor 2 (feature "symbols").
   rpc ListSymbols(ListSymbolsRequest) returns (ListSymbolsResponse);
+  // Ghidra's symbol tree, one level at a time: Imports (by library),
+  // Exports, Functions, Labels, Classes and Namespaces (api_minor 82,
+  // feature "symbol-tree").
+  rpc ListSymbolTree(ListSymbolTreeRequest) returns (ListSymbolTreeResponse);
+  // Ghidra's Clear Flow and Repair, planned: the code the flow from an
+  // instruction reaches that nothing else reaches, as the ClearCode edits
+  // that clear it (api_minor 83, feature "clear-flow"). Writes nothing: a
+  // client asserts the edits (in one AppendAssertions, one undo step).
+  rpc PlanClearFlow(PlanClearFlowRequest) returns (PlanClearFlowResponse);
   // The function at an entry point, or containing an address.
   rpc GetFunction(GetFunctionRequest) returns (GetFunctionResponse);
   // A page of listing rows, by row window or address window (max 2000 rows).
@@ -35,6 +44,11 @@ service QueryService {
   rpc GetInstruction(GetInstructionRequest) returns (GetInstructionResponse);
   // References to and/or from an address or range (page_size default 500).
   rpc GetXrefs(GetXrefsRequest) returns (GetXrefsResponse);
+  // References back from a library (api_minor 81, feature
+  // "library-importers"): the programs of the project whose imports resolve
+  // to this program (ProjectService.ListProgramLibraries' resolution), each
+  // import that does, and the importer's references to its thunk and slot.
+  rpc ListLibraryImporters(ListLibraryImportersRequest) returns (ListLibraryImportersResponse);
   // Decompiles one function into a mapped token stream.
   rpc Decompile(DecompileRequest) returns (DecompileResponse);
   // Def-use chains and data-flow slices in a function's decompilation
@@ -56,6 +70,19 @@ service QueryService {
   // asserted global types, with values and reference counts (page_size
   // default 500, max 5000; api_minor 11, feature "data-list").
   rpc ListData(ListDataRequest) returns (ListDataResponse);
+  // Every comment of the program, by address, with its kind, function and
+  // who wrote it (api_minor 77, feature "comment-table"; Ghidra's comment
+  // window).
+  rpc ListComments(ListCommentsRequest) returns (ListCommentsResponse);
+  // Register values over address ranges, per register: the user's
+  // (SetRegisterValue) and analysis's (the loader's MIPS gp, PowerPC TOC
+  // and small data bases), as analysis and the decompiler take them
+  // (api_minor 87, feature "register-values"; Ghidra's register manager).
+  rpc ListRegisterValues(ListRegisterValuesRequest) returns (ListRegisterValuesResponse);
+  // The relocations the file carries (Ghidra's relocation table), by
+  // address: ELF dynamic and object relocations, PE base relocations
+  // (api_minor 78, feature "relocation-table").
+  rpc ListRelocations(ListRelocationsRequest) returns (ListRelocationsResponse);
   // C++ classes from MSVC run-time type information (api_minor 45,
   // feature "msvc-rtti"; docs/pe.md): every class a TypeDescriptor names,
   // its bases (from its ClassHierarchyDescriptor) and derived classes, its
@@ -83,6 +110,11 @@ service QueryService {
   // `failure`, as for Decompile; an entry with no function is a result with
   // `error`. Cancelling the call stops the work not yet started.
   rpc DecompileMany(DecompileManyRequest) returns (stream DecompileManyResponse);
+  // Ghidra's C/C++ exporter: functions decompiled into one .c file and,
+  // when asked, a .h of the program's types and the functions' prototypes
+  // (api_minor 80, feature "export-c"). Progress messages while the
+  // functions decompile, then the files in parts.
+  rpc ExportC(ExportCRequest) returns (stream ExportCResponse);
   // Finds a byte pattern, with an optional bit mask, in the program's
   // initialized memory (as patched), in address order.
   rpc FindBytes(FindBytesRequest) returns (FindBytesResponse);
@@ -239,6 +271,88 @@ message ListSymbolsResponse {
   PageInfo page = 3;
 }
 
+message ListSymbolTreeRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+  PageRequest page = 3;
+  // The node whose children to list: empty for the root (its folders),
+  // ["Imports"] (libraries), ["Imports", <library>], ["Exports"],
+  // ["Functions"], ["Labels"], ["Classes"] (every class by its qualified
+  // name), ["Classes", <qualified class>, <inner>...], ["Namespaces",
+  // <namespace>, <inner>...].
+  repeated string path = 4;
+  // Only children whose name or qualified name holds this
+  // (case-insensitive; not at the root).
+  string name_contains = 5;
+}
+
+enum SymbolTreeNodeKind {
+  SYMBOL_TREE_NODE_KIND_UNSPECIFIED = 0;
+  // One of the root's folders.
+  SYMBOL_TREE_NODE_KIND_FOLDER = 1;
+  // An imported library (Imports; "<EXTERNAL>" when the file doesn't say
+  // which).
+  SYMBOL_TREE_NODE_KIND_LIBRARY = 2;
+  SYMBOL_TREE_NODE_KIND_NAMESPACE = 3;
+  SYMBOL_TREE_NODE_KIND_CLASS = 4;
+  SYMBOL_TREE_NODE_KIND_FUNCTION = 5;
+  SYMBOL_TREE_NODE_KIND_LABEL = 6;
+  // An imported function or object: its thunk, else its slot.
+  SYMBOL_TREE_NODE_KIND_IMPORT = 7;
+  SYMBOL_TREE_NODE_KIND_EXPORT = 8;
+}
+
+message SymbolTreeNode {
+  // As the tree shows it: a symbol's name within its namespace or class,
+  // a class's qualified name in Classes.
+  string name = 1;
+  SymbolTreeNodeKind kind = 2;
+  // A symbol's address (unset for folders, libraries and scopes).
+  Address address = 3;
+  // The qualified name: a symbol's effective name, a scope's path.
+  string full_name = 4;
+  // What it holds, for folders, libraries and scopes.
+  uint64 children = 5;
+  // An import's library.
+  string library = 6;
+}
+
+message ListSymbolTreeResponse {
+  Snapshot snapshot = 1;
+  // Scopes and libraries first, then by name in any case.
+  repeated SymbolTreeNode nodes = 2;
+  PageInfo page = 3;
+  uint64 total = 4;
+}
+
+message PlanClearFlowRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+  // An instruction: where the flow starts.
+  Address address = 3;
+  // Also the code of the functions it calls that nothing else calls
+  // (Ghidra's option to clear called functions).
+  bool follow_calls = 4;
+}
+
+message ClearFlowRange {
+  Address address = 1;
+  uint64 length = 2;
+}
+
+message PlanClearFlowResponse {
+  Snapshot snapshot = 1;
+  // The ranges to clear, by address, merged where they touch: a
+  // ListingEdit ClearCode of each clears the flow.
+  repeated ClearFlowRange ranges = 2;
+  // Instructions the flow reaches, and of those the ones that stay because
+  // code outside the flow reaches them too (the repair: they stay code).
+  uint32 instructions = 3;
+  uint32 kept = 4;
+  // Functions whose entry is cleared: they go with it.
+  repeated Address functions = 5;
+}
+
 message GetFunctionRequest {
   string program_id = 1;
   Address address = 2;
@@ -314,6 +428,45 @@ message GetXrefsResponse {
   // Sorted by (direction, from_address, to_address).
   repeated Xref xrefs = 2;
   PageInfo page = 3;
+}
+
+message ListLibraryImportersRequest {
+  // The library program.
+  string program_id = 1;
+  // One export: the function at or containing the address, or the name
+  // ("free@GLIBC_2.2.5" is "free"). Neither: every import of the library.
+  oneof target {
+    Address address = 2;
+    string name = 3;
+  }
+  // Also the importers' references to each import: to its thunk, and to
+  // its slot other than the thunk's own jump through it.
+  bool include_references = 4;
+  // At most this many references per import (0: 50; at most 1000).
+  uint32 max_references = 5;
+  // The library's read (the importers are read at their head).
+  ReadOptions read = 6;
+}
+
+// One program's import of the library.
+message LibraryImporter {
+  string program_id = 1;
+  string program_name = 2;
+  // The name it needs the library by (its DT_NEEDED or DLL name).
+  string library = 3;
+  // The import in the importer (name, thunk, slot), and where it goes in the
+  // library (address, function_name).
+  ResolvedImport resolved = 4;
+  // include_references: in the importer, by address.
+  repeated Xref references = 5;
+  // More than max_references.
+  bool references_truncated = 6;
+}
+
+message ListLibraryImportersResponse {
+  Snapshot snapshot = 1;
+  // By importer name, then in the importer's slot order.
+  repeated LibraryImporter importers = 2;
 }
 
 message DecompileRequest {
@@ -582,6 +735,142 @@ message ListDataResponse {
   PageInfo page = 3;
 }
 
+message ListCommentsRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+  PageRequest page = 3;
+  // Only these kinds (empty: all).
+  repeated CommentKind kinds = 4;
+  // Only comments whose text holds this (case-insensitive).
+  string text_contains = 5;
+  AddressRange range = 6;
+}
+
+message ProgramComment {
+  Address address = 1;
+  CommentKind kind = 2;
+  string text = 3;
+  // The function the address is in, and its name.
+  Address function = 4;
+  string function_name = 5;
+  // The address's own label, if any.
+  string label = 6;
+  // Who wrote it.
+  FactOrigin origin = 7;
+}
+
+message ListCommentsResponse {
+  Snapshot snapshot = 1;
+  // Address order, then kind.
+  repeated ProgramComment comments = 2;
+  PageInfo page = 3;
+  uint64 total = 4;
+}
+
+message ListRelocationsRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+  PageRequest page = 3;
+  AddressRange range = 4;
+  // Only relocations whose symbol or type name holds this
+  // (case-insensitive).
+  string text_contains = 5;
+}
+
+// What a relocation does, for the types revkit tells apart; the rest are
+// OTHER (type and type_name always say which).
+enum RelocationKind {
+  RELOCATION_KIND_UNSPECIFIED = 0;
+  RELOCATION_KIND_OTHER = 1;
+  // Load base + addend (R_*_RELATIVE).
+  RELOCATION_KIND_RELATIVE = 2;
+  // The result of calling the resolver at base + addend (R_*_IRELATIVE).
+  RELOCATION_KIND_IRELATIVE = 3;
+  // A PLT's GOT slot for the symbol (R_*_JUMP_SLOT).
+  RELOCATION_KIND_JUMP_SLOT = 4;
+  // A GOT slot holding the symbol's address (R_*_GLOB_DAT).
+  RELOCATION_KIND_GLOB_DAT = 5;
+  // Symbol + addend, or for PE a link-time address moved by the load delta
+  // (R_X86_64_64, IMAGE_REL_BASED_DIR64, ...).
+  RELOCATION_KIND_ABSOLUTE = 6;
+}
+
+message ProgramRelocation {
+  // The location patched.
+  Address address = 1;
+  // The raw type as in the file (ELF r_type, PE IMAGE_REL_BASED_*).
+  uint32 type = 2;
+  // "R_X86_64_JUMP_SLOT", "IMAGE_REL_BASED_DIR64"; "type N" when revkit has
+  // no name for it.
+  string type_name = 3;
+  RelocationKind kind = 4;
+  // Empty when it has no symbol.
+  string symbol = 5;
+  // Explicit for RELA; for REL, RELR and PE, the word stored at address.
+  int64 addend = 6;
+  // Where it points once applied, when that doesn't depend on another
+  // module: RELATIVE, IRELATIVE (the resolver) and PE base relocations
+  // (unset otherwise).
+  Address target = 7;
+  // The bytes at address as loaded, a pointer's worth: the file's, except
+  // that a rebase (SetImageBase) applies the RELATIVE ones.
+  bytes original = 8;
+  // The function or label the target is, if any.
+  string target_name = 9;
+}
+
+message ListRelocationsResponse {
+  Snapshot snapshot = 1;
+  // Address order.
+  repeated ProgramRelocation relocations = 2;
+  PageInfo page = 3;
+  // After the filters.
+  uint64 total = 4;
+  // "elf", "pe" or "raw": what the relocations are read from.
+  string format = 5;
+}
+
+message ListRegisterValuesRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+  PageRequest page = 3;
+  // Only this register (by name, case ignored); empty: all.
+  string register_name = 4;
+  // Only ranges overlapping this one.
+  AddressRange range = 5;
+}
+
+message RegisterValueRange {
+  string register_name = 1;
+  // Where the register holds the value (inclusive).
+  AddressRange range = 2;
+  uint64 value = 3;
+  // Who set it: the winning assertion (a SetRegisterValue), or analysis
+  // (derived, rule "analysis.register_values:<origin>": "mips-gp",
+  // "ppc64-toc", "ppc64-opd", "ppc-sda", "ppc-sda2").
+  FactOrigin origin = 4;
+  // The assertion's key (FACT_KIND_REGISTER_VALUE) when one set it; unset
+  // for analysis's. Its range may be larger: this is the part it still
+  // holds.
+  FactKey key = 5;
+}
+
+message RegisterDescription {
+  string name = 1;
+  uint32 size = 2;  // bytes
+}
+
+message ListRegisterValuesResponse {
+  Snapshot snapshot = 1;
+  // By register name, then address.
+  repeated RegisterValueRange ranges = 2;
+  PageInfo page = 3;
+  uint64 total = 4;
+  // The registers values may be set on: the language's, without context
+  // registers and those wider than 8 bytes, by storage.
+  repeated RegisterDescription registers = 5;
+}
+
 message GetClassHierarchyRequest {
   string program_id = 1;
   ReadOptions read = 2;
@@ -692,6 +981,47 @@ message DecompileManyResponse {
   // function alone (milliseconds).
   double elapsed_ms = 9;
   double function_ms = 10;
+}
+
+message ExportCRequest {
+  string program_id = 1;
+  ReadOptions read = 2;
+  // Entry points to export, in any order; empty with `all`: every function.
+  repeated Address functions = 3;
+  bool all = 4;
+  // Also a header (<name>.h): Ghidra's built-in type names, every named
+  // type of the program (as ExportTypeArchive with TYPE_ARCHIVE_SCOPE_ALL
+  // writes them) and a prototype of each function exported; the source
+  // then includes it.
+  bool header = 5;
+  // The files are <name>.c and <name>.h. Default: the program's name.
+  string name = 6;
+  // As DecompileOptions.timeout_ms, per function.
+  uint32 timeout_ms = 7;
+  // As DecompileManyRequest.parallelism.
+  uint32 parallelism = 8;
+}
+
+message ExportCResponse {
+  // The revision the export is at (same on every message).
+  Snapshot snapshot = 1;
+  // Functions decompiled so far, of `total`.
+  uint32 done = 2;
+  uint32 total = 3;
+  // Once the functions are decompiled: the file names, then the header (in
+  // one message, when asked for) and the source in parts (in order: their
+  // concatenation is the file), the last message with `finished`.
+  string source_name = 4;
+  string header_name = 5;
+  string header = 6;
+  string source_part = 7;
+  bool finished = 8;
+  // On the finished message: the functions in the source, and the ones
+  // the decompiler failed on (a comment in the source says why).
+  uint32 functions = 9;
+  repeated Address failed = 10;
+  // Notes on the header (types it can't reproduce: ExportTypeArchive's).
+  repeated string notes = 11;
 }
 
 message FindBytesRequest {

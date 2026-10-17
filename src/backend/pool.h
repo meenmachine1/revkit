@@ -2,6 +2,7 @@
 // (SLEIGH engines). Objects are created on demand up to a limit and reused.
 #pragma once
 
+#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <memory>
@@ -35,7 +36,7 @@ class Pool {
     std::unique_lock lock(mu_);
     for (;;) {
       if (!idle_.empty()) {
-        auto item = std::move(idle_.back());
+        auto item = std::move(idle_.back().first);
         idle_.pop_back();
         return Lease(this, std::move(item));
       }
@@ -55,10 +56,23 @@ class Pool {
     }
   }
 
+  // Calls park() on the items idle for at least `idle_for` (SLEIGH engines:
+  // lift::Lifter::park lets the engine go to the language's spares); how many parked.
+  std::size_t ParkIdle(std::chrono::steady_clock::duration idle_for) {
+    const auto now = std::chrono::steady_clock::now();
+    std::size_t n = 0;
+    std::lock_guard lock(mu_);
+    for (auto &[item, since] : idle_)
+      if (now - since >= idle_for)
+        if constexpr (requires(T &t) { t.park(); t.parked(); })
+          if (!item->parked() && item->park()) ++n;
+    return n;
+  }
+
  private:
   void Return(std::unique_ptr<T> item) {
     std::lock_guard lock(mu_);
-    idle_.push_back(std::move(item));
+    idle_.emplace_back(std::move(item), std::chrono::steady_clock::now());
     cv_.notify_one();
   }
 
@@ -66,7 +80,7 @@ class Pool {
   unsigned max_;
   std::mutex mu_;
   std::condition_variable cv_;
-  std::vector<std::unique_ptr<T>> idle_;
+  std::vector<std::pair<std::unique_ptr<T>, std::chrono::steady_clock::time_point>> idle_;  // since returned
   unsigned created_ = 0;
 };
 

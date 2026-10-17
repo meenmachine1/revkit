@@ -80,7 +80,8 @@ struct AssertedOrder {
 // and TYPE (whose winner's rank decides it against a derived, import-rank
 // prototype: docs/demangle.md).
 inline bool ordered_kind(FactKind k) {
-  return k == FactKind::Patch || k == FactKind::CodeUnit || k == FactKind::Mutability || k == FactKind::Type;
+  return k == FactKind::Patch || k == FactKind::CodeUnit || k == FactKind::Mutability || k == FactKind::Type ||
+         k == FactKind::RegisterValue;
 }
 
 // The bytes as patched (docs/patching.md, "bytes.effective"): MemoryPage

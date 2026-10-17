@@ -14,6 +14,7 @@ import { errText, fmtAddr, hex, spaceOf } from "../data/format";
 import type { RowCache } from "../data/rowCache";
 import { RowKind, type ListingRow } from "../data/types";
 import type { ListingView } from "../listing/view";
+import { dataSettingsForm, describeSettings, type DataValueKind } from "./datasettings";
 import { ask, choose, toast, type Suggestion } from "./dialogs";
 import { prefs } from "./dom";
 
@@ -187,6 +188,27 @@ export class ListingEditor {
     }
     const label = `Clear ${plural(r.length, "byte")} at ${at(r.start)}`;
     await this.run(label, [Edits.clearBody(r.start, r.length)], `Cleared ${plural(r.length, "byte")} at ${at(r.start)}`, "Clear failed");
+  }
+
+  /** Clear Flow and Repair (feature clear-flow): the code only the flow
+   * from the instruction at the cursor reaches, cleared in one undo step;
+   * what other code reaches stays. */
+  async clearFlow(followCalls = false) {
+    const t = this.target();
+    if (!t || t.row.kind !== RowKind.Instruction) return toast("Put the cursor on the instruction the flow starts at", { kind: "error" });
+    const a = t.row.address;
+    let plan;
+    try {
+      plan = await this.host.rk.queries.planClearFlow({ programId: this.host.programId, address: { offset: a }, followCalls });
+    } catch (e) {
+      return toast(`Can't clear the flow: ${errText(e)}`, { kind: "error" });
+    }
+    if (!plan.ranges.length) return toast(`Nothing to clear: other code reaches all of the flow from ${at(a)}`);
+    const n = plan.instructions - plan.kept;
+    const fns = plan.functions.length ? `, ${plural(BigInt(plan.functions.length), "function")} with it` : "";
+    const kept = plan.kept ? `; ${plural(BigInt(plan.kept), "instruction")} other code reaches stay` : "";
+    const label = `Clear flow from ${at(a)}`;
+    await this.run(label, plan.ranges.map((r) => Edits.clearBody(r.address!.offset, r.length)), `Cleared the flow from ${at(a)}: ${plural(BigInt(n), "instruction")}${fns}${kept}`, "Clear flow failed");
   }
 
   /** d: code starts at the cursor (in ARM or Thumb, as asked), and a function with `fn`. */
@@ -363,6 +385,52 @@ export class ListingEditor {
     const c = MUTABILITY_CHOICES.find((x) => x.m === m)!;
     const label = m === Mutability.DEFAULT ? `Mutability of ${plural(r.length, "byte")} at ${at(r.start)} back to default` : `Mark ${plural(r.length, "byte")} at ${at(r.start)} ${c.verb}`;
     await this.run(label, [Edits.mutabilityBody(r.start, r.length, m)], label, "Mutability failed");
+  }
+
+  /**
+   * Data settings (feature data-settings): how the data row at the cursor
+   * shows, or every row of its type (Ghidra's Settings and Default
+   * Settings), and the item's mutability, in one undo step.
+   */
+  async settings() {
+    const t = this.target();
+    if (!t || t.row.kind !== RowKind.Data || !t.row.dataSettingsType) return toast("Data settings are for data rows: put the cursor on one (define data first)", { kind: "error" });
+    const r = t.row;
+    const it = this.item(t);
+    const text = r.operands.map((o) => o.text).join("");
+    const kind: DataValueKind = /^[uU]?"/.test(text)
+      ? "string"
+      : r.mnemonic === "addr" || r.operands.some((o) => o.target !== undefined)
+        ? "pointer"
+        : text === "{...}"
+          ? "aggregate"
+          : /^(float|double|long double)\b/.test(r.dataType)
+            ? "float"
+            : "integer";
+    const field = r.dataField && r.dataParent !== null && !r.dataField.startsWith("[") ? r.dataField : "";
+    const itemAddress = r.dataParent !== null && r.dataField ? r.dataParent : r.address;
+    const what = `${field ? `${it.dataType || "data"}.${field}` : r.dataField ? `${it.dataType || "data"} element` : r.dataType || r.mnemonic} at ${at(field ? r.address : itemAddress)}`;
+    await dataSettingsForm({
+      what,
+      typeName: r.dataSettingsType!,
+      kind,
+      own: r.dataSettings,
+      typeDefaults: r.dataTypeSettings,
+      mutability: field || r.dataField ? undefined : (r.mutability as Mutability),
+      submit: async (scope, settings, m) => {
+        const body = scope === "type" ? Edits.dataSettingsBody({ typeName: r.dataSettingsType! }, settings) : Edits.dataSettingsBody({ address: itemAddress, field }, settings);
+        const bodies = [body, ...(m !== null ? [Edits.mutabilityBody(it.address, BigInt(Math.max(1, it.length)), m)] : [])];
+        const label = scope === "type" ? `Default settings of ${r.dataSettingsType}` : `Data settings of ${what}`;
+        try {
+          const res = await this.host.edits.bodies(label, bodies);
+          toast(`${label}: ${describeSettings(settings) || "all default"}`, { action: { label: "Undo", run: () => this.host.undo() } });
+          await this.host.settle(res.revision);
+          return null;
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    });
   }
 
   /** The item a row shows when it can expand: itself, or a field's item. */

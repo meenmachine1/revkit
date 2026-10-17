@@ -6,7 +6,7 @@ import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobu
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
-import type { Address, Provenance } from "./common_pb";
+import type { Address, Provenance, Snapshot } from "./common_pb";
 import { file_revkit_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file revkit/v1/bsim.proto.
  */
 export const file_revkit_v1_bsim: GenFile = /*@__PURE__*/
-  fileDesc("ChRyZXZraXQvdjEvYnNpbS5wcm90bxIJcmV2a2l0LnYxIvwBCgxCU2ltRGF0YWJhc2USCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIpCgh0ZW1wbGF0ZRgEIAEoDjIXLnJldmtpdC52MS5CU2ltVGVtcGxhdGUSEAoIc2V0dGluZ3MYBSABKA0SDQoFbHNoX2sYBiABKA0SDQoFbHNoX2wYByABKA0SEwoLZXhlY3V0YWJsZXMYCCABKA0SEQoJZnVuY3Rpb25zGAkgASgEEisKB2NyZWF0ZWQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBWVycm9yGAsgASgJItQBChlDcmVhdGVCU2ltRGF0YWJhc2VSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIMCgRuYW1lGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEikKCHRlbXBsYXRlGAUgASgOMhcucmV2a2l0LnYxLkJTaW1UZW1wbGF0ZRINCgVsc2hfaxgGIAEoDRINCgVsc2hfbBgHIAEoDRIpCgpwcm92ZW5hbmNlGAggASgLMhUucmV2a2l0LnYxLlByb3ZlbmFuY2UiRwoaQ3JlYXRlQlNpbURhdGFiYXNlUmVzcG9uc2USKQoIZGF0YWJhc2UYASABKAsyFy5yZXZraXQudjEuQlNpbURhdGFiYXNlImgKGUF0dGFjaEJTaW1EYXRhYmFzZVJlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEikKCnByb3ZlbmFuY2UYAyABKAsyFS5yZXZraXQudjEuUHJvdmVuYW5jZSJHChpBdHRhY2hCU2ltRGF0YWJhc2VSZXNwb25zZRIpCghkYXRhYmFzZRgBIAEoCzIXLnJldmtpdC52MS5CU2ltRGF0YWJhc2UibAoZRGV0YWNoQlNpbURhdGFiYXNlUmVxdWVzdBISCgpwcm9qZWN0X2lkGAEgASgJEhAKCGRhdGFiYXNlGAIgASgJEikKCnByb3ZlbmFuY2UYAyABKAsyFS5yZXZraXQudjEuUHJvdmVuYW5jZSIcChpEZXRhY2hCU2ltRGF0YWJhc2VSZXNwb25zZSIuChhMaXN0QlNpbURhdGFiYXNlc1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCSJHChlMaXN0QlNpbURhdGFiYXNlc1Jlc3BvbnNlEioKCWRhdGFiYXNlcxgBIAMoCzIXLnJldmtpdC52MS5CU2ltRGF0YWJhc2Ui5AEKEUluZ2VzdEJTaW1SZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSEAoIZGF0YWJhc2UYAiABKAkSEwoLcHJvZ3JhbV9pZHMYAyADKAkSQAoKY2F0ZWdvcmllcxgEIAMoCzIsLnJldmtpdC52MS5Jbmdlc3RCU2ltUmVxdWVzdC5DYXRlZ29yaWVzRW50cnkSDwoHdGhyZWFkcxgFIAEoDRIOCgZzb3VyY2UYBiABKAkaMQoPQ2F0ZWdvcmllc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiggIKDEJTaW1Jbmdlc3RlZBISCgpwcm9ncmFtX2lkGAEgASgJEi0KCmV4ZWN1dGFibGUYAiABKAsyGS5yZXZraXQudjEuQlNpbUV4ZWN1dGFibGUSEAoIcmVwbGFjZWQYAyABKAgSEQoJZnVuY3Rpb25zGAQgASgNEjcKCGV4Y2x1ZGVkGAUgAygLMiUucmV2a2l0LnYxLkJTaW1Jbmdlc3RlZC5FeGNsdWRlZEVudHJ5Eg8KB3NlY29uZHMYBiABKAESDwoHd2FybmluZxgHIAEoCRovCg1FeGNsdWRlZEVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoDToCOAEiPwoSSW5nZXN0QlNpbVJlc3BvbnNlEikKCHByb2dyYW1zGAEgAygLMhcucmV2a2l0LnYxLkJTaW1Jbmdlc3RlZCKxAgoOQlNpbUV4ZWN1dGFibGUSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgRwYXRoGAMgASgJEhAKCGxhbmd1YWdlGAQgASgJEhAKCGNvbXBpbGVyGAUgASgJEgsKA21kNRgGIAEoCRIsCghpbmdlc3RlZBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGc291cmNlGAggASgJEj0KCmNhdGVnb3JpZXMYCSADKAsyKS5yZXZraXQudjEuQlNpbUV4ZWN1dGFibGUuQ2F0ZWdvcmllc0VudHJ5EhYKDmZ1bmN0aW9uX2NvdW50GAogASgNGjEKD0NhdGVnb3JpZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBImQKGkxpc3RCU2ltRXhlY3V0YWJsZXNSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSEAoIZGF0YWJhc2UYAiABKAkSDgoGZmlsdGVyGAMgASgJEhAKCGxhbmd1YWdlGAQgASgJIk0KG0xpc3RCU2ltRXhlY3V0YWJsZXNSZXNwb25zZRIuCgtleGVjdXRhYmxlcxgBIAMoCzIZLnJldmtpdC52MS5CU2ltRXhlY3V0YWJsZSKkAQoMQlNpbUZ1bmN0aW9uEgwKBG5hbWUYASABKAkSIQoFZW50cnkYAiABKAsyEi5yZXZraXQudjEuQWRkcmVzcxIRCglwcm90b3R5cGUYAyABKAkSDAoEc2l6ZRgEIAEoDRIUCgxkZWZhdWx0X25hbWUYBSABKAgSFQoNZmVhdHVyZV9jb3VudBgGIAEoDRIVCg1leGVjdXRhYmxlX2lkGAcgASgJIooBChhMaXN0QlNpbUZ1bmN0aW9uc1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCRIQCghkYXRhYmFzZRgCIAEoCRISCgpleGVjdXRhYmxlGAMgASgJEhUKDW5hbWVfY29udGFpbnMYBCABKAkSDgoGb2Zmc2V0GAUgASgNEg0KBWxpbWl0GAYgASgNIlYKGUxpc3RCU2ltRnVuY3Rpb25zUmVzcG9uc2USKgoJZnVuY3Rpb25zGAEgAygLMhcucmV2a2l0LnYxLkJTaW1GdW5jdGlvbhINCgV0b3RhbBgCIAEoDSL8AQobVXBkYXRlQlNpbUV4ZWN1dGFibGVSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSEAoIZGF0YWJhc2UYAiABKAkSEgoKZXhlY3V0YWJsZRgDIAEoCRIMCgRuYW1lGAQgASgJEkoKCmNhdGVnb3JpZXMYBSADKAsyNi5yZXZraXQudjEuVXBkYXRlQlNpbUV4ZWN1dGFibGVSZXF1ZXN0LkNhdGVnb3JpZXNFbnRyeRIWCg5zZXRfY2F0ZWdvcmllcxgGIAEoCBoxCg9DYXRlZ29yaWVzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJNChxVcGRhdGVCU2ltRXhlY3V0YWJsZVJlc3BvbnNlEi0KCmV4ZWN1dGFibGUYASABKAsyGS5yZXZraXQudjEuQlNpbUV4ZWN1dGFibGUiWQocRGVsZXRlQlNpbUV4ZWN1dGFibGVzUmVxdWVzdBISCgpwcm9qZWN0X2lkGAEgASgJEhAKCGRhdGFiYXNlGAIgASgJEhMKC2V4ZWN1dGFibGVzGAMgAygJIkEKHURlbGV0ZUJTaW1FeGVjdXRhYmxlc1Jlc3BvbnNlEg8KB2RlbGV0ZWQYASABKA0SDwoHbWlzc2luZxgCIAMoCSLRBAoRU2VhcmNoQlNpbVJlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCRIQCghkYXRhYmFzZRgCIAEoCRISCgpwcm9ncmFtX2lkGAMgASgJEiUKCWZ1bmN0aW9ucxgEIAMoCzISLnJldmtpdC52MS5BZGRyZXNzEhUKDWFsbF9mdW5jdGlvbnMYBSABKAgSGwoObWluX3NpbWlsYXJpdHkYBiABKAFIAIgBARIbCg5taW5fY29uZmlkZW5jZRgHIAEoAUgBiAEBEhMKC21heF9tYXRjaGVzGAggASgNEhMKC2V4ZWN1dGFibGVzGAkgAygJEhsKE2V4Y2x1ZGVfZXhlY3V0YWJsZXMYCiADKAkSFAoMaW5jbHVkZV9zZWxmGAsgASgIEhEKCWxhbmd1YWdlcxgMIAMoCRIVCg1uYW1lX2NvbnRhaW5zGA0gASgJEkAKCmNhdGVnb3JpZXMYDiADKAsyLC5yZXZraXQudjEuU2VhcmNoQlNpbVJlcXVlc3QuQ2F0ZWdvcmllc0VudHJ5Eh0KFWV4Y2x1ZGVfZGVmYXVsdF9uYW1lcxgPIAEoCBIQCghvdmVydmlldxgQIAEoCBISCgpleGhhdXN0aXZlGBEgASgIEg8KB3RocmVhZHMYEiABKA0SEgoKaW5kZXhfb25seRgTIAEoCBoxCg9DYXRlZ29yaWVzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIRCg9fbWluX3NpbWlsYXJpdHlCEQoPX21pbl9jb25maWRlbmNlIqEBCglCU2ltTWF0Y2gSLQoKZXhlY3V0YWJsZRgBIAEoCzIZLnJldmtpdC52MS5CU2ltRXhlY3V0YWJsZRIpCghmdW5jdGlvbhgCIAEoCzIXLnJldmtpdC52MS5CU2ltRnVuY3Rpb24SEgoKc2ltaWxhcml0eRgDIAEoARISCgpjb25maWRlbmNlGAQgASgBEhIKCnByb2dyYW1faWQYBSABKAkiwgEKD0JTaW1RdWVyeVJlc3VsdBIkCghmdW5jdGlvbhgBIAEoCzISLnJldmtpdC52MS5BZGRyZXNzEgwKBG5hbWUYAiABKAkSFQoNZmVhdHVyZV9jb3VudBgDIAEoDRIZChFzZWxmX3NpZ25pZmljYW5jZRgEIAEoARIRCgloaXRfY291bnQYBSABKA0SJQoHbWF0Y2hlcxgGIAMoCzIULnJldmtpdC52MS5CU2ltTWF0Y2gSDwoHc2tpcHBlZBgHIAEoCSJxChJTZWFyY2hCU2ltUmVzcG9uc2USKwoHcmVzdWx0cxgBIAMoCzIaLnJldmtpdC52MS5CU2ltUXVlcnlSZXN1bHQSDgoGc2NvcmVkGAIgASgEEg0KBXRvdGFsGAMgASgEEg8KB3NlY29uZHMYBCABKAEqcwoMQlNpbVRlbXBsYXRlEh0KGUJTSU1fVEVNUExBVEVfVU5TUEVDSUZJRUQQABIUChBCU0lNX1RFTVBMQVRFXzY0EAESFAoQQlNJTV9URU1QTEFURV8zMhACEhgKFEJTSU1fVEVNUExBVEVfTk9TSVpFEAMyxwcKC0JTaW1TZXJ2aWNlEmEKEkNyZWF0ZUJTaW1EYXRhYmFzZRIkLnJldmtpdC52MS5DcmVhdGVCU2ltRGF0YWJhc2VSZXF1ZXN0GiUucmV2a2l0LnYxLkNyZWF0ZUJTaW1EYXRhYmFzZVJlc3BvbnNlEmEKEkF0dGFjaEJTaW1EYXRhYmFzZRIkLnJldmtpdC52MS5BdHRhY2hCU2ltRGF0YWJhc2VSZXF1ZXN0GiUucmV2a2l0LnYxLkF0dGFjaEJTaW1EYXRhYmFzZVJlc3BvbnNlEmEKEkRldGFjaEJTaW1EYXRhYmFzZRIkLnJldmtpdC52MS5EZXRhY2hCU2ltRGF0YWJhc2VSZXF1ZXN0GiUucmV2a2l0LnYxLkRldGFjaEJTaW1EYXRhYmFzZVJlc3BvbnNlEl4KEUxpc3RCU2ltRGF0YWJhc2VzEiMucmV2a2l0LnYxLkxpc3RCU2ltRGF0YWJhc2VzUmVxdWVzdBokLnJldmtpdC52MS5MaXN0QlNpbURhdGFiYXNlc1Jlc3BvbnNlEkkKCkluZ2VzdEJTaW0SHC5yZXZraXQudjEuSW5nZXN0QlNpbVJlcXVlc3QaHS5yZXZraXQudjEuSW5nZXN0QlNpbVJlc3BvbnNlEmQKE0xpc3RCU2ltRXhlY3V0YWJsZXMSJS5yZXZraXQudjEuTGlzdEJTaW1FeGVjdXRhYmxlc1JlcXVlc3QaJi5yZXZraXQudjEuTGlzdEJTaW1FeGVjdXRhYmxlc1Jlc3BvbnNlEl4KEUxpc3RCU2ltRnVuY3Rpb25zEiMucmV2a2l0LnYxLkxpc3RCU2ltRnVuY3Rpb25zUmVxdWVzdBokLnJldmtpdC52MS5MaXN0QlNpbUZ1bmN0aW9uc1Jlc3BvbnNlEmcKFFVwZGF0ZUJTaW1FeGVjdXRhYmxlEiYucmV2a2l0LnYxLlVwZGF0ZUJTaW1FeGVjdXRhYmxlUmVxdWVzdBonLnJldmtpdC52MS5VcGRhdGVCU2ltRXhlY3V0YWJsZVJlc3BvbnNlEmoKFURlbGV0ZUJTaW1FeGVjdXRhYmxlcxInLnJldmtpdC52MS5EZWxldGVCU2ltRXhlY3V0YWJsZXNSZXF1ZXN0GigucmV2a2l0LnYxLkRlbGV0ZUJTaW1FeGVjdXRhYmxlc1Jlc3BvbnNlEkkKClNlYXJjaEJTaW0SHC5yZXZraXQudjEuU2VhcmNoQlNpbVJlcXVlc3QaHS5yZXZraXQudjEuU2VhcmNoQlNpbVJlc3BvbnNlYgZwcm90bzM", [file_google_protobuf_timestamp, file_revkit_v1_common]);
+  fileDesc("ChRyZXZraXQvdjEvYnNpbS5wcm90bxIJcmV2a2l0LnYxIvwBCgxCU2ltRGF0YWJhc2USCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIpCgh0ZW1wbGF0ZRgEIAEoDjIXLnJldmtpdC52MS5CU2ltVGVtcGxhdGUSEAoIc2V0dGluZ3MYBSABKA0SDQoFbHNoX2sYBiABKA0SDQoFbHNoX2wYByABKA0SEwoLZXhlY3V0YWJsZXMYCCABKA0SEQoJZnVuY3Rpb25zGAkgASgEEisKB2NyZWF0ZWQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBWVycm9yGAsgASgJItQBChlDcmVhdGVCU2ltRGF0YWJhc2VSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIMCgRuYW1lGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEikKCHRlbXBsYXRlGAUgASgOMhcucmV2a2l0LnYxLkJTaW1UZW1wbGF0ZRINCgVsc2hfaxgGIAEoDRINCgVsc2hfbBgHIAEoDRIpCgpwcm92ZW5hbmNlGAggASgLMhUucmV2a2l0LnYxLlByb3ZlbmFuY2UiRwoaQ3JlYXRlQlNpbURhdGFiYXNlUmVzcG9uc2USKQoIZGF0YWJhc2UYASABKAsyFy5yZXZraXQudjEuQlNpbURhdGFiYXNlImgKGUF0dGFjaEJTaW1EYXRhYmFzZVJlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEikKCnByb3ZlbmFuY2UYAyABKAsyFS5yZXZraXQudjEuUHJvdmVuYW5jZSJHChpBdHRhY2hCU2ltRGF0YWJhc2VSZXNwb25zZRIpCghkYXRhYmFzZRgBIAEoCzIXLnJldmtpdC52MS5CU2ltRGF0YWJhc2UibAoZRGV0YWNoQlNpbURhdGFiYXNlUmVxdWVzdBISCgpwcm9qZWN0X2lkGAEgASgJEhAKCGRhdGFiYXNlGAIgASgJEikKCnByb3ZlbmFuY2UYAyABKAsyFS5yZXZraXQudjEuUHJvdmVuYW5jZSIcChpEZXRhY2hCU2ltRGF0YWJhc2VSZXNwb25zZSIuChhMaXN0QlNpbURhdGFiYXNlc1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCSJHChlMaXN0QlNpbURhdGFiYXNlc1Jlc3BvbnNlEioKCWRhdGFiYXNlcxgBIAMoCzIXLnJldmtpdC52MS5CU2ltRGF0YWJhc2Ui5AEKEUluZ2VzdEJTaW1SZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSEAoIZGF0YWJhc2UYAiABKAkSEwoLcHJvZ3JhbV9pZHMYAyADKAkSQAoKY2F0ZWdvcmllcxgEIAMoCzIsLnJldmtpdC52MS5Jbmdlc3RCU2ltUmVxdWVzdC5DYXRlZ29yaWVzRW50cnkSDwoHdGhyZWFkcxgFIAEoDRIOCgZzb3VyY2UYBiABKAkaMQoPQ2F0ZWdvcmllc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiggIKDEJTaW1Jbmdlc3RlZBISCgpwcm9ncmFtX2lkGAEgASgJEi0KCmV4ZWN1dGFibGUYAiABKAsyGS5yZXZraXQudjEuQlNpbUV4ZWN1dGFibGUSEAoIcmVwbGFjZWQYAyABKAgSEQoJZnVuY3Rpb25zGAQgASgNEjcKCGV4Y2x1ZGVkGAUgAygLMiUucmV2a2l0LnYxLkJTaW1Jbmdlc3RlZC5FeGNsdWRlZEVudHJ5Eg8KB3NlY29uZHMYBiABKAESDwoHd2FybmluZxgHIAEoCRovCg1FeGNsdWRlZEVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoDToCOAEiPwoSSW5nZXN0QlNpbVJlc3BvbnNlEikKCHByb2dyYW1zGAEgAygLMhcucmV2a2l0LnYxLkJTaW1Jbmdlc3RlZCKxAgoOQlNpbUV4ZWN1dGFibGUSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIMCgRwYXRoGAMgASgJEhAKCGxhbmd1YWdlGAQgASgJEhAKCGNvbXBpbGVyGAUgASgJEgsKA21kNRgGIAEoCRIsCghpbmdlc3RlZBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGc291cmNlGAggASgJEj0KCmNhdGVnb3JpZXMYCSADKAsyKS5yZXZraXQudjEuQlNpbUV4ZWN1dGFibGUuQ2F0ZWdvcmllc0VudHJ5EhYKDmZ1bmN0aW9uX2NvdW50GAogASgNGjEKD0NhdGVnb3JpZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBImQKGkxpc3RCU2ltRXhlY3V0YWJsZXNSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSEAoIZGF0YWJhc2UYAiABKAkSDgoGZmlsdGVyGAMgASgJEhAKCGxhbmd1YWdlGAQgASgJIk0KG0xpc3RCU2ltRXhlY3V0YWJsZXNSZXNwb25zZRIuCgtleGVjdXRhYmxlcxgBIAMoCzIZLnJldmtpdC52MS5CU2ltRXhlY3V0YWJsZSKkAQoMQlNpbUZ1bmN0aW9uEgwKBG5hbWUYASABKAkSIQoFZW50cnkYAiABKAsyEi5yZXZraXQudjEuQWRkcmVzcxIRCglwcm90b3R5cGUYAyABKAkSDAoEc2l6ZRgEIAEoDRIUCgxkZWZhdWx0X25hbWUYBSABKAgSFQoNZmVhdHVyZV9jb3VudBgGIAEoDRIVCg1leGVjdXRhYmxlX2lkGAcgASgJIooBChhMaXN0QlNpbUZ1bmN0aW9uc1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCRIQCghkYXRhYmFzZRgCIAEoCRISCgpleGVjdXRhYmxlGAMgASgJEhUKDW5hbWVfY29udGFpbnMYBCABKAkSDgoGb2Zmc2V0GAUgASgNEg0KBWxpbWl0GAYgASgNIlYKGUxpc3RCU2ltRnVuY3Rpb25zUmVzcG9uc2USKgoJZnVuY3Rpb25zGAEgAygLMhcucmV2a2l0LnYxLkJTaW1GdW5jdGlvbhINCgV0b3RhbBgCIAEoDSL8AQobVXBkYXRlQlNpbUV4ZWN1dGFibGVSZXF1ZXN0EhIKCnByb2plY3RfaWQYASABKAkSEAoIZGF0YWJhc2UYAiABKAkSEgoKZXhlY3V0YWJsZRgDIAEoCRIMCgRuYW1lGAQgASgJEkoKCmNhdGVnb3JpZXMYBSADKAsyNi5yZXZraXQudjEuVXBkYXRlQlNpbUV4ZWN1dGFibGVSZXF1ZXN0LkNhdGVnb3JpZXNFbnRyeRIWCg5zZXRfY2F0ZWdvcmllcxgGIAEoCBoxCg9DYXRlZ29yaWVzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASJNChxVcGRhdGVCU2ltRXhlY3V0YWJsZVJlc3BvbnNlEi0KCmV4ZWN1dGFibGUYASABKAsyGS5yZXZraXQudjEuQlNpbUV4ZWN1dGFibGUiWQocRGVsZXRlQlNpbUV4ZWN1dGFibGVzUmVxdWVzdBISCgpwcm9qZWN0X2lkGAEgASgJEhAKCGRhdGFiYXNlGAIgASgJEhMKC2V4ZWN1dGFibGVzGAMgAygJIkEKHURlbGV0ZUJTaW1FeGVjdXRhYmxlc1Jlc3BvbnNlEg8KB2RlbGV0ZWQYASABKA0SDwoHbWlzc2luZxgCIAMoCSLRBAoRU2VhcmNoQlNpbVJlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCRIQCghkYXRhYmFzZRgCIAEoCRISCgpwcm9ncmFtX2lkGAMgASgJEiUKCWZ1bmN0aW9ucxgEIAMoCzISLnJldmtpdC52MS5BZGRyZXNzEhUKDWFsbF9mdW5jdGlvbnMYBSABKAgSGwoObWluX3NpbWlsYXJpdHkYBiABKAFIAIgBARIbCg5taW5fY29uZmlkZW5jZRgHIAEoAUgBiAEBEhMKC21heF9tYXRjaGVzGAggASgNEhMKC2V4ZWN1dGFibGVzGAkgAygJEhsKE2V4Y2x1ZGVfZXhlY3V0YWJsZXMYCiADKAkSFAoMaW5jbHVkZV9zZWxmGAsgASgIEhEKCWxhbmd1YWdlcxgMIAMoCRIVCg1uYW1lX2NvbnRhaW5zGA0gASgJEkAKCmNhdGVnb3JpZXMYDiADKAsyLC5yZXZraXQudjEuU2VhcmNoQlNpbVJlcXVlc3QuQ2F0ZWdvcmllc0VudHJ5Eh0KFWV4Y2x1ZGVfZGVmYXVsdF9uYW1lcxgPIAEoCBIQCghvdmVydmlldxgQIAEoCBISCgpleGhhdXN0aXZlGBEgASgIEg8KB3RocmVhZHMYEiABKA0SEgoKaW5kZXhfb25seRgTIAEoCBoxCg9DYXRlZ29yaWVzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIRCg9fbWluX3NpbWlsYXJpdHlCEQoPX21pbl9jb25maWRlbmNlIqEBCglCU2ltTWF0Y2gSLQoKZXhlY3V0YWJsZRgBIAEoCzIZLnJldmtpdC52MS5CU2ltRXhlY3V0YWJsZRIpCghmdW5jdGlvbhgCIAEoCzIXLnJldmtpdC52MS5CU2ltRnVuY3Rpb24SEgoKc2ltaWxhcml0eRgDIAEoARISCgpjb25maWRlbmNlGAQgASgBEhIKCnByb2dyYW1faWQYBSABKAkiwgEKD0JTaW1RdWVyeVJlc3VsdBIkCghmdW5jdGlvbhgBIAEoCzISLnJldmtpdC52MS5BZGRyZXNzEgwKBG5hbWUYAiABKAkSFQoNZmVhdHVyZV9jb3VudBgDIAEoDRIZChFzZWxmX3NpZ25pZmljYW5jZRgEIAEoARIRCgloaXRfY291bnQYBSABKA0SJQoHbWF0Y2hlcxgGIAMoCzIULnJldmtpdC52MS5CU2ltTWF0Y2gSDwoHc2tpcHBlZBgHIAEoCSJxChJTZWFyY2hCU2ltUmVzcG9uc2USKwoHcmVzdWx0cxgBIAMoCzIaLnJldmtpdC52MS5CU2ltUXVlcnlSZXN1bHQSDgoGc2NvcmVkGAIgASgEEg0KBXRvdGFsGAMgASgEEg8KB3NlY29uZHMYBCABKAEibAoNQlNpbUFwcGx5UGFpchIkCghmdW5jdGlvbhgBIAEoCzISLnJldmtpdC52MS5BZGRyZXNzEhIKCmV4ZWN1dGFibGUYAiABKAkSIQoFbWF0Y2gYAyABKAsyEi5yZXZraXQudjEuQWRkcmVzcyKKAgoXQXBwbHlCU2ltTWF0Y2hlc1JlcXVlc3QSEgoKcHJvamVjdF9pZBgBIAEoCRIQCghkYXRhYmFzZRgCIAEoCRISCgpwcm9ncmFtX2lkGAMgASgJEicKBXBhaXJzGAQgAygLMhgucmV2a2l0LnYxLkJTaW1BcHBseVBhaXISJgoEa2luZBgFIAEoDjIYLnJldmtpdC52MS5CU2ltQXBwbHlLaW5kEhEKCW92ZXJ3cml0ZRgGIAEoCBIPCgdkcnlfcnVuGAcgASgIEikKCnByb3ZlbmFuY2UYCCABKAsyFS5yZXZraXQudjEuUHJvdmVuYW5jZRIVCg1kYXRhYmFzZV9vbmx5GAkgASgIIqsCCgtCU2ltQXBwbGllZBIkCghmdW5jdGlvbhgBIAEoCzISLnJldmtpdC52MS5BZGRyZXNzEhUKDWV4ZWN1dGFibGVfaWQYAiABKAkSIQoFbWF0Y2gYAyABKAsyEi5yZXZraXQudjEuQWRkcmVzcxIqCgZzdGF0dXMYBCABKA4yGi5yZXZraXQudjEuQlNpbUFwcGx5U3RhdHVzEg8KB21lc3NhZ2UYBSABKAkSFAoMZnJvbV9wcm9ncmFtGAYgASgJEhMKC25hbWVfYmVmb3JlGAcgASgJEhIKCm5hbWVfYWZ0ZXIYCCABKAkSGAoQc2lnbmF0dXJlX2JlZm9yZRgJIAEoCRIXCg9zaWduYXR1cmVfYWZ0ZXIYCiABKAkSDQoFdHlwZXMYCyABKA0iywEKGEFwcGx5QlNpbU1hdGNoZXNSZXNwb25zZRIlCghzbmFwc2hvdBgBIAEoCzITLnJldmtpdC52MS5TbmFwc2hvdBInCgdyZXN1bHRzGAIgAygLMhYucmV2a2l0LnYxLkJTaW1BcHBsaWVkEg0KBW5hbWVzGAMgASgNEhIKCnNpZ25hdHVyZXMYBCABKA0SDQoFdHlwZXMYBSABKA0SDwoHc2tpcHBlZBgGIAEoDRIOCgZmYWlsZWQYByABKA0SDAoEc2VxcxgIIAMoBCpzCgxCU2ltVGVtcGxhdGUSHQoZQlNJTV9URU1QTEFURV9VTlNQRUNJRklFRBAAEhQKEEJTSU1fVEVNUExBVEVfNjQQARIUChBCU0lNX1RFTVBMQVRFXzMyEAISGAoUQlNJTV9URU1QTEFURV9OT1NJWkUQAyqSAQoNQlNpbUFwcGx5S2luZBIfChtCU0lNX0FQUExZX0tJTkRfVU5TUEVDSUZJRUQQABIYChRCU0lNX0FQUExZX0tJTkRfTkFNRRABEh0KGUJTSU1fQVBQTFlfS0lORF9TSUdOQVRVUkUQAhInCiNCU0lNX0FQUExZX0tJTkRfU0lHTkFUVVJFX0FORF9UWVBFUxADKrEBCg9CU2ltQXBwbHlTdGF0dXMSIQodQlNJTV9BUFBMWV9TVEFUVVNfVU5TUEVDSUZJRUQQABIdChlCU0lNX0FQUExZX1NUQVRVU19BUFBMSUVEEAESHwobQlNJTV9BUFBMWV9TVEFUVVNfVU5DSEFOR0VEEAISHQoZQlNJTV9BUFBMWV9TVEFUVVNfU0tJUFBFRBADEhwKGEJTSU1fQVBQTFlfU1RBVFVTX0ZBSUxFRBAEMqQICgtCU2ltU2VydmljZRJhChJDcmVhdGVCU2ltRGF0YWJhc2USJC5yZXZraXQudjEuQ3JlYXRlQlNpbURhdGFiYXNlUmVxdWVzdBolLnJldmtpdC52MS5DcmVhdGVCU2ltRGF0YWJhc2VSZXNwb25zZRJhChJBdHRhY2hCU2ltRGF0YWJhc2USJC5yZXZraXQudjEuQXR0YWNoQlNpbURhdGFiYXNlUmVxdWVzdBolLnJldmtpdC52MS5BdHRhY2hCU2ltRGF0YWJhc2VSZXNwb25zZRJhChJEZXRhY2hCU2ltRGF0YWJhc2USJC5yZXZraXQudjEuRGV0YWNoQlNpbURhdGFiYXNlUmVxdWVzdBolLnJldmtpdC52MS5EZXRhY2hCU2ltRGF0YWJhc2VSZXNwb25zZRJeChFMaXN0QlNpbURhdGFiYXNlcxIjLnJldmtpdC52MS5MaXN0QlNpbURhdGFiYXNlc1JlcXVlc3QaJC5yZXZraXQudjEuTGlzdEJTaW1EYXRhYmFzZXNSZXNwb25zZRJJCgpJbmdlc3RCU2ltEhwucmV2a2l0LnYxLkluZ2VzdEJTaW1SZXF1ZXN0Gh0ucmV2a2l0LnYxLkluZ2VzdEJTaW1SZXNwb25zZRJkChNMaXN0QlNpbUV4ZWN1dGFibGVzEiUucmV2a2l0LnYxLkxpc3RCU2ltRXhlY3V0YWJsZXNSZXF1ZXN0GiYucmV2a2l0LnYxLkxpc3RCU2ltRXhlY3V0YWJsZXNSZXNwb25zZRJeChFMaXN0QlNpbUZ1bmN0aW9ucxIjLnJldmtpdC52MS5MaXN0QlNpbUZ1bmN0aW9uc1JlcXVlc3QaJC5yZXZraXQudjEuTGlzdEJTaW1GdW5jdGlvbnNSZXNwb25zZRJnChRVcGRhdGVCU2ltRXhlY3V0YWJsZRImLnJldmtpdC52MS5VcGRhdGVCU2ltRXhlY3V0YWJsZVJlcXVlc3QaJy5yZXZraXQudjEuVXBkYXRlQlNpbUV4ZWN1dGFibGVSZXNwb25zZRJqChVEZWxldGVCU2ltRXhlY3V0YWJsZXMSJy5yZXZraXQudjEuRGVsZXRlQlNpbUV4ZWN1dGFibGVzUmVxdWVzdBooLnJldmtpdC52MS5EZWxldGVCU2ltRXhlY3V0YWJsZXNSZXNwb25zZRJJCgpTZWFyY2hCU2ltEhwucmV2a2l0LnYxLlNlYXJjaEJTaW1SZXF1ZXN0Gh0ucmV2a2l0LnYxLlNlYXJjaEJTaW1SZXNwb25zZRJbChBBcHBseUJTaW1NYXRjaGVzEiIucmV2a2l0LnYxLkFwcGx5QlNpbU1hdGNoZXNSZXF1ZXN0GiMucmV2a2l0LnYxLkFwcGx5QlNpbU1hdGNoZXNSZXNwb25zZWIGcHJvdG8z", [file_google_protobuf_timestamp, file_revkit_v1_common]);
 
 /**
  * @generated from message revkit.v1.BSimDatabase
@@ -1006,6 +1006,254 @@ export const SearchBSimResponseSchema: GenMessage<SearchBSimResponse> = /*@__PUR
   messageDesc(file_revkit_v1_bsim, 25);
 
 /**
+ * One query function and the match to apply to it.
+ *
+ * @generated from message revkit.v1.BSimApplyPair
+ */
+export type BSimApplyPair = Message<"revkit.v1.BSimApplyPair"> & {
+  /**
+   * The queried function of program_id (its entry, or an address inside).
+   *
+   * @generated from field: revkit.v1.Address function = 1;
+   */
+  function?: Address | undefined;
+
+  /**
+   * The matched executable (its id, a unique id prefix or its unique name,
+   * as BSimMatch.executable has it) and its function's entry there
+   * (BSimMatch.function.entry).
+   *
+   * @generated from field: string executable = 2;
+   */
+  executable: string;
+
+  /**
+   * @generated from field: revkit.v1.Address match = 3;
+   */
+  match?: Address | undefined;
+};
+
+/**
+ * Describes the message revkit.v1.BSimApplyPair.
+ * Use `create(BSimApplyPairSchema)` to create a new message.
+ */
+export const BSimApplyPairSchema: GenMessage<BSimApplyPair> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_bsim, 26);
+
+/**
+ * @generated from message revkit.v1.ApplyBSimMatchesRequest
+ */
+export type ApplyBSimMatchesRequest = Message<"revkit.v1.ApplyBSimMatchesRequest"> & {
+  /**
+   * @generated from field: string project_id = 1;
+   */
+  projectId: string;
+
+  /**
+   * @generated from field: string database = 2;
+   */
+  database: string;
+
+  /**
+   * The program the queried functions are in.
+   *
+   * @generated from field: string program_id = 3;
+   */
+  programId: string;
+
+  /**
+   * Each pair applies one match to one function; a function in two pairs
+   * gets neither (as Ghidra's apply: which one is meant?).
+   *
+   * @generated from field: repeated revkit.v1.BSimApplyPair pairs = 4;
+   */
+  pairs: BSimApplyPair[];
+
+  /**
+   * @generated from field: revkit.v1.BSimApplyKind kind = 5;
+   */
+  kind: BSimApplyKind;
+
+  /**
+   * Replace what the function has. Without it, as PortFunctionMarkup: a
+   * name only over a default name; a signature only over a guess (none, the
+   * decompiler's, or analysis's: inference, parameter ID).
+   *
+   * @generated from field: bool overwrite = 6;
+   */
+  overwrite: boolean;
+
+  /**
+   * Say what would be applied; commit nothing.
+   *
+   * @generated from field: bool dry_run = 7;
+   */
+  dryRun: boolean;
+
+  /**
+   * Who applies (the assertions are theirs; default the caller as a
+   * user). An empty reason becomes one naming the match.
+   *
+   * @generated from field: revkit.v1.Provenance provenance = 8;
+   */
+  provenance?: Provenance | undefined;
+
+  /**
+   * Apply the database's record even when the match's file is a program
+   * of the project.
+   *
+   * @generated from field: bool database_only = 9;
+   */
+  databaseOnly: boolean;
+};
+
+/**
+ * Describes the message revkit.v1.ApplyBSimMatchesRequest.
+ * Use `create(ApplyBSimMatchesRequestSchema)` to create a new message.
+ */
+export const ApplyBSimMatchesRequestSchema: GenMessage<ApplyBSimMatchesRequest> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_bsim, 27);
+
+/**
+ * What one pair did, as Ghidra's apply results list it.
+ *
+ * @generated from message revkit.v1.BSimApplied
+ */
+export type BSimApplied = Message<"revkit.v1.BSimApplied"> & {
+  /**
+   * The queried function (its entry) and the match's executable and entry.
+   *
+   * @generated from field: revkit.v1.Address function = 1;
+   */
+  function?: Address | undefined;
+
+  /**
+   * @generated from field: string executable_id = 2;
+   */
+  executableId: string;
+
+  /**
+   * @generated from field: revkit.v1.Address match = 3;
+   */
+  match?: Address | undefined;
+
+  /**
+   * @generated from field: revkit.v1.BSimApplyStatus status = 4;
+   */
+  status: BSimApplyStatus;
+
+  /**
+   * Why (skipped, failed), or the warnings applying it gave.
+   *
+   * @generated from field: string message = 5;
+   */
+  message: string;
+
+  /**
+   * Where the values came from: the match's program in the project (its
+   * markup now), or empty: the database's record.
+   *
+   * @generated from field: string from_program = 6;
+   */
+  fromProgram: string;
+
+  /**
+   * The function's name and signature before and after (after = before
+   * when nothing changed).
+   *
+   * @generated from field: string name_before = 7;
+   */
+  nameBefore: string;
+
+  /**
+   * @generated from field: string name_after = 8;
+   */
+  nameAfter: string;
+
+  /**
+   * @generated from field: string signature_before = 9;
+   */
+  signatureBefore: string;
+
+  /**
+   * @generated from field: string signature_after = 10;
+   */
+  signatureAfter: string;
+
+  /**
+   * Types defined in the target for this signature (placeholders, or the
+   * source program's definitions).
+   *
+   * @generated from field: uint32 types = 11;
+   */
+  types: number;
+};
+
+/**
+ * Describes the message revkit.v1.BSimApplied.
+ * Use `create(BSimAppliedSchema)` to create a new message.
+ */
+export const BSimAppliedSchema: GenMessage<BSimApplied> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_bsim, 28);
+
+/**
+ * @generated from message revkit.v1.ApplyBSimMatchesResponse
+ */
+export type ApplyBSimMatchesResponse = Message<"revkit.v1.ApplyBSimMatchesResponse"> & {
+  /**
+   * @generated from field: revkit.v1.Snapshot snapshot = 1;
+   */
+  snapshot?: Snapshot | undefined;
+
+  /**
+   * One per pair, in order.
+   *
+   * @generated from field: repeated revkit.v1.BSimApplied results = 2;
+   */
+  results: BSimApplied[];
+
+  /**
+   * @generated from field: uint32 names = 3;
+   */
+  names: number;
+
+  /**
+   * @generated from field: uint32 signatures = 4;
+   */
+  signatures: number;
+
+  /**
+   * @generated from field: uint32 types = 5;
+   */
+  types: number;
+
+  /**
+   * @generated from field: uint32 skipped = 6;
+   */
+  skipped: number;
+
+  /**
+   * @generated from field: uint32 failed = 7;
+   */
+  failed: number;
+
+  /**
+   * The assertions made, in order (one revision): retracting them undoes
+   * the apply.
+   *
+   * @generated from field: repeated uint64 seqs = 8;
+   */
+  seqs: bigint[];
+};
+
+/**
+ * Describes the message revkit.v1.ApplyBSimMatchesResponse.
+ * Use `create(ApplyBSimMatchesResponseSchema)` to create a new message.
+ */
+export const ApplyBSimMatchesResponseSchema: GenMessage<ApplyBSimMatchesResponse> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_bsim, 29);
+
+/**
  * A database's weights: Ghidra's templates' tables. 64 and 32 sign with
  * settings 0x49; NOSIZE (programs of different pointer sizes) with 0x4d.
  *
@@ -1040,6 +1288,93 @@ export enum BSimTemplate {
  */
 export const BSimTemplateSchema: GenEnum<BSimTemplate> = /*@__PURE__*/
   enumDesc(file_revkit_v1_bsim, 0);
+
+/**
+ * @generated from enum revkit.v1.BSimApplyKind
+ */
+export enum BSimApplyKind {
+  /**
+   * @generated from enum value: BSIM_APPLY_KIND_UNSPECIFIED = 0;
+   */
+  BSIM_APPLY_KIND_UNSPECIFIED = 0,
+
+  /**
+   * The match's name (never a default one, FUN_...).
+   *
+   * @generated from enum value: BSIM_APPLY_KIND_NAME = 1;
+   */
+  BSIM_APPLY_KIND_NAME = 1,
+
+  /**
+   * The name and a skeleton signature: the match's prototype with the
+   * types the target program has by name, and an empty placeholder
+   * structure (an incomplete struct of that name) for each it lacks, so
+   * nothing of another architecture's or compiler's layout comes along.
+   *
+   * @generated from enum value: BSIM_APPLY_KIND_SIGNATURE = 2;
+   */
+  BSIM_APPLY_KIND_SIGNATURE = 2,
+
+  /**
+   * The name, the signature and the types it uses: with the match's
+   * program in the project, every type the prototype reaches is defined in
+   * the target by hash (PortFunctionMarkup's SIGNATURE); from the database
+   * alone (it stores no type definitions) as SIGNATURE, with a warning.
+   *
+   * @generated from enum value: BSIM_APPLY_KIND_SIGNATURE_AND_TYPES = 3;
+   */
+  BSIM_APPLY_KIND_SIGNATURE_AND_TYPES = 3,
+}
+
+/**
+ * Describes the enum revkit.v1.BSimApplyKind.
+ */
+export const BSimApplyKindSchema: GenEnum<BSimApplyKind> = /*@__PURE__*/
+  enumDesc(file_revkit_v1_bsim, 1);
+
+/**
+ * @generated from enum revkit.v1.BSimApplyStatus
+ */
+export enum BSimApplyStatus {
+  /**
+   * @generated from enum value: BSIM_APPLY_STATUS_UNSPECIFIED = 0;
+   */
+  BSIM_APPLY_STATUS_UNSPECIFIED = 0,
+
+  /**
+   * something changed (or would, in a dry run)
+   *
+   * @generated from enum value: BSIM_APPLY_STATUS_APPLIED = 1;
+   */
+  BSIM_APPLY_STATUS_APPLIED = 1,
+
+  /**
+   * the function already has it
+   *
+   * @generated from enum value: BSIM_APPLY_STATUS_UNCHANGED = 2;
+   */
+  BSIM_APPLY_STATUS_UNCHANGED = 2,
+
+  /**
+   * the function has its own (no overwrite), or the match a default name
+   *
+   * @generated from enum value: BSIM_APPLY_STATUS_SKIPPED = 3;
+   */
+  BSIM_APPLY_STATUS_SKIPPED = 3,
+
+  /**
+   * no such function or match, or two matches for one function
+   *
+   * @generated from enum value: BSIM_APPLY_STATUS_FAILED = 4;
+   */
+  BSIM_APPLY_STATUS_FAILED = 4,
+}
+
+/**
+ * Describes the enum revkit.v1.BSimApplyStatus.
+ */
+export const BSimApplyStatusSchema: GenEnum<BSimApplyStatus> = /*@__PURE__*/
+  enumDesc(file_revkit_v1_bsim, 2);
 
 /**
  * BSim signature databases (docs/bsim.md; api_minor 69, feature "bsim"):
@@ -1154,6 +1489,22 @@ export const BSimService: GenService<{
     methodKind: "unary";
     input: typeof SearchBSimRequestSchema;
     output: typeof SearchBSimResponseSchema;
+  },
+  /**
+   * Applies matches to the queried functions (api_minor 76, feature
+   * "bsim-apply"), as Ghidra's BSim results do: the match's name, its name
+   * and a skeleton signature, or its name, signature and the types it uses.
+   * From the program of the project the match's file is (its markup now,
+   * ported as PortFunctionMarkup ports it), else from the database's
+   * record (the name and prototype stored at ingest). Every pair in one
+   * revision: one undo step. Needs edit rights.
+   *
+   * @generated from rpc revkit.v1.BSimService.ApplyBSimMatches
+   */
+  applyBSimMatches: {
+    methodKind: "unary";
+    input: typeof ApplyBSimMatchesRequestSchema;
+    output: typeof ApplyBSimMatchesResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_revkit_v1_bsim, 0);

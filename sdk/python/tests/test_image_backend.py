@@ -103,7 +103,7 @@ def test_real_binary_rename_subscribe_blame_revert(image_daemon, binary):
         assert prog.blame(prog.key("name", checksum)).origin.HasField("derived")
 
 
-def test_listing_instruction_xrefs_and_locals(image_daemon, binary):
+def test_listing_instruction_xrefs_and_locals(image_daemon, binary, tmp_path):
     with Client(image_daemon.grpc_target, actor="user:bob") as rk:
         prog = rk.program(rk.import_program("default", path=str(binary), name="prog2").program.program_id)
         functions = {f.name: f for f in prog.functions()}
@@ -133,6 +133,18 @@ def test_listing_instruction_xrefs_and_locals(image_daemon, binary):
         assert "/* FNV-1a over a buffer */" in text and "(buf" in text.replace(" ", "")
         [row] = prog.listing(checksum, max_rows=1).rows
         assert row.comments[0].text == "FNV-1a over a buffer"
+        # The symbol tree (api_minor 82): the folders; checksum among the functions.
+        assert [n.name for n in prog.symbol_tree()] == ["Imports", "Exports", "Functions", "Labels", "Classes", "Namespaces"]
+        assert [n.address.offset for n in prog.symbol_tree("Functions", name_contains="CHECKSUM") if n.name == "checksum"] == [checksum]
+        # Export C (api_minor 80): the function's C, in a file with a header.
+        ex = prog.export_c([checksum], directory=str(tmp_path / "c"), name="one")
+        assert ex.functions == 1 and ex.failed == [] and ex.source_name == "one.c" and ex.header_name == "one.h"
+        assert (tmp_path / "c" / "one.c").read_text() == ex.source and '#include "one.h"' in ex.source
+        assert "checksum(" in ex.header and "/* checksum @ 0x" in ex.source
+        # The comment table (api_minor 77).
+        [c] = [c for c in prog.comments("plate") if c.address.offset == checksum]
+        assert c.text == "FNV-1a over a buffer" and c.function_name == "checksum"
+        assert not list(prog.comments("eol", text_contains="FNV"))
         prog.revert(kind="user", id="bob")
         assert "buf" not in prog.decompile(checksum).text
 

@@ -163,6 +163,9 @@ class DecompilerPool {
   // What a pool for another image of the same program shares with this one
   // (a memory-map variant, Program::WithMemory): its workers and stop flag.
   Config SharedConfig(std::shared_ptr<const loader::Image> image) const;
+  // Parks the prediction engines once they have been unused for `idle_for`
+  // (docs/memory.md "SLEIGH engines").
+  std::size_t ParkIdleEngines(std::chrono::steady_clock::duration idle_for) { return lifters_.park_idle(idle_for); }
 
   // Decompiles a timed-out run's bundle again with a longer timeout (the
   // one escalation a timeout allows). The result's failure, if any, is

@@ -908,13 +908,23 @@ it.
   the libraries it needs that the project lacks (found beside it, on its
   runpath, on those directories, then the host's `/lib` and `/usr/lib` for a
   file on the daemon host; two levels deep) are imported into the folder
-  picked; a toast names the libraries imported and those found nowhere.
+  picked; a toast names the libraries imported and those found nowhere. A
+  file inside a root file system extracted under `--browse-root` finds its
+  libraries in that root instead of the host's (api_minor 79; the toast
+  names the root). The File System browser's batch import has the same
+  option for a container's programs.
 - **Where an import goes.** In the functions list, an import thunk's second
   line reads `→ libc.so.6!strlen` (in the accent) instead of its signature;
   a click opens the library program at that function. **Navigate → Go to
   library function** does the same for the function at the cursor, and the
   thunk's **References** dialog heads its list with "Imported: goes to
   libc.so.6!strlen" (a click opens it).
+- **References back from a library** (feature `library-importers`,
+  api_minor 81). In a library program, the **References** dialog of a
+  function it exports (Ctrl+Shift+F) also lists, above its own references,
+  **From programs that import it**: each call of the import in another
+  program (`call prog!main+0x1c`), or the import's thunk when nothing
+  calls it; a click opens that program there.
 - **Analyze → Libraries…** (the palette's "Libraries…"): the program's
   libraries, its own first then theirs (indented, with who needs them), each
   with how it resolved (**linked**, **by name**, **by soname**, **not in
@@ -928,15 +938,19 @@ it.
   program (`libmylib.so · libc.so.6 (not in project)`) with **Libraries…**,
   in the Status line's place (the table's Status column has it).
 - **The debugger** names a library frame and the pc from the library
-  program, and offers **Open libmylib.so at lib_add** (a new tab), as
+  program, and offers **Open libmylib.so at lib_add** (a new tab that then
+  follows the pc while it is in the library), as
   [debugger.md](debugger.md#libraries) describes.
 
 Tests: `ui_e2e` (`e2e/libraries.ts`): a program and a shared library built
 without libc, imported from the Open dialog with the libraries option; the
 thunk's `→ libmylib.so!lib_add` and its References' target; Analyze → Libraries… (by name, two imports,
 `lib_twice` resolved); the Open dialog's Libraries line; the thunk's target
-opening `libmylib.so` at `lib_add`. Screenshots `libraries-*.png` with
-`RK_SHOTS`.
+opening `libmylib.so` at `lib_add`, whose References list `prog2!_start`'s
+call and open it there; under gdbserver, a stop in `lib_add` offering
+**Open libmylib.so at lib_add**, the tab it opens marking the pc there and
+following it to `lib_twice`, and the mark gone when the session closes.
+Screenshots `libraries-*.png` with `RK_SHOTS`.
 
 ### Resizable dialogs
 
@@ -1438,7 +1452,11 @@ the daemon would otherwise drop the whole item under a newer edit.
 **Menus.** The listing's right-click menu has a listing-edit group after
 the function edits: *Disassemble here*, *Disassemble and create function*,
 *Disassemble as ARM* and *as Thumb* (ARM languages other than Cortex-M,
-where both instruction sets exist), *Clear code bytes*, a **Data** submenu
+where both instruction sets exist), *Clear code bytes*, *Clear flow and
+repair* (feature `clear-flow`, `api_minor` 83: the code only the flow from
+the instruction at the cursor reaches, in one undo step; a toast says how
+many instructions went and how many other code keeps;
+[listing-edit.md](listing-edit.md#clear-flow-and-repair)), a **Data** submenu
 (cycle, byte, word, dword, qword, char, string, UTF-16 string, Pascal
 string, float, double, pointer, array…, choose type…, then constant,
 volatile, writable (normal) and the memory map's default for the
@@ -1447,8 +1465,27 @@ first, kept per browser in `rk.recentData`; picking one defines it at the
 cursor as it was, arrays with their count) and *expand* / *collapse* on an
 item with fields. `src/ui/menu.ts` gained submenus for this (→, Enter, a
 click or hovering opens one; ← or Escape goes back). Every action is also
-in the palette (*Disassemble here*, *Clear code bytes*, *Data: …*), with
-its key.
+in the palette (*Disassemble here*, *Clear code bytes*, *Clear flow and
+repair*, *Data: …*), with its key. `ui/e2e/run.ts` ("clear flow: …")
+checks Clear flow and repair and its undo.
+
+### Fallthrough overrides
+
+With the daemon's `fallthrough-override` feature (`api_minor` 85;
+[api.md](api.md#fallthrough-overrides)), the listing's right-click menu
+has, after *Clear flow and repair*, Ghidra's *Set fallthrough…* (on an
+instruction) and *Clear fallthrough* (on one with an override); both are
+in the palette too. *Set fallthrough…* asks for the address control goes
+on at after the instruction (an address, `space:offset` or a symbol; it
+starts at the current fallthrough), empty for none, and writes one
+`SetFallthrough` assertion (`Edits.fallthroughBody`): one undo step, "Set
+fallthrough to 0x401010 at 0x401000". An overridden instruction shows `⤷
+fallthrough: <address>` (or `⤷ no fallthrough`) in the override colour
+after its operands, and the listing draws a flow arrow from it to the
+address (Ghidra's fallthrough arrow); `i` on the mark shows who set it,
+and the references view names the reference `fallthrough`.
+`ui/e2e/listingedit.ts` ("listing edit: the menu's Set fallthrough… …")
+checks setting, clearing and undoing it on two pages.
 
 **Data rows.** A data row shows its type and its value (or the symbol a
 pointer points at; analysis's data rows now show their values too). A
@@ -1482,6 +1519,34 @@ brings the function back, and undo restores it; on printf's format string
 `Shift+B` toggles the bytes column; `"` makes it a string again, the Data
 submenu marks it constant (`i` shows the mutability) and the Recently used
 submenu redefines it; Ctrl+Z undoes every step.
+
+## Data settings
+
+With the daemon's `data-settings` feature (API 84;
+[listing-edit.md](listing-edit.md#data-settings)), the Data submenu (and
+the palette's *Data: settings…*) has **Settings…** on a data row: Ghidra's
+Data Settings and Default Settings in one form (`src/ui/datasettings.ts`).
+*Apply to* chooses this item (on a struct field's row, that field; on an
+array's element, the array) or *Every `<type>`*, the type's default
+settings (the row's `data_settings_type`: `uint32_t`, `string`,
+`pointer`, `undefined4`). The form offers what applies to the row's
+value: for integers the format (hex, decimal, octal, binary, char),
+signedness and padding; the byte order for anything but a struct; for
+strings and char arrays the charset (US-ASCII, ISO-8859-1, windows-1252,
+UTF-8, UTF-16, UTF-32 and their LE and BE forms) and termination (at the
+first NUL, or every character); for pointers absolute, image-base offset
+or relative, with a mask and shift; and on an item its mutability
+(constant, volatile, writable, as the memory map says). Each starts at
+the row's own setting ("Default" when unset), and a line under them names
+the type's defaults the item falls back to. *Save* asserts the settings
+(and the mutability) in one `AppendAssertions`, one undo step ("Data
+settings of dword at 0x404010"); *All default* removes them. The row
+shows the new value once the subscription refetches it, in every page.
+
+The e2e (`e2e/listingedit.ts`, "data settings: …") makes a word of
+printf's format string, sets it to decimal (page B follows), sets every
+word's default to binary under it (the row stays decimal: its own wins),
+then *All default* shows the type's binary, and Ctrl+Z undoes every step.
 
 ## Equates and references
 
@@ -1898,6 +1963,27 @@ the base), derived classes and vftables with each slot's function: a click
 goes to the address. It reloads when names change. `ui/e2e/classes.ts`
 checks it on the clang-cl fixture (docs/pe.md, "Tests").
 
+## Load debug file
+
+With the daemon's `debug-files` feature (API 86;
+[backend.md](backend.md#external-debug-files)) the Analyze menu (and the
+palette) has **Load debug file…** (`src/ui/debugfiles.ts`): a path to a
+debug file on the daemon's host, or empty to look the program's up by its
+build ID and `.gnu_debuglink` (beside the binary, the configured
+directories, `/usr/lib/debug`, the cache, then the debuginfod servers when
+they are on), and "Load it even if it is another build's". A refusal (not
+an ELF with DWARF, another build's, nothing found and where it looked)
+stays in the dialog; a load is one step on the tab's undo stack, with a
+toast saying what it brought and Undo. **Debug file directories and
+debuginfod…** edits the settings: the directories (separated by `;`), the
+servers (space-separated), "Fetch from debuginfod servers" (off by
+default: network access) and "Allow plain http:// servers". The daemon's
+`DEBUGINFOD_URLS` shows in the hint as a suggestion, never filled in. Both
+are an admin's. The e2e (`e2e/debugfiles.ts`) builds a program with `-g`,
+strips it, refuses the stripped binary as its own debug file, loads the
+real one (the function is named), undoes it, and saves a directory with
+fetching left off.
+
 ## Function ID
 
 With feature `function-id` ([fid.md](fid.md), `api_minor` 51) a **Function
@@ -1928,7 +2014,7 @@ static library built at test time: named, reject, apply, databases.
 ## BSim
 
 With feature `bsim` ([bsim.md](bsim.md), `api_minor` 69; searching:
-`bsim-search`, 72) a **BSim** view (palette "Show BSim"; side dock;
+`bsim-search`, 72; applying: `bsim-apply`, 76) a **BSim** view (palette "Show BSim"; side dock;
 `ui/src/ui/bsim.ts`) searches a BSim database for functions like this
 program's. The head picks the database (the project's attached ones; the
 last one used is remembered), **Databases…** creates one in the project
@@ -1950,9 +2036,122 @@ ingest of the same file).
   in the tooltip) and executable. A double click or Enter on a match whose
   file is a program of the project opens the two side by side in
   **Compare**; `g` goes to the searched function.
+- **Applying** (feature `bsim-apply`, `api_minor` 76;
+  [bsim.md](bsim.md#applying-matches)): **Apply name**, **Apply
+  signature** (the name and a skeleton signature: the types this program
+  lacks become empty placeholder structures) and **Apply signature and
+  types** in the bar and a match row's context menu apply the selected
+  hits to their functions; the menu's *Replacing the function's own* does
+  it over names and signatures someone set. A click selects a hit, Ctrl
+  (Cmd) and a click adds or removes one, Shift and a click a range, Ctrl+A
+  each function's best. One apply is one edit: the toast's **Undo** or
+  Ctrl+Z takes back every function it changed. Each applied row shows
+  what became of it (✓ applied, = unchanged, – skipped, ✗ failed; the
+  reason in its tooltip) and its function's new name.
 
-`ui/e2e/bsim.ts` checks it on two builds compiled at test time: a match
-from the function list's menu, Compare, All functions and the Overview.
+`ui/e2e/bsim.ts` checks it on builds compiled at test time: a match from
+the function list's menu, Compare, All functions and the Overview; on a
+stripped build, Apply name on one hit and the toast's Undo, then Ctrl+A
+and Apply signature in one step, undone with the tab's undo.
+
+## Comments
+
+With feature `comment-table` (`api_minor` 77) a **Comments** view
+(View menu, or the palette's "Comments"; `ui/src/ui/comments.ts`) is
+Ghidra's comment window: every comment of the program
+(`QueryService.ListComments`) in address order, one row per comment, with
+the address, the kind (EOL, Pre, Post, Plate, Repeatable, Decompiler), the
+function and offset it is in (or the address's label), and the text
+coloured by who wrote it. A kind filter and a text filter
+(case-insensitive) narrow it; the rows are virtualized and paged at one
+revision, so a program with many comments scrolls smoothly. A click or
+Enter goes to the comment in the listing; a double-click or Shift+Enter
+opens the comment dialog for that kind. The view reloads when a comment
+changes anywhere (an edit, an undo, another user). `ui/e2e/run.ts`
+("comment table: …", in part A1 after the comment checks) checks it.
+
+## Symbol tree
+
+With feature `symbol-tree` (`api_minor` 82) a **Symbol tree** view (View
+menu, or the palette's "Symbol tree"; `ui/src/ui/symtree.ts`) is Ghidra's
+symbol tree, read a level at a time (`QueryService.ListSymbolTree`):
+**Imports** by library (`<EXTERNAL>` when the file doesn't say which, as
+for ELF), **Exports**, **Functions** and **Labels** by name, **Classes**
+(the scopes the demangler finds classes, and MSVC RTTI's) with their
+members, and **Namespaces** from qualified names (`geo::util::clamp`),
+nested. Each folder shows its size; a level loads 500 nodes at a time
+("more…" for the rest). The filter narrows every expanded level by name,
+in any case. A click or Enter on a symbol goes there; on a folder,
+library, namespace or class it expands or collapses (Right and Left too).
+The tree reloads when a name or a function's bounds change, so a rename to
+`ns::name` moves the symbol into that namespace. `ui/e2e/run.ts`
+("symbol tree: …") checks it.
+
+## Export C
+
+With feature `export-c` (`api_minor` 80) **File: Export C/C++…** (the
+palette, the Edit menu and the decompiler's menu; `ui/src/ui/exportc.ts`)
+is Ghidra's C/C++ exporter: the function at the cursor or every function,
+decompiled (`QueryService.ExportC`) into one `.c` in address order, each
+under a `/* name @ address */` line, and with **a header** (on by
+default) a `.h` the `.c` includes: Ghidra's built-in type names
+(`undefined4`, `uint`, `code`, ...), the program's types as a type archive
+writes them, a typedef of each struct, union and enum tag, and each
+function's prototype (one whose function-pointer type C can't name is a
+comment). A progress bar counts the functions while they decompile; then
+both files download. A function the decompiler fails on is a comment
+saying why. The name defaults to the program's. `ui/e2e/run.ts`
+("export c: …") checks it.
+
+## Relocations
+
+With feature `relocation-table` (`api_minor` 78) a **Relocations** view
+(View menu, or the palette's "Relocations"; `ui/src/ui/relocations.ts`)
+is Ghidra's relocation table: the relocations the file carries
+(`QueryService.ListRelocations`) in address order: ELF dynamic and object
+relocations (RELA, REL and RELR), and a PE's base relocations from its
+`.reloc` directory. Each row has the address patched, the type's name
+(`R_X86_64_JUMP_SLOT`, `IMAGE_REL_BASED_DIR64`; `type N` for a machine
+revkit has no names for), the symbol or, for a relocation that points
+into the program (RELATIVE, IRELATIVE, PE), the function or label it
+points at, the addend and the bytes there. A text filter matches the
+symbol or the type name. A click or Enter goes to the address; a
+double-click or Shift+Enter goes to the target. revkit applies no
+relocation to the bytes except the RELATIVE ones a rebase moves, so the
+bytes are the file's. `ui/e2e/run.ts` ("relocations: …") checks it.
+
+## Register values
+
+With feature `register-values` (`api_minor` 87;
+[api.md](api.md#register-values)) the UI has Ghidra's Set Register
+Values and its register manager (`ui/src/ui/regvalues.ts`):
+
+- **Set register value…** and **Clear register value…** (the listing's
+  right-click menu ▸ Function, and the palette) open one dialog: the
+  register (typed, with the language's registers to choose from), the
+  value (`0x418ff0`, `418ff0h` or decimal), the range, and **No value here
+  (clear)**. The range is the listing's selection when it spans rows,
+  else the body of the function at the cursor (several ranges when the
+  body has several), else the code unit there; with one range its From
+  and To can be edited. Enter applies it as one undo step
+  ("Set gp = 0x418ff0 over bump", Ctrl+Z), and every page's listing and
+  decompiler follow: `gp`-relative loads become their globals.
+- **The Register values view** (View menu, the palette, or Function ▸
+  Register values) lists every range by register, then address: the
+  register, first and last address, value and who set it ("analysis
+  (mips-gp)" for the loader's `_gp`, else the assertion's author,
+  coloured as names are). A register filter narrows it; **Set…** opens the
+  dialog. A click or Enter goes to the range's start; a double-click opens
+  the dialog on that range; Delete clears it (no value there, one undo
+  step). It reloads when a register value changes anywhere.
+- **In the listing** the row where a range starts and a function's entry
+  row end with `assume gp = 0x38180` (the override colour; hovering shows
+  who set it, or analysis's rule), and an operand that reaches a global
+  through the register shows it as Ghidra does: `lw at,-0x7fe0(gp)=>counter`.
+
+`ui/e2e/regvalues.ts` ("register values: …") checks it on a MIPS program
+built with small data (screenshots `regvalues-view.png`,
+`regvalues-dialog.png`).
 
 ## Project tree and archives
 
@@ -2064,11 +2263,14 @@ API 48, feature `filesystems` ([filesystems.md](filesystems.md)).
 - **Import programs below…** (batch): the selected folders and containers,
   or everything. Options: subfolders, look inside archives and images
   found, raw detection on other data (slow), recreate the folders in the
-  project, analyze, at most N programs (100), into a project folder. The
-  preview lists every file with what it is and whether it would be
+  project, analyze, also import the libraries they need from this file
+  system (feature `library-roots`, api_minor 79:
+  [filesystems.md](filesystems.md#libraries-of-imported-programs)), at
+  most N programs (100), into a project folder. The preview lists every file with what it is and whether it would be
   imported (and why not), and updates with the options; **Import N
   programs** runs it. The status (and a toast with **Open** for the first
-  program) says how many were imported, skipped and failed.
+  program) says how many were imported, skipped and failed, and the
+  libraries brought with them and those not in the file system.
 - **Importing** opens nothing by itself: the toast's **Open <name>**
   opens the program. Each records its container path, which the program's
   `ProgramInfo.container_path` keeps.

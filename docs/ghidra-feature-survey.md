@@ -21,9 +21,9 @@ whether they are current).
 <!-- survey-summary:total -->
 | Part | Features | Have | Partial | Missing | In progress |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Base (CodeBrowser, analyzers, types, search, symbols, ...) | 271 | 122 | 82 | 67 | 0 |
-| Everything else (decompiler, graphs, VT, BSim, FID, debugger, formats, ...) | 461 | 203 | 99 | 159 | 0 |
-| **Total** | **732** | **325** | **181** | **226** | **0** |
+| Base (CodeBrowser, analyzers, types, search, symbols, ...) | 271 | 130 | 80 | 61 | 0 |
+| Everything else (decompiler, graphs, VT, BSim, FID, debugger, formats, ...) | 461 | 204 | 99 | 158 | 0 |
+| **Total** | **732** | **334** | **179** | **219** | **0** |
 <!-- /survey-summary:total -->
 
 ## Part 1: Ghidra 12.1.4 Base module vs revkit: feature gaps
@@ -84,7 +84,7 @@ Key evidence used everywhere:
 | Entry Point Analyzer | Have | discovery seeds (`README.md` "Function discovery") | High | |
 | Format String Analyzer (printf-family call-site varargs types) | Have | call-site prototypes from constant printf/scanf formats, decompiled again with them (`docs/types.md#format-strings`) | Med | |
 | Image Analyzer (embedded GIF/PNG/BMP) | Missing | not found in `src` (no GIF/PNG/BMP signature markup) | Low | S |
-| MIPS / PowerPC address markup (hi/lo pairs, gp/TOC registers) | Partial | generic constant carrying over p-code (`docs/data-analysis.md` step 1); no gp/r2/r13/_SDA_BASE_ register assumptions found in `src` | Med | M |
+| MIPS / PowerPC address markup (hi/lo pairs, gp/TOC registers) | Partial | generic constant carrying over p-code (`docs/data-analysis.md` step 1); MIPS `gp` from `_gp`/`DT_MIPS_GP_VALUE`/the GOT, the PowerPC 64 TOC (`.TOC.`, `.opd`) and `r12` at global entries, PowerPC 32 `_SDA_BASE_`/`_SDA2_BASE_` as register values the references and the decompiler use ([api.md](api.md#register-values), api_minor 87); missing: Ghidra's recovery of `gp` writes (`_gp_1`) and `t9` at MIPS entries | Med | S |
 | Propagate External Parameters | Missing | not found as listing markup; library prototypes typed on imports (`docs/types.md#library-prototypes`, api_minor 50) make the decompiler show typed arguments, but no parameter comments at the call sites | Low | M |
 | Scalar Operand Analyzer (address-like immediates become refs) | Partial | addresses computed into registers or stored become refs (`analysis.flow` data_refs, `docs/data-analysis.md`) | Low | S |
 | Stack Analyzer (stack variables on the function) | Partial | locals come from the decompiler; `Function.getStackFrame` Unsupported (`docs/scripting.md`) | Low | M |
@@ -132,14 +132,14 @@ Key evidence used everywhere:
 ### Charsets
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
-| Charsets beyond ASCII/UTF-8/16/32 (Shift-JIS, GBK, EBCDIC, code pages) | Missing | `StringEncoding` UTF8/UTF16/UTF32 only (`proto/revkit/v1/assertion.proto`); Search memory strings ASCII/UTF-8/UTF-16 only (`docs/api.md` Search) | Med | M |
+| Charsets beyond ASCII/UTF-8/16/32 (Shift-JIS, GBK, EBCDIC, code pages) | Missing | `StringEncoding` UTF8/UTF16/UTF32 only (`proto/revkit/v1/assertion.proto`); Search memory strings ASCII/UTF-8/UTF-16 only (`docs/api.md` Search); a string's data settings add only ISO-8859-1 and windows-1252, for display (`docs/listing-edit.md` Data settings) | Med | M |
 
 ### ClearPlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
 | Clear Code Bytes | Have | `c` key, `ClearCode` (`docs/listing-edit.md`) | High | |
 | Clear With Options (symbols, comments, refs, functions, equates, bookmarks, registers over a range) | Missing | only code/data clear (`docs/listing-edit.md`, `c` key); `RevertByProvenance` reverts by author, not by range; no Clear With Options in `ui/src/ui/listingedit.ts` | Med | M |
-| Clear Flow and Repair | Missing | not found in `ui/src` or `docs/listing-edit.md` | Med | M |
+| Clear Flow and Repair | Have | *Clear flow and repair* in the listing's menu and the palette: the flow from an instruction less what other code reaches, cleared as ClearCode edits in one undo step; with callees only it calls through the API (`QueryService.PlanClearFlow`, api_minor 83, feature `clear-flow`; `docs/listing-edit.md#clear-flow-and-repair`); SDK `clear_flow()`, MCP `clear_flow` | Med | M |
 
 ### ClipboardPlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
@@ -168,7 +168,7 @@ Key evidence used everywhere:
 ### CommentWindowPlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
-| Comment window (all comments, filter, navigate) | Partial | no comment window, but Search: program text with only the Comments field (and regex `.`) lists every comment in the Search results table with sort, filter and go-to (`docs/ui.md` Search, `ui/src/ui/search.ts`, `SearchText` `COMMENTS`) | Med | S |
+| Comment window (all comments, filter, navigate) | Have | the Comments view: every comment by address with its kind, function and author colour, a kind filter and a text filter, click to go there, double-click to edit (`QueryService.ListComments`, api_minor 77, feature `comment-table`; `docs/ui.md#comments`, `ui/src/ui/comments.ts`); SDK `Program.comments()`, MCP `list_comments` | Med | S |
 
 ### CommentsPlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
@@ -197,7 +197,7 @@ Key evidence used everywhere:
 | Favorites | Missing | not found; the listing's Data menu has a Recently used submenu (last five definitions, `docs/ui.md` Listing edits), not user favorites | Low | S |
 | Apply program types (struct, union, enum, typedef) at address | Have | `t` type chooser | High | |
 | Drag a type from the type manager onto the listing | Missing | not found: drag in `ui/src/ui/types.ts` only files types into folders; the listing takes no drop | Low | S |
-| Data settings (hex/dec/char format, endian, charset, padding, mutability) | Partial | mutability only (`SetMutability`: constant/volatile/writable; `DefineData` in `proto/revkit/v1/assertion.proto` has no format, endian or charset settings) | Med | M |
+| Data settings (hex/dec/char format, endian, charset, padding, mutability) | Have | `SetDataSettings` per item, struct field or type's defaults: format, signedness, endian, padding, charset, termination, pointer kind, mask and shift (`src/backend/data_settings.h`, `api_minor` 84, feature `data-settings`; `docs/listing-edit.md` Data settings); mutability by `SetMutability`; the Data menu's Settings… (`ui/src/ui/datasettings.ts`) | Med | |
 | Create structure from selection | Have | `TypeService.AutoStructure` (`docs/ui.md`) | Med | |
 | Dynamic data types (headers laid out by format) | Partial | PE headers, data directories, unwind and exception data laid out as typed data at import (`docs/pe.md` PE structures and exception data, `src/msvc/pe_markup.cc`); no user-applicable dynamic types, no ELF header markup | Low | L |
 | Quick-edit a structure field from the listing (Edit Field dialog) | Partial | Rename field and Retype field on a decompiler field token (api_minor 38, `ui/src/app.ts` `renameField`/`retypeField`, `docs/ui.md` Struct fields in the decompiler); listing field rows still read-only (edit in Types) | Med | S |
@@ -251,7 +251,7 @@ Key evidence used everywhere:
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
 | Defined strings table (columns, filter, navigate) | Have | Data view, strings category, Ctrl+6 | High | |
-| Per-string settings and translation | Missing | see Charsets and TranslateStrings; no per-string settings in the Data view (`ui/src/ui/data.ts`) | Low | S |
+| Per-string settings and translation | Partial | a string's charset and termination per string or for every string (data settings, `docs/listing-edit.md` Data settings); no translation, and the Data view (`ui/src/ui/data.ts`) shows strings as decoded | Low | S |
 
 ### DisassembledViewPlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
@@ -276,7 +276,7 @@ Key evidence used everywhere:
 ### DWARFExternalDebugFilesPlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
-| External debug files (build-id dirs, `.gnu_debuglink`, debuginfod) | Missing | not found in `src` (no debuglink, build-id or debuginfod); no supplementary files (`docs/types.md` Known gaps) | Med | M |
+| External debug files (build-id dirs, `.gnu_debuglink`, debuginfod) | Have | build-ID trees and `.gnu_debuglink` (CRC checked) beside the binary, in configured directories and `/usr/lib/debug`, a cache, and opt-in debuginfod (`src/backend/debug_files.cc`; `ProjectService.LoadDebugFile`, `api_minor` 86, feature `debug-files`; `docs/backend.md` External debug files); no supplementary files (`.gnu_debugaltlink`, `docs/types.md` Known gaps) | Med | |
 
 ### EclipseIntegration / VSCodeIntegration
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
@@ -296,7 +296,7 @@ Key evidence used everywhere:
 |---|---|---|---|---|
 | Original file (with patches) | Have | `ExportProgram` FILE, checksum fixups (`proto/revkit/v1/patch.proto`, `docs/patching.md`) | High | |
 | Raw bytes | Have | `EXPORT_FORMAT_IMAGE` | Med | |
-| C/C++ (whole program) | Partial | Copy function (the whole C) in the decompiler (`ui/src/app.ts` `decomp-copy-all`), `export_functions` starter (C via DecompileMany, `sdk/python/revkit/scripts/export_functions.py`), type archive header; no one-step .c/.h export of the program | Med | S |
+| C/C++ (whole program) | Have | Export C/C++…: the functions at the cursor or every one decompiled into one `.c` in address order, with a `.h` of the program's types, Ghidra's built-in type names, the tags as type names and each prototype (`QueryService.ExportC`, api_minor 80, feature `export-c`; `docs/ui.md#export-c`, `ui/src/ui/exportc.ts`); SDK `Program.export_c()`, MCP `export_c` | Med | S |
 | ASCII / HTML listing | Partial | Copy rows as shown and Copy special's listing text (`ui/src/data/copyformats.ts`); no file export of the listing | Low | S |
 | Intel HEX | Missing | import only (`raw_format` ihex, `ui/src/ui/open.ts`); `ExportProgram` writes the file or the image only (`proto/revkit/v1/patch.proto` `ExportFormat`) | Med | S |
 | XML / SARIF | Missing | Ghidra interop JSON covers user work only (`docs/ghidra-interop.md`, `sdk/python/revkit/ghidra/exporter.py`); no XML or SARIF | Low | M |
@@ -306,7 +306,7 @@ Key evidence used everywhere:
 ### FallThroughPlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
-| Set/clear fallthrough address, auto override | Missing | `FlowOverrideKind` has none/branch/call/call-return/return only (`proto/revkit/v1/assertion.proto`); no fallthrough override | Med | S |
+| Set/clear fallthrough address, auto override | Partial | `SetFallthrough` (api_minor 85, feature `fallthrough-override`; `docs/api.md#fallthrough-overrides`): set to an address or none, and clear, followed by discovery, the listing (mark, arrow), references, the graph and the decompiler's p-code; the listing menu's Set fallthrough… / Clear fallthrough (`docs/ui.md#fallthrough-overrides`). No Auto Override over a selection | Med | S |
 
 ### FileSystemBrowserPlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
@@ -354,7 +354,7 @@ Key evidence used everywhere:
 | Inline flag | Missing | "no inline flag in revkit" (`Function.setInline` Unsupported, `docs/scripting.md`) | Med | S |
 | Call-fixup | Partial | the compiler spec's call fixups are installed by function name automatically, as Ghidra's Call-Fixup Installer (`src/inputs/assemble.cc` `call_fixup`, `src/lift/abi.cc`); no way to set a call-fixup on a function by hand | Low | S |
 | Thunks (set thunked function) | Partial | thunks found automatically; `setThunkedFunction` Unsupported | Low | S |
-| External functions / locations | Partial | imports are thunks named after targets, typed from library archives by name (`docs/types.md#library-prototypes`, api_minor 50), and resolved to the library programs' functions (`ResolveImport`, the functions list's "→ libc.so.6!strlen"; `docs/api.md#libraries`, api_minor 70); no external locations as listing objects (`getExternalManager` Unsupported) | Med | M |
+| External functions / locations | Partial | imports are thunks named after targets, typed from library archives by name (`docs/types.md#library-prototypes`, api_minor 50), and resolved to the library programs' functions (`ResolveImport`, the functions list's "→ libc.so.6!strlen"; `docs/api.md#libraries`, api_minor 70), and back from a library to the importers' calls (`ListLibraryImporters`, the References dialog; api_minor 81); no external locations as listing objects (`getExternalManager` Unsupported) | Med | M |
 | Function purge / stack depth change | Partial | a function's purge comes from its prototype's calling convention model (`extrapop`, `docs/decompiler-inputs.md` Calling conventions; set via Set type, e.g. `__stdcall`); no explicit purge field, no per-call stack depth change | Med | S |
 | Rename/retype parameters and locals | Have | decompiler rename/retype by storage key (`docs/ui.md`) | High | |
 | Add/delete local variables (listing level) | Missing | "locals come from the decompiler" (`Function.addLocalVariable` Unsupported, `docs/scripting.md`); rename_local/retype_local only | Low | M |
@@ -404,7 +404,7 @@ Key evidence used everywhere:
 | Drag-and-drop import | Have | Open dialog drop (`docs/known-issues.md`) | Med | |
 | Batch import | Have | `docs/filesystems.md` | - | - |
 | Add To Program | Have | memory map "bytes from a file" (`docs/memory-map.md`) | Med | |
-| Load libraries, library search path, link project libraries | Have | `ImportOptions.import_libraries` with `library_search_paths` and a depth (the Open dialog's "Also import the libraries it needs"), resolution by name or soname and `LinkProgramLibrary`, Analyze → Libraries… (`docs/api.md#libraries`, `docs/ui.md` "Libraries"; api_minor 70) | - | - |
+| Load libraries, library search path, link project libraries | Have | `ImportOptions.import_libraries` with `library_search_paths` and a depth (the Open dialog's "Also import the libraries it needs"), resolution by name or soname and `LinkProgramLibrary`, Analyze → Libraries… (`docs/api.md#libraries`, `docs/ui.md` "Libraries"; api_minor 70); from the program's own root file system, a container's layer or a root extracted under `--browse-root` (`ImportOptions.library_root`, `ImportFromFileSystem` with `import_libraries`; api_minor 79, `docs/filesystems.md#libraries-of-imported-programs`) | - | - |
 | Import selection (bytes into a new program) | Missing | not found | Low | S |
 | Language/compiler spec chooser | Partial | `ListLanguages`, raw autodetect with alternatives (`docs/autodetect.md`, `ui/src/ui/rawdetect.ts`); ELF/PE language from the loader, no chooser there | Low | S |
 | Raw binary options (base, offset, length, regions) | Have | `docs/api.md` Raw images; autodetect (better) | High | |
@@ -508,13 +508,13 @@ Key evidence used everywhere:
 ### RegisterPlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
-| Register values over ranges (context, gp/r2/DS-style constants) | Partial | ARM/Thumb mode only (`Disassemble.isa`); `getProgramContext` Unsupported | Med | M |
-| Register manager view | Missing | not found | Low | S |
+| Register values over ranges (context, gp/r2/DS-style constants) | Partial | constant registers over ranges: `SetRegisterValue`, `ListRegisterValues`, analysis's MIPS `gp` and PowerPC TOC, used by references and the decompiler ([api.md](api.md#register-values), api_minor 87); context registers: ARM/Thumb mode only (`Disassemble.isa`), not MIPS16/VLE; `getProgramContext` Unsupported | Med | S |
+| Register manager view | Have | the Register values view and Set register value… dialog ([ui.md](ui.md#register-values)) | Low | |
 
 ### RelocationTablePlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
-| Relocation table view | Missing | read by the loader (`src/backend/relocate.cc`), "not listed to scripts" (`Program.getRelocationTable` Unsupported); no view in `ui/src` | Med | S |
+| Relocation table view | Have | the Relocations view: every relocation by address with its type name, symbol or target, addend and bytes, a filter, click to go there, double-click to the target (`QueryService.ListRelocations`, api_minor 78, feature `relocation-table`; ELF and PE base relocations; `docs/ui.md#relocations`, `ui/src/ui/relocations.ts`); SDK `Program.relocations()`, MCP `list_relocations`, the shim's `getRelocationTable()` | Med | S |
 
 ### Repository (Merge Program Files)
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
@@ -601,7 +601,7 @@ Key evidence used everywhere:
 ### SymbolTreePlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
-| Symbol tree (imports, exports, functions, labels, classes, namespaces) | Partial | Functions panel, Types tree, Class hierarchy view from MSVC RTTI (`ui/src/ui/classes.ts`, `docs/ui.md` Class hierarchy); no imports/exports/namespace tree | Med | M |
+| Symbol tree (imports, exports, functions, labels, classes, namespaces) | Have | the Symbol tree view: Imports by library, Exports, Functions, Labels, Classes (the demangler's scopes and MSVC RTTI) and Namespaces from qualified names, expanded a level at a time and paged, a name filter, click to go there (`QueryService.ListSymbolTree`, api_minor 82, feature `symbol-tree`; `docs/ui.md#symbol-tree`, `ui/src/ui/symtree.ts`); SDK `Program.symbol_tree()`, MCP `symbol_tree`. Namespaces are names, not objects: a rename into `ns::name` moves a symbol | Med | M |
 | Create class or namespace, convert namespace to class, move symbols | Missing | "revkit names are global" (`createNamespace`, `createClass` Unsupported) | Med | M |
 | Create library, external location, set external program | Partial | set external program: `LinkProgramLibrary` / SDK `link_library` (api_minor 70); no external locations (Unsupported) | Low | M |
 
@@ -650,19 +650,19 @@ High value:
 
 Med value:
 15. Analysis options UI: per-analyzer enable/options, one-shot analyzers on a selection.
-16. Address table analyzer for PE; MIPS gp / PPC TOC register assumptions; ~~format-string varargs at printf call sites~~ (*done: [types.md](types.md#format-strings)*).
-17. Register values over ranges (context for MIPS16/VLE/x86 modes, constant registers).
-18. Fallthrough-address override.
+16. Address table analyzer for PE; ~~MIPS gp / PPC TOC register assumptions~~ (*done: [api.md](api.md#register-values)*); ~~format-string varargs at printf call sites~~ (*done: [types.md](types.md#format-strings)*).
+17. Register values over ranges: ~~constant registers~~ (*done: [api.md](api.md#register-values)*); context for MIPS16/VLE/x86 modes.
+18. ~~Fallthrough-address override.~~ *Done (api_minor 85; [api.md](api.md#fallthrough-overrides)); Auto Override is left.*
 19. ~~Next/previous navigation (instruction, data, undefined, label, function, note)~~ (done, api_minor 44).
 20. ~~Go To expressions (`sym+0x10`), wildcards, file offset~~ (done, api_minor 44).
 21. ~~Overview bar (code/data/undefined) and entropy bar beside the listing~~ (done, api_minor 44).
 22. ~~Listing optional fields (file offset, function offset, p-code); inline XREF field~~ (done, api_minor 44).
 23. Listing background colors and selection-from-tables; make program selections from results.
-24. Comment window (table of all comments).
+24. ~~Comment window (table of all comments)~~ (done, api_minor 72).
 25. ~~Copy Special (bytes as hex/C/Python, addresses)~~ (done, api_minor 44).
 26. Clear With Options; Clear Flow and Repair.
 27. Note types and tag filter in the Notes panel; function tag window and filter.
-28. Data settings (display format, endian, charset); data type preview at cursor.
+28. ~~Data settings (display format, endian, charset)~~ (done, api_minor 84); data type preview at cursor.
 29. Quick-edit structure field from the listing; field comments and type descriptions in the editor.
 30. Find types by size/offset/enum value; replace/merge types; archive sync.
 31. Custom parameter storage, inline flag, function purge/stack depth.
@@ -673,7 +673,7 @@ Med value:
 36. Charsets beyond UTF-8/16/32.
 37. Batch import; load libraries and a library search path; COFF/.o with relocation; ELF relocations applied.
 38. Intel HEX export; one-step C/C++ export of the program.
-39. External debug files (build-id, debuglink, debuginfod); source files and line map from `.debug_line`.
+39. ~~External debug files (build-id, debuglink, debuginfod)~~ (done, api_minor 86); source files and line map from `.debug_line`.
 40. Instruction info window and processor manual lookup; instruction pattern and mnemonic search; direct-reference search; search and replace.
 41. Symbol table view and symbol tree (imports/exports/namespaces).
 42. Key binding customization for built-in commands (keymap presets for Ghidra, IDA Pro and Binary Ninja done; per-action rebinding not).
@@ -702,28 +702,28 @@ Per topic: Have / Partial / Missing / In progress.
 | CParserPlugin | 2 | 2 | 0 | 0 |
 | CallTreePlugin | 2 | 1 | 0 | 0 |
 | Charsets | 0 | 0 | 1 | 0 |
-| ClearPlugin | 1 | 0 | 2 | 0 |
+| ClearPlugin | 2 | 0 | 1 | 0 |
 | ClipboardPlugin | 2 | 0 | 1 | 0 |
 | CodeBrowserPlugin (Listing) | 6 | 4 | 3 | 0 |
-| CommentWindowPlugin | 0 | 1 | 0 | 0 |
+| CommentWindowPlugin | 1 | 0 | 0 | 0 |
 | CommentsPlugin | 3 | 1 | 0 | 0 |
 | ComputeChecksumsPlugin | 0 | 1 | 0 | 0 |
 | ConsolePlugin | 0 | 1 | 0 | 0 |
-| DataPlugin | 5 | 3 | 2 | 0 |
+| DataPlugin | 6 | 2 | 2 | 0 |
 | DataTypeEditors | 4 | 0 | 3 | 0 |
 | DataTypeManagerPlugin | 7 | 4 | 4 | 0 |
 | DataTypePreviewPlugin | 0 | 1 | 0 | 0 |
 | DataWindowPlugin | 1 | 0 | 0 | 0 |
 | DbViewerPlugin | 0 | 1 | 0 | 0 |
-| DefinedStringsPlugin | 1 | 0 | 1 | 0 |
+| DefinedStringsPlugin | 1 | 1 | 0 | 0 |
 | DisassembledViewPlugin | 0 | 1 | 0 | 0 |
 | DisassemblerPlugin | 3 | 1 | 2 | 0 |
 | DockingWindows | 0 | 1 | 0 | 0 |
-| DWARFExternalDebugFilesPlugin | 0 | 0 | 1 | 0 |
+| DWARFExternalDebugFilesPlugin | 1 | 0 | 0 | 0 |
 | EclipseIntegration / VSCodeIntegration | 0 | 1 | 0 | 0 |
 | EquatePlugin | 4 | 0 | 0 | 0 |
-| ExporterPlugin | 4 | 2 | 2 | 0 |
-| FallThroughPlugin | 0 | 0 | 1 | 0 |
+| ExporterPlugin | 5 | 1 | 2 | 0 |
+| FallThroughPlugin | 0 | 1 | 0 | 0 |
 | FileSystemBrowserPlugin | 1 | 1 | 0 | 0 |
 | FlowSelection | 0 | 0 | 1 | 0 |
 | FrontEndPlugin (project window) | 4 | 4 | 2 | 0 |
@@ -749,8 +749,8 @@ Per topic: Have / Partial / Missing / In progress.
 | ProgramTreePlugin | 0 | 0 | 1 | 0 |
 | PropertyManagerPlugin | 0 | 0 | 1 | 0 |
 | ReferencesPlugin | 3 | 0 | 3 | 0 |
-| RegisterPlugin | 0 | 1 | 1 | 0 |
-| RelocationTablePlugin | 0 | 0 | 1 | 0 |
+| RegisterPlugin | 1 | 1 | 0 | 0 |
+| RelocationTablePlugin | 1 | 0 | 0 | 0 |
 | Repository (Merge Program Files) | 1 | 1 | 0 | 0 |
 | ResourceActionsPlugin | 0 | 0 | 1 | 0 |
 | RuntimeInfoPlugin | 0 | 2 | 0 | 0 |
@@ -764,11 +764,11 @@ Per topic: Have / Partial / Missing / In progress.
 | SourceFilesTablePlugin | 0 | 0 | 1 | 0 |
 | StackEditor | 0 | 0 | 1 | 0 |
 | SymbolTablePlugin | 1 | 2 | 0 | 0 |
-| SymbolTreePlugin | 0 | 2 | 1 | 0 |
+| SymbolTreePlugin | 1 | 1 | 1 | 0 |
 | Tool | 1 | 4 | 0 | 0 |
 | ValidateProgram | 0 | 1 | 0 | 0 |
 | VersionControl | 1 | 1 | 0 | 0 |
-| **Total (76 topics, 271 features)** | **122** | **82** | **67** | **0** |
+| **Total (76 topics, 271 features)** | **130** | **80** | **61** | **0** |
 <!-- /survey-summary:part1 -->
 
 ## Part 2: Ghidra 12.1.4 vs revkit: every module except Base
@@ -1040,7 +1040,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Overview query (hit counts, self-significance) | Have | `SearchBSim` overview, the BSim view's Overview, MCP `bsim_overview` | - | - |
 | Results table | Have | the BSim view (`ui/src/ui/bsim.ts`): function, similarity, confidence, match, executable | - | - |
 | Executable match summary | Missing | not found | Med | S |
-| Apply name / signature / signature+types from a hit | Missing | no hits to apply from; `PortFunctionMarkup` (api_minor 54) ports between two chosen functions | High | S |
+| Apply name / signature / signature+types from a hit | Have | `ApplyBSimMatches` (api_minor 76): name, skeleton signature, signature and types, many hits in one undoable revision, from the matched program in the project or the database's record; the BSim view's Apply buttons and menu, SDK `bsim_apply`, MCP `bsim_apply` (`docs/bsim.md#applying-matches`) | - | - |
 | Compare functions from a hit, load executable | Partial | a hit whose file is a program of the project opens side by side in Compare (`BSimMatch.program_id`); no loading of an executable that isn't | Med | S |
 | Post-search filters, search info | Missing | not found | Low | S |
 
@@ -1204,7 +1204,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Register types (float, pointer, struct) | Missing | hex only (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Med | S |
 | Go to address in a register | Partial | memory view accepts a register name (`ui/src/debug/panel.ts`, the memory box); no jump of the listing to it; Go To expressions (`ui/src/data/expr.ts`) know symbols, not registers | Med | S |
 | Derived flags (CF, ZF...) | Have | `docs/debugger.md` "Register names" | - | - |
-| Stack view / unwind (frames, return addresses) | Have | `GetDebugBacktrace` (api_minor 59, feature `debugger-stack`): CFI from `.eh_frame`/`.debug_frame`, function entry, frame pointer, link register, stack scan (`src/debug/unwind.cc`); UI Stack box (click: listing, decompiler, the frame's registers), `rk-dbg bt`, SDK `backtrace`, MCP `debug_backtrace` ([debugger.md](debugger.md#call-stack)) | - | - |
+| Stack view / unwind (frames, return addresses) | Have | `GetDebugBacktrace` (api_minor 59, feature `debugger-stack`): CFI from `.eh_frame`/`.debug_frame` (the program's, and a mapped library program's: [debugger.md](debugger.md#libraries)), function entry, frame pointer, link register, stack scan (`src/debug/unwind.cc`); UI Stack box (click: listing, decompiler, the frame's registers), `rk-dbg bt`, SDK `backtrace`, MCP `debug_backtrace` ([debugger.md](debugger.md#call-stack)) | - | - |
 | Watches (expressions, typed values, changed marks) | Have | the Debugger view's Watches box over `EvaluateDebug` (api_minor 60, 61; features `debugger-values`, `debugger-watches`): C expressions with the program's types, changed since the previous stop, struct fields, added from the listing's and decompiler's Debugger menu; `rk-dbg print`/`display`, SDK `evaluate`, MCP `debug_evaluate` ([debugger.md](debugger.md#expressions)) | - | - |
 | Watch: apply type to listing, select reads | Missing | not found (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Low | S |
 | Variable value hovers in listing/decompiler | Have | `EvaluateDebug` (api_minor 60, feature `debugger-values`): a decompiler variable through its storage in its innermost frame, a listing register in the selected frame, a memory operand's address (the instruction's p-code with the frame's registers) and value, typed by the decompiler's variable at that slot; in the hover cards ([debugger.md](debugger.md#expressions)) | - | - |
@@ -1218,7 +1218,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Modules table | Have | `ListDebugModules` (svr4 libraries, exec-file); UI Modules box | - | - |
 | Sections table / filter by module | Missing | modules only (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Low | S |
 | Auto-map module to its program (slide) | Have | slide from AT_ENTRY or `l_addr` (`docs/debugger.md` "Addresses") | - | - |
-| Map libraries to other project programs | Have | runtime modules that are project programs are mapped (locations, the stack's function names, disassembly, `DebugModule.program_id`), and the UI opens the library program at the pc ([debugger.md](debugger.md#libraries); api_minor 70) | - | - |
+| Map libraries to other project programs | Have | runtime modules that are project programs are mapped (locations, the stack's function names, disassembly, `DebugModule.program_id`), and the UI opens the library program at the pc in a tab that then follows the pc while it is in the library ([debugger.md](debugger.md#libraries); api_minor 70) | - | - |
 | Import missing module into the project | Missing | not found (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Med | M |
 | Map manually / identically | Partial | one `slide` override (`CreateDebugSessionRequest.slide`) (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Med | S |
 | Memory regions table | Partial | API `regions`, `rk-dbg maps`; not in UI (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Med | S |
@@ -1403,7 +1403,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Per-file analysis timeout | Have | `--analysis-timeout` (`docs/scripting.md:296`) | - | - |
 | Processor / compiler spec / loader override, no-analysis | Have | `rk-lift --lang`, `ImportOptions.language_id`, `compiler_spec_id`, `format`, `analyze` (`proto/revkit/v1/project.proto:635-643`) | - | - |
 | Recursive folder import (`-recursive`, into containers) | Have | `rk-daemon project import-batch <dir> --recursive` (`docs/filesystems.md`) | - | - |
-| Load and link dependent libraries (`-librarySearchPaths`) | Have | `ImportOptions.import_libraries`, `library_search_paths`, `library_depth`; SDK `import_program(import_libraries=True, library_search_paths=[...])`, MCP `import_program`; imports linked to the library programs (`docs/api.md#libraries`, api_minor 70) | - | - |
+| Load and link dependent libraries (`-librarySearchPaths`) | Have | `ImportOptions.import_libraries`, `library_search_paths`, `library_depth`; SDK `import_program(import_libraries=True, library_search_paths=[...])`, MCP `import_program`; imports linked to the library programs (`docs/api.md#libraries`, api_minor 70); `ImportOptions.library_root` for a firmware root (api_minor 79) | - | - |
 | Commit results to the shared server | Have | `rk-script --daemon host:port --token` writes to the shared daemon | - | - |
 | Java GhidraScripts headless | Missing | Python only; `java.*` unsupported (`docs/scripting.md` "Running Ghidra scripts") | Med | L |
 | Script log, machine-readable results | Have | `--json` per-program results (`docs/scripting.md` "rk-script") | - | - |
@@ -1469,7 +1469,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
   - secondary highlights;
   - next/previous highlight;
   - double-click a constant to go to that address;
-  - Export C for one function and for the program.
+  - ~~Export C for one function and for the program~~ (done: api_minor 80, feature `export-c`).
 - **Med: Decompiler options per request.** Eliminate unreachable code, respect read-only, cast printing, integer format, user spec extensions (prototypes, callfixups).
 - **Med: More type edits from the decompiler.**
   - force a union field;
@@ -1624,7 +1624,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | VersionTracking: match table, markup, apply | 13 | 5 | 9 | 0 |
 | VersionTrackingBSim | 2 | 1 | 1 | 0 |
 | BSim: signatures, database, command line | 9 | 4 | 0 | 0 |
-| BSimSearchPlugin | 5 | 2 | 3 | 0 |
+| BSimSearchPlugin | 6 | 2 | 2 | 0 |
 | BSimFeatureVisualizer | 0 | 1 | 1 | 0 |
 | ProgramDiff | 0 | 3 | 5 | 0 |
 | FunctionID | 8 | 1 | 1 | 0 |
@@ -1653,7 +1653,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Recognizers | 0 | 1 | 0 | 0 |
 | Processor-module authoring | 1 | 0 | 3 | 0 |
 | Other modules without help pages | 0 | 0 | 3 | 0 |
-| **Total (40 modules, 461 features)** | **203** | **99** | **159** | **0** |
+| **Total (40 modules, 461 features)** | **204** | **99** | **158** | **0** |
 <!-- /survey-summary:part2 -->
 
 "In progress" rows are branches in flight and are not counted as Missing. Rows marked "Have (better)", "Have (beyond Ghidra)" or "Have (revkit only)" count as Have.

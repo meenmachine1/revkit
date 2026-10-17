@@ -175,8 +175,12 @@ export function toRow(r: PbRow, revision: bigint, addrWidth: number, headerRows 
     flowTargets: r.flowTargets.map((a) => a.offset),
     flowOverride: r.flowOverride,
     flowOverrideOrigin: r.flowOverrideOrigin,
+    fallthroughOverride: r.fallthroughOverride,
+    fallthrough: r.fallthroughOverride && r.fallthrough ? r.fallthrough.offset : null,
+    fallthroughOrigin: r.fallthroughOrigin,
     callSignature: r.callSignature,
     callSignatureOrigin: r.callSignatureOrigin,
+    registerValues: r.registerValues.map((v) => ({ register: v.registerName, value: v.value, analysis: v.analysis, origin: v.origin })),
     dataType: r.dataType,
     dataTypeHash: r.dataTypeHash || undefined,
     header: r.header && kind === RowKind.Header ? { kind: r.header.kind as number as HeaderKind, text: headerText(r), line: r.header.line, origin: r.header.origin } : undefined,
@@ -193,6 +197,10 @@ export function toRow(r: PbRow, revision: bigint, addrWidth: number, headerRows 
     unitOrigin: r.unitOrigin,
     mutability: r.mutability,
     mutabilityOrigin: r.mutabilityOrigin,
+    dataSettings: r.dataSettings,
+    dataSettingsOrigin: r.dataSettingsOrigin,
+    dataSettingsType: r.dataSettingsType || undefined,
+    dataTypeSettings: r.dataTypeSettings,
   };
 }
 

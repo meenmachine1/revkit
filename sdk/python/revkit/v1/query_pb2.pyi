@@ -25,6 +25,18 @@ class FunctionThunkFilter(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FUNCTION_THUNK_FILTER_ONLY: _ClassVar[FunctionThunkFilter]
     FUNCTION_THUNK_FILTER_EXCLUDE: _ClassVar[FunctionThunkFilter]
 
+class SymbolTreeNodeKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SYMBOL_TREE_NODE_KIND_UNSPECIFIED: _ClassVar[SymbolTreeNodeKind]
+    SYMBOL_TREE_NODE_KIND_FOLDER: _ClassVar[SymbolTreeNodeKind]
+    SYMBOL_TREE_NODE_KIND_LIBRARY: _ClassVar[SymbolTreeNodeKind]
+    SYMBOL_TREE_NODE_KIND_NAMESPACE: _ClassVar[SymbolTreeNodeKind]
+    SYMBOL_TREE_NODE_KIND_CLASS: _ClassVar[SymbolTreeNodeKind]
+    SYMBOL_TREE_NODE_KIND_FUNCTION: _ClassVar[SymbolTreeNodeKind]
+    SYMBOL_TREE_NODE_KIND_LABEL: _ClassVar[SymbolTreeNodeKind]
+    SYMBOL_TREE_NODE_KIND_IMPORT: _ClassVar[SymbolTreeNodeKind]
+    SYMBOL_TREE_NODE_KIND_EXPORT: _ClassVar[SymbolTreeNodeKind]
+
 class SliceKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     SLICE_KIND_UNSPECIFIED: _ClassVar[SliceKind]
@@ -58,6 +70,16 @@ class DataCategory(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DATA_CATEGORY_UNDEFINED: _ClassVar[DataCategory]
     DATA_CATEGORY_TYPED: _ClassVar[DataCategory]
     DATA_CATEGORY_DEFINED: _ClassVar[DataCategory]
+
+class RelocationKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RELOCATION_KIND_UNSPECIFIED: _ClassVar[RelocationKind]
+    RELOCATION_KIND_OTHER: _ClassVar[RelocationKind]
+    RELOCATION_KIND_RELATIVE: _ClassVar[RelocationKind]
+    RELOCATION_KIND_IRELATIVE: _ClassVar[RelocationKind]
+    RELOCATION_KIND_JUMP_SLOT: _ClassVar[RelocationKind]
+    RELOCATION_KIND_GLOB_DAT: _ClassVar[RelocationKind]
+    RELOCATION_KIND_ABSOLUTE: _ClassVar[RelocationKind]
 
 class ByteKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -127,6 +149,15 @@ FUNCTION_NAME_FILTER_UNNAMED: FunctionNameFilter
 FUNCTION_THUNK_FILTER_UNSPECIFIED: FunctionThunkFilter
 FUNCTION_THUNK_FILTER_ONLY: FunctionThunkFilter
 FUNCTION_THUNK_FILTER_EXCLUDE: FunctionThunkFilter
+SYMBOL_TREE_NODE_KIND_UNSPECIFIED: SymbolTreeNodeKind
+SYMBOL_TREE_NODE_KIND_FOLDER: SymbolTreeNodeKind
+SYMBOL_TREE_NODE_KIND_LIBRARY: SymbolTreeNodeKind
+SYMBOL_TREE_NODE_KIND_NAMESPACE: SymbolTreeNodeKind
+SYMBOL_TREE_NODE_KIND_CLASS: SymbolTreeNodeKind
+SYMBOL_TREE_NODE_KIND_FUNCTION: SymbolTreeNodeKind
+SYMBOL_TREE_NODE_KIND_LABEL: SymbolTreeNodeKind
+SYMBOL_TREE_NODE_KIND_IMPORT: SymbolTreeNodeKind
+SYMBOL_TREE_NODE_KIND_EXPORT: SymbolTreeNodeKind
 SLICE_KIND_UNSPECIFIED: SliceKind
 SLICE_KIND_DEF_USE: SliceKind
 SLICE_KIND_FORWARD: SliceKind
@@ -149,6 +180,13 @@ DATA_CATEGORY_POINTER: DataCategory
 DATA_CATEGORY_UNDEFINED: DataCategory
 DATA_CATEGORY_TYPED: DataCategory
 DATA_CATEGORY_DEFINED: DataCategory
+RELOCATION_KIND_UNSPECIFIED: RelocationKind
+RELOCATION_KIND_OTHER: RelocationKind
+RELOCATION_KIND_RELATIVE: RelocationKind
+RELOCATION_KIND_IRELATIVE: RelocationKind
+RELOCATION_KIND_JUMP_SLOT: RelocationKind
+RELOCATION_KIND_GLOB_DAT: RelocationKind
+RELOCATION_KIND_ABSOLUTE: RelocationKind
 BYTE_KIND_UNSPECIFIED: ByteKind
 BYTE_KIND_CODE: ByteKind
 BYTE_KIND_DATA: ByteKind
@@ -296,6 +334,82 @@ class ListSymbolsResponse(_message.Message):
     page: _common_pb2.PageInfo
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., symbols: _Optional[_Iterable[_Union[_listing_pb2.Symbol, _Mapping]]] = ..., page: _Optional[_Union[_common_pb2.PageInfo, _Mapping]] = ...) -> None: ...
 
+class ListSymbolTreeRequest(_message.Message):
+    __slots__ = ("program_id", "read", "page", "path", "name_contains")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    PAGE_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    NAME_CONTAINS_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    read: _common_pb2.ReadOptions
+    page: _common_pb2.PageRequest
+    path: _containers.RepeatedScalarFieldContainer[str]
+    name_contains: str
+    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., page: _Optional[_Union[_common_pb2.PageRequest, _Mapping]] = ..., path: _Optional[_Iterable[str]] = ..., name_contains: _Optional[str] = ...) -> None: ...
+
+class SymbolTreeNode(_message.Message):
+    __slots__ = ("name", "kind", "address", "full_name", "children", "library")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    FULL_NAME_FIELD_NUMBER: _ClassVar[int]
+    CHILDREN_FIELD_NUMBER: _ClassVar[int]
+    LIBRARY_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    kind: SymbolTreeNodeKind
+    address: _common_pb2.Address
+    full_name: str
+    children: int
+    library: str
+    def __init__(self, name: _Optional[str] = ..., kind: _Optional[_Union[SymbolTreeNodeKind, str]] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., full_name: _Optional[str] = ..., children: _Optional[int] = ..., library: _Optional[str] = ...) -> None: ...
+
+class ListSymbolTreeResponse(_message.Message):
+    __slots__ = ("snapshot", "nodes", "page", "total")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    NODES_FIELD_NUMBER: _ClassVar[int]
+    PAGE_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    nodes: _containers.RepeatedCompositeFieldContainer[SymbolTreeNode]
+    page: _common_pb2.PageInfo
+    total: int
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., nodes: _Optional[_Iterable[_Union[SymbolTreeNode, _Mapping]]] = ..., page: _Optional[_Union[_common_pb2.PageInfo, _Mapping]] = ..., total: _Optional[int] = ...) -> None: ...
+
+class PlanClearFlowRequest(_message.Message):
+    __slots__ = ("program_id", "read", "address", "follow_calls")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    FOLLOW_CALLS_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    read: _common_pb2.ReadOptions
+    address: _common_pb2.Address
+    follow_calls: bool
+    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., follow_calls: _Optional[bool] = ...) -> None: ...
+
+class ClearFlowRange(_message.Message):
+    __slots__ = ("address", "length")
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    LENGTH_FIELD_NUMBER: _ClassVar[int]
+    address: _common_pb2.Address
+    length: int
+    def __init__(self, address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., length: _Optional[int] = ...) -> None: ...
+
+class PlanClearFlowResponse(_message.Message):
+    __slots__ = ("snapshot", "ranges", "instructions", "kept", "functions")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    RANGES_FIELD_NUMBER: _ClassVar[int]
+    INSTRUCTIONS_FIELD_NUMBER: _ClassVar[int]
+    KEPT_FIELD_NUMBER: _ClassVar[int]
+    FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    ranges: _containers.RepeatedCompositeFieldContainer[ClearFlowRange]
+    instructions: int
+    kept: int
+    functions: _containers.RepeatedCompositeFieldContainer[_common_pb2.Address]
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., ranges: _Optional[_Iterable[_Union[ClearFlowRange, _Mapping]]] = ..., instructions: _Optional[int] = ..., kept: _Optional[int] = ..., functions: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ...) -> None: ...
+
 class GetFunctionRequest(_message.Message):
     __slots__ = ("program_id", "address", "containing", "read")
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
@@ -391,6 +505,46 @@ class GetXrefsResponse(_message.Message):
     xrefs: _containers.RepeatedCompositeFieldContainer[_listing_pb2.Xref]
     page: _common_pb2.PageInfo
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., xrefs: _Optional[_Iterable[_Union[_listing_pb2.Xref, _Mapping]]] = ..., page: _Optional[_Union[_common_pb2.PageInfo, _Mapping]] = ...) -> None: ...
+
+class ListLibraryImportersRequest(_message.Message):
+    __slots__ = ("program_id", "address", "name", "include_references", "max_references", "read")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    INCLUDE_REFERENCES_FIELD_NUMBER: _ClassVar[int]
+    MAX_REFERENCES_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    address: _common_pb2.Address
+    name: str
+    include_references: bool
+    max_references: int
+    read: _common_pb2.ReadOptions
+    def __init__(self, program_id: _Optional[str] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., name: _Optional[str] = ..., include_references: _Optional[bool] = ..., max_references: _Optional[int] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+
+class LibraryImporter(_message.Message):
+    __slots__ = ("program_id", "program_name", "library", "resolved", "references", "references_truncated")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_NAME_FIELD_NUMBER: _ClassVar[int]
+    LIBRARY_FIELD_NUMBER: _ClassVar[int]
+    RESOLVED_FIELD_NUMBER: _ClassVar[int]
+    REFERENCES_FIELD_NUMBER: _ClassVar[int]
+    REFERENCES_TRUNCATED_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    program_name: str
+    library: str
+    resolved: _project_pb2.ResolvedImport
+    references: _containers.RepeatedCompositeFieldContainer[_listing_pb2.Xref]
+    references_truncated: bool
+    def __init__(self, program_id: _Optional[str] = ..., program_name: _Optional[str] = ..., library: _Optional[str] = ..., resolved: _Optional[_Union[_project_pb2.ResolvedImport, _Mapping]] = ..., references: _Optional[_Iterable[_Union[_listing_pb2.Xref, _Mapping]]] = ..., references_truncated: _Optional[bool] = ...) -> None: ...
+
+class ListLibraryImportersResponse(_message.Message):
+    __slots__ = ("snapshot", "importers")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    IMPORTERS_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    importers: _containers.RepeatedCompositeFieldContainer[LibraryImporter]
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., importers: _Optional[_Iterable[_Union[LibraryImporter, _Mapping]]] = ...) -> None: ...
 
 class DecompileRequest(_message.Message):
     __slots__ = ("program_id", "function", "read", "options")
@@ -624,6 +778,152 @@ class ListDataResponse(_message.Message):
     page: _common_pb2.PageInfo
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., data: _Optional[_Iterable[_Union[DefinedData, _Mapping]]] = ..., page: _Optional[_Union[_common_pb2.PageInfo, _Mapping]] = ...) -> None: ...
 
+class ListCommentsRequest(_message.Message):
+    __slots__ = ("program_id", "read", "page", "kinds", "text_contains", "range")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    PAGE_FIELD_NUMBER: _ClassVar[int]
+    KINDS_FIELD_NUMBER: _ClassVar[int]
+    TEXT_CONTAINS_FIELD_NUMBER: _ClassVar[int]
+    RANGE_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    read: _common_pb2.ReadOptions
+    page: _common_pb2.PageRequest
+    kinds: _containers.RepeatedScalarFieldContainer[_assertion_pb2.CommentKind]
+    text_contains: str
+    range: _common_pb2.AddressRange
+    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., page: _Optional[_Union[_common_pb2.PageRequest, _Mapping]] = ..., kinds: _Optional[_Iterable[_Union[_assertion_pb2.CommentKind, str]]] = ..., text_contains: _Optional[str] = ..., range: _Optional[_Union[_common_pb2.AddressRange, _Mapping]] = ...) -> None: ...
+
+class ProgramComment(_message.Message):
+    __slots__ = ("address", "kind", "text", "function", "function_name", "label", "origin")
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
+    LABEL_FIELD_NUMBER: _ClassVar[int]
+    ORIGIN_FIELD_NUMBER: _ClassVar[int]
+    address: _common_pb2.Address
+    kind: _assertion_pb2.CommentKind
+    text: str
+    function: _common_pb2.Address
+    function_name: str
+    label: str
+    origin: _common_pb2.FactOrigin
+    def __init__(self, address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., kind: _Optional[_Union[_assertion_pb2.CommentKind, str]] = ..., text: _Optional[str] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., function_name: _Optional[str] = ..., label: _Optional[str] = ..., origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ...) -> None: ...
+
+class ListCommentsResponse(_message.Message):
+    __slots__ = ("snapshot", "comments", "page", "total")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    COMMENTS_FIELD_NUMBER: _ClassVar[int]
+    PAGE_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    comments: _containers.RepeatedCompositeFieldContainer[ProgramComment]
+    page: _common_pb2.PageInfo
+    total: int
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., comments: _Optional[_Iterable[_Union[ProgramComment, _Mapping]]] = ..., page: _Optional[_Union[_common_pb2.PageInfo, _Mapping]] = ..., total: _Optional[int] = ...) -> None: ...
+
+class ListRelocationsRequest(_message.Message):
+    __slots__ = ("program_id", "read", "page", "range", "text_contains")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    PAGE_FIELD_NUMBER: _ClassVar[int]
+    RANGE_FIELD_NUMBER: _ClassVar[int]
+    TEXT_CONTAINS_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    read: _common_pb2.ReadOptions
+    page: _common_pb2.PageRequest
+    range: _common_pb2.AddressRange
+    text_contains: str
+    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., page: _Optional[_Union[_common_pb2.PageRequest, _Mapping]] = ..., range: _Optional[_Union[_common_pb2.AddressRange, _Mapping]] = ..., text_contains: _Optional[str] = ...) -> None: ...
+
+class ProgramRelocation(_message.Message):
+    __slots__ = ("address", "type", "type_name", "kind", "symbol", "addend", "target", "original", "target_name")
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    TYPE_NAME_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    SYMBOL_FIELD_NUMBER: _ClassVar[int]
+    ADDEND_FIELD_NUMBER: _ClassVar[int]
+    TARGET_FIELD_NUMBER: _ClassVar[int]
+    ORIGINAL_FIELD_NUMBER: _ClassVar[int]
+    TARGET_NAME_FIELD_NUMBER: _ClassVar[int]
+    address: _common_pb2.Address
+    type: int
+    type_name: str
+    kind: RelocationKind
+    symbol: str
+    addend: int
+    target: _common_pb2.Address
+    original: bytes
+    target_name: str
+    def __init__(self, address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., type: _Optional[int] = ..., type_name: _Optional[str] = ..., kind: _Optional[_Union[RelocationKind, str]] = ..., symbol: _Optional[str] = ..., addend: _Optional[int] = ..., target: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., original: _Optional[bytes] = ..., target_name: _Optional[str] = ...) -> None: ...
+
+class ListRelocationsResponse(_message.Message):
+    __slots__ = ("snapshot", "relocations", "page", "total", "format")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    RELOCATIONS_FIELD_NUMBER: _ClassVar[int]
+    PAGE_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_FIELD_NUMBER: _ClassVar[int]
+    FORMAT_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    relocations: _containers.RepeatedCompositeFieldContainer[ProgramRelocation]
+    page: _common_pb2.PageInfo
+    total: int
+    format: str
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., relocations: _Optional[_Iterable[_Union[ProgramRelocation, _Mapping]]] = ..., page: _Optional[_Union[_common_pb2.PageInfo, _Mapping]] = ..., total: _Optional[int] = ..., format: _Optional[str] = ...) -> None: ...
+
+class ListRegisterValuesRequest(_message.Message):
+    __slots__ = ("program_id", "read", "page", "register_name", "range")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    PAGE_FIELD_NUMBER: _ClassVar[int]
+    REGISTER_NAME_FIELD_NUMBER: _ClassVar[int]
+    RANGE_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    read: _common_pb2.ReadOptions
+    page: _common_pb2.PageRequest
+    register_name: str
+    range: _common_pb2.AddressRange
+    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., page: _Optional[_Union[_common_pb2.PageRequest, _Mapping]] = ..., register_name: _Optional[str] = ..., range: _Optional[_Union[_common_pb2.AddressRange, _Mapping]] = ...) -> None: ...
+
+class RegisterValueRange(_message.Message):
+    __slots__ = ("register_name", "range", "value", "origin", "key")
+    REGISTER_NAME_FIELD_NUMBER: _ClassVar[int]
+    RANGE_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    ORIGIN_FIELD_NUMBER: _ClassVar[int]
+    KEY_FIELD_NUMBER: _ClassVar[int]
+    register_name: str
+    range: _common_pb2.AddressRange
+    value: int
+    origin: _common_pb2.FactOrigin
+    key: _common_pb2.FactKey
+    def __init__(self, register_name: _Optional[str] = ..., range: _Optional[_Union[_common_pb2.AddressRange, _Mapping]] = ..., value: _Optional[int] = ..., origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., key: _Optional[_Union[_common_pb2.FactKey, _Mapping]] = ...) -> None: ...
+
+class RegisterDescription(_message.Message):
+    __slots__ = ("name", "size")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    size: int
+    def __init__(self, name: _Optional[str] = ..., size: _Optional[int] = ...) -> None: ...
+
+class ListRegisterValuesResponse(_message.Message):
+    __slots__ = ("snapshot", "ranges", "page", "total", "registers")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    RANGES_FIELD_NUMBER: _ClassVar[int]
+    PAGE_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_FIELD_NUMBER: _ClassVar[int]
+    REGISTERS_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    ranges: _containers.RepeatedCompositeFieldContainer[RegisterValueRange]
+    page: _common_pb2.PageInfo
+    total: int
+    registers: _containers.RepeatedCompositeFieldContainer[RegisterDescription]
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., ranges: _Optional[_Iterable[_Union[RegisterValueRange, _Mapping]]] = ..., page: _Optional[_Union[_common_pb2.PageInfo, _Mapping]] = ..., total: _Optional[int] = ..., registers: _Optional[_Iterable[_Union[RegisterDescription, _Mapping]]] = ...) -> None: ...
+
 class GetClassHierarchyRequest(_message.Message):
     __slots__ = ("program_id", "read", "name_contains")
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
@@ -757,6 +1057,52 @@ class DecompileManyResponse(_message.Message):
     elapsed_ms: float
     function_ms: float
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., index: _Optional[int] = ..., total: _Optional[int] = ..., entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., function: _Optional[_Union[_decompile_pb2.DecompiledFunction, _Mapping]] = ..., failure: _Optional[_Union[_decompile_pb2.DecompileFailure, _Mapping]] = ..., error: _Optional[str] = ..., served_before: _Optional[bool] = ..., elapsed_ms: _Optional[float] = ..., function_ms: _Optional[float] = ...) -> None: ...
+
+class ExportCRequest(_message.Message):
+    __slots__ = ("program_id", "read", "functions", "all", "header", "name", "timeout_ms", "parallelism")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    ALL_FIELD_NUMBER: _ClassVar[int]
+    HEADER_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
+    PARALLELISM_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    read: _common_pb2.ReadOptions
+    functions: _containers.RepeatedCompositeFieldContainer[_common_pb2.Address]
+    all: bool
+    header: bool
+    name: str
+    timeout_ms: int
+    parallelism: int
+    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., functions: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., all: _Optional[bool] = ..., header: _Optional[bool] = ..., name: _Optional[str] = ..., timeout_ms: _Optional[int] = ..., parallelism: _Optional[int] = ...) -> None: ...
+
+class ExportCResponse(_message.Message):
+    __slots__ = ("snapshot", "done", "total", "source_name", "header_name", "header", "source_part", "finished", "functions", "failed", "notes")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    DONE_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_NAME_FIELD_NUMBER: _ClassVar[int]
+    HEADER_NAME_FIELD_NUMBER: _ClassVar[int]
+    HEADER_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_PART_FIELD_NUMBER: _ClassVar[int]
+    FINISHED_FIELD_NUMBER: _ClassVar[int]
+    FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    FAILED_FIELD_NUMBER: _ClassVar[int]
+    NOTES_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    done: int
+    total: int
+    source_name: str
+    header_name: str
+    header: str
+    source_part: str
+    finished: bool
+    functions: int
+    failed: _containers.RepeatedCompositeFieldContainer[_common_pb2.Address]
+    notes: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., done: _Optional[int] = ..., total: _Optional[int] = ..., source_name: _Optional[str] = ..., header_name: _Optional[str] = ..., header: _Optional[str] = ..., source_part: _Optional[str] = ..., finished: _Optional[bool] = ..., functions: _Optional[int] = ..., failed: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., notes: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class FindBytesRequest(_message.Message):
     __slots__ = ("program_id", "pattern", "mask", "range", "max_results", "alignment", "read", "executable_only")

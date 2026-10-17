@@ -733,6 +733,35 @@ button.icon.mem-act { min-width: 22px; padding: 1px 4px; font-size: 12px; line-h
 .d-val { color: var(--k-st); }
 .d-type { color: var(--k-ty); }
 .d-refs { text-align: right; color: var(--dim); }
+/* Comments (src/ui/comments.ts): address, kind, function, the text. */
+.data-row.comments-row { grid-template-columns: 10ch 9ch minmax(8ch, 22ch) minmax(0, 1fr); }
+.c-fn { color: var(--k-fn, var(--fg)); }
+/* Relocations (src/ui/relocations.ts): address, type, symbol or target, addend, bytes. */
+.data-row.relocs-row { grid-template-columns: 10ch minmax(10ch, 22ch) minmax(8ch, 1fr) 9ch minmax(0, 24ch); }
+.relocs-row .r-type, .relocs-row .r-sym, .relocs-row .r-bytes { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.relocs-row .r-sym.named { color: var(--k-fn, var(--fg)); }
+/* Register values (src/ui/regvalues.ts). */
+#regvalues:not([hidden]) { display: flex; flex-direction: column; min-height: 0; }
+#regvalues .regvalues-list { flex: 1; overflow: auto; outline: none; position: relative; }
+.data-row.regvalues-row { position: static; grid-template-columns: 8ch 13ch 13ch 13ch minmax(0, 1fr); }
+.regvalues-list:focus .regvalues-row.active { outline: 1px solid var(--accent); outline-offset: -1px; }
+.rv-reg { color: var(--k-reg, var(--fg)); }
+
+/* Symbol tree (src/ui/symtree.ts). */
+#symtree:not([hidden]) { display: flex; flex-direction: column; min-height: 0; }
+#symtree .symtree-list { flex: 1; overflow: auto; outline: none; }
+.sy-row { display: flex; align-items: baseline; gap: 4px; padding: 1px 8px; white-space: nowrap; cursor: default; line-height: 20px; }
+.sy-row:hover { background: var(--hover); }
+.sy-row.active { background: var(--active); }
+.symtree-list:focus .sy-row.active { outline: 1px solid var(--accent); outline-offset: -1px; }
+.sy-twisty { width: 1ch; display: inline-block; }
+.sy-icon { width: 2ch; text-align: center; font-size: 11px; opacity: 0.85; }
+.sy-k5 { color: var(--k-fn); }
+.sy-k6, .sy-k8 { color: var(--k-gv); }
+.sy-k3, .sy-k4 { color: var(--k-ty); }
+.sy-name { overflow: hidden; text-overflow: ellipsis; }
+.sy-addr { margin-left: auto; padding-left: 8px; }
+.sy-error { color: var(--error); }
 
 /* calls */
 .calls-list { flex: 1; overflow-y: auto; outline: none; }
@@ -807,6 +836,7 @@ button.icon.mem-act { min-width: 22px; padding: 1px 4px; font-size: 12px; line-h
 .hi-grow { flex: 1 1 240px; display: flex; align-items: center; gap: 6px; }
 .hi-grow > .filter { flex: 1; }
 .hi-status { font-size: 12px; }
+.xc-progress { width: 100%; margin: 6px 0 2px; }
 .hi-results { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .hi-split { display: flex; gap: 10px; min-height: 0; max-height: 46vh; }
 .hi-tree { width: 46%; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: 4px 0; }
@@ -1180,6 +1210,13 @@ mark.sr-hit { background: var(--tok-sel); color: inherit; border-radius: 2px; }
 .bsim-row.first { border-top: 1px solid var(--border); }
 .bsim-row:hover { background: var(--hover); }
 .bsim-row.active { background: var(--active); }
+.bsim-row.picked { background: var(--active); }
+.bsim-row.picked.active { outline: 1px solid var(--accent, var(--border)); outline-offset: -1px; }
+.bsim-sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 2px; }
+.bsim-status { display: inline-block; width: 1.2em; text-align: center; }
+.bsim-status.applied { color: var(--ok, #3a3); }
+.bsim-status.skipped, .bsim-status.unchanged { opacity: 0.7; }
+.bsim-status.failed { color: var(--error, #c33); }
 
 .fid-cols, .fid-row { display: grid; grid-template-columns: 9em minmax(8em, 1fr) minmax(8em, 1.4fr) 4em 6.5em minmax(8em, 1fr); gap: 6px; padding: 2px 8px; align-items: baseline; }
 .fid-cols { font-size: 11px; border-bottom: 1px solid var(--border); }
@@ -1306,4 +1343,6 @@ body.rk-resizing .backdrop { cursor: nwse-resize; }
 .dbg-lib-link[hidden] { display: none; }
 .xrefs-external { display: flex; align-items: baseline; gap: 8px; padding: 2px 9px 6px; font-size: 12.5px; }
 .xrefs-external .link { padding: 0; }
+.xrefs-importers { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 2px 9px 6px; font-size: 12.5px; max-height: 160px; overflow-y: auto; }
+.xrefs-importers .link { padding: 0; display: flex; align-items: baseline; gap: 6px; }
 .od .od-libs-line .btn { padding: 0 8px; line-height: 20px; }

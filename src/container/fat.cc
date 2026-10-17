@@ -75,8 +75,8 @@ class Fat final : public FileSystem {
       const std::uint32_t root = b.l32(44);
       walk(tree, 0, chain_bytes(root, 0, true), seen, ctx, 0, label);
     } else {
-      const auto root = src_->read_exact(root_offset_, root_bytes_, "the FAT root directory");
-      walk(tree, 0, root, seen, ctx, 0, label);
+      auto root = src_->read_exact(root_offset_, root_bytes_, "the FAT root directory");
+      walk(tree, 0, std::move(root), seen, ctx, 0, label);
     }
     tree.finish();
     description_ = "FAT" + std::to_string(bits_) + " file system" +
@@ -146,7 +146,7 @@ class Fat final : public FileSystem {
     return out;
   }
 
-  std::vector<std::byte> chain_bytes(std::uint32_t c, std::uint64_t bytes, bool directory) const {
+  std::vector<std::byte> chain_bytes(std::uint32_t c, std::uint64_t bytes, bool directory) {
     std::vector<std::byte> out;
     // A directory's chain is listed only as far as the 4 MiB limit.
     const std::uint64_t limit = directory ? (4u << 20) / cluster_bytes_ + 2 : UINT64_MAX;
@@ -155,13 +155,20 @@ class Fat final : public FileSystem {
       auto part = src_->read_exact(data_offset_ + static_cast<std::uint64_t>(k - 2) * cluster_bytes_, cluster_bytes_,
                                    "a FAT cluster");
       out.insert(out.end(), part.begin(), part.end());
+      // Directories may share their chains' clusters, each read again:
+      // 1 GiB of them in all, as ext's.
+      if (directory && (dir_bytes_ += part.size()) > (std::uint64_t{1} << 30))
+        throw LimitError("over 1 GiB of FAT directories");
     }
     return out;
   }
 
-  void walk(TreeBuilder &tree, std::uint32_t parent, const std::vector<std::byte> &dir, std::set<std::uint32_t> &seen,
+  // `dir` is released before its subdirectories are read: held across the
+  // recursion, 256 nested 4 MiB directories held 1 GiB.
+  void walk(TreeBuilder &tree, std::uint32_t parent, std::vector<std::byte> dir, std::set<std::uint32_t> &seen,
             const Context &ctx, unsigned depth, std::string &label) {
     if (depth > ctx.limits.max_dir_depth) throw LimitError("FAT directories nest too deep");
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> subdirs;  // (entry, first cluster)
     std::vector<std::uint32_t> lfn(256 * 13);  // the long name collected so far
     int lfn_order = -1;
     std::uint8_t lfn_sum = 0;
@@ -242,7 +249,7 @@ class Fat final : public FileSystem {
         const std::uint32_t idx = tree.add_child(parent, std::move(e));
         if (cluster < 2) continue;
         if (!seen.insert(cluster).second) throw Error("a FAT directory contains itself");
-        walk(tree, idx, chain_bytes(cluster, 0, true), seen, ctx, depth + 1, label);
+        subdirs.emplace_back(idx, cluster);
       } else {
         e.kind = Kind::file;
         e.size = le32(d + 28);
@@ -250,9 +257,12 @@ class Fat final : public FileSystem {
         tree.add_child(parent, std::move(e));
       }
     }
+    std::vector<std::byte>().swap(dir);
+    for (const auto &[idx, cluster] : subdirs) walk(tree, idx, chain_bytes(cluster, 0, true), seen, ctx, depth + 1, label);
   }
 
   std::shared_ptr<const Source> src_;
+  std::uint64_t dir_bytes_ = 0;  // directory clusters read
   std::uint16_t bps_ = 512;
   std::uint8_t spc_ = 1;
   std::uint64_t cluster_bytes_ = 512, fat_offset_ = 0, fat_bytes_ = 0, root_offset_ = 0, root_bytes_ = 0,

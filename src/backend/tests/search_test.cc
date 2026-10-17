@@ -1,14 +1,18 @@
 // The searches (api_minor 41, feature "search"): what memory queries mean
 // as bytes (search.cc), and SearchMemory, SearchText, SearchScalars and
 // SearchDecompiled on corpus programs through the api::Backend interface.
+#include "builders.hh"
 #include "search.h"
 
 #include "revkit/backend/image_backend.h"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <sstream>
+#include <fstream>
 #include <map>
 #include <set>
 
@@ -608,6 +612,392 @@ TEST_F(SearchTest, TextOnLua) {
   lim.set_max_results(3);
   EXPECT_EQ(Addresses(Text(lim, &last)), std::vector<std::uint64_t>(every.begin(), every.begin() + 3));
   EXPECT_TRUE(last.truncated());
+}
+
+// The comment table (api_minor 77, feature "comment-table"): every comment,
+// by address, its kind and function; filters by kind and text; a deleted
+// comment is gone; pages.
+TEST_F(SearchTest, ListComments) {
+  const fs::path bin = testing::scratch_dir("list-comments") / "prog";
+  ASSERT_TRUE(testing::compile(REVKIT_TEST_CC, R"(
+int luaH_getn(int *t, int n) { int i = 0; while (i < n && t[i]) i++; return i; }
+int luaH_resize(int *t, int n) { for (int i = 0; i < n; i++) t[i] = i * 3 + 1; return n; }
+int main(int argc, char **argv) { int t[8]; luaH_resize(t, argc); return luaH_getn(t, 8); }
+)", "-O1 -fno-inline", bin));
+  const std::string id = Import(bin);
+  const auto fns = Functions(id);
+  const std::uint64_t resize = fns.at("luaH_resize"), getn = fns.at("luaH_getn");
+  auto comment = [&](std::uint64_t at, pb::CommentKind kind, const std::string &text) {
+    ASSERT_TRUE(Assert(id, [&](pb::AssertionBody &b) {
+                  b.mutable_comment()->mutable_address()->set_offset(at);
+                  b.mutable_comment()->set_kind(kind);
+                  b.mutable_comment()->set_text(text);
+                }).ok());
+  };
+  comment(resize + 1, pb::COMMENT_KIND_EOL, "grows the table");
+  comment(getn, pb::COMMENT_KIND_PLATE, "Border of the array part");
+  comment(getn + 2, pb::COMMENT_KIND_PRE, "scratch");
+  auto list = [&](std::vector<pb::CommentKind> kinds, const std::string &text, std::uint32_t page = 0, const std::string &token = "") {
+    pb::ListCommentsRequest req;
+    req.set_program_id(id);
+    for (auto k : kinds) req.add_kinds(k);
+    req.set_text_contains(text);
+    req.mutable_page()->set_page_size(page);
+    req.mutable_page()->set_page_token(token);
+    pb::ListCommentsResponse resp;
+    auto st = backend_->ListComments(ctx_, req, resp);
+    EXPECT_TRUE(st.ok()) << st.message;
+    return resp;
+  };
+  auto all = list({}, "");
+  ASSERT_EQ(all.total(), 3u);
+  // Address order: luaH_getn's and luaH_resize's by where they are.
+  std::vector<std::uint64_t> at;
+  for (const auto &c : all.comments()) at.push_back(c.address().offset());
+  EXPECT_TRUE(std::is_sorted(at.begin(), at.end()));
+  bool eol = false;
+  for (const auto &c : all.comments())
+    if (c.kind() == pb::COMMENT_KIND_EOL) {
+      eol = true;
+      EXPECT_EQ(c.text(), "grows the table");
+      EXPECT_EQ(c.function_name(), "luaH_resize");
+      EXPECT_EQ(c.function().offset(), resize);
+      EXPECT_EQ(c.origin().source_case(), pb::FactOrigin::kAsserted);
+    }
+  EXPECT_TRUE(eol);
+  auto plates = list({pb::COMMENT_KIND_PLATE}, "");
+  ASSERT_EQ(plates.comments_size(), 1);
+  EXPECT_EQ(plates.comments(0).label(), "luaH_getn");
+  EXPECT_EQ(list({}, "BORDER").total(), 1u);
+  // Pages of one.
+  auto p1 = list({}, "", 1);
+  ASSERT_EQ(p1.comments_size(), 1);
+  ASSERT_FALSE(p1.page().next_page_token().empty());
+  auto p2 = list({}, "", 1, p1.page().next_page_token());
+  ASSERT_EQ(p2.comments_size(), 1);
+  EXPECT_NE(p2.comments(0).address().offset(), p1.comments(0).address().offset());
+  // Deleted: gone.
+  comment(getn + 2, pb::COMMENT_KIND_PRE, "");
+  EXPECT_EQ(list({}, "").total(), 2u);
+}
+
+// The relocation table (api_minor 78, feature "relocation-table"): a PIE's
+// relocations by address with their type names; a function pointer's
+// RELATIVE one points at the function; a PLT slot names its symbol; the
+// text filter; pages; and a PE's base relocations.
+TEST_F(SearchTest, ListRelocations) {
+  const fs::path bin = testing::scratch_dir("list-relocations") / "prog";
+  ASSERT_TRUE(testing::compile(REVKIT_TEST_CC, R"(
+#include <stdio.h>
+int twice(int x) { return 2 * x; }
+int (*volatile handler)(int) = twice;
+int main(int argc, char **argv) { puts(argv[0]); return handler(argc); }
+)", "-O1 -fPIE -pie", bin));
+  const std::string id = Import(bin);
+  const std::uint64_t twice = Functions(id).at("twice");
+  auto list = [&](const std::string &text, std::uint32_t page = 0, const std::string &token = "") {
+    pb::ListRelocationsRequest req;
+    req.set_program_id(id);
+    req.set_text_contains(text);
+    req.mutable_page()->set_page_size(page);
+    req.mutable_page()->set_page_token(token);
+    pb::ListRelocationsResponse resp;
+    auto st = backend_->ListRelocations(ctx_, req, resp);
+    EXPECT_TRUE(st.ok()) << st.message;
+    return resp;
+  };
+  auto all = list("");
+  EXPECT_EQ(all.format(), "elf");
+  ASSERT_GE(all.total(), 2u);
+  std::vector<std::uint64_t> at;
+  bool pointer = false, puts_slot = false;
+  for (const auto &rel : all.relocations()) {
+    at.push_back(rel.address().offset());
+    EXPECT_EQ(rel.type_name().rfind("R_X86_64_", 0), 0u) << rel.type_name();
+    EXPECT_EQ(rel.original().size(), 8u);
+    if (rel.kind() == pb::RELOCATION_KIND_RELATIVE && rel.has_target() && rel.target().offset() == twice) {
+      pointer = true;
+      EXPECT_EQ(rel.type_name(), "R_X86_64_RELATIVE");
+      EXPECT_EQ(rel.target_name(), "twice");
+    }
+    if (rel.symbol() == "puts") puts_slot = rel.kind() == pb::RELOCATION_KIND_JUMP_SLOT || rel.kind() == pb::RELOCATION_KIND_GLOB_DAT;
+  }
+  EXPECT_TRUE(std::is_sorted(at.begin(), at.end()));
+  EXPECT_TRUE(pointer) << "no RELATIVE relocation pointing at twice";
+  EXPECT_TRUE(puts_slot) << "no GOT slot for puts";
+  auto puts = list("PUTS");
+  ASSERT_GE(puts.total(), 1u);
+  for (const auto &rel : puts.relocations()) EXPECT_EQ(rel.symbol(), "puts");
+  EXPECT_EQ(list("x86_64_relative").total(), static_cast<std::uint64_t>(std::count_if(
+      all.relocations().begin(), all.relocations().end(), [](const auto &r) { return r.kind() == pb::RELOCATION_KIND_RELATIVE; })));
+  // Pages of one.
+  auto p1 = list("", 1);
+  ASSERT_EQ(p1.relocations_size(), 1);
+  ASSERT_FALSE(p1.page().next_page_token().empty());
+  auto p2 = list("", 1, p1.page().next_page_token());
+  ASSERT_EQ(p2.relocations_size(), 1);
+  EXPECT_EQ(p2.relocations(0).address().offset(), all.relocations(1).address().offset());
+
+  // A PE: the .reloc directory's DIR64 entries, each pointing into the image.
+  const fs::path pe = Corpus("pe-x86_64/clang-O2/stripped/features.exe");
+  if (!fs::exists(pe)) GTEST_SKIP() << "corpus not built";
+  pb::ListRelocationsRequest req;
+  req.set_program_id(Import(pe));
+  pb::ListRelocationsResponse resp;
+  ASSERT_TRUE(backend_->ListRelocations(ctx_, req, resp).ok());
+  EXPECT_EQ(resp.format(), "pe");
+  ASSERT_GT(resp.total(), 0u);
+  for (const auto &rel : resp.relocations()) {
+    EXPECT_EQ(rel.type_name(), "IMAGE_REL_BASED_DIR64");
+    EXPECT_EQ(rel.kind(), pb::RELOCATION_KIND_ABSOLUTE);
+    ASSERT_TRUE(rel.has_target());
+    EXPECT_EQ(static_cast<std::uint64_t>(rel.addend()), rel.target().offset());  // not rebased
+  }
+}
+
+// Export C (api_minor 80, feature "export-c"): every function decompiled
+// into one .c in address order, after a header of the program's types and
+// the functions' prototypes that compiles on its own; progress first; one
+// function without a header.
+TEST_F(SearchTest, ExportC) {
+  const fs::path dir = testing::scratch_dir("export-c");
+  const fs::path bin = dir / "prog";
+  ASSERT_TRUE(testing::compile(REVKIT_TEST_CC, R"(
+struct pair { int a; long b; };
+long sum(struct pair *p) { return p->a + p->b; }
+int scale(int x) { return x * 7 + 3; }
+int main(int argc, char **argv) { struct pair q = {argc, (long)argv}; return (int)sum(&q) + scale(argc); }
+)", "-O1 -g -fno-inline", bin));
+  const std::string id = Import(bin);
+  const auto fns = Functions(id);
+  struct Out {
+    std::vector<pb::ExportCResponse> messages;
+    std::string source;
+  };
+  auto run = [&](bool all, std::vector<std::uint64_t> functions, bool header, const std::string &name) {
+    pb::ExportCRequest req;
+    req.set_program_id(id);
+    req.set_all(all);
+    for (std::uint64_t f : functions) req.add_functions()->set_offset(f);
+    req.set_header(header);
+    req.set_name(name);
+    Out out;
+    auto st = backend_->ExportC(ctx_, req, [&](const pb::ExportCResponse &m) {
+      out.messages.push_back(m);
+      out.source += m.source_part();
+      return true;
+    });
+    EXPECT_TRUE(st.ok()) << st.message;
+    return out;
+  };
+  Out all = run(true, {}, true, "prog");
+  ASSERT_GE(all.messages.size(), 3u);
+  const pb::ExportCResponse &last = all.messages.back();
+  EXPECT_TRUE(last.finished());
+  EXPECT_EQ(last.total(), fns.size());
+  EXPECT_EQ(last.functions() + last.failed_size(), fns.size());
+  // Progress before the files.
+  EXPECT_TRUE(all.messages.front().header_name().empty() && all.messages.front().source_part().empty());
+  EXPECT_LE(all.messages.front().done(), all.messages.front().total());
+  const pb::ExportCResponse *head = nullptr;
+  for (const auto &m : all.messages)
+    if (!m.header_name().empty()) head = &m;
+  ASSERT_NE(head, nullptr);
+  EXPECT_EQ(head->header_name(), "prog.h");
+  EXPECT_EQ(head->source_name(), "prog.c");
+  EXPECT_NE(head->header().find("struct pair"), std::string::npos) << head->header();
+  EXPECT_NE(head->header().find("typedef unsigned int uint;"), std::string::npos);
+  EXPECT_NE(head->header().find("scale(int"), std::string::npos) << head->header();
+  EXPECT_NE(all.source.find("#include \"prog.h\""), std::string::npos);
+  // Address order, each under its banner.
+  std::size_t prev = 0;
+  std::vector<std::pair<std::uint64_t, std::string>> by_addr;
+  for (const auto &[name, entry] : fns) by_addr.emplace_back(entry, name);
+  std::sort(by_addr.begin(), by_addr.end());
+  for (const auto &[entry, name] : by_addr) {
+    std::ostringstream banner;
+    banner << "/* " << name << " @ 0x" << std::hex << entry << " */";
+    const std::size_t at = all.source.find(banner.str());
+    ASSERT_NE(at, std::string::npos) << banner.str();
+    EXPECT_GE(at, prev);
+    prev = at;
+  }
+  EXPECT_NE(all.source.find("* 7"), std::string::npos) << all.source;
+  // The header compiles by itself.
+  {
+    std::ofstream(dir / "prog.h") << head->header();
+    std::ofstream(dir / "check.c") << "#include \"prog.h\"\nint revkit_check;\n";
+    const std::string cmd = std::string(REVKIT_TEST_CC) + " -fsyntax-only -Werror=implicit-function-declaration " + (dir / "check.c").string() + " 2>" + (dir / "cc.log").string();
+    EXPECT_EQ(std::system(cmd.c_str()), 0) << std::ifstream(dir / "cc.log").rdbuf();
+  }
+  // One function, no header: the typedefs inline, nothing else.
+  Out one = run(false, {fns.at("scale")}, false, "");
+  EXPECT_TRUE(one.messages.back().finished());
+  EXPECT_EQ(one.messages.back().functions(), 1u);
+  EXPECT_NE(one.source.find("typedef unsigned int uint;"), std::string::npos);
+  EXPECT_NE(one.source.find("/* scale @ 0x"), std::string::npos);
+  EXPECT_EQ(one.source.find("/* sum @ 0x"), std::string::npos);
+  for (const auto &m : one.messages) EXPECT_TRUE(m.header().empty());
+  // The default name is the program's.
+  EXPECT_TRUE(std::any_of(one.messages.begin(), one.messages.end(), [](const auto &m) { return m.source_name() == "prog.c"; }));
+  // Neither functions nor all.
+  pb::ExportCRequest bad;
+  bad.set_program_id(id);
+  EXPECT_FALSE(backend_->ExportC(ctx_, bad, [](const pb::ExportCResponse &) { return true; }).ok());
+}
+
+// The symbol tree (api_minor 82, feature "symbol-tree"): the root's
+// folders; an import under its library; a class from the demangler with
+// its methods; namespaces nested; the Functions folder filtered; a rename
+// into a namespace moves the function there.
+TEST_F(SearchTest, ListSymbolTree) {
+  const fs::path bin = testing::scratch_dir("symbol-tree") / "prog";
+  ASSERT_TRUE(testing::compile(REVKIT_TEST_CC, R"(
+extern "C" int puts(const char *);
+namespace geo {
+struct Circle { double r; double area() const; void scale(double k); };
+double Circle::area() const { return r * r * 3.0; }
+void Circle::scale(double k) { r *= k; }
+namespace util { int clamp(int x) { return x < 0 ? 0 : x; } }
+}
+int helper(int x) { return x + 1; }
+int main(int argc, char **argv) {
+  geo::Circle c{(double)argc};
+  c.scale(2);
+  puts(argv[0]);
+  return (int)c.area() + geo::util::clamp(argc) + helper(argc);
+}
+)", "-x c++ -O1 -fno-exceptions -fno-rtti -fno-inline", bin));
+  const std::string id = Import(bin);
+  auto list = [&](std::vector<std::string> path, const std::string &filter = "") {
+    pb::ListSymbolTreeRequest req;
+    req.set_program_id(id);
+    for (const auto &p : path) req.add_path(p);
+    req.set_name_contains(filter);
+    pb::ListSymbolTreeResponse resp;
+    auto st = backend_->ListSymbolTree(ctx_, req, resp);
+    EXPECT_TRUE(st.ok()) << st.message;
+    std::map<std::string, pb::SymbolTreeNode> by;
+    for (const auto &n : resp.nodes()) by.emplace(n.name(), n);
+    return std::pair{resp, by};
+  };
+  auto [root, folders] = list({});
+  ASSERT_EQ(root.nodes_size(), 6);
+  const char *order[] = {"Imports", "Exports", "Functions", "Labels", "Classes", "Namespaces"};
+  for (int i = 0; i < 6; ++i) {
+    EXPECT_EQ(root.nodes(i).name(), order[i]);
+    EXPECT_EQ(root.nodes(i).kind(), pb::SYMBOL_TREE_NODE_KIND_FOLDER);
+  }
+  EXPECT_GE(folders.at("Imports").children(), 1u);
+  EXPECT_GE(folders.at("Classes").children(), 1u);
+  // Imports: an ELF says no library per import.
+  auto [libs, by_lib] = list({"Imports"});
+  ASSERT_TRUE(by_lib.contains("<EXTERNAL>"));
+  EXPECT_EQ(by_lib.at("<EXTERNAL>").kind(), pb::SYMBOL_TREE_NODE_KIND_LIBRARY);
+  auto [imps, by_imp] = list({"Imports", "<EXTERNAL>"});
+  ASSERT_TRUE(by_imp.contains("puts"));
+  EXPECT_EQ(by_imp.at("puts").kind(), pb::SYMBOL_TREE_NODE_KIND_IMPORT);
+  EXPECT_TRUE(by_imp.at("puts").has_address());
+  // Classes: the demangler's scope, its two methods by their short names.
+  auto [classes, by_class] = list({"Classes"});
+  ASSERT_TRUE(by_class.contains("geo::Circle"));
+  EXPECT_EQ(by_class.at("geo::Circle").children(), 2u);
+  auto [members, by_member] = list({"Classes", "geo::Circle"});
+  ASSERT_TRUE(by_member.contains("area") && by_member.contains("scale"));
+  EXPECT_EQ(by_member.at("area").full_name(), "geo::Circle::area");
+  EXPECT_EQ(by_member.at("area").kind(), pb::SYMBOL_TREE_NODE_KIND_FUNCTION);
+  // Namespaces: geo holds the class Circle (scopes first) and util.
+  auto [ns, by_ns] = list({"Namespaces"});
+  ASSERT_TRUE(by_ns.contains("geo"));
+  EXPECT_FALSE(by_ns.contains("Circle"));
+  auto [geo, by_geo] = list({"Namespaces", "geo"});
+  ASSERT_TRUE(by_geo.contains("Circle") && by_geo.contains("util"));
+  EXPECT_EQ(by_geo.at("Circle").kind(), pb::SYMBOL_TREE_NODE_KIND_CLASS);
+  EXPECT_EQ(by_geo.at("util").kind(), pb::SYMBOL_TREE_NODE_KIND_NAMESPACE);
+  auto [util, by_util] = list({"Namespaces", "geo", "util"});
+  ASSERT_TRUE(by_util.contains("clamp"));
+  // Functions, filtered (any case).
+  auto [fns, by_fn] = list({"Functions"}, "CLAMP");
+  ASSERT_EQ(fns.nodes_size(), 1);
+  EXPECT_EQ(fns.nodes(0).name(), "geo::util::clamp");
+  // A rename into a namespace moves the function there.
+  const std::uint64_t helper = Functions(id).at("helper");
+  ASSERT_TRUE(Assert(id, [&](pb::AssertionBody &b) {
+                b.mutable_rename()->mutable_target()->mutable_address()->set_offset(helper);
+                b.mutable_rename()->set_name("mine::helper2");
+              }).ok());
+  auto [mine, by_mine] = list({"Namespaces", "mine"});
+  ASSERT_TRUE(by_mine.contains("helper2"));
+  EXPECT_EQ(by_mine.at("helper2").address().offset(), helper);
+  // An unknown folder.
+  pb::ListSymbolTreeRequest bad;
+  bad.set_program_id(id);
+  bad.add_path("Nope");
+  pb::ListSymbolTreeResponse out;
+  EXPECT_FALSE(backend_->ListSymbolTree(ctx_, bad, out).ok());
+}
+
+// Clear Flow and Repair, planned (api_minor 83, feature "clear-flow"): a
+// function's whole flow from its entry; with follow_calls its callee
+// nobody else calls goes too and one main also calls stays; the planned
+// ClearCode edits remove those functions, and nothing else.
+TEST_F(SearchTest, PlanClearFlow) {
+  const fs::path bin = testing::scratch_dir("clear-flow") / "prog";
+  ASSERT_TRUE(testing::compile(REVKIT_TEST_CC, R"(
+__attribute__((noinline)) int only_mine(int x) { return x * 5 + 1; }
+__attribute__((noinline)) int shared(int x) { return x ^ 0x55; }
+__attribute__((noinline)) int lonely(int x) { if (x > 7) x = only_mine(x); else x = shared(x) + 2; return x * 3; }
+int main(int argc, char **argv) { return lonely(argc) + shared(argc); }
+)", "-O1 -fno-inline", bin));
+  const std::string id = Import(bin);
+  auto fns = Functions(id);
+  const std::uint64_t lonely = fns.at("lonely"), only = fns.at("only_mine"), shared = fns.at("shared");
+  auto plan = [&](std::uint64_t at, bool follow) {
+    pb::PlanClearFlowRequest req;
+    req.set_program_id(id);
+    req.mutable_address()->set_offset(at);
+    req.set_follow_calls(follow);
+    pb::PlanClearFlowResponse resp;
+    auto st = backend_->PlanClearFlow(ctx_, req, resp);
+    EXPECT_TRUE(st.ok()) << st.message;
+    return resp;
+  };
+  auto covers = [](const pb::PlanClearFlowResponse &p, std::uint64_t a) {
+    for (const auto &r : p.ranges())
+      if (a >= r.address().offset() && a < r.address().offset() + r.length()) return true;
+    return false;
+  };
+  auto just = plan(lonely, false);
+  ASSERT_GT(just.ranges_size(), 0);
+  EXPECT_EQ(just.ranges(0).address().offset(), lonely);
+  EXPECT_EQ(just.kept(), 0u);
+  ASSERT_EQ(just.functions_size(), 1);
+  EXPECT_EQ(just.functions(0).offset(), lonely);
+  EXPECT_FALSE(covers(just, only));
+  EXPECT_FALSE(covers(just, shared));
+  auto deep = plan(lonely, true);
+  EXPECT_TRUE(covers(deep, lonely));
+  EXPECT_TRUE(covers(deep, only));
+  EXPECT_FALSE(covers(deep, shared));  // main calls it too
+  EXPECT_GT(deep.instructions(), just.instructions());
+  EXPECT_GT(deep.kept(), 0u);
+  // Applied as ClearCode edits: lonely and only_mine are gone, shared stays.
+  for (const auto &r : deep.ranges())
+    ASSERT_TRUE(Assert(id, [&](pb::AssertionBody &b) {
+                  b.mutable_listing_edit()->mutable_address()->set_offset(r.address().offset());
+                  b.mutable_listing_edit()->mutable_clear()->set_length(r.length());
+                }).ok());
+  fns = Functions(id);
+  EXPECT_FALSE(fns.contains("lonely"));
+  EXPECT_FALSE(fns.contains("only_mine"));
+  EXPECT_TRUE(fns.contains("shared"));
+  EXPECT_TRUE(fns.contains("main"));
+  // Not code: refused.
+  pb::PlanClearFlowRequest bad;
+  bad.set_program_id(id);
+  bad.mutable_address()->set_offset(1);
+  pb::PlanClearFlowResponse out;
+  EXPECT_FALSE(backend_->PlanClearFlow(ctx_, bad, out).ok());
 }
 
 TEST_F(SearchTest, ScalarsOnLua) {

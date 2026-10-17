@@ -303,6 +303,7 @@ class Projects final : public pb::ProjectService::Service {
   RK_STAMPED(SetProgramLanguage, StampRequest)
   RK_UNARY(CompareLanguages)
   RK_STAMPED(LoadPdb, StampRequest)
+  RK_STAMPED(LoadDebugFile, StampRequest)
   RK_UNARY(GetSymbolSettings)
   RK_UNARY(SetSymbolSettings)
 
@@ -345,6 +346,12 @@ class Queries final : public pb::QueryService::Service {
   RK_UNARY(FindTypes)
   RK_UNARY(GetFunctionGraph)
   RK_UNARY(ListData)
+  RK_UNARY(ListComments)
+  RK_UNARY(ListRegisterValues)
+  RK_UNARY(ListSymbolTree)
+  RK_UNARY(PlanClearFlow)
+  RK_UNARY(ListRelocations)
+  RK_UNARY(ListLibraryImporters)
   RK_UNARY(GetClassHierarchy)
   RK_UNARY(ListCallingConventions)
   RK_UNARY(FindBytes)
@@ -356,6 +363,11 @@ class Queries final : public pb::QueryService::Service {
                              grpc::ServerWriter<pb::DecompileManyResponse> *writer) override {
     return ServeStream(*auth_, ctx, "revkit.v1.QueryService/DecompileMany", *req, writer,
                        [&](const CallContext &c, const auto &write) { return backend_->DecompileMany(c, *req, write); });
+  }
+  grpc::Status ExportC(grpc::ServerContext *ctx, const pb::ExportCRequest *req,
+                       grpc::ServerWriter<pb::ExportCResponse> *writer) override {
+    return ServeStream(*auth_, ctx, "revkit.v1.QueryService/ExportC", *req, writer,
+                       [&](const CallContext &c, const auto &write) { return backend_->ExportC(c, *req, write); });
   }
   grpc::Status ListInstructions(grpc::ServerContext *ctx, const pb::ListInstructionsRequest *req,
                                 grpc::ServerWriter<pb::ListInstructionsResponse> *writer) override {
@@ -522,6 +534,7 @@ class BSim final : public pb::BSimService::Service {
   RK_UNARY(UpdateBSimExecutable)
   RK_UNARY(DeleteBSimExecutables)
   RK_UNARY(SearchBSim)
+  RK_STAMPED(ApplyBSimMatches, StampRequest)
 
  private:
   std::shared_ptr<Backend> backend_;

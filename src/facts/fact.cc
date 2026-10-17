@@ -95,6 +95,8 @@ std::string_view to_string(FactKind kind) {
     case FactKind::CallSignature: return "call-signature";
     case FactKind::NoReturn: return "no-return";
     case FactKind::Language: return "language";
+    case FactKind::Fallthrough: return "fallthrough";
+    case FactKind::RegisterValue: return "register-value";
   }
   return "?";
 }

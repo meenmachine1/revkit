@@ -354,13 +354,25 @@ LifterPool::~LifterPool() = default;
 LifterPool::Lease::~Lease() {
   if (!lifter || owner == nullptr) return;
   std::lock_guard lock(owner->mu_);
+  owner->last_use_ = std::chrono::steady_clock::now();
   owner->idle_[context].push_back(std::move(lifter));
   owner->cv_.notify_all();
+}
+
+std::size_t LifterPool::park_idle(std::chrono::steady_clock::duration idle_for) {
+  std::lock_guard lock(mu_);
+  if (std::chrono::steady_clock::now() - last_use_ < idle_for) return 0;
+  std::size_t n = 0;
+  for (auto &[context, idle] : idle_)
+    for (auto &l : idle)
+      if (!l->parked() && l->park()) ++n;
+  return n;
 }
 
 LifterPool::Lease LifterPool::take(const Context &context) {
   std::unique_lock lock(mu_);
   cv_.wait(lock, [&] { return !idle_[context].empty() || made_[context] < per_context_; });
+  last_use_ = std::chrono::steady_clock::now();
   Lease out;
   out.owner = this;
   out.context = context;

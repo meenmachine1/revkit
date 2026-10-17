@@ -415,6 +415,17 @@ TEST(ContainerHostile, TruncatedAndGarbage) {
   }
 }
 
+// A zero-length read: read_exact of 0 bytes passed memcpy a null buffer,
+// undefined even for 0 bytes (UBSan, extract_fuzzer: a zip whose header
+// named an empty extra field). The asan preset runs UBSan fatal.
+TEST(ContainerHostile, ZeroLengthReads) {
+  auto src = memory_source({std::byte{1}, std::byte{2}});
+  EXPECT_TRUE(src->read_exact(0, 0, "nothing").empty());
+  EXPECT_TRUE(src->read_exact(2, 0, "nothing at the end").empty());
+  std::vector<std::byte> none;
+  EXPECT_EQ(src->read(0, none), 0u);
+}
+
 TEST(ContainerHostile, TarSizeWrapsToItsOwnHeader) {
   // A global header whose base-256 size is 2^64 - 512: the next header's
   // offset wrapped around to this one, and the parser looped forever.

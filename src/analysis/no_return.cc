@@ -99,7 +99,7 @@ class Evidence {
   bool walk_indicates(const Call &c) {
     const FlowInsn *call = c.flow->at(c.address);
     if (call == nullptr) return false;
-    std::uint64_t fall = c.address + call->length;
+    std::uint64_t fall = call->fallthrough();  // (a fallthrough override's address)
     const std::uint64_t next = function_after(fall);
     // The flow's instructions are in address order: the one at `fall` is
     // usually the one after the last (else a search finds it, or nothing).
@@ -120,7 +120,7 @@ class Evidence {
       }
       // On through plain instructions only (FlowType.isFallthrough).
       if (i->kind != FlowKind::fall || !i->falls_through) return false;
-      fall += i->length;
+      fall = i->fallthrough();
     }
     return false;
   }
@@ -163,7 +163,7 @@ class Evidence {
             if (known && !i->falls_through) break;
             if (!known && (i->tail_call || !i->falls_through)) return false;  // a terminal call that returns
             if (i->tail_call) break;
-            a += i->length;
+            a = i->fallthrough();
             continue;
           }
           case FlowKind::jump:
@@ -180,7 +180,7 @@ class Evidence {
             break;
           case FlowKind::branch:
             for (std::uint64_t t : i->targets) todo.push_back(info_.code_address(t));
-            a += i->length;
+            a = i->fallthrough();
             continue;
           case FlowKind::jump_indirect:
             if (i->targets.empty()) return false;  // no destinations
@@ -188,9 +188,11 @@ class Evidence {
             break;
           case FlowKind::fall:
             if (!i->falls_through) return false;  // a terminal without destinations
-            a += i->length;
+            a = i->fallthrough();
             continue;
         }
+        // A jump the user's fallthrough override makes go on.
+        if (i->fall_override && i->falls_through) todo.push_back(i->fall_to);
         break;
       }
     }

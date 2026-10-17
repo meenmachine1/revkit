@@ -35,8 +35,19 @@ if(REVKIT_FUZZ)
     message(FATAL_ERROR "REVKIT_FUZZ needs clang (libFuzzer); compiler is ${CMAKE_CXX_COMPILER_ID}")
   endif()
   # Coverage for libFuzzer plus ASan/UBSan, trapping on any UB report.
-  add_compile_options(-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=all
-                      -fno-omit-frame-pointer)
+  # Harnesses that reach the vendored decompiler or SLEIGH engine (whose
+  # known reports tools/sanitizers/ubsan.supp lists; detect_fuzzer) need
+  # UBSan recoverable, since suppressions only apply then: configure with
+  # -DREVKIT_FUZZ_UBSAN_RECOVER=ON and run with UBSAN_OPTIONS=
+  # halt_on_error=1:suppressions=tools/sanitizers/ubsan.supp, which still
+  # stops on any other report (docs/bug-scrub.md).
+  option(REVKIT_FUZZ_UBSAN_RECOVER "Fuzz builds: UBSan recoverable, for suppressions" OFF)
+  if(REVKIT_FUZZ_UBSAN_RECOVER)
+    set(_rk_fuzz_recover -fsanitize-recover=undefined)
+  else()
+    set(_rk_fuzz_recover -fno-sanitize-recover=all)
+  endif()
+  add_compile_options(-fsanitize=fuzzer-no-link,address,undefined ${_rk_fuzz_recover} -fno-omit-frame-pointer)
   add_link_options(-fsanitize=address,undefined)
 endif()
 

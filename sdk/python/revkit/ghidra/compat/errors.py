@@ -114,7 +114,6 @@ UNSUPPORTED: dict[str, str] = {
     "Program.getProgramContext": "processor context is not exposed to scripts",
     "Program.getDomainFile": "no Ghidra project files; current_program.summary().info names the program",
     "Program.getChanges": "current_program.assertions() lists what changed",
-    "Program.getRelocationTable": "relocations are applied by the loader and not listed to scripts",
     "Program.getSourceFileManager": "no source-file mapping in revkit",
     "Program.getUsrPropertyManager": "use notes: note(addr, text, tag)",
     "Program.getTreeManager": "no program trees (fragments) in revkit",

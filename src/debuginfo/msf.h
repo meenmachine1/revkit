@@ -7,6 +7,7 @@
 // contiguous buffers, so the parsers above never see block boundaries.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -32,7 +33,11 @@ class Msf {
   }
 
   // The stream's bytes. A nil or missing stream reads as empty; a block
-  // past the end of the file throws FormatError.
+  // past the end of the file throws FormatError. Streams may list the same
+  // blocks (65,535 module streams each a file's worth of one block), so
+  // what all reads gather together is budgeted: four times the file plus
+  // 64 MiB, past which this throws PdbError. A real PDB's streams don't
+  // share blocks, and each is read about once.
   std::vector<std::uint8_t> read(std::uint32_t index) const;
 
  private:
@@ -43,6 +48,8 @@ class Msf {
   std::uint32_t block_count_ = 0;
   std::vector<std::uint32_t> sizes_;
   std::vector<std::vector<std::uint32_t>> blocks_;
+  std::uint64_t budget_ = 0;
+  mutable std::atomic<std::uint64_t> gathered_{0};
 };
 
 }  // namespace revkit::debuginfo::pdb

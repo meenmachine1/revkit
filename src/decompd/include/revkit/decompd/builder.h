@@ -17,6 +17,7 @@
 #include "revkit/lift/decompile.hh"
 #include "revkit/lift/lifter.hh"
 
+#include <chrono>
 #include <functional>
 #include <map>
 #include <condition_variable>
@@ -111,6 +112,10 @@ class LifterPool {
     lift::Lifter &operator*() { return *lifter; }
   };
   Lease take(const Context &context = {});
+  // Parks the idle engines (lift::Lifter::park) once the pool has been
+  // unused for `idle_for`: their decoded .sla goes to the language's spares
+  // until a take() needs one. How many parked.
+  std::size_t park_idle(std::chrono::steady_clock::duration idle_for = {});
 
  private:
   std::shared_ptr<const loader::Image> image_;
@@ -120,6 +125,7 @@ class LifterPool {
   std::condition_variable cv_;
   std::map<Context, std::vector<std::unique_ptr<lift::Lifter>>> idle_;
   std::map<Context, unsigned> made_;
+  std::chrono::steady_clock::time_point last_use_;  // the last take() or return
 };
 
 // The seeds for predict(): a function's tracked registers, as lift::FactLookup

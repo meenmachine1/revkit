@@ -51,7 +51,7 @@ import { HeaderKind, RowKind, TokenKind, type ListingRow, type RowShift } from "
 import type { TokSpan } from "./decomp/pane";
 import { DecompilerPane } from "./decomp/pane";
 import { EmulatorPanel } from "./emu/panel";
-import { DebuggerPanel, type RunName } from "./debug/panel";
+import { DebuggerPanel, PC_CHANNEL, type PcMessage, type RunName } from "./debug/panel";
 import { dprMode, measureFrames, needsFallback } from "./listing/gpu";
 import { layoutRow, makeColumns, type Columns } from "./listing/layout";
 import { makePainter } from "./listing/painters";
@@ -102,16 +102,23 @@ import { showPreferences, showShortcuts } from "./ui/preferences";
 import { ProvenancePopover, listingEditText, type FactRef, type HoverSubject } from "./ui/provenance";
 import { HoverPreviews, type Preview } from "./ui/hover";
 import { DATA_KINDS, ListingEditor, MUTABILITY_CHOICES } from "./ui/listingedit";
+import { describeSettings } from "./ui/datasettings";
 import { Keymap, PRESETS, chordWhileTyping, eventChord, type PresetId } from "./ui/keymap";
 import { previewStructure } from "./ui/autostruct";
 import { DiffGraphView } from "./diff/graph";
 import { DiffView } from "./diff/view";
 import { PatchEditor, PatchesView, exportDialog, patchBytesDialog, type PatchHost } from "./patch/patch";
-import { showXrefs } from "./ui/xrefs";
+import { KIND as XREF_KIND_NAMES, showXrefs, type ImporterRef } from "./ui/xrefs";
 import { ClassesView } from "./ui/classes";
 import { FidView } from "./ui/fid";
 import { BsimView } from "./ui/bsim";
+import { CommentsView } from "./ui/comments";
+import { RelocationsView } from "./ui/relocations";
+import { SymbolTreeView } from "./ui/symtree";
+import { RegisterValuesView, setRegisterValueDialog } from "./ui/regvalues";
+import { exportCDialog, openExportC } from "./ui/exportc";
 import { loadPdb, symbolSettings, type PdbHost } from "./ui/pdb";
+import { debugFileSettings, loadDebugFile } from "./ui/debugfiles";
 import { EquateEditor, EquatesView, FORMATS, floatable, formatScalar, type EquateHost, type ScalarTarget } from "./ui/equates";
 import { ReferenceEditor, ReferencesView, type ReferenceHost } from "./ui/references";
 import { cToDraft, editFunction, type FunctionDraft } from "./ui/editfunction";
@@ -121,19 +128,19 @@ import { Search, type SearchKind } from "./ui/search";
 
 export const FONT = '"JetBrains Mono", monospace';
 
-type PaneName = "functions" | "listing" | "decomp" | "graph" | "calls" | "strings" | "types" | "diff" | "patches" | "memory" | "scripts" | "equates" | "refs" | "search" | "python" | "bytes" | "fid" | "bsim";
+type PaneName = "functions" | "listing" | "decomp" | "graph" | "calls" | "strings" | "types" | "diff" | "patches" | "memory" | "scripts" | "equates" | "refs" | "search" | "python" | "bytes" | "fid" | "bsim" | "comments" | "relocations" | "symtree" | "regvalues";
 
 /** Where each view goes until the user moves it. */
 // The toolbar's menus: palette commands by id ("-" starts a group; ids a daemon lacks are left out).
-const EDIT_MENU = ["undo", "redo", "-", "rename", "retype", "comment", "comment-plate", "comment-pre", "comment-post", "comment-eol", "note", "-", "fn-edit", "fn-create", "fn-remove", "flow", "-", "copy-special", "decomp-copy-all", "-", "patch-insn", "patch-bytes", "patch-revert-here", "patch-export", "-", "preferences"];
+const EDIT_MENU = ["undo", "redo", "-", "rename", "retype", "comment", "comment-plate", "comment-pre", "comment-post", "comment-eol", "note", "-", "fn-edit", "fn-create", "fn-remove", "flow", "-", "copy-special", "decomp-copy-all", "export-c", "-", "patch-insn", "patch-bytes", "patch-revert-here", "patch-export", "-", "preferences"];
 const NAV_MENU = ["goto", "back", "forward", "history", "-", "follow", "follow-import", "xrefs", "functions", "-", "nav-repeat-next", "nav-repeat-prev", "-", "toggle-decomp", "toggle-graph"];
-const ANALYZE_MENU = ["xrefs", "prov", "libraries", "-", "auto-struct", "auto-fill", "struct-from-selection", "type-new", "type-import", "-", "load-pdb", "symbol-settings", "-", "memory-add", "memory-rebase", "language", "-", "emulate", "dbg-launch", "dbg-connect", "-", "compare", "fn-compare", "patch-compare", "-", "bsim-similar", "bsim-ingest"];
+const ANALYZE_MENU = ["xrefs", "prov", "libraries", "-", "auto-struct", "auto-fill", "struct-from-selection", "type-new", "type-import", "-", "load-pdb", "symbol-settings", "load-debug-file", "debug-file-settings", "-", "memory-add", "memory-rebase", "language", "-", "emulate", "dbg-launch", "dbg-connect", "-", "compare", "fn-compare", "patch-compare", "-", "bsim-similar", "bsim-ingest"];
 /** A command's title in a menu: without the "File: " or "Tools: " prefix the palette uses. */
 function menuLabel(title: string): string {
   return title.replace(/^(File|Tools|Help): /, "");
 }
 
-const DEFAULT_PLACES: Record<string, GroupName> = { listing: "main", graph: "main", decomp: "side", calls: "side", strings: "side", types: "side", emu: "side", diff: "main", diffgraph: "side", patches: "side", memory: "main", scripts: "side", equates: "side", refs: "side", searchresults: "side", python: "side", bytes: "side", classes: "side", fid: "side", bsim: "side" };
+const DEFAULT_PLACES: Record<string, GroupName> = { listing: "main", graph: "main", decomp: "side", calls: "side", strings: "side", types: "side", emu: "side", diff: "main", diffgraph: "side", patches: "side", memory: "main", scripts: "side", equates: "side", refs: "side", searchresults: "side", python: "side", bytes: "side", classes: "side", fid: "side", bsim: "side", comments: "side", relocations: "side", symtree: "side", regvalues: "side" };
 
 /** The views, their titles and shortcuts (tabs, palette, keys). */
 const VIEWS: { id: string; title: string; keys: string; closable?: boolean }[] = [
@@ -181,6 +188,14 @@ const CLASSES_VIEW = { id: "classes", title: "Class hierarchy", keys: "" };
 const FID_VIEW = { id: "fid", title: "Function ID", keys: "" };
 /** BSim databases: similar functions across programs (feature bsim; docs/bsim.md). */
 const BSIM_VIEW = { id: "bsim", title: "BSim", keys: "" };
+// Ghidra's comment window (feature comment-table).
+const COMMENTS_VIEW = { id: "comments", title: "Comments", keys: "" };
+// Ghidra's relocation table (feature relocation-table).
+const RELOCATIONS_VIEW = { id: "relocations", title: "Relocations", keys: "" };
+// Ghidra's symbol tree (feature symbol-tree).
+const SYMTREE_VIEW = { id: "symtree", title: "Symbol tree", keys: "" };
+// Ghidra's register manager (feature register-values).
+const REGVALUES_VIEW = { id: "regvalues", title: "Register values", keys: "" };
 /** The references from and to the code unit at the cursor (feature user-references). */
 const REFS_VIEW = { id: "refs", title: "References", keys: "" };
 /** Scripts the daemon runs (feature scripts-host; docs/scripting.md). */
@@ -273,6 +288,8 @@ export class App {
    * (feature emulator), else null. */
   emu: DebuggerPanel | EmulatorPanel | null = null;
   private emuMarks = { pc: null as bigint | null, breakpoints: new Set<bigint>() };
+  /** The debug session (another tab's) whose pc this tab follows (followDebugger), if any. */
+  private following: string | null = null;
   palette!: Palette;
   prov!: ProvenancePopover;
   edits!: Edits;
@@ -304,6 +321,10 @@ export class App {
   fid: FidView | null = null;
   /** BSim's searches (feature bsim), else null. */
   bsim: BsimView | null = null;
+  comments: CommentsView | null = null;
+  relocations: RelocationsView | null = null;
+  symtree: SymbolTreeView | null = null;
+  regvalues: RegisterValuesView | null = null;
   /** User references (feature user-references): Add, Delete, Set primary and the References window, else null. */
   refEdit: ReferenceEditor | null = null;
   refs: ReferencesView | null = null;
@@ -661,6 +682,10 @@ export class App {
     if (this.features.has("msvc-rtti")) views.push(CLASSES_VIEW);
     if (this.features.has("function-id")) views.push(FID_VIEW);
     if (this.features.has("bsim")) views.push(BSIM_VIEW);
+    if (this.features.has("comment-table")) views.push(COMMENTS_VIEW);
+    if (this.features.has("relocation-table")) views.push(RELOCATIONS_VIEW);
+    if (this.features.has("symbol-tree")) views.push(SYMTREE_VIEW);
+    if (this.features.has("register-values")) views.push(REGVALUES_VIEW);
     return views;
   }
 
@@ -941,6 +966,27 @@ export class App {
       const a = parseAddress(location.hash.slice(1));
       if (a !== null && a !== this.location) void this.navigate(a);
     });
+    // A library tab the debugger opened (?follow=<session>): it follows that session's pc.
+    const follow = new URLSearchParams(location.search).get("follow");
+    if (follow) this.followDebugger(follow);
+  }
+
+  /** The pc of another tab's debug session, while it is in this program (a library it
+   * links): marked and followed here as the debugging tab's own listing does. */
+  private followDebugger(session: string) {
+    if (typeof BroadcastChannel === "undefined") return;
+    this.following = session;
+    this.view.emuMarks = this.emuMarks;
+    const channel = new BroadcastChannel(PC_CHANNEL);
+    channel.onmessage = (ev: MessageEvent<PcMessage>) => {
+      const m = ev.data;
+      if (!m || m.ask || m.session !== session || m.running) return;
+      const here = m.programId === this.programId && m.address ? BigInt(`0x${m.address}`) : null;
+      if (here === null && this.emuMarks.pc === null) return;
+      this.showEmuPc(here);
+    };
+    // Where it is now (the debugging tab answers).
+    channel.postMessage({ session, programId: "", address: "", running: false, ask: true } satisfies PcMessage);
   }
 
   private onKey(e: KeyboardEvent) {
@@ -977,7 +1023,7 @@ export class App {
   /** The listing, the decompiler or the graph has the focus (not a panel's list). */
   private inCodeView(): boolean {
     const a = this.active;
-    return !(a === "functions" || a === "strings" || a === "types" || a === "calls" || a === "diff" || a === "patches" || a === "memory" || a === "scripts" || a === "equates" || a === "refs" || a === "search" || a === "python" || a === "bytes" || a === "fid" || a === "bsim");
+    return !(a === "functions" || a === "strings" || a === "types" || a === "calls" || a === "diff" || a === "patches" || a === "memory" || a === "scripts" || a === "equates" || a === "refs" || a === "search" || a === "python" || a === "bytes" || a === "fid" || a === "bsim" || a === "comments" || a === "relocations" || a === "symtree" || a === "regvalues");
   }
 
   /**
@@ -2282,6 +2328,57 @@ export class App {
     return this.decompFn?.entry?.offset === entry ? (this.decompFn.prototype?.noReturn ?? false) : undefined;
   }
 
+  private lastRegister = "";
+
+  /**
+   * Ghidra's Set Register Values (feature register-values): over the
+   * listing's selection when it spans rows, else the body of the function
+   * at the cursor, else the code unit there; `clear`: no value there.
+   */
+  async setRegisterValue(clear: boolean, preset: { register?: string; ranges?: { first: bigint; last: bigint }[] } = {}) {
+    if (!this.features.has("register-values")) return toast("This daemon has no register values (feature register-values)", { kind: "error" });
+    let ranges = preset.ranges;
+    let what = "";
+    if (!ranges) {
+      const [lo, hi] = this.view.selectionRange();
+      const sel = lo >= 0 && lo !== hi ? this.listingEdit.range() : null;
+      if (sel) {
+        ranges = [{ first: sel.start, last: sel.start + sel.length - 1n }];
+        what = "the selection";
+      } else {
+        const t = this.listingEdit.target();
+        if (!t) return toast("Select the rows, or put the cursor in a function", { kind: "error" });
+        try {
+          const f = (await this.rk.queries.getFunction({ programId: this.programId, address: { offset: t.row.address }, containing: true })).function;
+          if (f?.body.length) {
+            ranges = f.body.map((r) => ({ first: r.first?.offset ?? 0n, last: r.last?.offset ?? 0n }));
+            what = this.fnName(f.entry?.offset ?? 0n) ?? f.name;
+          }
+        } catch {
+          // not in a function: the unit at the cursor
+        }
+        if (!ranges) {
+          ranges = [{ first: t.row.address, last: t.row.address + BigInt(Math.max(1, t.row.length)) - 1n }];
+          what = hex(t.row.address);
+        }
+      }
+    }
+    if (!what) what = ranges.length === 1 ? "the range" : `${ranges.length} ranges`;
+    const register = preset.register || this.lastRegister;
+    const set = await setRegisterValueDialog({
+      rk: this.rk,
+      programId: this.programId,
+      edits: this.edits,
+      register,
+      ranges,
+      what,
+      clear,
+      undo: () => void this.redoOrUndo("undo"),
+      settle: (rev) => this.live.waitFor(rev),
+    });
+    if (set) this.lastRegister = set;
+  }
+
   /** Ghidra's Set No-Return / Clear (feature no-return): one edit, undoable. */
   async setNoReturn(entry: bigint, noReturn: boolean) {
     const name = this.fnName(entry) ?? hex(entry);
@@ -2671,6 +2768,54 @@ export class App {
     }
   }
 
+  /** Ghidra's Set Fallthrough (feature fallthrough-override): where control
+   * goes on after the selected instruction; empty, nowhere. One edit. */
+  async setFallthrough() {
+    const row = this.codeUnit();
+    if (!row || row.kind !== RowKind.Instruction) return toast("Select an instruction first");
+    const next = row.address + BigInt(row.length);
+    const current = row.fallthroughOverride ? (row.fallthrough === null ? "" : fmtAddr(row.fallthrough)) : fmtAddr(next);
+    let target: bigint | null = null;
+    const text = await ask({
+      title: `Fallthrough of ${hex(row.address)} (${row.mnemonic})`,
+      value: current,
+      placeholder: "an address or a symbol; empty: no fallthrough",
+      hint: `Where control goes on after it instead of ${fmtAddr(next)}: function bodies, the listing, the graph and the decompiler follow it.`,
+      check: async (v) => {
+        const t = v.trim();
+        if (!t) {
+          target = null;
+          return null;
+        }
+        target = parseAddress(t) ?? (await this.findSymbol(t));
+        return target === null ? `not an address or a symbol: ${t}` : null;
+      },
+    });
+    if (text === null) return;
+    const to = target as bigint | null;
+    const what = to === null ? "no fallthrough" : `fallthrough to ${fmtAddr(to)}`;
+    try {
+      const r = await this.edits.bodies(`Set ${what} at ${hex(row.address)}`, [Edits.fallthroughBody(row.address, to)]);
+      toast(`${hex(row.address)}: ${what}`, { action: { label: "Undo", run: () => void this.redoOrUndo("undo") } });
+      await this.live.waitFor(r.revision);
+    } catch (e) {
+      toast(`Set fallthrough failed: ${errText(e)}`, { kind: "error" });
+    }
+  }
+
+  /** Ghidra's Clear Fallthrough: the selected instruction's own fallthrough back. */
+  async clearFallthrough() {
+    const row = this.codeUnit();
+    if (!row || row.kind !== RowKind.Instruction || !row.fallthroughOverride) return toast("Select an instruction with a fallthrough override first");
+    try {
+      const r = await this.edits.bodies(`Clear fallthrough at ${hex(row.address)}`, [Edits.fallthroughBody(row.address, "clear")]);
+      toast(`${hex(row.address)}: its own fallthrough`, { action: { label: "Undo", run: () => void this.redoOrUndo("undo") } });
+      await this.live.waitFor(r.revision);
+    } catch (e) {
+      toast(`Clear fallthrough failed: ${errText(e)}`, { kind: "error" });
+    }
+  }
+
   /** Shift+N: a note (tag and text) at the selection; empty text clears it. */
   async addNote() {
     const addr = this.codeUnit()?.address ?? this.location;
@@ -2784,7 +2929,32 @@ export class App {
   private xrefsFor(address: bigint, name: string) {
     const imp = this.importHere(address);
     const external = imp?.resolved ? { text: importTarget(imp), open: () => this.followImport(address) } : undefined;
-    return showXrefs(this.rk, this.programId, address, name, this.addrWidth, (a) => void this.navigate(a), external);
+    // A library's export: the references from the programs that import it (feature library-importers).
+    const importers = this.features.has("library-importers") && !imp
+      ? { load: () => this.importersOf(address), open: (id: string, a: bigint) => this.openProgramAt(id, a) }
+      : undefined;
+    return showXrefs(this.rk, this.programId, address, name, this.addrWidth, (a) => void this.navigate(a), external, importers);
+  }
+
+  /** The references to the export at `address` from the programs importing this one (ListLibraryImporters). */
+  private async importersOf(address: bigint): Promise<ImporterRef[]> {
+    const r = await this.rk.queries.listLibraryImporters({
+      programId: this.programId,
+      target: { case: "address", value: { offset: address } },
+      includeReferences: true,
+    });
+    const out: ImporterRef[] = [];
+    for (const i of r.importers) {
+      const thunk = i.resolved?.thunk?.offset ?? i.resolved?.slot?.offset;
+      if (!i.references.length && thunk !== undefined) out.push({ programId: i.programId, programName: i.programName, address: thunk, kind: "import", fn: i.resolved?.name ?? "" });
+      for (const x of i.references) {
+        const at = x.fromAddress?.offset ?? 0n;
+        const entry = x.fromFunction?.offset;
+        const fn = x.fromFunctionName ? (entry !== undefined && at !== entry ? `${x.fromFunctionName}+0x${(at - entry).toString(16)}` : x.fromFunctionName) : "";
+        out.push({ programId: i.programId, programName: i.programName, address: at, kind: XREF_KIND_NAMES[x.kind] ?? "ref", fn });
+      }
+    }
+    return out;
   }
 
   private factForHit(hit: Hit): FactRef | null {
@@ -2803,7 +2973,16 @@ export class App {
     if (hit.kind === "type" || hit.kind === "field" || hit.kind === "disclosure") return this.unitFact(r) ?? { kind: FactKind.TYPE, address: r.address, label: `type of ${r.label || hex(r.address)}` };
     if (hit.kind === "mutability") return this.mutabilityFact(r);
     if (hit.kind === "override") return { kind: FactKind.FLOW_OVERRIDE, address: r.address, label: `flow override at ${hex(r.address)}` };
+    if (hit.kind === "fallthrough") return { kind: FactKind.FALLTHROUGH, address: r.address, label: `fallthrough at ${hex(r.address)}` };
     if (hit.kind === "callsig") return { kind: FactKind.CALL_SIGNATURE, address: r.address, label: `signature override at ${hex(r.address)}` };
+    if (hit.kind === "regvalue") {
+      const v = r.registerValues.find((x) => hit.key === "\0regvalue:" + x.register);
+      if (!v) return null;
+      const label = `${v.register} = 0x${v.value.toString(16)} from ${hex(r.address)}`;
+      const o = v.origin?.source;
+      if (o?.case === "asserted") return { kind: FactKind.REGISTER_VALUE, address: r.address, seq: o.value.seq, label };
+      return { kind: FactKind.UNSPECIFIED, address: r.address, sub: "regvalue", label, derived: [{ rule: "analysis.register_values", text: `${v.register} = 0x${v.value.toString(16)}, from the loader (the register values view says which rule)` }] };
+    }
     if (hit.kind === "plugin") {
       const facts = this.plugins.facts.filter((f) => f.address?.offset === r.address);
       return {
@@ -3141,6 +3320,13 @@ export class App {
       if (this.fid) this.dock.isVisible("fid") ? void this.fid.load() : this.fid.markStale();
     }
     if (ev.changedKeys.some((k) => k.programId === this.programId && k.kind === FactKind.NOTE)) this.reloadNotes();
+    if (this.comments && ev.changedKeys.some((k) => k.programId === this.programId && k.kind === FactKind.COMMENT))
+      this.dock.isVisible("comments") ? void this.comments.load() : this.comments.markStale();
+    // A rename (into a namespace too) or a function made or removed moves the symbol tree's nodes.
+    if (this.symtree && ev.changedKeys.some((k) => k.programId === this.programId && (k.kind === FactKind.NAME || k.kind === FactKind.FUNCTION_BOUNDS)))
+      this.dock.isVisible("symtree") ? void this.symtree.load() : this.symtree.markStale();
+    if (this.regvalues && ev.changedKeys.some((k) => k.programId === this.programId && k.kind === FactKind.REGISTER_VALUE))
+      this.dock.isVisible("regvalues") ? void this.regvalues.load() : this.regvalues.markStale();
     for (const a of decomp) {
       this.decompCache.delete(a);
       this.decompStaleAt.set(a, rev);
@@ -3171,6 +3357,8 @@ export class App {
           return `${a.value.remove ? "removed the function at" : "created a function at"} ${hex(a.value.entry?.offset ?? 0n)}`;
         case "flowOverride":
           return `overrode the flow at ${hex(a.value.address?.offset ?? 0n)}`;
+        case "fallthrough":
+          return `set the fallthrough at ${hex(a.value.address?.offset ?? 0n)}`;
         case "note":
           return `${a.value.text ? "noted" : "cleared a note at"} ${hex(a.value.address?.offset ?? 0n)}`;
         case "memoryRegion":
@@ -3334,8 +3522,55 @@ export class App {
           this.showView("diff");
           void this.diff.openFunctions(a, b);
         },
+        recordUndo: (label, seqs) => this.edits.record(label, seqs),
+        undo: () => this.redoOrUndo("undo"),
+        settle: (rev) => this.live.waitFor(rev),
       });
       $("bsim").addEventListener("focusin", () => (this.active = "bsim"));
+    }
+    if (this.features.has("comment-table")) {
+      this.comments = new CommentsView($("comments"), {
+        rk: this.rk,
+        programId: this.programId,
+        addrWidth: this.addrWidth,
+        navigate: (a) => void this.navigate(a, { focus: "listing" }),
+        edit: (a, kind) => {
+          const sub = Object.entries(COMMENT_KINDS).find(([, v]) => v.kind === kind)?.[0] ?? "eol";
+          void this.navigate(a, { focus: "listing" }).then(() => this.comment(sub));
+        },
+      });
+      $("comments").addEventListener("focusin", () => (this.active = "comments"));
+    }
+    if (this.features.has("relocation-table")) {
+      this.relocations = new RelocationsView($("relocations"), {
+        rk: this.rk,
+        programId: this.programId,
+        addrWidth: this.addrWidth,
+        navigate: (a) => void this.navigate(a, { focus: "listing" }),
+      });
+      $("relocations").addEventListener("focusin", () => (this.active = "relocations"));
+    }
+    if (this.features.has("symbol-tree")) {
+      this.symtree = new SymbolTreeView($("symtree"), {
+        rk: this.rk,
+        programId: this.programId,
+        addrWidth: this.addrWidth,
+        navigate: (a) => void this.navigate(a, { focus: "listing" }),
+      });
+      $("symtree").addEventListener("focusin", () => (this.active = "symtree"));
+    }
+    if (this.features.has("register-values")) {
+      this.regvalues = new RegisterValuesView($("regvalues"), {
+        rk: this.rk,
+        programId: this.programId,
+        addrWidth: this.addrWidth,
+        edits: this.edits,
+        navigate: (a) => void this.navigate(a, { focus: "listing" }),
+        set: (register, first, last) => void this.setRegisterValue(false, { register, ranges: first || last ? [{ first, last }] : undefined }),
+        undo: () => this.redoOrUndo("undo"),
+        settle: (rev) => this.live.waitFor(rev),
+      });
+      $("regvalues").addEventListener("focusin", () => (this.active = "regvalues"));
     }
     if (this.features.has("user-references")) {
       const host = this.referenceHost();
@@ -3482,6 +3717,18 @@ export class App {
         break;
       case "bsim":
         this.bsim?.ensureLoaded();
+        break;
+      case "comments":
+        this.comments?.ensureLoaded();
+        break;
+      case "relocations":
+        this.relocations?.ensureLoaded();
+        break;
+      case "symtree":
+        this.symtree?.ensureLoaded();
+        break;
+      case "regvalues":
+        this.regvalues?.ensureLoaded();
         break;
       case "equates":
         this.equates?.ensureLoaded();
@@ -3835,6 +4082,18 @@ export class App {
         break;
       case "bsim":
         this.bsim?.focus();
+        break;
+      case "comments":
+        this.comments?.focus();
+        break;
+      case "relocations":
+        this.relocations?.focus();
+        break;
+      case "symtree":
+        this.symtree?.focus();
+        break;
+      case "regvalues":
+        this.regvalues?.focus();
         break;
       case "bytes":
         this.bytes?.focus();
@@ -4380,7 +4639,7 @@ export class App {
     if (where === "listing") return this.listingContextMenu(all, x, y);
     // The decompiler's.
     const groups: (string[] | MenuItem[])[] = [
-      ["decomp-copy", "decomp-copy-all"],
+      ["decomp-copy", "decomp-copy-all", "export-c"],
       ["follow", "xrefs", "goto"],
       // On a struct field: its own Rename and Retype (the struct's next version).
       this.selectedField() ? ["rename-field", "retype-field", "comment", "comment-plate", "note"] : ["rename", "retype", "comment", "comment-plate", "note"],
@@ -4426,7 +4685,10 @@ export class App {
     const editItem = (testid: string) => edit.find((i) => i.testid === testid) ?? null;
     const dataSub = editItem("ctx-le-data")?.submenu ?? [];
     const recent = editItem("ctx-le-recent");
-    const top = edit.filter((i) => ["ctx-le-disasm", "ctx-le-disasm-fn", "ctx-le-disasm-arm", "ctx-le-disasm-thumb", "ctx-le-clear"].includes(i.testid ?? ""));
+    const top = [
+      ...edit.filter((i) => ["ctx-le-disasm", "ctx-le-disasm-fn", "ctx-le-disasm-arm", "ctx-le-disasm-thumb", "ctx-le-clear", "ctx-le-clear-flow"].includes(i.testid ?? "")),
+      ...present([m("fallthrough-set", "Set fallthrough…"), m("fallthrough-clear", "Clear fallthrough")]),
+    ];
     const expand = edit.filter((i) => ["ctx-le-expand", "ctx-le-collapse"].includes(i.testid ?? ""));
     const refs = this.referenceMenu(all)[0]?.submenu ?? [];
     const groups: (MenuItem | null)[][] = [
@@ -4436,7 +4698,7 @@ export class App {
         sub("Comments", "ctx-comments", [m("comment-plate"), m("comment-pre"), m("comment-post"), m("comment-eol"), m("note")]),
         ...top,
         sub("Data", "ctx-data", [...dataSub, ...(recent ? [{ ...recent, separator: true }] : []), ...expand, m("struct-from-selection", "Create structure from selection…")]),
-        sub("Function", "ctx-function", [m("fn-edit"), m("no-return-set"), m("no-return-clear"), m("fn-create"), m("fn-remove"), m("flow"), m("callsig-override"), m("callsig-edit"), m("callsig-remove"), m("fn-compare"), m("bsim-similar")]),
+        sub("Function", "ctx-function", [m("fn-edit"), m("no-return-set"), m("no-return-clear"), m("fn-create"), m("fn-remove"), m("flow"), m("callsig-override"), m("callsig-edit"), m("callsig-remove"), m("fn-compare"), m("bsim-similar"), m("regval-set"), m("regval-clear"), m("regval-view")]),
         sub("References", "ctx-refs", refs),
         ...this.equateMenu(all),
         sub("Patch", "ctx-patch", [m("patch-insn"), m("patch-bytes"), m("patch-revert-here")]),
@@ -4509,6 +4771,7 @@ export class App {
         const it = m(`le-mut-${c.id}`, c.label);
         return it && i === 0 ? { ...it, separator: true } : it;
       }),
+      ((it) => (it ? { ...it, separator: true } : it))(m("le-settings", "Settings…")),
     ].filter((x): x is MenuItem => x !== null);
     const recent = this.listingEdit.recent().map((d, i) => m(`le-recent-${i}`, d.label)).filter((x): x is MenuItem => x !== null);
     return [
@@ -4517,6 +4780,7 @@ export class App {
       m("le-disasm-arm"),
       m("le-disasm-thumb"),
       m("le-clear"),
+      m("le-clear-flow", "Clear flow and repair"),
       { label: "Data", testid: "ctx-le-data", submenu: data },
       recent.length ? { label: "Recently used", testid: "ctx-le-recent", submenu: recent } : null,
       m("le-expand", "Expand fields or elements"),
@@ -4535,10 +4799,12 @@ export class App {
       { id: "le-disasm-arm", title: "Disassemble as ARM", enabled: () => on() && this.armThumb(), run: () => void le.disassemble(InstructionSet.ARM) },
       { id: "le-disasm-thumb", title: "Disassemble as Thumb", enabled: () => on() && this.armThumb(), run: () => void le.disassemble(InstructionSet.THUMB) },
       { id: "le-clear", title: "Clear code bytes (the selection)", keys: this.k("le-clear"), enabled: on, run: () => void le.clear() },
+      { id: "le-clear-flow", title: "Clear flow and repair (the code only this instruction's flow reaches)", enabled: () => on() && this.features.has("clear-flow"), run: () => void le.clearFlow() },
       { id: "le-cycle", title: "Data: cycle byte, word, dword, qword", keys: this.k("le-cycle"), enabled: on, run: () => void le.cycle() },
       ...DATA_KINDS.map((k) => ({ id: `le-data-${k.id}`, title: `Data: ${k.label}`, keys: this.k(`le-data-${k.id}`), enabled: on, run: () => void le.defineKind(k.id) })),
       { id: "le-array", title: "Data: array…", keys: this.k("le-array"), enabled: on, run: () => void le.array() },
       { id: "le-type", title: "Data: choose type…", keys: this.k("le-type"), enabled: on, run: () => void le.chooseType() },
+      { id: "le-settings", title: "Data: settings… (format, byte order, charset, pointer; this item or every one of its type)", enabled: () => on() && this.features.has("data-settings") && le.target()?.row.dataSettingsType !== undefined, run: () => void le.settings() },
       ...MUTABILITY_CHOICES.map((c) => ({ id: `le-mut-${c.id}`, title: `Data: ${c.label.charAt(0).toLowerCase()}${c.label.slice(1)}`, enabled: on, run: () => void le.mutability(c.m) })),
       ...le.recent().map((d, i) => ({ id: `le-recent-${i}`, title: `Data: recently used: ${d.label}`, enabled: on, run: () => void le.defineRecent(d) })),
       { id: "le-expand", title: "Data: expand the item's fields or elements", keys: this.k("le-expand"), enabled: () => !!item()?.dataCollapsed, run: () => void le.toggle(undefined, true) },
@@ -4592,9 +4858,24 @@ export class App {
         enabled: () => this.features.has("no-return") && this.noReturnTarget() !== null && this.knownNoReturn(this.noReturnTarget()!) !== false,
         run: () => void this.setNoReturn(this.noReturnTarget()!, false),
       },
+      { id: "regval-set", title: "Set register value… (over the selection or the function)", enabled: () => this.features.has("register-values") && this.active === "listing", run: () => void this.setRegisterValue(false) },
+      { id: "regval-clear", title: "Clear register value… (over the selection or the function)", enabled: () => this.features.has("register-values") && this.active === "listing", run: () => void this.setRegisterValue(true) },
+      { id: "regval-view", title: "Register values (every register's ranges)", enabled: () => this.features.has("register-values"), run: () => this.showView("regvalues") },
       { id: "fn-create", title: "Create function here", keys: this.k("fn-create"), run: () => void this.createFunction() },
       { id: "fn-remove", title: "Remove function…", keys: this.k("fn-remove"), run: () => void this.removeFunction() },
       { id: "flow", title: "Set flow override…", keys: this.k("flow"), run: () => void this.flowOverride() },
+      {
+        id: "fallthrough-set",
+        title: "Set fallthrough… (where control goes on after the instruction)",
+        enabled: () => this.features.has("fallthrough-override") && this.codeUnit()?.kind === RowKind.Instruction,
+        run: () => void this.setFallthrough(),
+      },
+      {
+        id: "fallthrough-clear",
+        title: "Clear fallthrough (the instruction's own)",
+        enabled: () => this.features.has("fallthrough-override") && !!this.codeUnit()?.fallthroughOverride,
+        run: () => void this.clearFallthrough(),
+      },
       { id: "note", title: "Add or edit note…", keys: this.k("note"), run: () => void this.addNote() },
       ...this.listingEditCommands(),
       ...this.equateReferenceCommands(),
@@ -4659,6 +4940,8 @@ export class App {
       { id: "type-archive-export", title: "Export type archive…", enabled: () => this.features.has("type-archive"), run: () => { this.showView("types"); this.types.exportArchive(); } },
       { id: "load-pdb", title: "Load PDB…", enabled: () => this.features.has("pdb-load"), run: () => void loadPdb(this.pdbHost()) },
       { id: "symbol-settings", title: "Symbol path and servers…", enabled: () => this.features.has("pdb-load"), run: () => void symbolSettings(this.pdbHost()) },
+      { id: "load-debug-file", title: "Load debug file… (a stripped ELF's separate debug info: build ID, debuglink, debuginfod)", enabled: () => this.features.has("debug-files"), run: () => void loadDebugFile(this.pdbHost()) },
+      { id: "debug-file-settings", title: "Debug file directories and debuginfod…", enabled: () => this.features.has("debug-files"), run: () => void debugFileSettings(this.pdbHost()) },
       { id: "memory-add", title: "Memory map: add a region (RAM, I/O)…", enabled: () => this.features.has("memory-map"), run: () => { this.showView("memory"); void this.memmap.add(); } },
       { id: "memory-add-file", title: "Memory map: add bytes from a file (Add To Program)…", enabled: () => this.features.has("memory-map"), run: () => { this.showView("memory"); void this.memmap.add("file"); } },
       { id: "memory-rebase", title: "Memory map: set image base (move the program)…", enabled: () => this.features.has("rebase"), run: () => { this.showView("memory"); void this.memmap.setImageBase(); } },
@@ -4782,6 +5065,12 @@ export class App {
         run: () => this.copyToClipboard(this.pane.copyText() ?? "", "Copied"),
       },
       { id: "decomp-copy-all", title: "Copy function (the decompiled C)", enabled: () => !!this.pane.fn, run: () => this.copyToClipboard(this.pane.text, "Copied the function's C") },
+      {
+        id: "export-c",
+        title: "File: Export C/C++… (the decompiled program, with a header)",
+        enabled: () => this.features.has("export-c"),
+        run: () => void openExportC({ rk: this.rk, programId: this.programId, current: this.bsimTarget() ?? undefined }),
+      },
       { id: "decomp-select-all", title: "Select all (the decompiled C)", keys: "Ctrl+A", enabled: () => !!this.pane.fn, run: () => { this.showView("decomp"); this.pane.selectText(0, this.pane.text.length); } },
       {
         id: "copy-rows",
@@ -4885,6 +5174,7 @@ export class App {
         dataType: r.dataType,
         flow: r.flow,
         flowOverride: r.flowOverride,
+        fallthrough: r.fallthroughOverride ? (r.fallthrough === null ? "none" : hex(r.fallthrough)) : null,
         callSignature: r.callSignature,
         targets: r.flowTargets.map((t) => hex(t)),
         func: r.func === null ? null : hex(r.func),
@@ -4900,6 +5190,9 @@ export class App {
         dataCollapsed: r.dataCollapsed,
         unit: r.unitOrigin?.source.case === "asserted" ? provText(r.unitOrigin.source.value.provenance) : "",
         mutability: r.mutability,
+        settings: describeSettings(r.dataSettings),
+        typeSettings: describeSettings(r.dataTypeSettings),
+        settingsType: r.dataSettingsType ?? "",
         xrefCount: r.xrefCount,
         // The row as drawn (optional fields included).
         text: layoutRow(r, this.cols).runs.map((x) => x.text).join(" "),
@@ -5000,6 +5293,13 @@ export class App {
       foundLine: this.pane.foundLine,
       rangeSelection: (this.view.rangeSelection ?? []).map(([a, b]) => [hex(a), hex(b)]),
       searchMarks: this.view.searchMarks?.size ?? 0,
+      comments: this.comments?.visible() ?? null,
+      relocations: this.relocations?.visible() ?? null,
+      symtree: this.symtree?.visible() ?? null,
+      regvalues: this.regvalues?.visible() ?? null,
+      exportC: exportCDialog()?.describe() ?? null,
+      following: this.following,
+      pcMark: this.emuMarks.pc === null ? null : hex(this.emuMarks.pc),
       emu: this.emu
         ? {
             active: this.emu.active,

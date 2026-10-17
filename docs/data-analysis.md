@@ -43,7 +43,12 @@ as Ghidra clears it (`DataUtilities.isUndefinedRange`).
    so x86-64 RIP-relative operands (code-space varnodes in SLEIGH's p-code,
    not LOAD/STORE), AArch64 `adrp`/`add`/`ldr` and RISC-V `auipc`/`addi`
    all resolve; a value loaded from a constant address is read from the
-   bytes, as the analyzer trusts initialized memory.
+   bytes, as the analyzer trusts initialized memory. A register with a
+   value over a range ([api.md](api.md#register-values): MIPS `gp`, the
+   PowerPC TOC, the user's) reads as that value where the flow doesn't
+   know it, as Ghidra's propagation reads the program context, so
+   `gp`- and `r2`-relative accesses resolve too; what only they find is
+   also the instructions' references.
 2. **References** (`OperandReferenceAnalyzer`, then
    `DataOperandReferenceAnalyzer` for references from data), per
    referenced address in order of the referring instruction: an ASCII

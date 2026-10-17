@@ -4,13 +4,18 @@
 #include "revkit/analysis/memory.h"
 #include "revkit/analysis/units.h"
 #include "revkit/analysis/user_refs.h"
+#include "revkit/analysis/register_values.h"
+#include "data_settings.h"
+#include "type_archive.h"
 #include "type_record.h"
+#include "revkit/cparse/archive.h"
 
 #include <google/protobuf/util/json_util.h>
 #include <openssl/evp.h>
 #include <zlib.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <set>
 #include <unordered_map>
@@ -208,7 +213,7 @@ bool ParseManifestJson(std::string_view json, bool strict, pb::ProjectArchiveMan
 bool ValidKey(const facts::FactKey &k) {
   const auto kind = static_cast<std::uint16_t>(k.kind);
   return kind >= static_cast<std::uint16_t>(facts::FactKind::Name) &&
-         kind <= static_cast<std::uint16_t>(facts::FactKind::Language) && k.sub.size() <= kMaxSub;
+         kind <= static_cast<std::uint16_t>(facts::FactKind::RegisterValue) && k.sub.size() <= kMaxSub;
 }
 
 }  // namespace
@@ -500,6 +505,14 @@ std::optional<Error> DecodeLog(std::string_view data, const Limits &limits, std:
 
 // --- Ops ----------------------------------------------------------------------
 
+std::uint64_t FutureStampLimit() {
+  const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::system_clock::now().time_since_epoch())
+                      .count() +
+                  24ll * 3600 * 1000;
+  return static_cast<std::uint64_t>(std::max<std::int64_t>(ms, 0)) << facts::kStampLogicalBits;
+}
+
 std::optional<Error> ValidateLog(const pb::ProjectArchiveManifest &m, const std::vector<facts::Op> &ops,
                                  const Limits &limits, std::vector<int> &owner) {
   owner.assign(ops.size(), -1);
@@ -514,6 +527,8 @@ std::optional<Error> ValidateLog(const pb::ProjectArchiveManifest &m, const std:
   }
   std::unordered_map<facts::OpId, std::size_t, facts::OpIdHash> index;
   std::vector<bool> has_record(static_cast<std::size_t>(m.programs_size()), false);
+  std::set<std::string> type_archive_names;
+  constexpr std::size_t kMaxTypeArchives = 256;
   auto bad = [&](std::size_t i, const std::string &why) {
     return Invalid("log.bin op " + std::to_string(i) + ": " + why);
   };
@@ -524,6 +539,9 @@ std::optional<Error> ValidateLog(const pb::ProjectArchiveManifest &m, const std:
     if (op.kind != facts::OpKind::Assert && op.kind != facts::OpKind::Retract) return bad(i, "unknown op kind");
     if (!ValidKey(op.key)) return bad(i, "unknown fact kind or an over-long sub");
     if (op.meta.size() > limits.max_value_bytes) return bad(i, "its metadata is over the size limit");
+    if (limits.max_stamp && op.stamp > limits.max_stamp)
+      return bad(i, "it is stamped more than a day past this daemon's clock (the archive's daemon's clock was "
+                    "wrong, or the stamp was made up)");
     if (op.prov.id.size() > kMaxShortText || op.prov.version.size() > kMaxShortText)
       return bad(i, "its provenance is too long");
     // Which program the key belongs to.
@@ -578,6 +596,26 @@ std::optional<Error> ValidateLog(const pb::ProjectArchiveManifest &m, const std:
         if (!none && !text) return bad(i, "a project type or archive setting that isn't text");
         if (k.kind == facts::FactKind::TypeDef && text && !text->empty() && k.sub.find(':') == std::string::npos)
           (void)DecodeTypeRecord(*text);
+        if (k.kind == facts::FactKind::Note) {
+          // A type archive attached to the project: what SetTypeArchive
+          // (AppendAssertions' type_archive) would have accepted, each
+          // header parsed at every program's load.
+          const std::string name = k.sub.substr(kTypeArchiveSubPrefix.size());
+          if (name.empty() || name.size() > 64 || cparse::archive_stem(name) != name)
+            return bad(i, "a type archive setting with a name that isn't valid");
+          type_archive_names.insert(name);
+          if (type_archive_names.size() > kMaxTypeArchives)
+            return bad(i, "more than " + std::to_string(kMaxTypeArchives) + " type archives");
+          if (text && !text->empty()) {
+            pb::TypeArchiveSetting a;
+            if (!a.ParseFromString(*text)) return bad(i, "a type archive setting that can't be decoded");
+            if (a.header().size() > (32u << 20) || a.sidecar().size() > (64u << 20))
+              return bad(i, "a type archive setting over the size limits");
+            std::string err;
+            if (!a.sidecar().empty() && !ReadTypeArchiveSidecar(a.sidecar(), &err))
+              return bad(i, "a type archive setting's sidecar: " + err);
+          }
+        }
         continue;
       }
       if (k.addr.space == kProjectSpace) {
@@ -614,6 +652,13 @@ std::optional<Error> ValidateLog(const pb::ProjectArchiveManifest &m, const std:
         case facts::FactKind::Note:
         case facts::FactKind::Match:
           if (!none && !text) return bad(i, "a value that isn't text");
+          // Data settings (SetDataSettings): what the API would write.
+          if (k.kind == facts::FactKind::Note && IsDataSettingsTag(k.sub)) {
+            if (k.sub.size() > kDataTypeSettingsPrefix.size() + kMaxDataSettingsName)
+              return bad(i, "data settings for an over-long field or type name");
+            if (text && !text->empty() && !DataSettings::parse(*text))
+              return bad(i, "data settings that can't be read");
+          }
           break;
         case facts::FactKind::TypeDef:
           if (!none && !text) return bad(i, "a type that isn't text");
@@ -678,6 +723,19 @@ std::optional<Error> ValidateLog(const pb::ProjectArchiveManifest &m, const std:
         case facts::FactKind::NoReturn:
           if (!none && !std::holds_alternative<std::int64_t>(v)) return bad(i, "a no-return mark that isn't a number");
           break;
+        case facts::FactKind::Fallthrough:
+          // An address in the program's space, or a number (none, default).
+          if (const auto *to = std::get_if<facts::Address>(&v)) {
+            if (to->space != k.addr.space) return bad(i, "a fallthrough outside its program's space");
+            break;
+          }
+          if (!none && !std::holds_alternative<std::int64_t>(v)) return bad(i, "a fallthrough that isn't an address or a number");
+          break;
+        case facts::FactKind::RegisterValue:
+          if (!none && !text) return bad(i, "a register value that isn't text");
+          if (!analysis::parse_register_value_sub(k.sub)) return bad(i, "a register value key that can't be read");
+          if (text && !text->empty() && !analysis::parse_register_value_text(*text)) return bad(i, "a register value that can't be read");
+          break;
         case facts::FactKind::Language:
           if (!none && !text) return bad(i, "a language that isn't text");
           if (k.addr.offset != 0 || !k.sub.empty()) return bad(i, "a language key that isn't the program's");
@@ -689,7 +747,8 @@ std::optional<Error> ValidateLog(const pb::ProjectArchiveManifest &m, const std:
           if (text && !text->empty() && !facts::Shift::parse(*text)) return bad(i, "an image base that can't be read");
           break;
       }
-      if (std::holds_alternative<facts::Address>(v)) return bad(i, "an address value no kind uses");
+      if (std::holds_alternative<facts::Address>(v) && k.kind != facts::FactKind::Fallthrough)
+        return bad(i, "an address value no kind uses");
     } catch (const std::exception &e) {
       return bad(i, std::string("its value can't be decoded: ") + e.what());
     }
@@ -784,6 +843,8 @@ Rewritten RewriteLog(const pb::ProjectArchiveManifest &m, const std::vector<fact
         moved.add(rg);
       }
       op.value = std::move(moved);
+    } else if (auto *to = std::get_if<facts::Address>(&op.value)) {
+      to->space = remap_space(to->space);
     } else if (auto *text = std::get_if<std::string>(&op.value); text && op.kind == facts::OpKind::Assert) {
       if (k.addr.space == kProjectSpace && k.sub == kProgramRecordSub) {
         ProgramSource src = facts::decode_from_string<ProgramSource>(*text);

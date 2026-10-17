@@ -4,7 +4,7 @@
 ``revkit.Client`` is a thin wrapper over them. See docs/api.md.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 from revkit.client import (  # noqa: E402
     Aborted,
@@ -47,6 +47,8 @@ from revkit.client import (  # noqa: E402
     make_channel,
     memory_region,
     mutability_body,
+    data_settings,
+    data_settings_body,
     operand_display_body,
     provenance,
     preview_lines,
@@ -102,6 +104,8 @@ __all__ = [
     "make_channel",
     "memory_region",
     "mutability_body",
+    "data_settings",
+    "data_settings_body",
     "operand_display_body",
     "provenance",
     "preview_lines",

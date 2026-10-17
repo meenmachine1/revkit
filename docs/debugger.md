@@ -138,11 +138,21 @@ mapped once it is listed.
 - **The UI**: the status reads `stopped at libmylib.so!lib_add (0x7f…)` with
   **Open libmylib.so at lib_add**, which opens the library program in a new
   tab at the function (its listing and decompiler); a library frame picked in
-  the Stack offers it too, and its Disassembly is named.
+  the Stack offers it too, and its Disassembly is named. That tab follows
+  the session's pc while it is in the library, as the program's own tab
+  does: at each stop there its listing and decompiler go to the pc and mark
+  it, and the mark goes when execution leaves the library or the session
+  closes (the tabs talk over a `BroadcastChannel`, so in the same browser
+  only).
+- **Unwinding**: a frame whose pc is in such a library is unwound with the
+  library's own call-frame information (`.eh_frame` and `.debug_frame`,
+  read once per session from the library program), and a pc at one of its
+  functions' first instruction counts as an entry, as in the program; so a
+  stack through a library function that keeps no frame pointer reaches the
+  program's frames by `cfi` rather than a stack scan. Live stops only: at a
+  recorded snapshot the module list isn't known.
 
-Only the stack's naming and locations use the library's analysis: unwinding
-still reads only the program's CFI (below, "Limits"), and breakpoints are
-set at runtime addresses in a library.
+Breakpoints are set at runtime addresses in a library.
 
 ### Step over and out on live targets
 
@@ -207,8 +217,9 @@ A frame must move up the stack (its stack pointer above the one before),
 so a corrupt chain stops rather than loops; 64 frames by default, 256 at
 most. Callers' pcs are return addresses; their function names come from
 `pc - 1`, so a call at a function's end is named for that function. Frames
-in libraries (outside the program) unwind by frame pointer or scan, since
-only the program's CFI is read. Architectures: x86-64, x86, AArch64, ARM,
+in a library that is a project program unwind by that library's CFI
+([Libraries](#libraries)); in other code outside the program (a library
+not in the project, JIT code), by frame pointer or scan. Architectures: x86-64, x86, AArch64, ARM,
 RISC-V; others say `unsupported`. At a snapshot of a live target the stack
 is what was recorded (256 bytes at sp, and memory read then), so deep
 stacks unwind fewer frames back in time; the emulator's are exact.
@@ -625,7 +636,7 @@ has no machine option yet: `rk-emu --machine` is the command line.
 | `DebuggerApi.ConditionalBreakpoints` | In the emulator: a condition over a register (hits counted), an ignore count, a condition naming nothing stopping with its error, a disabled breakpoint, a condition that doesn't parse refused; under gdbserver, a condition with an ignore count and one recorded stop |
 | `DebuggerApi.CopyMemory` | Under gdbserver: unchanged code makes no patch, two bytes written in the process make one revision of patches, the stack's region becomes a block at its runtime address, a block inside the program is refused, a C library page becomes a new program based there |
 | `DebuggerApi.Disassembly` | Under gdbserver: the pc with context before it (contiguous, marked, named), main's call to fib by its target, a C library frame's code, unreadable memory |
-| `Libraries.TheDebuggerNamesALibraryFrameFromTheLibraryProgram` | Under gdbserver, a program built against a shared library built in the test, both in the project: the module mapped to the library program with its slide, a breakpoint in the library function at its runtime address, the stop named from the library (`library_function`), the stack's library frame and main, the disassembly's `libmylib.so!lib_add` |
+| `Libraries.TheDebuggerNamesALibraryFrameFromTheLibraryProgram` | Under gdbserver, a program built against a shared library built in the test, both in the project: the module mapped to the library program with its slide, a breakpoint in the library function at its runtime address, the stop named from the library (`library_function`), the stack's library frame and main, a stack out of a library function without a frame pointer unwound by the library's CFI back to main, the disassembly's `libmylib.so!lib_add` |
 | `DebuggerApi.Values` | Registers and sub-registers, a parameter through its storage now and at a snapshot, changed marks, a watch in a function's frame (`frame_function`), a `push`'s memory, errors; the same under gdbserver |
 | `python_sdk` (`test_debugger.py`, `test_firmware.py`, `test_hooklib.py`), `rk_dbg_smoke`, `ui_e2e` | The SDK (with `backtrace`, `evaluate` and `value`, and MCP `debug_backtrace` and `debug_evaluate`), the CLI (`bt`), and the UI launching under gdbserver, breaking, its Stack (clicking the caller's frame), value hovers (a parameter in the decompiler, a memory operand in the listing), watches (typed and from the decompiler's menu; the changed mark after a step), runtime disassembly (a C library frame from the Stack, the pc from an expression), copying the stack into a block from the Debugger menu and undoing it, a conditional breakpoint set from the palette and passed over (one hit in the table), stepping and scrubbing; an emulator session stepping back (Shift+F7 and the button) and resuming from snapshot 0 with the branch kept as a trace; Emulate from the gdbserver stop, a step there, and back to the process unchanged; `rk-dbg` `print`, `display`, `disas` and `break … if`; SDK `disassemble` and `copy_memory`, MCP `debug_disassemble` and `debug_copy_memory`; the UI on a machine (ten IRQs and two FIQs on the timeline, a derived machine) |
 
@@ -654,8 +665,9 @@ compiler, or qemu-system-arm.
 - Step out without function bounds single-steps and can be slow; a frame
   left by longjmp or a tail call ends at the next stop.
 - QEMU reports watchpoints before the access, gdbserver on x86 after.
-- Unwinding reads only the program's CFI, not the libraries'; CFA
-  expressions (`DW_CFA_def_cfa_expression`, signal frames) are not
+- Unwinding reads the program's CFI and that of libraries that are project
+  programs (live stops only), not of other modules; PE unwind data
+  (`.pdata`/`UNWIND_INFO`) is not read; CFA expressions (`DW_CFA_def_cfa_expression`, signal frames) are not
   evaluated and fall back to frame pointers or a scan.
 - `qemu-system-arm` 8.2 aborts on the fixture's store to 0xffffffff
   ("Bad ram pointer"), so the test returns from that function instead.

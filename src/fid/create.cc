@@ -79,14 +79,18 @@ void LibraryBuilder::add_program(const ProgramHashes &program, const std::string
       if (a.row || b.row) return a.row != nullptr;
       return a.symbol < b.symbol;
     });
-    std::int64_t h = static_cast<std::int64_t>(rows[i]->hash.specific);
-    h = h * 31 + static_cast<std::int64_t>(rows[i]->hash.full);
-    h = h * 31 + java_hash(rows[i]->name);
+    // Java's long arithmetic, which wraps: in uint64_t, where wrapping is
+    // defined (in int64_t it was undefined behaviour, which UBSan stopped
+    // the daemon on). Same bits as before.
+    auto wide = [](std::int64_t v) { return static_cast<std::uint64_t>(v); };
+    std::uint64_t h = rows[i]->hash.specific;
+    h = h * 31 + rows[i]->hash.full;
+    h = h * 31 + wide(java_hash(rows[i]->name));
     for (const Child &k : kids) {
       h *= 31;
-      h += k.row ? static_cast<std::int64_t>(k.row->hash.full) : java_hash(k.symbol);
+      h += k.row ? k.row->hash.full : wide(java_hash(k.symbol));
     }
-    if (!unique_.insert(static_cast<std::uint64_t>(h)).second) {
+    if (!unique_.insert(h).second) {
       ++report_.counts[Disposition::duplicate];
       continue;
     }

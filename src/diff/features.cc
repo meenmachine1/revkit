@@ -231,7 +231,7 @@ FunctionFeatures Features::compute(facts::QueryContext &ctx, const Key &key) {
     if (auto r = refs_of.find(static_cast<std::uint32_t>(flow_index[i])); r != refs_of.end())
       for (const analysis::FlowRef *ref : r->second)
         if (ref->kind != analysis::RefKind::call && ref->kind != analysis::RefKind::jump &&
-            ref->kind != analysis::RefKind::conditional_jump)
+            ref->kind != analysis::RefKind::conditional_jump && ref->kind != analysis::RefKind::fallthrough)
           data_value(ref->to);
     if (auto d = data_of.find(in.address); d != data_of.end())
       for (std::uint64_t to : d->second) data_value(to);
@@ -304,13 +304,15 @@ FunctionFeatures Features::compute(facts::QueryContext &ctx, const Key &key) {
   auto ends_block = [](const analysis::FlowInsn &in) {
     using K = analysis::FlowKind;
     return in.kind == K::jump || in.kind == K::branch || in.kind == K::jump_indirect || in.kind == K::ret ||
-           !in.falls_through || in.tail_call;
+           !in.falls_through || in.tail_call || in.fall_override;
   };
   for (std::size_t i = 0; i < insns.size(); ++i) {
     const analysis::FlowInsn &in = *insns[i];
     if (in.kind != analysis::FlowKind::call && in.kind != analysis::FlowKind::call_indirect)
       for (std::uint64_t t : in.targets)
         if (auto it = at.find(t); it != at.end()) leader[it->second] = true;
+    if (in.fall_override && in.falls_through)
+      if (auto it = at.find(in.fall_to); it != at.end()) leader[it->second] = true;
     if (i + 1 < insns.size() && (ends_block(in) || insns[i + 1]->address != in.address + in.length)) leader[i + 1] = true;
   }
   if (!insns.empty() && at.contains(key.address)) leader[at.at(key.address)] = true;
@@ -324,8 +326,8 @@ FunctionFeatures Features::compute(facts::QueryContext &ctx, const Key &key) {
   for (Block &bl : blocks) {
     const analysis::FlowInsn &last = *insns[bl.last];
     std::set<std::size_t> succ;
-    if (last.falls_through && !last.tail_call && last.kind != analysis::FlowKind::ret) {
-      if (auto it = at.find(last.address + last.length); it != at.end()) succ.insert(block_of[it->second]);
+    if (last.falls_through && !last.tail_call && (last.kind != analysis::FlowKind::ret || last.fall_override)) {
+      if (auto it = at.find(last.fallthrough()); it != at.end()) succ.insert(block_of[it->second]);
     }
     if (last.kind != analysis::FlowKind::call && last.kind != analysis::FlowKind::call_indirect)
       for (std::uint64_t t : last.targets)

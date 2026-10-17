@@ -425,5 +425,30 @@ TEST(ElfLanguage, UnknownMachine) {
   EXPECT_FALSE(guess_language(parse(to_bytes(b.build()))).has_value());
 }
 
+// The relocation table's type names (relocations.cc): per ELF machine, PE
+// base relocation types by machine, a number for the rest.
+TEST(Relocations, TypeNames) {
+  Image img;
+  img.format = Format::elf;
+  img.machine = 62;  // EM_X86_64
+  EXPECT_EQ(relocation_type_name(img, 7), "R_X86_64_JUMP_SLOT");
+  EXPECT_EQ(relocation_type_name(img, 8), "R_X86_64_RELATIVE");
+  EXPECT_EQ(relocation_type_name(img, 999), "type 999");
+  img.machine = 183;  // EM_AARCH64
+  EXPECT_EQ(relocation_type_name(img, 1027), "R_AARCH64_RELATIVE");
+  img.machine = 243;  // EM_RISCV
+  EXPECT_EQ(relocation_type_name(img, 5), "R_RISCV_JUMP_SLOT");
+  img.machine = 0x9999;
+  EXPECT_EQ(relocation_type_name(img, 5), "type 5");
+  EXPECT_TRUE(pe_base_relocations(img).empty());
+  img.format = Format::pe;
+  img.machine = 0x8664;
+  EXPECT_EQ(relocation_type_name(img, 10), "IMAGE_REL_BASED_DIR64");
+  EXPECT_EQ(relocation_type_name(img, 3), "IMAGE_REL_BASED_HIGHLOW");
+  EXPECT_EQ(relocation_type_name(img, 7), "IMAGE_REL_BASED_7");
+  img.machine = 0x1c4;  // ARMNT
+  EXPECT_EQ(relocation_type_name(img, 7), "IMAGE_REL_BASED_THUMB_MOV32");
+}
+
 }  // namespace
 }  // namespace revkit::loader

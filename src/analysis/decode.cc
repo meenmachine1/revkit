@@ -5,6 +5,7 @@
 #include "revkit/lift/abi.hh"
 
 #include <algorithm>
+#include <chrono>
 #include <map>
 #include <mutex>
 
@@ -130,6 +131,7 @@ class LifterPool {
     std::unique_ptr<lift::Lifter> l;
     {
       std::lock_guard lock(mu_);
+      last_use_ = std::chrono::steady_clock::now();
       auto &idle = idle_[key];
       if (!idle.empty()) {
         l = std::move(idle.back());
@@ -176,9 +178,23 @@ class LifterPool {
       for (auto &l : idle) engines.push_back(std::move(l));
     threads->parallel_for(engines.size(), [&](std::size_t i) { engines[i].reset(); });
   }
+  // Parks the idle engines once the pool has been unused for `idle_for`
+  // (while any program's analysis runs, it keeps them): their decoded .sla
+  // goes to the language's spares (lift::Lifter::park). How many parked.
+  std::size_t park(std::chrono::steady_clock::duration idle_for) {
+    std::lock_guard lock(mu_);
+    if (std::chrono::steady_clock::now() - last_use_ < idle_for) return 0;
+    std::size_t n = 0;
+    for (auto *m : {&idle_, &fresh_})
+      for (auto &[key, idle] : *m)
+        for (auto &l : idle)
+          if (!l->parked() && l->park()) ++n;
+    return n;
+  }
   void give(const std::string &key, std::unique_ptr<lift::Lifter> l) {
     constexpr std::size_t kMaxIdle = 64;
     std::lock_guard lock(mu_);
+    last_use_ = std::chrono::steady_clock::now();
     auto &idle = idle_[key];
     if (idle.size() < kMaxIdle) idle.push_back(std::move(l));
   }
@@ -193,6 +209,7 @@ class LifterPool {
   std::mutex mu_;
   std::map<std::string, std::vector<std::unique_ptr<lift::Lifter>>> idle_;
   std::map<std::string, std::vector<std::unique_ptr<lift::Lifter>>> fresh_;  // by language, from prepare()
+  std::chrono::steady_clock::time_point last_use_;  // the last take() or give()
 };
 
 LifterPool &pool() {
@@ -203,6 +220,7 @@ LifterPool &pool() {
 }  // namespace
 
 void pool_clear(facts::ThreadPool *threads) { pool().clear(threads); }
+std::size_t pool_park(std::chrono::steady_clock::duration idle_for) { return pool().park(idle_for); }
 void pool_prepare(const std::string &language, unsigned n, facts::ThreadPool &threads) {
   pool().prepare(language, n, threads);
 }
@@ -792,6 +810,8 @@ bool Evaluator::step(const lift::Instruction &insn) {
 namespace revkit::analysis {
 
 void release_idle_decoders(facts::ThreadPool *pool) { detail::pool_clear(pool); }
+
+std::size_t park_decoders(std::chrono::steady_clock::duration idle_for) { return detail::pool_park(idle_for); }
 
 void prepare_decoders(const std::string &language, facts::ThreadPool &pool) {
   std::string base = language;

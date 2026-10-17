@@ -114,8 +114,8 @@ them:
 
 ```sh
 arch=$(uname -m)
-base=https://github.com/meenmachine1/revkit/releases/download/v0.1.1
-curl -fLO $base/revkit-0.1.1-linux-$arch.tar.gz
+base=https://github.com/meenmachine1/revkit/releases/download/v0.1.2
+curl -fLO $base/revkit-0.1.2-linux-$arch.tar.gz
 curl -fLO $base/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS     # must say OK
 ```
@@ -124,17 +124,17 @@ sha256sum --check --ignore-missing SHA256SUMS     # must say OK
 
 ```sh
 mkdir -p ~/opt
-tar -xzf revkit-0.1.1-linux-$arch.tar.gz -C ~/opt
-export PATH=~/opt/revkit-0.1.1-linux-$arch/bin:$PATH
+tar -xzf revkit-0.1.2-linux-$arch.tar.gz -C ~/opt
+export PATH=~/opt/revkit-0.1.2-linux-$arch/bin:$PATH
 rk-daemon --version
 # to keep it on your PATH in new shells:
-echo "export PATH=\"$HOME/opt/revkit-0.1.1-linux-$arch/bin:\$PATH\"" >> ~/.profile
+echo "export PATH=\"$HOME/opt/revkit-0.1.2-linux-$arch/bin:\$PATH\"" >> ~/.profile
 ```
 
-Or install the `.deb` instead (`revkit_0.1.1_amd64.deb` or
-`revkit_0.1.1_arm64.deb`): `sudo apt install ./revkit_0.1.1_amd64.deb`
+Or install the `.deb` instead (`revkit_0.1.2_amd64.deb` or
+`revkit_0.1.2_arm64.deb`): `sudo apt install ./revkit_0.1.2_amd64.deb`
 puts everything under `/usr`. On x86-64 there is also the desktop app,
-`revkit-desktop_0.1.1_amd64.AppImage`: make it executable and run it; it
+`revkit-desktop_0.1.2_amd64.AppImage`: make it executable and run it; it
 starts its own server, so you can stop here.
 
 **4. Start the server:**
@@ -165,7 +165,7 @@ container, as you, with your home read-only and the projects writable:
 ```sh
 mkdir -p ~/revkit-projects
 docker run -d --name revkit --network host -u "$(id -u):$(id -g)" -e HOME="$HOME" \
-  -v ~/opt/revkit-0.1.1-linux-$arch:/opt/revkit:ro -v ~/revkit-projects:$HOME/revkit-projects \
+  -v ~/opt/revkit-0.1.2-linux-$arch:/opt/revkit:ro -v ~/revkit-projects:$HOME/revkit-projects \
   -v "$HOME:$HOME:ro" debian:12 \
   /opt/revkit/bin/rk-daemon --no-auth --project-dir "$HOME/revkit-projects" --browse-root "$HOME"
 ```

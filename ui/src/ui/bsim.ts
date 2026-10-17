@@ -9,12 +9,17 @@
 // or Enter on a match whose file is a program of the project opens the two
 // side by side in Compare. Ingest adds this program to the database;
 // Databases… creates one in the project or attaches one at a host path.
+// With feature bsim-apply, Apply name / signature / signature and types
+// (the bar, a row's context menu) apply the selected matches (a click, Ctrl
+// or Shift and a click for more, Ctrl+A each function's best) to their
+// functions: one edit, one undo step (the toast's Undo, Ctrl+Z).
 
-import type { BSimDatabase, BSimMatch, BSimQueryResult, Revkit } from "@revkit/api";
+import { BSimApplyKind, BSimApplyStatus, type BSimDatabase, type BSimMatch, type BSimQueryResult, type Revkit } from "@revkit/api";
 import { userProvenance } from "../api/client";
 import { errText, fmtAddr, hex } from "../data/format";
 import { ask, toast } from "./dialogs";
 import { h } from "./dom";
+import { showMenu, type MenuItem } from "./menu";
 
 export interface BsimHost {
   rk: Revkit;
@@ -27,7 +32,24 @@ export interface BsimHost {
   navigate: (address: bigint) => void;
   /** Opens two functions side by side in Compare. */
   compare: (a: { programId: string; entry: bigint; name: string }, b: { programId: string; entry: bigint; name: string }) => void;
+  /** The tab's undo stack (feature bsim-apply): an apply is one step. */
+  recordUndo?: (label: string, seqs: bigint[]) => void;
+  undo?: () => Promise<void>;
+  /** Waits until the views show a revision. */
+  settle?: (revision: bigint) => Promise<void>;
 }
+
+const APPLY_WHAT: Record<number, string> = {
+  [BSimApplyKind.BSIM_APPLY_KIND_NAME]: "name",
+  [BSimApplyKind.BSIM_APPLY_KIND_SIGNATURE]: "signature",
+  [BSimApplyKind.BSIM_APPLY_KIND_SIGNATURE_AND_TYPES]: "signature and types",
+};
+const STATUS_TEXT: Record<number, string> = {
+  [BSimApplyStatus.BSIM_APPLY_STATUS_APPLIED]: "applied",
+  [BSimApplyStatus.BSIM_APPLY_STATUS_UNCHANGED]: "unchanged",
+  [BSimApplyStatus.BSIM_APPLY_STATUS_SKIPPED]: "skipped",
+  [BSimApplyStatus.BSIM_APPLY_STATUS_FAILED]: "failed",
+};
 
 type Mode = "function" | "all" | "overview";
 
@@ -50,6 +72,11 @@ export class BsimView {
   private results: BSimQueryResult[] = [];
   private mode: Mode = "function";
   private selected = -1;  // index into rows()
+  /** The rows selected for applying (indices into rows()); the cursor's when empty. */
+  private picked = new Set<number>();
+  private anchor = -1;
+  /** What the last apply did to each match row, by rowKey(). */
+  private applied = new Map<string, { status: string; message: string }>();
   private loaded = false;
   private searching = 0;
 
@@ -58,6 +85,7 @@ export class BsimView {
     private host: BsimHost,
   ) {
     const search = this.host.features.has("bsim-search");
+    const apply = this.host.features.has("bsim-apply");
     this.status = h("span", { class: "dim count", "data-testid": "bsim-status" });
     this.dbSelect = h("select", { "aria-label": "BSim database", "data-testid": "bsim-database", title: "The database to search (the project's)" }) as HTMLSelectElement;
     this.dbSelect.addEventListener("change", () => {
@@ -99,12 +127,28 @@ export class BsimView {
         h("label", { class: "dim small" }, "max ", this.max),
         h("label", { class: "ask-check dim small", title: "Leave out matches with analysis names (FUN_…): nothing to learn from them" }, this.noDefault, "named only"),
         this.exe,
+        ...(apply
+          ? [
+              h("span", { class: "bsim-sep" }),
+              btn("bsim-apply-name", "Apply name", "The selected matches' names to their functions (a default FUN_… name is never applied; a name someone gave is kept)", () => void this.apply(BSimApplyKind.BSIM_APPLY_KIND_NAME)),
+              btn("bsim-apply-signature", "Apply signature", "The name and a skeleton signature: the types this program lacks become empty placeholder structures", () => void this.apply(BSimApplyKind.BSIM_APPLY_KIND_SIGNATURE)),
+              btn("bsim-apply-types", "Apply signature and types", "The name, the signature and the types it uses (from the match's program, when it is in this project)", () => void this.apply(BSimApplyKind.BSIM_APPLY_KIND_SIGNATURE_AND_TYPES)),
+            ]
+          : []),
       ),
       this.table,
     );
     this.table.addEventListener("click", (e) => {
       const row = (e.target as HTMLElement).closest<HTMLElement>("[data-row]");
-      if (row) this.select(Number(row.dataset.row));
+      if (row) this.click(Number(row.dataset.row), e);
+    });
+    this.table.addEventListener("contextmenu", (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>("[data-row]");
+      if (!row || !apply) return;
+      e.preventDefault();
+      const i = Number(row.dataset.row);
+      if (!this.picked.has(i)) this.click(i, e);
+      this.menu(e.clientX, e.clientY);
     });
     this.table.addEventListener("dblclick", (e) => {
       const row = (e.target as HTMLElement).closest<HTMLElement>("[data-row]");
@@ -129,9 +173,18 @@ export class BsimView {
       database: this.dbSelect.value,
       databases: this.databases.map((d) => d.name),
       mode: this.mode,
+      picked: [...this.picked].sort((a, b) => a - b),
       rows: this.rows().map((r) =>
         r.match
-          ? { function: r.query.name, match: r.match.function?.name ?? "", executable: r.match.executable?.name ?? "", similarity: r.match.similarity, programId: r.match.programId }
+          ? {
+              function: r.query.name,
+              address: `0x${hex(r.query.function?.offset ?? 0n)}`,
+              match: r.match.function?.name ?? "",
+              executable: r.match.executable?.name ?? "",
+              similarity: r.match.similarity,
+              programId: r.match.programId,
+              applied: this.applied.get(this.rowKey(r.query, r.match))?.status ?? "",
+            }
           : { function: r.query.name, hits: r.query.hitCount },
       ),
     };
@@ -218,6 +271,9 @@ export class BsimView {
             : `${r.results[0]?.name}: ${r.results[0]?.hitCount ?? 0} match${r.results[0]?.hitCount === 1 ? "" : "es"} · ${r.seconds.toFixed(1)} s`
           : `${hits} of ${fns} functions have matches · ${r.seconds.toFixed(1)} s`;
       this.selected = this.rows().length ? 0 : -1;
+      this.picked.clear();
+      this.applied.clear();
+      this.anchor = this.selected;
       this.paint();
     } catch (e) {
       if (n === this.searching) this.status.textContent = errText(e);
@@ -243,16 +299,141 @@ export class BsimView {
     return out;
   }
 
+  private rowKey(q: BSimQueryResult, m: BSimMatch) {
+    return `${q.function?.offset ?? 0n}|${m.executable?.id ?? ""}|${m.function?.entry?.offset ?? 0n}`;
+  }
+
   // Moves the selection without repainting (a repaint between a double
-  // click's two clicks would swallow the double click).
-  private select(i: number) {
+  // click's two clicks would swallow the double click). Without `keep` the
+  // picked rows become this one.
+  private select(i: number, keep = false) {
     this.selected = i;
-    for (const el of this.table.querySelectorAll<HTMLElement>("[data-row]")) {
-      const on = el.dataset.row === String(i);
-      el.classList.toggle("active", on);
-      el.setAttribute("aria-selected", String(on));
+    if (!keep) {
+      this.picked.clear();
+      if (this.rows()[i]?.match) this.picked.add(i);
+      this.anchor = i;
     }
+    this.mark();
     this.table.querySelector(`[data-row="${i}"]`)?.scrollIntoView({ block: "nearest" });
+  }
+
+  private mark() {
+    for (const el of this.table.querySelectorAll<HTMLElement>("[data-row]")) {
+      const i = Number(el.dataset.row);
+      el.classList.toggle("active", i === this.selected);
+      el.classList.toggle("picked", this.picked.has(i));
+      el.setAttribute("aria-selected", String(this.picked.has(i) || i === this.selected));
+    }
+  }
+
+  /** A click: this row; with Ctrl or Cmd, toggles it; with Shift, the range from the last one. */
+  private click(i: number, e: MouseEvent) {
+    const rows = this.rows();
+    if (e.shiftKey && this.anchor >= 0) {
+      this.picked.clear();
+      for (let k = Math.min(this.anchor, i); k <= Math.max(this.anchor, i); ++k) if (rows[k]?.match) this.picked.add(k);
+      this.select(i, true);
+    } else if (e.ctrlKey || e.metaKey) {
+      if (this.picked.has(i)) this.picked.delete(i);
+      else if (rows[i]?.match) this.picked.add(i);
+      this.anchor = i;
+      this.select(i, true);
+    } else this.select(i);
+  }
+
+  /** Each searched function's best match (Ctrl+A). */
+  pickBest() {
+    this.picked.clear();
+    this.rows().forEach((r, i) => {
+      if (r.match && r.query.matches[0] === r.match) this.picked.add(i);
+    });
+    this.mark();
+  }
+
+  private menu(x: number, y: number) {
+    const n = this.pairs().length;
+    const what = n === 1 ? "the selected match" : `${n} selected matches`;
+    const items: MenuItem[] = [
+      { label: "Apply name", testid: "bsim-menu-apply-name", disabled: !n, title: `Apply ${what}'s name`, run: () => this.apply(BSimApplyKind.BSIM_APPLY_KIND_NAME) },
+      { label: "Apply signature", testid: "bsim-menu-apply-signature", disabled: !n, run: () => this.apply(BSimApplyKind.BSIM_APPLY_KIND_SIGNATURE) },
+      { label: "Apply signature and types", testid: "bsim-menu-apply-types", disabled: !n, run: () => this.apply(BSimApplyKind.BSIM_APPLY_KIND_SIGNATURE_AND_TYPES) },
+      {
+        label: "Replacing the function's own",
+        testid: "bsim-menu-overwrite",
+        disabled: !n,
+        submenu: [
+          { label: "Apply name", testid: "bsim-menu-apply-name-over", run: () => this.apply(BSimApplyKind.BSIM_APPLY_KIND_NAME, true) },
+          { label: "Apply signature", testid: "bsim-menu-apply-signature-over", run: () => this.apply(BSimApplyKind.BSIM_APPLY_KIND_SIGNATURE, true) },
+          { label: "Apply signature and types", testid: "bsim-menu-apply-types-over", run: () => this.apply(BSimApplyKind.BSIM_APPLY_KIND_SIGNATURE_AND_TYPES, true) },
+        ],
+      },
+      { label: "Select each function's best match", keys: "Ctrl+A", separator: true, testid: "bsim-menu-best", run: () => this.pickBest() },
+    ];
+    showMenu(items, x, y, "BSim match");
+  }
+
+  /** The picked match rows (else the cursor's), as the API's pairs. */
+  private pairs() {
+    const rows = this.rows();
+    const at = this.picked.size ? [...this.picked].sort((a, b) => a - b) : this.selected >= 0 ? [this.selected] : [];
+    return at.map((i) => rows[i]).filter((r): r is { query: BSimQueryResult; match: BSimMatch } => !!r?.match);
+  }
+
+  /** Applies the picked matches to their functions (ApplyBSimMatches): one edit, one undo step. */
+  async apply(kind: BSimApplyKind, overwrite = false) {
+    const database = this.database();
+    if (!database) return;
+    const rows = this.pairs();
+    if (!rows.length) return toast("Select a match first", { kind: "error" });
+    const what = APPLY_WHAT[kind];
+    try {
+      const r = await this.host.rk.bsim.applyBSimMatches({
+        projectId: this.host.projectId,
+        database,
+        programId: this.host.programId,
+        pairs: rows.map((x) => ({ function: x.query.function, executable: x.match.executable?.id ?? "", match: x.match.function?.entry })),
+        kind,
+        overwrite,
+        provenance: userProvenance(`BSim apply ${what}`),
+      });
+      const before = new Map<BSimQueryResult, string>();
+      r.results.forEach((res, k) => {
+        const row = rows[k];
+        if (!row) return;
+        this.applied.set(this.rowKey(row.query, row.match), { status: STATUS_TEXT[res.status] ?? "", message: res.message });
+        if (res.status === BSimApplyStatus.BSIM_APPLY_STATUS_APPLIED && res.nameAfter && res.nameAfter !== row.query.name) {
+          before.set(row.query, row.query.name);
+          row.query.name = res.nameAfter;
+        }
+      });
+      this.paint();
+      const applied = r.results.filter((x) => x.status === BSimApplyStatus.BSIM_APPLY_STATUS_APPLIED).length;
+      if (!r.seqs.length) {
+        const why = r.results.find((x) => x.message)?.message;
+        toast(why ? `Nothing applied: ${why}` : "Nothing to apply: the functions already have it", { kind: r.failed ? "error" : "info" });
+        return;
+      }
+      const label = `Apply ${what} from BSim to ${applied === 1 ? r.results.find((x) => x.status === BSimApplyStatus.BSIM_APPLY_STATUS_APPLIED)?.nameAfter || "1 function" : `${applied} functions`}`;
+      this.host.recordUndo?.(label, r.seqs);
+      const left = r.skipped + r.failed;
+      toast(`${label}${left ? ` (${left} left alone)` : ""}`, {
+        action: this.host.undo
+          ? {
+              label: "Undo",
+              run: async () => {
+                await this.host.undo?.();
+                for (const [q, name] of before) q.name = name;
+                for (const row of rows) this.applied.delete(this.rowKey(row.query, row.match));
+                this.paint();
+              },
+            }
+          : undefined,
+        ms: 8000,
+      });
+      if (r.snapshot?.revision) await this.host.settle?.(r.snapshot.revision);
+    } catch (e) {
+      toast(errText(e), { kind: "error" });
+    }
   }
 
   /** A match: side by side in Compare; a function (overview): search it. */
@@ -279,6 +460,7 @@ export class BsimView {
       if (n) this.select(Math.max(0, Math.min(n - 1, this.selected + (e.key === "ArrowDown" ? 1 : -1))));
     } else if (e.key === "Enter") this.open(this.selected);
     else if (e.key === "g" && this.rows()[this.selected]) this.host.navigate(this.rows()[this.selected].query.function!.offset);
+    else if ((e.ctrlKey || e.metaKey) && e.key === "a" && this.host.features.has("bsim-apply")) this.pickBest();
     else return;
     e.preventDefault();
   }
@@ -305,7 +487,13 @@ export class BsimView {
       head,
       ...rows.map((r, i) => {
         const first = i === 0 || rows[i - 1].query !== r.query;
-        const attrs = { class: "bsim-row" + (i === this.selected ? " active" : "") + (first ? " first" : ""), role: "option", "aria-selected": String(i === this.selected), "data-row": String(i), "data-testid": "bsim-row" };
+        const attrs = {
+          class: "bsim-row" + (i === this.selected ? " active" : "") + (this.picked.has(i) ? " picked" : "") + (first ? " first" : ""),
+          role: "option",
+          "aria-selected": String(i === this.selected || this.picked.has(i)),
+          "data-row": String(i),
+          "data-testid": "bsim-row",
+        };
         if (this.mode === "overview")
           return h(
             "div",
@@ -324,11 +512,23 @@ export class BsimView {
           fn,
           h("span", { class: "mono" }, pct(m.similarity)),
           h("span", { class: "mono" }, m.confidence.toFixed(1)),
-          h("span", { class: "mono bsim-match" + (m.function?.defaultName ? " dim" : ""), title: m.function?.prototype || m.function?.name || "" }, m.function?.name ?? ""),
+          h(
+            "span",
+            { class: "mono bsim-match" + (m.function?.defaultName ? " dim" : ""), title: m.function?.prototype || m.function?.name || "" },
+            ...this.statusBadge(r.query, m),
+            m.function?.name ?? "",
+          ),
           h("span", { class: m.programId ? "" : "dim", title: m.programId ? "In this project: Enter compares side by side" : `${m.executable?.path || ""}\n${m.executable?.id ?? ""}` }, m.executable?.name ?? ""),
         );
       }),
     );
+  }
+
+  private statusBadge(q: BSimQueryResult, m: BSimMatch): HTMLElement[] {
+    const a = this.applied.get(this.rowKey(q, m));
+    if (!a?.status) return [];
+    const glyph = a.status === "applied" ? "✓" : a.status === "unchanged" ? "=" : a.status === "skipped" ? "–" : "✗";
+    return [h("span", { class: `bsim-status ${a.status}`, title: `${a.status}${a.message ? `: ${a.message}` : ""}`, "data-testid": "bsim-status-badge" }, glyph)];
   }
 
   /** Adds this program to the selected database. */

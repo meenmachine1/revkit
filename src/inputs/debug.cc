@@ -4,6 +4,7 @@
 #include "debug.h"
 
 #include "revkit/debuginfo/image.h"
+#include "revkit/loader/load.hh"
 #include "revkit/inputs/ghidra_types.h"
 
 #include <algorithm>
@@ -40,7 +41,8 @@ std::optional<std::vector<std::uint8_t>> read_pdb_file(const fs::path &p) {
 
 }  // namespace
 
-std::shared_ptr<const DebugInfo> read_debug_info(const loader::Image &image, const fs::path &binary) {
+std::shared_ptr<const DebugInfo> read_debug_info(const loader::Image &image, const fs::path &binary,
+                                                 std::shared_ptr<const loader::Bytes> debug_file) {
   auto out = std::make_shared<DebugInfo>();
   debuginfo::ImageSections sections = debuginfo::dwarf_sections(image);
   out->warnings = sections.warnings;
@@ -48,6 +50,20 @@ std::shared_ptr<const DebugInfo> read_debug_info(const loader::Image &image, con
     out->dwarf = debuginfo::import_dwarf(sections.sections, out->store);
     // DWARF has link-time addresses; a PIE loaded elsewhere moved.
     if (image.format == loader::Format::elf) out->dwarf_delta = image.image_base - image.file_base;
+  } else if (debug_file && image.format == loader::Format::elf) {
+    // A separate debug file: its sections, read the same way. Its
+    // addresses are the binary's link-time ones.
+    try {
+      const loader::Image separate = loader::parse_elf(debug_file);
+      debuginfo::ImageSections theirs = debuginfo::dwarf_sections(separate);
+      for (const std::string &w : theirs.warnings) out->warnings.push_back("debug file: " + w);
+      if (!theirs.sections.get(".debug_info").empty()) {
+        out->dwarf = debuginfo::import_dwarf(theirs.sections, out->store);
+        out->dwarf_delta = image.image_base - image.file_base;
+      }
+    } catch (const std::exception &e) {
+      out->warnings.push_back(std::string("debug file: ") + e.what());
+    }
   }
 
   if (image.format == loader::Format::pe && image.codeview) {

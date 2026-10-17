@@ -15,6 +15,7 @@ add_library(revkit_analysis STATIC
   patterns.cc
   plausible.cc
   program.cc
+  register_values.cc
   search.cc
   strings.cc)
 add_library(revkit::analysis ALIAS revkit_analysis)
@@ -24,4 +25,7 @@ target_compile_options(revkit_analysis PRIVATE -Wall -Wextra)
 
 if(REVKIT_BUILD_TESTS)
   add_subdirectory(tests)
+endif()
+if(REVKIT_FUZZ)
+  add_subdirectory(fuzz)
 endif()

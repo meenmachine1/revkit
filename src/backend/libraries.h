@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -52,5 +53,64 @@ std::vector<std::filesystem::path> SearchDirs(const std::vector<std::string> &us
 // header is compatible with `img`.
 std::optional<std::filesystem::path> FindLibrary(const std::string &name, const std::vector<std::filesystem::path> &dirs,
                                                  const loader::Image &img);
+
+// --- A program's own root file system (api_minor 79) -----------------------
+//
+// A program imported from a container, or from a root file system extracted
+// on the daemon's host, finds its libraries in that tree, not the host's:
+// paths are absolute inside the root ("/usr/lib/libc.so.6"), and symbolic
+// links are followed inside it only (an absolute target is from the root,
+// ".." stops there), as a chroot would.
+class LibraryRoot {
+ public:
+  virtual ~LibraryRoot() = default;
+  // A regular file at a path inside the root (raw bytes, '/' separated),
+  // links followed inside it: a key to read it by, or nullopt.
+  virtual std::optional<std::string> file(const std::string &path) = 0;
+  // The names in a directory of the root (none when it isn't one).
+  virtual std::vector<std::string> names(const std::string &dir) = 0;
+  // Up to n bytes at offset of a file found (its key).
+  virtual std::vector<unsigned char> read(const std::string &key, std::uint64_t offset, std::size_t n) = 0;
+  // The directory a found file is in, as a path inside the root (its
+  // $ORIGIN, where its own libraries are looked for).
+  virtual std::string origin(const std::string &key) = 0;
+  // The whole file (at most `max` bytes), read so that it is the file the
+  // key names inside the root; null when it can't be, or when the root
+  // has no such reader (a container's opens its members itself).
+  virtual std::shared_ptr<loader::Bytes> read_all(const std::string &key, std::uint64_t max) {
+    (void)key;
+    (void)max;
+    return nullptr;
+  }
+};
+
+// A directory of the daemon's host (canonical) as a root: every component
+// is checked with lstat, links resolved inside the root, so a found file's
+// key is a host path below `root` with no symbolic link in it.
+std::shared_ptr<LibraryRoot> HostRoot(const std::filesystem::path &root);
+
+// The extracted root file system a host file lies in: the nearest ancestor
+// of its directory, at or below `limit` and not "/", that has lib or
+// usr/lib and one of bin, sbin, usr/bin or etc (directories named usr and
+// local are passed over: they hold lib and bin themselves). Both canonical.
+std::optional<std::filesystem::path> FindRootFileSystem(const std::filesystem::path &file,
+                                                        const std::filesystem::path &limit);
+
+// What a file's header says it runs on, from the root.
+std::optional<FileArch> PeekArchIn(LibraryRoot &root, const std::string &key);
+
+// Where to look inside a root for `img`'s libraries, in order: `user`
+// (absolute paths in the root), `origin` (the file's directory in the
+// root), its runpath ($ORIGIN expanded; absolute entries inside the root),
+// then for ELF the directories /etc/ld.so.conf names (one level of
+// include) and the standard ones (/lib and /usr/lib, their multiarch and
+// 64-bit forms, /usr/local/lib). PE: user and origin (beside the exe).
+std::vector<std::string> RootSearchDirs(LibraryRoot &root, const std::vector<std::string> &user,
+                                        const std::string &origin, const loader::Image &img);
+
+// The first regular file named `name` (any case for PE) in `dirs` of the
+// root whose header is compatible with `img`: its key.
+std::optional<std::string> FindLibraryIn(LibraryRoot &root, const std::string &name, const std::vector<std::string> &dirs,
+                                         const loader::Image &img);
 
 }  // namespace revkit::backend::libs

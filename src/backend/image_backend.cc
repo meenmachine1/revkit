@@ -7,6 +7,7 @@
 #include "revkit/api/host_files.h"
 
 #include "api_util.h"
+#include "debug_files.h"
 #include "debug_import.h"
 #include "msvc_import.h"
 #include "symbol_server.h"
@@ -45,6 +46,7 @@
 #include "type_record.h"
 
 #include "revkit/analysis/user_refs.h"
+#include "revkit/analysis/register_values.h"
 #include "revkit/diff/correlate.h"
 #include "revkit/diff/match.h"
 #include "revkit/facts/fact_db.h"
@@ -117,7 +119,56 @@ using facts::FactValue;
 using facts::Seq;
 using google::protobuf::util::TimeUtil;
 
-constexpr std::uint32_t kApiMinor = 74;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language"); 74: SetProgramLanguageRequest.progress_id, followed with GetImportProgress (feature "language-progress")
+constexpr std::uint32_t kApiMinor = 87;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language"); 74: SetProgramLanguageRequest.progress_id, followed with GetImportProgress (feature "language-progress"); 76: BSimService.ApplyBSimMatches, PortedFrom.bsim_database and bsim_executable (feature "bsim-apply"); 77: QueryService.ListComments (feature "comment-table"); 78: QueryService.ListRelocations (feature "relocation-table"); 79: libraries from the program's own root file system (ImportOptions.library_root, ImportProgramResponse.library_root, ImportFromFileSystem with import_libraries: FileSystemImport.library_of, libraries_not_found, library_warnings; feature "library-roots"); 80: QueryService.ExportC (feature "export-c"); 81: QueryService.ListLibraryImporters (references back from a library; feature "library-importers"); 82: QueryService.ListSymbolTree (feature "symbol-tree"); 83: QueryService.PlanClearFlow (feature "clear-flow"); 84: SetDataSettings assertions, ListingRow.data_settings (feature "data-settings"); 85: SetFallthrough assertions (FACT_KIND_FALLTHROUGH, ListingRow and InstructionDetail fallthrough_override, XREF_KIND_FALLTHROUGH; feature "fallthrough-override"); 86: ProjectService.LoadDebugFile, SymbolSettings debug_dirs and debuginfod, ProgramSummary build_id, debuglink, debug_file (feature "debug-files"); 87: SetRegisterValue assertions (FACT_KIND_REGISTER_VALUE), QueryService.ListRegisterValues, ListingRow.register_values, analysis's MIPS gp and PowerPC TOC (feature "register-values")
+
+// The type names Ghidra's decompiler prints that C lacks, for ExportC's
+// files (Ghidra's C exporter writes the same).
+constexpr std::string_view kGhidraBuiltinTypedefs = R"(/* Ghidra's built-in type names, as the decompiler prints them. */
+#if !defined(__cplusplus) && (!defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L)
+#include <stdbool.h>
+#endif
+typedef unsigned char undefined;
+typedef unsigned char undefined1;
+typedef unsigned short undefined2;
+typedef unsigned int undefined4;
+typedef unsigned long long undefined8;
+typedef unsigned char byte;
+typedef signed char sbyte;
+typedef unsigned short word;
+typedef unsigned int dword;
+typedef unsigned long long qword;
+typedef unsigned char uchar;
+typedef unsigned short ushort;
+typedef unsigned int uint;
+typedef unsigned long ulong;
+typedef long long longlong;
+typedef unsigned long long ulonglong;
+typedef unsigned short wchar16;
+typedef unsigned int wchar32;
+typedef float float4;
+typedef double float8;
+typedef void code;
+typedef void _func_void(void);
+/* Ghidra's calling-convention names, where the compiler has none. */
+#ifndef _MSC_VER
+#ifndef __stdcall
+#define __stdcall
+#endif
+#ifndef __cdecl
+#define __cdecl
+#endif
+#ifndef __fastcall
+#define __fastcall
+#endif
+#ifndef __thiscall
+#define __thiscall
+#endif
+#ifndef __vectorcall
+#define __vectorcall
+#endif
+#endif
+#define processEntry
+)";
 
 // Fact-store address spaces: project records, then two per program (its
 // addresses in fact keys, and its file's bytes).
@@ -668,6 +719,11 @@ class View {
     if (!mutability_) mutability_ = snap_.get<analysis::MutabilityMap>(AnalysisKey(id_));
     return *mutability_;
   }
+  // Register values over ranges (register_values.h).
+  const analysis::RegisterValueMap &register_values() {
+    if (!register_values_) register_values_ = snap_.get<analysis::RegisterValues>(AnalysisKey(id_));
+    return *register_values_;
+  }
   const facts::Snapshot &snapshot() const { return snap_; }
   std::shared_ptr<const std::vector<StaticRow>> page(std::int64_t page) {
     auto ref = snap_.get<q::Page>({id_, page});
@@ -898,6 +954,7 @@ class View {
   facts::Ref<CodeMap> code_;
   facts::Ref<analysis::UnitMap> units_;
   facts::Ref<std::vector<analysis::MutabilityPiece>> mutability_;
+  facts::Ref<analysis::RegisterValueMap> register_values_;
   std::map<std::tuple<FactKind, facts::SpaceId, std::uint64_t>, facts::Ref<facts::AssertedKeys::Value>> buckets_;
 };
 
@@ -962,11 +1019,52 @@ void RenderTokens(View &v, std::uint64_t addr, const std::vector<lift::Token> &t
       if (auto d = v.Demangled(to)) *o->mutable_demangled() = std::move(*d);
     }
   };
+  // A reference through a register with a value here (register_values.h:
+  // MIPS gp, PowerPC r2): from the operand that names the register, the
+  // first one whose target no token of the instruction shows.
+  std::map<int, std::uint64_t> through;
+  {
+    const analysis::RegisterValueMap &rv = v.register_values();
+    int operand = -1;
+    if (!rv.registers.empty())
+      for (const lift::Token &t : tokens)
+        if (t.kind == lift::Token::Kind::reg && t.operand >= 0)
+          if (const analysis::RegisterRanges *reg = rv.find(t.text); reg && reg->at(addr)) {
+            operand = t.operand;
+            break;
+          }
+    if (operand >= 0) {
+      std::set<std::uint64_t> shown;
+      for (const lift::Token &t : tokens)
+        if (t.kind == lift::Token::Kind::scalar || t.kind == lift::Token::Kind::address) shown.insert(t.value);
+      if (!refs_loaded) {
+        refs = v.xrefs().from(addr, addr);
+        refs_loaded = true;
+      }
+      for (const StaticXref *x : refs)
+        if ((x->kind == pb::XREF_KIND_DATA_READ || x->kind == pb::XREF_KIND_DATA_WRITE || x->kind == pb::XREF_KIND_DATA_POINTER) &&
+            !x->user && !shown.contains(x->to)) {
+          through.emplace(operand, x->to);
+          break;
+        }
+    }
+  }
   // An operand whose primary reference no scalar of it showed: "=>" and
   // the target after its last token, as Ghidra's listing shows one.
   auto flush = [&](int operand) {
     auto it = primary.find(operand);
-    if (it == primary.end() || it->second.shown) return;
+    if (it == primary.end() || it->second.shown) {
+      if (it != primary.end()) return;
+      if (auto th = through.find(operand); th != through.end()) {
+        AddToken(out, pb::LISTING_TOKEN_KIND_SEPARATOR, "=>");
+        out->rbegin()->set_operand_index(static_cast<std::uint32_t>(operand));
+        auto *o = out->Add();
+        o->set_operand_index(static_cast<std::uint32_t>(operand));
+        symbol_token(o, th->second, false);
+        through.erase(th);
+      }
+      return;
+    }
     it->second.shown = true;
     AddToken(out, pb::LISTING_TOKEN_KIND_SEPARATOR, "=>");
     out->rbegin()->set_operand_index(static_cast<std::uint32_t>(operand));
@@ -1062,6 +1160,14 @@ void FillFlow(View &v, const StaticRow &r, pb::ListingRow *out) {
     }
   }
   out->set_flow(flow);
+  // The user's fallthrough override (SetFallthrough).
+  const facts::FactKey fall_key = v.Key(FactKind::Fallthrough, r.address);
+  if (auto w = v.Winner(fall_key))
+    if (auto ft = analysis::fallthrough_override(v.Value(fall_key))) {
+      out->set_fallthrough_override(true);
+      if (ft->falls) *out->mutable_fallthrough() = A(ft->to);
+      *out->mutable_fallthrough_origin() = v.Origin(*w);
+    }
   if (flow == pb::FLOW_KIND_CALL || flow == pb::FLOW_KIND_INDIRECT_CALL) {
     std::optional<facts::Op> who;
     const std::string callee = r.targets.size() == 1 ? v.Symbol(r.targets[0]) : std::string();
@@ -1135,6 +1241,21 @@ void FillRow(View &v, const StaticRow &r, std::int64_t index, bool omit_bytes, p
     } else {
       AddToken(out->mutable_tokens(), pb::LISTING_TOKEN_KIND_DATA_VALUE, r.data_value);
     }
+    // Its settings (data_settings.h), as the page laid them out: the
+    // item's own (a struct field's), and its type's defaults.
+    if (!r.data_settings_type.empty()) {
+      out->set_data_settings_type(r.data_settings_type);
+      const std::uint64_t item = r.data_parent ? *r.data_parent : r.address;
+      const bool field = r.data_parent && !r.data_field.starts_with("[");
+      const facts::FactKey own = v.Key(FactKind::Note, item, DataSettingsTag(field ? r.data_field : std::string()));
+      if (std::string t = v.Text(own); !t.empty())
+        if (auto s = DataSettings::parse(t)) {
+          *out->mutable_data_settings() = s->to_proto();
+          if (auto w = v.Winner(own)) *out->mutable_data_settings_origin() = v.Origin(*w);
+        }
+      if (std::string t = v.Text(v.Key(FactKind::Note, 0, DataTypeSettingsTag(r.data_settings_type))); !t.empty())
+        if (auto s = DataSettings::parse(t)) *out->mutable_data_type_settings() = s->to_proto();
+    }
   } else {
     AddToken(out->mutable_tokens(), pb::LISTING_TOKEN_KIND_TYPE,
              r.length == 1 ? "undefined" : "undefined[" + std::to_string(r.length) + "]");
@@ -1169,6 +1290,19 @@ void FillRow(View &v, const StaticRow &r, std::int64_t index, bool omit_bytes, p
     }
     if (auto w = v.Winner(v.Key(FactKind::Mutability, m->start, m->sub))) *out->mutable_mutability_origin() = v.Origin(*w);
   }
+  // Register values: where a range starts, and at a function's entry
+  // (Ghidra's "assume gp = 0x...").
+  if (!r.data_parent && (r.kind == pb::LISTING_ROW_KIND_INSTRUCTION || r.kind == pb::LISTING_ROW_KIND_DATA ||
+                         r.kind == pb::LISTING_ROW_KIND_UNDEFINED))
+    for (const analysis::RegisterRanges &reg : v.register_values().registers)
+      if (const analysis::RegisterValuePiece *p = reg.at(r.address); p && (p->first == r.address || out->function_entry())) {
+        pb::RegisterAssumption *a = out->add_register_values();
+        a->set_register_name(reg.name);
+        a->set_value(p->value);
+        a->set_analysis(!p->asserted);
+        if (p->asserted)
+          if (auto w = v.Winner(v.Key(FactKind::RegisterValue, p->start, p->sub))) *a->mutable_origin() = v.Origin(*w);
+      }
 }
 
 // What header rows (GetListingRequest.header_rows) show above the code unit
@@ -1551,6 +1685,27 @@ std::string KeyFor(View &v, const pb::AssertionBody &body,
       value = static_cast<std::int64_t>(n.no_return() ? 1 : 0);
       return {};
     }
+    case pb::AssertionBody::kRegisterValue: {
+      // A register's value over a range (docs/api.md, "Register values").
+      const auto &rv = body.register_value();
+      const auto &range = rv.range();
+      if (auto e = check_addr(range.first()); !e.empty()) return "range.first: " + e;
+      if (auto e = check_addr(range.last()); !e.empty()) return "range.last: " + e;
+      if (range.first().offset() > range.last().offset()) return "range.first is after range.last";
+      auto info = v.snapshot().get<analysis::Program>(AnalysisKey(v.id()));
+      auto reg = analysis::find_register(*info, rv.register_name());
+      if (!reg)
+        return "\"" + rv.register_name().substr(0, 64) + "\" is not a register of " + info->language +
+               " that holds a value (context registers such as TMode are set by Disassemble ARM / Thumb)";
+      const std::uint32_t size = reg->slot.second;
+      if (!rv.clear() && size < 8 && (rv.value() >> (8 * size)) != 0)
+        return "0x" + Hex(rv.value()) + " doesn't fit " + reg->name + " (" + std::to_string(size) + " bytes)";
+      const std::uint64_t length = range.last().offset() - range.first().offset() + 1;
+      if (length == 0) return "range is the whole space";
+      key = v.Key(FactKind::RegisterValue, range.first().offset(), analysis::register_value_sub(reg->name, length));
+      value = analysis::register_value_text(rv.clear() ? std::nullopt : std::optional<std::uint64_t>(rv.value()));
+      return {};
+    }
     case pb::AssertionBody::kFlowOverride: {
       const auto &f = body.flow_override();
       if (auto e = check_addr(f.address()); !e.empty()) return e;
@@ -1560,10 +1715,43 @@ std::string KeyFor(View &v, const pb::AssertionBody &body,
       value = static_cast<std::int64_t>(f.kind());
       return {};
     }
+    case pb::AssertionBody::kFallthrough: {
+      // Where control goes on after an instruction (docs/api.md,
+      // "Fallthrough overrides"; Ghidra's Set Fallthrough).
+      const auto &f = body.fallthrough();
+      if (auto e = check_addr(f.address()); !e.empty()) return e;
+      const std::uint64_t at = f.address().offset();
+      auto insn = p.instruction(at, v.code().thumb_at(at));
+      if (!insn) return "no instruction at 0x" + Hex(at);
+      key = v.Key(FactKind::Fallthrough, at);
+      if (f.no_fallthrough()) {
+        if (f.has_target()) return "fallthrough: target with no_fallthrough";
+        value = analysis::kNoFallthrough;
+        return {};
+      }
+      if (!f.has_target()) {
+        value = analysis::kDefaultFallthrough;  // cleared
+        return {};
+      }
+      if (auto e = check_addr(f.target()); !e.empty()) return "target: " + e;
+      // The next instruction is the default, for one that falls through
+      // (its p-code doesn't end in a jump or a return): the override
+      // cleared, as Ghidra's setFallThrough does.
+      const auto &ops = insn->insn.pcode;
+      const bool ends = !ops.empty() && (ops.back().opcode == "BRANCHIND" || ops.back().opcode == "RETURN" ||
+                                         (ops.back().opcode == "BRANCH" && !ops.back().inputs.empty() &&
+                                          ops.back().inputs[0].space != "const"));
+      if (!ends && f.target().offset() == at + insn->insn.length + insn->insn.delay_slot)
+        value = analysis::kDefaultFallthrough;
+      else
+        value = facts::Address{v.space(), f.target().offset()};
+      return {};
+    }
     case pb::AssertionBody::kNote: {
       const auto &n = body.note();
       if (auto e = check_addr(n.address()); !e.empty()) return e;
       if (IsProgramMetaSub(n.tag())) return "note tag " + n.tag() + " is reserved (RenameProgram, DeleteProgram)";
+      if (IsDataSettingsTag(n.tag())) return "note tag " + n.tag().substr(0, 64) + " is reserved (SetDataSettings)";
       key = v.Key(FactKind::Note, n.address().offset(), n.tag());
       value = n.text();
       return {};
@@ -1610,6 +1798,31 @@ std::string KeyFor(View &v, const pb::AssertionBody &body,
         }
       }
       value = stored.SerializeAsString();
+      return {};
+    }
+    case pb::AssertionBody::kDataSettings: {
+      // How a data item displays (data_settings.h): a NOTE with a reserved
+      // tag, at the item or, for a type's defaults, at 0.
+      const auto &d = body.data_settings();
+      std::string err;
+      std::optional<DataSettings> settings = DataSettings::from_proto(d.settings(), &err);
+      if (!settings) return "data_settings." + err;
+      auto plain = [](const std::string &t) {
+        return std::none_of(t.begin(), t.end(), [](char c) { return static_cast<unsigned char>(c) < 0x20 || c == 0x7f; });
+      };
+      if (!d.type_name().empty()) {
+        if (d.has_address() || !d.field().empty()) return "data_settings: give type_name, or address (and field), not both";
+        if (d.type_name().size() > kMaxDataSettingsName || !plain(d.type_name()))
+          return "data_settings.type_name is too long or has control characters";
+        key = v.Key(FactKind::Note, 0, DataTypeSettingsTag(d.type_name()));
+      } else {
+        if (!d.has_address()) return "data_settings: address (an item) or type_name (a type's defaults) is required";
+        if (auto e = check_addr(d.address()); !e.empty()) return "data_settings.address: " + e;
+        if (d.field().size() > kMaxDataSettingsName || !plain(d.field()) || d.field().starts_with("["))
+          return "data_settings.field must be a struct field's path (\"hdr.magic\"; an array's elements take the item's)";
+        key = v.Key(FactKind::Note, d.address().offset(), DataSettingsTag(d.field()));
+      }
+      value = settings->encode();  // "" removes
       return {};
     }
     case pb::AssertionBody::kDefineType: return "define_type is keyed by DefineTypes";
@@ -1688,6 +1901,15 @@ std::string KeyFor(View &v, const pb::AssertionBody &body,
     case pb::AssertionBody::KIND_NOT_SET: break;
   }
   return "assertion body is empty";
+}
+
+// The separate debug file a program read at load (q::DebugFile): its path
+// and size, "" when none.
+std::string DebugFileStamp(const Program &p) {
+  if (p.debug_file().empty()) return {};
+  std::error_code ec;
+  const auto size = fs::file_size(p.debug_file(), ec);
+  return p.debug_file().string() + ":" + std::to_string(ec ? 0 : size);
 }
 
 // What a changed key affects, for subscribers' caches (conservative). The
@@ -1772,6 +1994,29 @@ void Effects(const FunctionTable &before, const FunctionTable &after, const Xref
       add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
       decompile_containing(a);
       break;
+    case FactKind::Fallthrough:
+      // The instruction's row and detail, and the decompilation of the
+      // function it is in; what discovery then changed (bodies, rows,
+      // references) comes from DiscoveryEffects.
+      add(pb::QUERY_KIND_INSTRUCTION, {}, std::pair{a, a});
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
+      decompile_containing(a);
+      break;
+    case FactKind::RegisterValue: {
+      // What reads the register there: the rows (their marks), and the
+      // decompilations of the functions over the range. What the
+      // references then changed comes from DiscoveryEffects.
+      const std::uint64_t last = a + (extent - 1) < a ? ~std::uint64_t{0} : a + (extent - 1);
+      add(pb::QUERY_KIND_LISTING, {}, std::pair{a, last});
+      for (const FunctionTable *t : {&before, &after})
+        for (const Func &f : t->funcs)
+          for (auto [first, end] : f.body)
+            if (first <= last && end >= a) {
+              add(pb::QUERY_KIND_DECOMPILE, f.entry);
+              add(pb::QUERY_KIND_LISTING, {}, std::pair{f.entry, f.entry});  // the entry row's marks
+            }
+      break;
+    }
     case FactKind::NoReturn:
       // The function's own record and decompilation, and every caller's
       // (their flow ends at the call now, or goes on). What discovery
@@ -1815,6 +2060,16 @@ void Effects(const FunctionTable &before, const FunctionTable &after, const Xref
       for (std::uint64_t entry : p.DecompilesTouching(a)) add(pb::QUERY_KIND_DECOMPILE, entry);
       break;
     }
+    case FactKind::Note:
+      // Data settings (data_settings.h): the item's rows (its fields and
+      // elements, at most kMaxDataBytes on), or every row of a type.
+      if (key.sub.starts_with(kDataTypeSettingsPrefix)) {
+        add(pb::QUERY_KIND_LISTING);
+      } else if (IsDataSettingsTag(key.sub)) {
+        const std::uint64_t last = a + (kMaxDataBytes - 1) < a ? ~std::uint64_t{0} : a + (kMaxDataBytes - 1);
+        add(pb::QUERY_KIND_LISTING, {}, std::pair{a, last});
+      }
+      break;
     case FactKind::Equate:
       // How a scalar shows: its row, and the decompilation that prints it.
       add(pb::QUERY_KIND_LISTING, {}, std::pair{a, a});
@@ -2186,6 +2441,20 @@ std::string ValueText(View &v, const facts::FactKey &key) {
       if (const auto *k = std::get_if<std::int64_t>(&val)) return *k ? "no return" : "returns";
       return {};
     }
+    case FactKind::Fallthrough: {
+      FactValue val = v.Value(key);
+      if (std::get_if<std::int64_t>(&val) == nullptr && std::get_if<facts::Address>(&val) == nullptr) return {};
+      auto ft = analysis::fallthrough_override(val);
+      if (!ft) return "default fallthrough";
+      return ft->falls ? "falls through to 0x" + Hex(ft->to) : "no fallthrough";
+    }
+    case FactKind::RegisterValue: {
+      const std::string t = v.Text(key);
+      auto sub = analysis::parse_register_value_sub(key.sub);
+      auto val = analysis::parse_register_value_text(t);
+      if (!sub || !val) return t;
+      return *val ? sub->reg + " = 0x" + Hex(**val) : sub->reg + " cleared";
+    }
     case FactKind::MemoryRegion: return MemoryEditText(v.Text(key));
     case FactKind::Language: {
       const std::string t = v.Text(key);
@@ -2465,13 +2734,45 @@ class ImageBackend final : public api::Backend {
     core_->fid_catalog = std::make_unique<FidCatalog>(
         core_->options.ghidra_root,
         core_->options.project_dir.empty() ? std::string() : core_->options.project_dir + "/.fid-users");
+    if (core_->options.engine_idle_seconds)
+      sweeper_ = std::jthread([this](std::stop_token stop) {
+        const auto every = std::chrono::seconds(core_->options.engine_idle_seconds);
+        std::mutex mu;
+        std::condition_variable_any cv;
+        for (;;) {
+          std::unique_lock lock(mu);
+          cv.wait_for(lock, stop, every, [] { return false; });
+          if (stop.stop_requested()) return;
+          lock.unlock();
+          ParkIdleEngines(every);
+        }
+      });
   }
 
   ~ImageBackend() override {
+    sweeper_ = {};  // stops and joins it before anything it reads goes
     StopDiffRuns();
     StopFid();
     StopInfer();
     StopParamId();
+  }
+
+  // Every program's SLEIGH engines idle for `idle` (and the shared
+  // decoders') go to their language's spares (docs/memory.md "SLEIGH
+  // engines"); the freed memory is returned to the system. How many parked.
+  std::size_t ParkIdleEngines(std::chrono::steady_clock::duration idle) {
+    std::vector<std::shared_ptr<const ProgramEntry>> entries;
+    {
+      std::lock_guard lock(core_->mu);
+      for (const auto &[id, p] : core_->projects)
+        for (const auto &[pid, e] : p->programs) entries.push_back(e);
+    }
+    std::size_t n = 0;
+    for (const auto &e : entries)
+      if (e->source.program) n += e->program().ParkIdleEngines(idle);
+    n += analysis::park_decoders(idle);
+    if (n) ::malloc_trim(0);
+    return n;
   }
 
   // --- Meta -------------------------------------------------------------------
@@ -2507,6 +2808,15 @@ class ImageBackend final : public api::Backend {
     resp.add_features("debugger-emulate-from");
     resp.add_features("debugger-hooks");
     resp.add_features("port-globals-callees");
+    resp.add_features("comment-table");
+    resp.add_features("relocation-table");
+    resp.add_features("export-c");
+    resp.add_features("symbol-tree");
+    resp.add_features("clear-flow");
+    resp.add_features("data-settings");
+    resp.add_features("fallthrough-override");
+    resp.add_features("debug-files");
+    resp.add_features("register-values");
     if (core_->options.plugins) resp.add_features("plugins");
     if (core_->options.plugins) resp.add_features("plugin-facts-invalidation");
     if (core_->options.plugins && plugins::Host::available()) resp.add_features("peripheral-plugins");
@@ -2519,7 +2829,10 @@ class ImageBackend final : public api::Backend {
     resp.add_features("no-return");
     resp.add_features("bsim");
     resp.add_features("bsim-search");
+    resp.add_features("bsim-apply");
     resp.add_features("program-libraries");
+    resp.add_features("library-roots");
+    resp.add_features("library-importers");
     resp.add_features("type-archive");
     if (core_->options.infer_prototypes != InferMode::off) resp.add_features("background-inference");
     resp.set_retained_revisions(core_->options.retained_revisions);
@@ -2611,6 +2924,12 @@ class ImageBackend final : public api::Backend {
     } else {
       progress = std::make_shared<ImportProgress>(ctx.caller, req.project_id(), req.name());
     }
+    std::string library_root;
+    if (req.options().import_libraries())
+      if (auto st = LibraryRootOf(req, library_root); !st.ok()) {
+        progress->Fail(st.message);
+        return st;
+      }
     Status st;
     try {
       st = ImportProgramImpl(req, resp, *progress, nullptr, ctx.caller);
@@ -2620,7 +2939,7 @@ class ImageBackend final : public api::Backend {
     }
     if (st.ok() && !req.folder_id().empty() && PlaceInFolder(req, resp.program().program_id(), resp))
       RefillProgram(resp.program().program_id(), resp.mutable_program());
-    if (st.ok() && req.options().import_libraries()) ImportLibraries(ctx, req, resp);
+    if (st.ok() && req.options().import_libraries()) ImportLibraries(ctx, req, library_root, resp);
     if (st.ok())
       progress->Finish("Imported " + resp.program().name() + ": " + Thousands(progress->functions()) + " functions");
     else
@@ -2724,6 +3043,9 @@ class ImageBackend final : public api::Backend {
   struct PreloadedImport {
     std::shared_ptr<loader::Bytes> bytes;
     std::string container_path;
+    // The bytes are those of the request's host path, read by the caller
+    // (a library under a root, read without following a link out of it).
+    bool host_file = false;
   };
 
   Status ImportProgramImpl(const pb::ImportProgramRequest &req, pb::ImportProgramResponse &resp,
@@ -2822,8 +3144,8 @@ class ImageBackend final : public api::Backend {
       }
     }
     src.file_size = bytes->size();
-    if (req.has_path() && !pre) src.path = fs::absolute(req.path()).string();
-    if (pre) src.container_path = pre->container_path;
+    if (req.has_path() && (!pre || pre->host_file)) src.path = fs::absolute(req.path()).string();
+    if (pre && !pre->host_file) src.container_path = pre->container_path;
     src.imported_at = TimeUtil::GetCurrentTime().seconds();
 
     std::vector<DebugFacts> debug;
@@ -2931,6 +3253,7 @@ class ImageBackend final : public api::Backend {
       programs.push_back(src.id);
       tx.set<q::Programs>(0, std::move(programs));
       tx.set<q::Source>(src.id, src);
+      tx.set<q::DebugFile>(src.id, DebugFileStamp(*src.program));
       tx.set<q::DecompilerOptions>(src.id, DefaultDecompilerOptions());
       auto entry = std::make_shared<ProgramEntry>(ProgramEntry{src, rev});
       revision = Commit(*p, tx, prov, pb::CHANGE_CAUSE_IMPORT, entry);
@@ -3522,7 +3845,8 @@ class ImageBackend final : public api::Backend {
     ScratchDir scratch;
     if (auto st = uploads_.Scratch(scratch.path); !st.ok()) return st;
     MemberFiles members(scratch.path);
-    const archive::Limits limits;
+    archive::Limits limits;
+    limits.max_stamp = archive::FutureStampLimit();
     pb::ProjectArchiveManifest m;
     if (auto e = archive::ReadArchive(in.source, limits, m, members))
       return Error(e->unsupported ? StatusCode::kFailedPrecondition : StatusCode::kInvalidArgument, e->message);
@@ -4810,15 +5134,40 @@ class ImageBackend final : public api::Backend {
     return s;
   }
 
-  static void ToProto(const SymbolSettings &s, pb::SymbolSettings &out) {
+  // Separate debug files (feature "debug-files"; docs/backend.md
+  // "External debug files"), kept with the symbol settings.
+  DebugFileSettings CurrentDebugFileSettings() {
+    std::lock_guard lock(core_->symbols_mu);
+    DebugFileSettings s;
+    s.dirs = core_->options.debug_dirs;
+    s.debuginfod = core_->options.debuginfod;
+    s.urls = core_->options.debuginfod_urls;
+    s.allow_http = core_->options.debuginfod_allow_http;
+    if (core_->options.debug_file_max_bytes) s.max_bytes = core_->options.debug_file_max_bytes;
+    if (core_->options.debug_cache_max_bytes) s.cache_max_bytes = core_->options.debug_cache_max_bytes;
+    if (!core_->options.project_dir.empty())
+      s.cache_dir = (fs::path(core_->options.project_dir) / ".revkit" / "debuginfod").string();
+    return s;
+  }
+
+  void ToProto(const SymbolSettings &s, pb::SymbolSettings &out) {
     out.set_symbol_path(s.path);
     out.set_downloads(s.downloads);
     out.set_cache_dir(s.default_cache);
+    const DebugFileSettings d = CurrentDebugFileSettings();
+    for (const std::string &dir : d.dirs) out.add_debug_dirs(dir);
+    out.set_debuginfod(d.debuginfod);
+    for (const std::string &u : d.urls) out.add_debuginfod_urls(u);
+    out.set_debuginfod_allow_http(d.allow_http);
+    out.set_debug_file_max_bytes(d.max_bytes);
+    out.set_debug_cache_max_bytes(d.cache_max_bytes);
+    out.set_debug_cache_dir(d.cache_dir);
   }
 
   Status GetSymbolSettings(const CallContext &, const pb::GetSymbolSettingsRequest &,
                            pb::GetSymbolSettingsResponse &resp) override {
     ToProto(CurrentSymbolSettings(), *resp.mutable_settings());
+    for (const std::string &u : DebuginfodUrlsFromEnv()) resp.add_suggested_debuginfod_urls(u);
     return Status::Ok();
   }
 
@@ -4829,11 +5178,25 @@ class ImageBackend final : public api::Backend {
     std::string error;
     ParseSymbolPath(in.symbol_path(), &error);
     if (!error.empty()) return Error(StatusCode::kInvalidArgument, "symbol_path: " + error);
+    if (in.debug_dirs_size() > 64 || in.debuginfod_urls_size() > 16)
+      return Error(StatusCode::kInvalidArgument, "at most 64 debug_dirs and 16 debuginfod_urls");
+    for (const std::string &d : in.debug_dirs())
+      if (d.empty() || d.size() > 4096 || !fs::path(d).is_absolute())
+        return Error(StatusCode::kInvalidArgument, "debug_dirs: \"" + d.substr(0, 200) + "\" isn't an absolute directory");
+    for (const std::string &u : in.debuginfod_urls())
+      if (std::string why = CheckDebuginfodUrl(u, in.debuginfod_allow_http()); !why.empty())
+        return Error(StatusCode::kInvalidArgument, "debuginfod_urls: \"" + u.substr(0, 200) + "\": " + why);
     {
       std::lock_guard lock(core_->symbols_mu);
       core_->options.symbol_path = in.symbol_path();
       core_->options.symbol_downloads = in.downloads();
       core_->options.symbol_cache = in.cache_dir();
+      core_->options.debug_dirs.assign(in.debug_dirs().begin(), in.debug_dirs().end());
+      core_->options.debuginfod = in.debuginfod();
+      core_->options.debuginfod_urls.assign(in.debuginfod_urls().begin(), in.debuginfod_urls().end());
+      core_->options.debuginfod_allow_http = in.debuginfod_allow_http();
+      core_->options.debug_file_max_bytes = in.debug_file_max_bytes();
+      core_->options.debug_cache_max_bytes = in.debug_cache_max_bytes();
     }
     SaveSymbolSettings();
     ToProto(CurrentSymbolSettings(), *resp.mutable_settings());
@@ -4853,6 +5216,12 @@ class ImageBackend final : public api::Backend {
       s.set_symbol_path(core_->options.symbol_path);
       s.set_downloads(core_->options.symbol_downloads);
       s.set_cache_dir(core_->options.symbol_cache);
+      for (const std::string &d : core_->options.debug_dirs) s.add_debug_dirs(d);
+      s.set_debuginfod(core_->options.debuginfod);
+      for (const std::string &u : core_->options.debuginfod_urls) s.add_debuginfod_urls(u);
+      s.set_debuginfod_allow_http(core_->options.debuginfod_allow_http);
+      s.set_debug_file_max_bytes(core_->options.debug_file_max_bytes);
+      s.set_debug_cache_max_bytes(core_->options.debug_cache_max_bytes);
     }
     std::string json;
     if (!google::protobuf::util::MessageToJsonString(s, &json).ok()) return;
@@ -4862,7 +5231,8 @@ class ImageBackend final : public api::Backend {
   }
   // The last SetSymbolSettings, unless the daemon was given settings.
   void LoadSymbolSettings() {
-    if (!core_->options.symbol_path.empty() || core_->options.symbol_downloads || !core_->options.symbol_cache.empty())
+    if (!core_->options.symbol_path.empty() || core_->options.symbol_downloads || !core_->options.symbol_cache.empty() ||
+        !core_->options.debug_dirs.empty() || core_->options.debuginfod || !core_->options.debuginfod_urls.empty())
       return;
     const fs::path f = SymbolSettingsFile();
     std::error_code ec;
@@ -4875,6 +5245,14 @@ class ImageBackend final : public api::Backend {
     core_->options.symbol_path = s.symbol_path();
     core_->options.symbol_downloads = s.downloads();
     core_->options.symbol_cache = s.cache_dir();
+    core_->options.debug_dirs.assign(s.debug_dirs().begin(), s.debug_dirs().end());
+    core_->options.debuginfod_allow_http = s.debuginfod_allow_http();
+    // (A server that no longer passes the checks is dropped, not trusted.)
+    for (const std::string &u : s.debuginfod_urls())
+      if (CheckDebuginfodUrl(u, s.debuginfod_allow_http()).empty()) core_->options.debuginfod_urls.push_back(u);
+    core_->options.debuginfod = s.debuginfod();
+    core_->options.debug_file_max_bytes = s.debug_file_max_bytes();
+    core_->options.debug_cache_max_bytes = s.debug_cache_max_bytes();
   }
 
   Status LoadPdb(const CallContext &ctx, const pb::LoadPdbRequest &req, pb::LoadPdbResponse &resp) override {
@@ -4989,6 +5367,128 @@ class ImageBackend final : public api::Backend {
     return Status::Ok();
   }
 
+  // --- Separate debug files (feature "debug-files"; docs/backend.md) ----
+
+  Status LoadDebugFile(const CallContext &ctx, const pb::LoadDebugFileRequest &req,
+                       pb::LoadDebugFileResponse &resp) override {
+    if (req.program_id().empty()) return Error(StatusCode::kInvalidArgument, "program_id is required");
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    Project *pp = nullptr;
+    if (auto st = FindProgramProject(req.program_id(), pp); !st.ok()) return st;
+    Project &p = *pp;
+    std::shared_ptr<const ProgramEntry> entry;
+    {
+      std::lock_guard lock(core_->mu);
+      entry = p.programs.at(req.program_id());
+    }
+    const ProgramSource &src = entry->source;
+    const loader::Image &image = src.program->image();
+    if (image.format != loader::Format::elf) return Error(StatusCode::kFailedPrecondition, "the program isn't an ELF");
+    const DebugFileSettings settings = CurrentDebugFileSettings();
+    DebugFileQuery q;
+    q.build_id = image.build_id;
+    q.link = ReadDebugLink(image);
+    q.binary = src.path;
+    resp.set_build_id(q.build_id);
+    fs::path file;
+    std::shared_ptr<loader::Bytes> bytes;
+    switch (req.source_case()) {
+      case pb::LoadDebugFileRequest::kPath:
+        file = req.path();
+        resp.set_source("file");
+        break;
+      case pb::LoadDebugFileRequest::kUploadId:
+        if (auto st = uploads_.Find(ctx.caller, req.upload_id(), file); !st.ok()) return st;
+        resp.set_source("upload");
+        break;
+      case pb::LoadDebugFileRequest::kSearch: {
+        std::vector<std::string> log;
+        std::optional<FoundDebugFile> found = FindDebugFile(settings, q, /*standard=*/true, /*network=*/true, log);
+        for (const std::string &l : log) resp.add_search_log(l);
+        if (!found) {
+          std::string why = "no matching debug file found";
+          for (const std::string &l : log) why += "\n  " + l;
+          return Error(StatusCode::kNotFound, why);
+        }
+        file = found->file;
+        bytes = std::move(found->bytes);
+        resp.set_source(found->source);
+        break;
+      }
+      default: return Error(StatusCode::kInvalidArgument, "path, upload_id or search is required");
+    }
+    if (!bytes) {
+      std::error_code ec;
+      if (!fs::is_regular_file(file, ec)) return Error(StatusCode::kNotFound, "no file " + file.string());
+      if (fs::file_size(file, ec) > settings.max_bytes)
+        return Error(StatusCode::kInvalidArgument, "the debug file is larger than allowed (debug_file_max_bytes)");
+      bytes = ReadDebugFileBytes(file, settings.max_bytes);
+      if (!bytes) return Error(StatusCode::kInvalidArgument, "can't read " + file.string());
+    }
+    const std::string mismatch = CheckDebugFile(bytes, q);
+    const bool exact = mismatch.empty();
+    if (!exact && (!req.force() || mismatch.starts_with("not an ELF") || mismatch.starts_with("an ELF the loader") ||
+                   mismatch.starts_with("no .debug_info")))
+      return Error(StatusCode::kFailedPrecondition,
+                   file.filename().string() + " isn't this program's debug file: " + mismatch +
+                       (mismatch.starts_with("not an ELF") || mismatch.starts_with("no .debug_info") ||
+                                mismatch.starts_with("an ELF the loader")
+                            ? std::string()
+                            : std::string(" (load it with force to use it anyway)")));
+    resp.set_exact(exact);
+    resp.set_debug_file(file.string());
+    if (!exact) resp.add_warnings("another build's debug file (" + mismatch + "): its addresses may not match the program");
+    DebugFacts facts;
+    try {
+      facts = ReadDwarfFile(*src.program, bytes, file.string());
+    } catch (const std::exception &e) {
+      return Error(StatusCode::kInvalidArgument, file.string() + ": " + e.what());
+    }
+    for (const std::string &d : facts.diagnostics)
+      if (resp.warnings_size() < 32) resp.add_warnings(d);
+    resp.set_functions(static_cast<std::uint32_t>(facts.functions));
+    resp.set_variables(static_cast<std::uint32_t>(facts.variables));
+    resp.set_types(static_cast<std::uint32_t>(facts.records.size()));
+    // An exact file is kept by build ID, so the program reads it at its
+    // next load (the decompiler's variables come from it then).
+    if (exact && !q.build_id.empty() && resp.source().rfind("cache", 0) != 0 && !resp.source().starts_with("debuginfod")) {
+      std::string error;
+      if (CacheDebugFile(settings, q.build_id, *bytes, &error)) resp.set_cached(true);
+      else resp.add_warnings("not kept in the cache: " + error);
+    } else if (exact && !q.build_id.empty()) {
+      resp.set_cached(true);
+    }
+    std::uint64_t revision = 0;
+    {
+      std::lock_guard write(p.write_mu);
+      if (auto st = CheckWritable(p, req.program_id(), 0); !st.ok()) return st;
+      auto tx = p.db->begin();
+      const std::uint64_t rev = tx.next_revision();
+      pb::Provenance prov = req.provenance();
+      StageDebugInfo(tx, src, facts, prov, rev);
+      // Which file was loaded, on the program (a note the UI and blame show).
+      pb::Provenance by;
+      by.set_kind(pb::PROVENANCE_KIND_IMPORT);
+      by.set_id("dwarf");
+      by.set_session(prov.session());
+      by.set_tool(prov.tool());
+      tx.assert_fact(ToFacts(by), FactKeyAt(FactKind::Note, src.ram_space, image.image_base, "revkit:debug-file"),
+                     file.filename().string() + " (" + resp.source() + ")" + (exact ? "" : " (forced: another build's)"),
+                     0, Meta(by, nullptr, rev));
+      const Seq first = p.log().next_seq();
+      try {
+        revision = Commit(p, tx, prov, pb::CHANGE_CAUSE_IMPORT, nullptr);
+      } catch (const std::exception &e) {
+        return Error(StatusCode::kInternal, std::string("loading the debug file failed: ") + e.what());
+      }
+      for (Seq s = first; s < p.log().next_seq(); ++s) resp.add_assertion_seqs(s);
+    }
+    resp.mutable_snapshot()->set_revision(revision);
+    resp.mutable_snapshot()->set_head_revision(revision);
+    return Status::Ok();
+  }
+
   Status GetProgramSummary(const CallContext &ctx, const pb::GetProgramSummaryRequest &req,
                            pb::GetProgramSummaryResponse &resp) override {
     Read r;
@@ -5009,6 +5509,10 @@ class ImageBackend final : public api::Backend {
     *s->mutable_image_base() = A(image.image_base);
     // Where it was imported (api_minor 42): the base moved by SetImageBase.
     *s->mutable_import_image_base() = A(v.Shift().inverse().apply(image.image_base));
+    // Its debug file's keys, and the one read at load (api_minor 86).
+    s->set_build_id(image.build_id);
+    if (auto link = ReadDebugLink(image)) s->set_debuglink(link->name);
+    s->set_debug_file(p.debug_file().string());
     if (image.entry) {
       auto *e = s->add_entry_points();
       *e->mutable_address() = A(*image.entry);
@@ -5905,6 +6409,376 @@ class ImageBackend final : public api::Backend {
     return Status::Ok();
   }
 
+  // QueryService.PlanClearFlow (api_minor 83, feature "clear-flow";
+  // docs/listing-edit.md "Clear Flow and Repair"): Ghidra's Clear Flow and
+  // Repair. The flow from the instruction (fallthrough, branches, jumps and
+  // jump tables, in the flow graphs of the functions that hold it; with
+  // follow_calls, into callees nothing else calls) less what code outside
+  // that flow reaches: each function's flow from its entry that doesn't
+  // pass through the start, and the other functions' entries. What is left
+  // is cleared; the rest stays code, so flows into the cleared code from
+  // outside are repaired by staying.
+  Status PlanClearFlow(const CallContext &ctx, const pb::PlanClearFlowRequest &req, pb::PlanClearFlowResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const std::uint64_t start = req.address().offset();
+    const auto key = AnalysisKey(v.id());
+    auto info = v.snapshot().get<analysis::Program>(key);
+    struct Graph {
+      std::uint64_t entry;
+      std::shared_ptr<const analysis::FlowGraph> flow;
+      std::map<std::uint64_t, const analysis::FlowInsn *> at;
+    };
+    std::map<std::uint64_t, Graph> graphs;  // by entry
+    auto graph = [&](const Func &f) -> Graph & {
+      auto [it, fresh] = graphs.try_emplace(f.entry);
+      if (fresh) {
+        it->second.entry = f.entry;
+        auto fi = v.snapshot().get<analysis::Function>(analysis::Location{key, f.entry});
+        it->second.flow = v.snapshot().get<analysis::Flow>(analysis::Location{key, fi->flow_key()});
+        for (const analysis::FlowInsn &i : it->second.flow->insns) it->second.at.emplace(info->code_address(i.address), &i);
+      }
+      return it->second;
+    };
+    // An instruction's successors within its graph, and the calls it makes.
+    auto successors = [&](const analysis::FlowInsn &i, std::vector<std::uint64_t> &next, std::vector<std::uint64_t> *calls) {
+      using K = analysis::FlowKind;
+      const std::uint64_t a = info->code_address(i.address);
+      if (i.falls_through && !i.tail_call) next.push_back(i.fall_override ? info->code_address(i.fall_to) : a + i.length);
+      if (i.kind == K::jump || i.kind == K::branch || i.kind == K::jump_indirect)
+        for (std::uint64_t t : i.targets) next.push_back(info->code_address(t));
+      if (calls && i.kind == K::call)
+        for (std::uint64_t t : i.targets) calls->push_back(info->code_address(t));
+    };
+    std::vector<const Func *> holders;
+    for (const Func &f : v.functions().funcs)
+      if (f.contains(start) || f.entry == start) holders.push_back(&f);
+    if (holders.empty())
+      return Error(StatusCode::kFailedPrecondition,
+                   "no function's code is at 0x" + Hex(start) + ": clear it with Clear code instead");
+    // The flow from the start.
+    std::map<std::uint64_t, std::uint32_t> reached;  // address -> length
+    std::set<std::uint64_t> cleared_entries;
+    std::vector<std::pair<const Graph *, std::uint64_t>> work;
+    bool found = false;
+    for (const Func *f : holders) {
+      Graph &g = graph(*f);
+      if (g.at.contains(start)) {
+        found = true;
+        work.emplace_back(&g, start);
+      }
+    }
+    if (!found) return Error(StatusCode::kFailedPrecondition, "0x" + Hex(start) + " is not an instruction of its function");
+    std::vector<std::uint64_t> next, calls;
+    std::set<std::uint64_t> callees;
+    while (!work.empty()) {
+      auto [g, a] = work.back();
+      work.pop_back();
+      auto it = g->at.find(a);
+      if (it == g->at.end() || reached.contains(a)) continue;
+      if (reached.size() >= 1'000'000) return Error(StatusCode::kResourceExhausted, "the flow reaches more than a million instructions");
+      reached.emplace(a, it->second->length);
+      next.clear();
+      calls.clear();
+      successors(*it->second, next, req.follow_calls() ? &calls : nullptr);
+      for (std::uint64_t n : next) work.emplace_back(g, n);
+      for (std::uint64_t c : calls)
+        if (const Func *callee = v.functions().at(c); callee && callees.insert(c).second) work.emplace_back(&graph(*callee), c);
+    }
+    // What other code reaches: from the entries of the other functions
+    // with code in the reached span, and of the callees something outside
+    // the flow calls, the flow that doesn't pass through the start (into
+    // the callees the flow reached by their calls, too).
+    const std::uint64_t lo = reached.begin()->first, hi = std::prev(reached.end())->first;
+    std::vector<std::pair<Graph *, std::uint64_t>> roots;
+    for (const Func &f : v.functions().funcs) {
+      if (f.entry == start || callees.contains(f.entry)) continue;
+      bool overlaps = reached.contains(f.entry);
+      for (const auto &b : f.body) overlaps |= b.first <= hi && b.second >= lo;
+      if (overlaps) roots.emplace_back(&graph(f), f.entry);
+    }
+    if (!callees.empty())
+      for (const Func &f : v.functions().funcs) {
+        if (ctx.cancelled && ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+        const Graph &g = graph(f);
+        for (const analysis::FlowInsn &i : g.flow->insns) {
+          if (i.kind != analysis::FlowKind::call || reached.contains(info->code_address(i.address))) continue;
+          for (std::uint64_t t : i.targets)
+            if (const std::uint64_t c = info->code_address(t); callees.contains(c) && c != start)
+              if (const Func *callee = v.functions().at(c)) roots.emplace_back(&graph(*callee), c);
+        }
+      }
+    std::set<std::uint64_t> kept;
+    std::set<std::pair<std::uint64_t, std::uint64_t>> seen;  // (graph entry, address)
+    while (!roots.empty()) {
+      auto [g, a] = roots.back();
+      roots.pop_back();
+      if (a == start || !seen.emplace(g->entry, a).second) continue;
+      auto it = g->at.find(a);
+      if (it == g->at.end()) continue;
+      if (reached.contains(a)) kept.insert(a);
+      next.clear();
+      calls.clear();
+      successors(*it->second, next, &calls);
+      for (std::uint64_t n : next) roots.emplace_back(g, n);
+      for (std::uint64_t c : calls)
+        if (callees.contains(c) && c != start)
+          if (const Func *callee = v.functions().at(c)) roots.emplace_back(&graph(*callee), c);
+    }
+    std::uint32_t kept_n = 0;
+    pb::ClearFlowRange *open = nullptr;
+    for (const auto &[a, len] : reached) {
+      if (kept.contains(a)) {
+        ++kept_n;
+        open = nullptr;
+        continue;
+      }
+      if (open && open->address().offset() + open->length() == a) {
+        open->set_length(open->length() + len);
+      } else {
+        open = resp.add_ranges();
+        *open->mutable_address() = A(a);
+        open->set_length(len);
+      }
+      if (v.functions().at(a)) cleared_entries.insert(a);
+    }
+    for (std::uint64_t e : cleared_entries) *resp.add_functions() = A(e);
+    resp.set_instructions(static_cast<std::uint32_t>(reached.size()));
+    resp.set_kept(kept_n);
+    return Status::Ok();
+  }
+
+  // A qualified name's components at its top-level "::" ("std::vector<a::b>::push_back"
+  // is std, vector<a::b>, push_back); an operator's name stays whole.
+  static std::vector<std::string> SplitQualified(std::string_view name) {
+    std::vector<std::string> out;
+    int depth = 0;
+    std::size_t start = 0;
+    for (std::size_t i = 0; i < name.size(); ++i) {
+      if (name.compare(i, 8, "operator") == 0 && (i == start)) break;  // the rest is one name
+      const char c = name[i];
+      if (c == '<' || c == '(' || c == '[') ++depth;
+      else if ((c == '>' || c == ')' || c == ']') && depth > 0) --depth;
+      else if (c == ':' && depth == 0 && i + 1 < name.size() && name[i + 1] == ':') {
+        if (i > start) out.emplace_back(name.substr(start, i - start));
+        start = i + 2;
+        ++i;
+      }
+    }
+    if (start < name.size()) out.emplace_back(name.substr(start));
+    if (out.empty()) out.emplace_back(name);
+    return out;
+  }
+
+  // QueryService.ListSymbolTree (api_minor 82, feature "symbol-tree";
+  // docs/ui.md "Symbol tree"): Ghidra's symbol tree, one level at a time.
+  // The root has the folders Imports (by library), Exports, Functions,
+  // Labels, Classes and Namespaces; a namespace or class holds the
+  // namespaces, classes, functions and labels its qualified names put in
+  // it. Names come from the effective names at this revision (a rename
+  // into "ns::name" moves a symbol there), classes from the demangler's
+  // scopes and MSVC RTTI.
+  Status ListSymbolTree(const CallContext &ctx, const pb::ListSymbolTreeRequest &req, pb::ListSymbolTreeResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), req.page().page_token(), r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const std::vector<std::string> path(req.path().begin(), req.path().end());
+    const std::string needle = Lower(req.name_contains());
+    std::vector<pb::SymbolTreeNode> nodes;
+    auto node = [](std::string name, pb::SymbolTreeNodeKind kind) {
+      pb::SymbolTreeNode n;
+      n.set_name(std::move(name));
+      n.set_kind(kind);
+      return n;
+    };
+    // Every named address, as ListSymbols has them.
+    struct Sym {
+      std::uint64_t address;
+      std::string name;
+      bool function;
+      std::vector<std::string> parts;
+    };
+    auto symbols = [&] {
+      std::map<std::uint64_t, bool> addrs;
+      for (const Func &f : v.functions().funcs) addrs.emplace(f.entry, true);
+      for (const Label &l : v.defaults().labels) addrs.emplace(l.address, false);
+      for (const facts::FactKey &k : v.LogKeys())
+        if (k.kind == FactKind::Name && k.sub.empty() && k.addr.space == v.space()) addrs.emplace(k.addr.offset, false);
+      std::vector<Sym> out;
+      out.reserve(addrs.size());
+      for (const auto &[a, fn] : addrs) {
+        std::string name = v.Symbol(a);
+        if (name.empty()) continue;
+        std::vector<std::string> parts = SplitQualified(name);
+        out.push_back({a, std::move(name), fn, std::move(parts)});
+      }
+      return out;
+    };
+    auto classes = [&] {
+      std::set<std::string> out;
+      for (const std::string &c : *r.snapshot->get<q::DemangleScopes>(req.program_id())) out.insert(c);
+      if (v.program().image().format == loader::Format::pe) {
+        pb::GetClassHierarchyResponse rtti;
+        if (rtti.ParseFromString(*r.snapshot->get<q::RttiClasses>(req.program_id())))
+          for (const pb::RttiClass &c : rtti.classes()) out.insert(c.name());
+      }
+      return out;
+    };
+    auto join = [](const std::vector<std::string> &parts, std::size_t n) {
+      std::string s;
+      for (std::size_t i = 0; i < n; ++i) s += (i ? "::" : "") + parts[i];
+      return s;
+    };
+    auto leaf = [&](const Sym &s, std::string name) {
+      pb::SymbolTreeNode n = node(std::move(name), s.function ? pb::SYMBOL_TREE_NODE_KIND_FUNCTION : pb::SYMBOL_TREE_NODE_KIND_LABEL);
+      *n.mutable_address() = A(s.address);
+      n.set_full_name(s.name);
+      return n;
+    };
+    struct Import {
+      std::string name, library;
+      std::uint64_t address;
+    };
+    auto imports = [&] {
+      std::vector<Import> out;
+      for (const ImportItem &it : ImportsOf(v)) out.push_back({it.name, it.library.empty() ? "<EXTERNAL>" : it.library, it.thunk ? it.thunk : it.slot});
+      return out;
+    };
+    if (path.empty()) {
+      const auto syms = symbols();
+      const auto cls = classes();
+      std::set<std::string> libraries, namespaces;
+      for (const Import &i : imports()) libraries.insert(i.library);
+      std::uint64_t functions = 0, labels = 0;
+      for (const Sym &s : syms) {
+        (s.function ? functions : labels)++;
+        if (s.parts.size() > 1 && !cls.contains(s.parts[0])) namespaces.insert(s.parts[0]);
+      }
+      for (const std::string &c : cls)
+        if (auto p = SplitQualified(c); p.size() > 1 && !cls.contains(p[0])) namespaces.insert(p[0]);
+      const std::pair<const char *, std::uint64_t> folders[] = {
+          {"Imports", libraries.size()}, {"Exports", libs::Exports(v.program().image()).size()}, {"Functions", functions},
+          {"Labels", labels},           {"Classes", cls.size()},                                  {"Namespaces", namespaces.size()}};
+      for (const auto &[name, count] : folders) {
+        pb::SymbolTreeNode n = node(name, pb::SYMBOL_TREE_NODE_KIND_FOLDER);
+        n.set_children(count);
+        nodes.push_back(std::move(n));
+      }
+    } else if (path[0] == "Imports") {
+      const auto all = imports();
+      if (path.size() == 1) {
+        std::map<std::string, std::uint64_t> libraries;
+        for (const Import &i : all) libraries[i.library]++;
+        for (const auto &[lib, count] : libraries) {
+          pb::SymbolTreeNode n = node(lib, pb::SYMBOL_TREE_NODE_KIND_LIBRARY);
+          n.set_children(count);
+          nodes.push_back(std::move(n));
+        }
+      } else {
+        for (const Import &i : all) {
+          if (i.library != path[1]) continue;
+          pb::SymbolTreeNode n = node(i.name, pb::SYMBOL_TREE_NODE_KIND_IMPORT);
+          *n.mutable_address() = A(i.address);
+          n.set_full_name(i.name);
+          n.set_library(i.library);
+          nodes.push_back(std::move(n));
+        }
+      }
+    } else if (path[0] == "Exports") {
+      for (const auto &[name, address] : libs::Exports(v.program().image())) {
+        pb::SymbolTreeNode n = node(name, pb::SYMBOL_TREE_NODE_KIND_EXPORT);
+        *n.mutable_address() = A(address);
+        n.set_full_name(v.Symbol(address).empty() ? name : v.Symbol(address));
+        nodes.push_back(std::move(n));
+      }
+    } else if (path[0] == "Functions" || path[0] == "Labels") {
+      const bool fns = path[0] == "Functions";
+      for (const Sym &s : symbols())
+        if (s.function == fns) nodes.push_back(leaf(s, s.name));
+    } else if (path[0] == "Classes" || path[0] == "Namespaces") {
+      const auto cls = classes();
+      const auto syms = symbols();
+      // The scope listed: a class by its qualified name, or a namespace path.
+      std::vector<std::string> scope;
+      if (path[0] == "Classes") {
+        if (path.size() >= 2) scope = SplitQualified(path[1]);
+        for (std::size_t i = 2; i < path.size(); ++i) scope.push_back(path[i]);
+      } else {
+        scope.assign(path.begin() + 1, path.end());
+      }
+      if (path[0] == "Classes" && path.size() == 1) {
+        // Every class, by its qualified name, with its member count.
+        std::map<std::string, std::uint64_t> members;
+        for (const std::string &c : cls) members[c] = 0;
+        for (const Sym &s : syms)
+          if (s.parts.size() > 1)
+            if (auto it = members.find(join(s.parts, s.parts.size() - 1)); it != members.end()) ++it->second;
+        for (const auto &[c, count] : members) {
+          pb::SymbolTreeNode n = node(c, pb::SYMBOL_TREE_NODE_KIND_CLASS);
+          n.set_full_name(c);
+          n.set_children(count);
+          nodes.push_back(std::move(n));
+        }
+      } else {
+        // The scope's direct children: inner scopes (with how many things
+        // are below each), and its symbols.
+        const std::size_t depth = scope.size();
+        auto under = [&](const std::vector<std::string> &parts) {
+          if (parts.size() <= depth) return false;
+          for (std::size_t i = 0; i < depth; ++i)
+            if (parts[i] != scope[i]) return false;
+          return true;
+        };
+        std::map<std::string, std::uint64_t> inner;
+        for (const Sym &s : syms)
+          if (s.parts.size() > depth + 1 && under(s.parts)) inner[s.parts[depth]]++;
+        for (const std::string &c : cls)
+          if (auto p = SplitQualified(c); p.size() > depth && under(p)) inner.try_emplace(p[depth], 0);
+        for (const auto &[name, count] : inner) {
+          std::vector<std::string> q(scope);
+          q.push_back(name);
+          const std::string full = join(q, q.size());
+          // At the top of Namespaces, only namespaces; a class is in Classes.
+          const bool is_class = cls.contains(full);
+          if (path[0] == "Namespaces" && depth == 0 && is_class) continue;
+          pb::SymbolTreeNode n = node(name, is_class ? pb::SYMBOL_TREE_NODE_KIND_CLASS : pb::SYMBOL_TREE_NODE_KIND_NAMESPACE);
+          n.set_full_name(full);
+          n.set_children(count);
+          nodes.push_back(std::move(n));
+        }
+        if (depth > 0)
+          for (const Sym &s : syms)
+            if (s.parts.size() == depth + 1 && under(s.parts)) nodes.push_back(leaf(s, s.parts.back()));
+      }
+    } else {
+      return Error(StatusCode::kInvalidArgument, "no folder \"" + path[0] + "\": Imports, Exports, Functions, Labels, Classes or Namespaces");
+    }
+    if (!needle.empty() && !path.empty())
+      std::erase_if(nodes, [&](const pb::SymbolTreeNode &n) {
+        return Lower(n.name()).find(needle) == std::string::npos && Lower(n.full_name()).find(needle) == std::string::npos;
+      });
+    // Folders in Ghidra's order; the rest scopes first, then by name (any
+    // case), then address.
+    if (!path.empty())
+      std::stable_sort(nodes.begin(), nodes.end(), [](const pb::SymbolTreeNode &a, const pb::SymbolTreeNode &b) {
+        const bool sa = a.kind() == pb::SYMBOL_TREE_NODE_KIND_NAMESPACE || a.kind() == pb::SYMBOL_TREE_NODE_KIND_CLASS ||
+                        a.kind() == pb::SYMBOL_TREE_NODE_KIND_LIBRARY;
+        const bool sb = b.kind() == pb::SYMBOL_TREE_NODE_KIND_NAMESPACE || b.kind() == pb::SYMBOL_TREE_NODE_KIND_CLASS ||
+                        b.kind() == pb::SYMBOL_TREE_NODE_KIND_LIBRARY;
+        if (sa != sb) return sa;
+        const std::string la = Lower(a.name()), lb = Lower(b.name());
+        if (la != lb) return la < lb;
+        return a.address().offset() < b.address().offset();
+      });
+    Paginate(nodes.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) { *resp.add_nodes() = std::move(nodes[i]); });
+    resp.set_total(nodes.size());
+    return Status::Ok();
+  }
+
   Status GetFunction(const CallContext &ctx, const pb::GetFunctionRequest &req, pb::GetFunctionResponse &resp) override {
     Read r;
     if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
@@ -6048,6 +6922,15 @@ class ImageBackend final : public api::Backend {
     if (flow != pb::FLOW_KIND_RETURN && flow != pb::FLOW_KIND_UNCONDITIONAL_BRANCH && flow != pb::FLOW_KIND_INDIRECT_BRANCH &&
         flow != pb::FLOW_KIND_TERMINATOR)
       *out->mutable_fall_through() = A(i.address + i.length + i.delay_slot);
+    // The user's fallthrough override (SetFallthrough): where it goes on, or nowhere.
+    const facts::FactKey fall_key = v.Key(FactKind::Fallthrough, i.address);
+    if (auto w = v.Winner(fall_key))
+      if (auto ft = analysis::fallthrough_override(v.Value(fall_key))) {
+        out->set_fallthrough_override(true);
+        *out->mutable_fallthrough_origin() = v.Origin(*w);
+        if (ft->falls) *out->mutable_fall_through() = A(ft->to);
+        else out->clear_fall_through();
+      }
     auto set_varnode = [&](const lift::Varnode &vn, pb::Varnode *o) {
       // LOAD/STORE's first input names an address space; it is reported as
       // a constant, as Ghidra prints it.
@@ -6169,7 +7052,16 @@ class ImageBackend final : public api::Backend {
       auto it = by_addr.find(n);
       return it == by_addr.end() ? std::nullopt : std::optional(it->second);
     };
+    // Where control falls through after `row` (its delay slots ending at
+    // row `i`): the next row, or the user's fallthrough override's.
+    auto fall_of = [&](const pb::ListingRow &row, std::size_t i) -> std::optional<std::size_t> {
+      if (!row.fallthrough_override()) return next_of(i);
+      if (!row.has_fallthrough()) return std::nullopt;
+      auto it = by_addr.find(row.fallthrough().offset());
+      return it == by_addr.end() ? std::nullopt : std::optional(it->second);
+    };
     auto no_return_call = [&](const pb::ListingRow &row) {
+      if (row.fallthrough_override()) return false;  // the user says where it goes on
       if (row.flow() != pb::FLOW_KIND_CALL && row.flow() != pb::FLOW_KIND_INDIRECT_CALL) return false;
       if (row.flow_override() == pb::FLOW_OVERRIDE_KIND_CALL_RETURN) return true;
       for (const auto &t : row.flow_targets())
@@ -6212,6 +7104,11 @@ class ImageBackend final : public api::Backend {
       const std::size_t last = with_delay(i);
       auto n = next_of(last);
       if (last + 1 < insns.size() && (!n || *n != last + 1 || ends_block(row))) leader[last + 1] = true;
+      // A fallthrough override: a block ends here and starts at its address.
+      if (row.fallthrough_override()) {
+        if (auto t = fall_of(row, last)) leader[*t] = true;
+        if (last + 1 < insns.size()) leader[last + 1] = true;
+      }
     }
     std::vector<std::size_t> block_of(insns.size());
     std::vector<std::size_t> starts;
@@ -6257,6 +7154,11 @@ class ImageBackend final : public api::Backend {
         auto it = by_addr.find(t.offset());
         return it == by_addr.end() ? std::nullopt : std::optional(it->second);
       };
+      // A jump or return the user's fallthrough override makes go on.
+      if (last.fallthrough_override() && last.has_fallthrough() &&
+          (last.flow() == pb::FLOW_KIND_UNCONDITIONAL_BRANCH || last.flow() == pb::FLOW_KIND_INDIRECT_BRANCH ||
+           last.flow() == pb::FLOW_KIND_RETURN || last.flow() == pb::FLOW_KIND_TERMINATOR))
+        edge(fall_of(last, i), pb::FLOW_EDGE_KIND_FALL_THROUGH);
       switch (last.flow()) {
         case pb::FLOW_KIND_UNCONDITIONAL_BRANCH:
           if (last.flow_targets().empty()) leaves = true;
@@ -6264,7 +7166,7 @@ class ImageBackend final : public api::Backend {
           break;
         case pb::FLOW_KIND_CONDITIONAL_BRANCH:
           for (const auto &t : last.flow_targets()) edge(target(t), pb::FLOW_EDGE_KIND_CONDITIONAL_TRUE);
-          edge(next_of(i), pb::FLOW_EDGE_KIND_CONDITIONAL_FALSE);
+          edge(fall_of(last, i), pb::FLOW_EDGE_KIND_CONDITIONAL_FALSE);
           break;
         case pb::FLOW_KIND_INDIRECT_BRANCH:
           if (last.flow_targets().empty()) leaves = true;
@@ -6274,7 +7176,7 @@ class ImageBackend final : public api::Backend {
         case pb::FLOW_KIND_TERMINATOR: leaves = true; break;
         default:
           if (no_return_call(last)) leaves = true;
-          else edge(next_of(i), pb::FLOW_EDGE_KIND_FALL_THROUGH);
+          else edge(fall_of(last, i), pb::FLOW_EDGE_KIND_FALL_THROUGH);
           break;
       }
       block->set_exit(leaves);
@@ -6350,6 +7252,178 @@ class ImageBackend final : public api::Backend {
       }
       *resp.add_classes() = std::move(c);
     }
+    return Status::Ok();
+  }
+
+  // QueryService.ListRelocations (api_minor 78, feature "relocation-table";
+  // docs/ui.md "Relocations"): the relocations the file carries, as the
+  // loader read them (ELF: Image::relocations; PE: the .reloc directory).
+  // revkit applies none to the bytes except the RELATIVE ones a rebase
+  // moves (relocate.h), so `original` is mostly what the file has there.
+  Status ListRelocations(const CallContext &ctx, const pb::ListRelocationsRequest &req, pb::ListRelocationsResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), req.page().page_token(), r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const loader::Image &image = v.program().image();
+    resp.set_format(image.format == loader::Format::elf ? "elf" : image.format == loader::Format::pe ? "pe" : "raw");
+    std::vector<loader::Relocation> pe;
+    if (image.format == loader::Format::pe) pe = loader::pe_base_relocations(image);
+    const std::vector<loader::Relocation> &all = image.format == loader::Format::pe ? pe : image.relocations;
+    const std::string needle = Lower(req.text_contains());
+    std::vector<std::pair<const loader::Relocation *, std::string>> matches;
+    for (const loader::Relocation &rel : all) {
+      if (req.has_range() && !InRange(req.range(), A(rel.address))) continue;
+      std::string name = loader::relocation_type_name(image, rel.type);
+      if (!needle.empty() && Lower(rel.symbol).find(needle) == std::string::npos && Lower(name).find(needle) == std::string::npos)
+        continue;
+      matches.emplace_back(&rel, std::move(name));
+    }
+    const unsigned word = std::max(1u, image.bits / 8);
+    Paginate(matches.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) {
+               const loader::Relocation &rel = *matches[i].first;
+               auto *out = resp.add_relocations();
+               *out->mutable_address() = A(rel.address);
+               out->set_type(rel.type);
+               out->set_type_name(std::move(matches[i].second));
+               out->set_kind(RelocationKindOf(rel.kind));
+               out->set_symbol(rel.symbol);
+               out->set_addend(rel.addend);
+               if (rel.target) {
+                 *out->mutable_target() = A(*rel.target);
+                 out->set_target_name(v.Symbol(*rel.target));
+               }
+               std::string bytes(word, '\0');
+               const std::size_t n =
+                   image.memory.read(rel.address, std::span<std::byte>(reinterpret_cast<std::byte *>(bytes.data()), bytes.size()));
+               if (n == bytes.size()) out->set_original(std::move(bytes));
+             });
+    resp.set_total(matches.size());
+    return Status::Ok();
+  }
+
+  static pb::RelocationKind RelocationKindOf(loader::RelocationKind k) {
+    switch (k) {
+      case loader::RelocationKind::relative: return pb::RELOCATION_KIND_RELATIVE;
+      case loader::RelocationKind::irelative: return pb::RELOCATION_KIND_IRELATIVE;
+      case loader::RelocationKind::jump_slot: return pb::RELOCATION_KIND_JUMP_SLOT;
+      case loader::RelocationKind::glob_dat: return pb::RELOCATION_KIND_GLOB_DAT;
+      case loader::RelocationKind::absolute: return pb::RELOCATION_KIND_ABSOLUTE;
+      case loader::RelocationKind::other: break;
+    }
+    return pb::RELOCATION_KIND_OTHER;
+  }
+
+  // QueryService.ListComments (api_minor 77, feature "comment-table";
+  // docs/ui.md "Comments"): every comment of the program at the
+  // revision, by address, with its kind, its function and who wrote it.
+  // QueryService.ListRegisterValues (api_minor 87, feature
+  // \"register-values\"; docs/api.md "Register values"): the painted map, per
+  // register, with who set each range, and the registers values may be
+  // set on.
+  Status ListRegisterValues(const CallContext &ctx, const pb::ListRegisterValuesRequest &req,
+                            pb::ListRegisterValuesResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), req.page().page_token(), r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    auto info = v.snapshot().get<analysis::Program>(AnalysisKey(v.id()));
+    std::string only;
+    if (!req.register_name().empty()) {
+      auto reg = analysis::find_register(*info, req.register_name());
+      if (!reg) return Error(StatusCode::kInvalidArgument, "\"" + req.register_name().substr(0, 64) + "\" is not a register of " + info->language);
+      only = reg->name;
+    }
+    std::uint64_t lo = 0, hi = UINT64_MAX;
+    if (req.has_range()) {
+      lo = req.range().first().offset();
+      hi = req.range().last().offset();
+    }
+    std::vector<pb::RegisterValueRange> out;
+    for (const analysis::RegisterRanges &reg : v.register_values().registers) {
+      if (!only.empty() && reg.name != only) continue;
+      for (const analysis::RegisterValuePiece &p : reg.pieces) {
+        if (p.last < lo || p.first > hi) continue;
+        pb::RegisterValueRange x;
+        x.set_register_name(reg.name);
+        *x.mutable_range() = Range(p.first, p.last);
+        x.set_value(p.value);
+        if (p.asserted) {
+          const facts::FactKey key = v.Key(FactKind::RegisterValue, p.start, p.sub);
+          *x.mutable_key() = ToPbKey(*v.read().spaces, key);
+          if (auto w = v.Winner(key)) *x.mutable_origin() = v.Origin(*w);
+        } else {
+          pb::Derivation *d = x.mutable_origin()->mutable_derived();
+          d->set_rule("analysis.register_values:" + p.origin);
+          d->set_confidence(1.0f);
+          d->set_computed_at_revision(v.revision());
+        }
+        out.push_back(std::move(x));
+      }
+    }
+    Paginate(out.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) { *resp.add_ranges() = std::move(out[i]); });
+    resp.set_total(out.size());
+    for (const analysis::NamedRegister &reg : analysis::value_registers(*info)) {
+      pb::RegisterDescription *d = resp.add_registers();
+      d->set_name(reg.name);
+      d->set_size(reg.slot.second);
+    }
+    return Status::Ok();
+  }
+
+  Status ListComments(const CallContext &ctx, const pb::ListCommentsRequest &req, pb::ListCommentsResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), req.page().page_token(), r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    std::set<int> kinds(req.kinds().begin(), req.kinds().end());
+    const std::string needle = Lower(req.text_contains());
+    std::uint64_t lo = 0, hi = UINT64_MAX;
+    if (req.has_range()) {
+      lo = req.range().first().offset();
+      hi = req.range().last().offset();
+    }
+    struct Item {
+      std::uint64_t address;
+      std::string sub;
+    };
+    std::vector<Item> items;
+    auto buckets = r.snapshot->get<facts::AssertedBuckets>({FactKind::Comment, v.space()});
+    for (std::uint64_t b : *buckets) {
+      auto keys = r.snapshot->get<facts::AssertedKeys>(facts::BucketKey{FactKind::Comment, v.space(), b});
+      for (const auto &[addr, sub] : *keys) {
+        if (addr < lo || addr > hi) continue;
+        if (!kinds.empty() && !kinds.contains(CommentKindOfSub(sub))) continue;
+        items.push_back({addr, sub});
+      }
+    }
+    std::sort(items.begin(), items.end(), [](const Item &a, const Item &b) { return std::tie(a.address, a.sub) < std::tie(b.address, b.sub); });
+    items.erase(std::unique(items.begin(), items.end(), [](const Item &a, const Item &b) { return a.address == b.address && a.sub == b.sub; }),
+                items.end());
+    std::vector<pb::ProgramComment> out;
+    for (const Item &it : items) {
+      const facts::FactKey key = v.Key(FactKind::Comment, it.address, it.sub);
+      const std::string text = v.Text(key);
+      if (text.empty()) continue;  // deleted
+      if (!needle.empty() && Lower(text).find(needle) == std::string::npos) continue;
+      pb::ProgramComment c;
+      *c.mutable_address() = A(it.address);
+      c.set_kind(CommentKindOfSub(it.sub));
+      c.set_text(text);
+      if (const Func *f = v.functions().containing(it.address)) {
+        *c.mutable_function() = A(f->entry);
+        c.set_function_name(v.Symbol(f->entry));
+      }
+      const std::string label = v.Symbol(it.address);
+      if (!label.empty()) c.set_label(label);
+      if (auto w = v.Winner(key)) *c.mutable_origin() = v.Origin(*w);
+      out.push_back(std::move(c));
+    }
+    Paginate(out.size(), r.page_offset, req.page().page_size(), 500, 5000, r.revision, resp.mutable_page(),
+             [&](std::size_t i) { *resp.add_comments() = std::move(out[i]); });
+    resp.set_total(out.size());
     return Status::Ok();
   }
 
@@ -6607,6 +7681,196 @@ class ImageBackend final : public api::Backend {
     limits.max_varnodes = core_->options.decompile_max_varnodes;
     limits.cancelled = ctx.cancelled;
     return limits;
+  }
+
+  // QueryService.ExportC (api_minor 80, feature "export-c"; docs/api.md
+  // "Export C"): Ghidra's C/C++ exporter. The functions are decompiled as
+  // DecompileMany would (progress messages while they are), then sent in
+  // address order as a .c file in parts, after an optional header of the
+  // program's types (ExportTypeArchive, scope ALL) and the functions'
+  // prototypes. Writes nothing.
+  Status ExportC(const CallContext &ctx, const pb::ExportCRequest &req,
+                 const std::function<bool(const pb::ExportCResponse &)> &write) override {
+    if (req.all() == !req.functions().empty())
+      return Error(StatusCode::kInvalidArgument, req.all() ? "functions and all are exclusive" : "functions or all is required");
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    pb::Snapshot snap;
+    {
+      pb::ExportCResponse tmp;
+      SetSnapshot(r, tmp.mutable_snapshot());
+      snap = tmp.snapshot();
+    }
+    std::string name = req.name();
+    if (name.empty()) name = StateOf(*r.project, *r.program, r.log_size).name;
+    for (char &c : name)
+      if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-' && c != '.') c = '_';
+    if (name.empty() || name == "." || name == "..") name = "program";
+    // Decompile, pinned to this revision.
+    pb::DecompileManyRequest dm;
+    dm.set_program_id(req.program_id());
+    dm.mutable_read()->set_revision(snap.revision());
+    *dm.mutable_functions() = req.functions();
+    dm.set_all(req.all());
+    dm.mutable_options()->set_include_text(true);
+    dm.mutable_options()->set_timeout_ms(req.timeout_ms());
+    dm.set_parallelism(req.parallelism());
+    struct Result {
+      std::uint64_t entry = 0;
+      std::string name, text, why;
+    };
+    std::vector<Result> results;
+    std::uint32_t total = 0;
+    auto last_progress = std::chrono::steady_clock::now();
+    bool gone = false;
+    // DecompileMany calls this from its worker threads at once (the
+    // transport serializes a stream's writes; this isn't one): the results
+    // and the progress are shared. TSan found it.
+    std::mutex mu;
+    Status st = DecompileMany(ctx, dm, [&](const pb::DecompileManyResponse &m) {
+      std::lock_guard lock(mu);
+      if (gone) return false;
+      total = m.total();
+      Result res;
+      res.entry = m.entry().offset();
+      if (m.has_function()) {
+        res.name = m.function().name();
+        res.text = m.function().text();
+      } else if (m.has_failure()) {
+        res.why = m.failure().detail().empty() ? std::string("the decompiler failed") : m.failure().detail();
+      } else {
+        res.why = m.error().empty() ? std::string("no decompilation") : m.error();
+      }
+      results.push_back(std::move(res));
+      const auto now = std::chrono::steady_clock::now();
+      if (results.size() == total || now - last_progress > std::chrono::milliseconds(200)) {
+        last_progress = now;
+        pb::ExportCResponse p;
+        *p.mutable_snapshot() = snap;
+        p.set_done(static_cast<std::uint32_t>(results.size()));
+        p.set_total(total);
+        if (!write(p)) {
+          gone = true;
+          return false;
+        }
+      }
+      return true;
+    });
+    if (gone) return Error(StatusCode::kCancelled, "the client went away");
+    if (!st.ok()) return st;
+    std::sort(results.begin(), results.end(), [](const Result &a, const Result &b) { return a.entry < b.entry; });
+    View v(r);
+    for (Result &res : results)
+      if (res.name.empty()) res.name = v.Symbol(res.entry);
+    // The prototype of a decompiled function: its C up to the body.
+    auto prototype = [](const std::string &text) -> std::string {
+      const std::size_t brace = text.find("\n{");
+      if (brace == std::string::npos) return {};
+      std::string head = text.substr(0, brace);
+      std::string out;
+      std::size_t at = 0;
+      while (at <= head.size()) {  // the last lines that aren't comments
+        std::size_t nl = head.find('\n', at);
+        if (nl == std::string::npos) nl = head.size();
+        std::string line = head.substr(at, nl - at);
+        while (!line.empty() && (line.back() == ' ' || line.back() == '\r')) line.pop_back();
+        if (line.rfind("/*", 0) == 0 || line.rfind("//", 0) == 0) out.clear();
+        else if (!line.empty()) out += (out.empty() ? "" : " ") + line;
+        at = nl + 1;
+      }
+      return out.empty() ? out : out + ";";
+    };
+    pb::ExportCResponse head;
+    *head.mutable_snapshot() = snap;
+    head.set_done(static_cast<std::uint32_t>(results.size()));
+    head.set_total(total);
+    head.set_source_name(name + ".c");
+    const std::string program_name = StateOf(*r.project, *r.program, r.log_size).name;
+    std::string banner = "/* " + program_name + ": decompiled by revkit at revision " + std::to_string(snap.revision()) + " */\n";
+    std::string source = banner;
+    if (req.header()) {
+      head.set_header_name(name + ".h");
+      pb::ExportTypeArchiveRequest tr;
+      tr.set_program_id(req.program_id());
+      tr.set_scope(pb::TYPE_ARCHIVE_SCOPE_ALL);
+      tr.set_name(name);
+      tr.mutable_read()->set_revision(snap.revision());
+      pb::ExportTypeArchiveResponse types;
+      // A program with no named types (stripped, no debug info) has none
+      // to write; the rest of the header still is.
+      if (auto ts = ExportTypeArchive(ctx, tr, types); !ts.ok() && ts.code != StatusCode::kFailedPrecondition) return ts;
+      std::string guard = "REVKIT_" + name + "_H";
+      for (char &c : guard) c = std::isalnum(static_cast<unsigned char>(c)) ? static_cast<char>(std::toupper(static_cast<unsigned char>(c))) : '_';
+      std::string h = banner + "#ifndef " + guard + "\n#define " + guard + "\n\n" + std::string(kGhidraBuiltinTypedefs) + "\n" + types.header();
+      // The decompiler names a struct, union or enum by its tag alone, as
+      // Ghidra's exporter does with a typedef of each.
+      std::set<std::string> typedefs;
+      for (const pb::TypeArchiveEntry &t : types.archive().types())
+        if (t.key().rfind("typedef ", 0) == 0) typedefs.insert(t.key().substr(8));
+      std::string tags;
+      for (const pb::TypeArchiveEntry &t : types.archive().types())
+        for (std::string_view kind : {"struct ", "union ", "enum "})
+          if (t.key().rfind(kind, 0) == 0 && !typedefs.contains(t.key().substr(kind.size())) &&
+              typedefs.insert(t.key().substr(kind.size())).second)
+            tags += "typedef " + t.key() + " " + t.key().substr(kind.size()) + ";\n";
+      if (!tags.empty()) h += "\n/* The tags as type names */\n" + tags;
+      h += "\n/* Functions */\n";
+      std::set<std::string> declared;
+      for (const Result &res : results) {
+        const std::string p = prototype(res.text);
+        if (p.empty()) continue;
+        // Ghidra names a function pointer type after its signature
+        // (_func_int_char_ptr): only _func_void is defined above.
+        bool unnamed = false;
+        for (std::size_t at = p.find("_func_"); at != std::string::npos; at = p.find("_func_", at + 1))
+          if (p.compare(at, 10, "_func_void") != 0 || (at + 10 < p.size() && (std::isalnum(static_cast<unsigned char>(p[at + 10])) || p[at + 10] == '_')))
+            unnamed = true;
+        if (unnamed || !declared.insert(res.name).second)
+          h += "/* " + p + (unnamed ? " (a function pointer type C has no name for) */\n" : " (another function of that name) */\n");
+        else
+          h += p + "\n";
+      }
+      h += "\n#endif /* " + guard + " */\n";
+      head.set_header(std::move(h));
+      for (const std::string &n : types.notes()) head.add_notes(n);
+      source += "#include \"" + name + ".h\"\n";
+    } else {
+      source += "\n" + std::string(kGhidraBuiltinTypedefs);
+    }
+    if (!write(head)) return Error(StatusCode::kCancelled, "the client went away");
+    constexpr std::size_t kPart = 1u << 20;
+    std::uint32_t failed = 0;
+    pb::ExportCResponse last;
+    *last.mutable_snapshot() = snap;
+    auto flush = [&](bool force) {
+      if (source.size() < kPart && !force) return true;
+      pb::ExportCResponse part;
+      *part.mutable_snapshot() = snap;
+      part.set_source_part(std::move(source));
+      source.clear();
+      return write(part);
+    };
+    for (const Result &res : results) {
+      source += "\n\n/* " + res.name + " @ 0x" + Hex(res.entry) + " */\n";
+      if (!res.why.empty()) {
+        ++failed;
+        *last.add_failed() = A(res.entry);
+        std::string why = res.why;
+        for (std::size_t p = why.find("*/"); p != std::string::npos; p = why.find("*/", p)) why.replace(p, 2, "* /");
+        source += "/* not decompiled: " + why + " */\n";
+      } else {
+        source += res.text;
+        if (!res.text.empty() && res.text.back() != '\n') source += '\n';
+      }
+      if (!flush(false)) return Error(StatusCode::kCancelled, "the client went away");
+    }
+    if (!source.empty() && !flush(true)) return Error(StatusCode::kCancelled, "the client went away");
+    last.set_done(static_cast<std::uint32_t>(results.size()));
+    last.set_total(total);
+    last.set_finished(true);
+    last.set_functions(static_cast<std::uint32_t>(results.size()) - failed);
+    if (!write(last)) return Error(StatusCode::kCancelled, "the client went away");
+    return Status::Ok();
   }
 
   // QueryService.DecompileMany (api_minor 29, feature "script-batch"): the
@@ -8244,7 +9508,8 @@ class ImageBackend final : public api::Backend {
       case pb::NAVIGATION_KIND_NOTE: {
         std::set<std::uint64_t> addrs;
         for (const facts::FactKey &k : v.log().keys())
-          if (k.kind == FactKind::Note && k.addr.space == v.space() && !v.Text(k).empty()) addrs.insert(k.addr.offset);
+          if (k.kind == FactKind::Note && k.addr.space == v.space() && !IsDataSettingsTag(k.sub) && !v.Text(k).empty())
+            addrs.insert(k.addr.offset);
         found = step(addrs, [](std::uint64_t) { return true; });
         break;
       }
@@ -8902,7 +10167,7 @@ class ImageBackend final : public api::Backend {
 
   // --- Plugins ------------------------------------------------------------------
 
-  Status ListPlugins(const CallContext &, const pb::ListPluginsRequest &, pb::ListPluginsResponse &resp) override {
+  Status ListPlugins(const CallContext &ctx, const pb::ListPluginsRequest &, pb::ListPluginsResponse &resp) override {
     resp.set_interface_version(plugins::abi::kInterfaceVersion);
     const auto &host = core_->options.plugins;
     if (!host) return Status::Ok();
@@ -8920,7 +10185,13 @@ class ImageBackend final : public api::Backend {
       out->set_name(r.name.empty() ? r.path.stem().string() : r.name);
       out->set_version(r.version);
       out->set_loaded(false);
-      out->set_error(r.error);
+      // Only admins see where the daemon keeps its plugins (a viewer
+      // may call this): the directory is cut from the error.
+      std::string error = r.error;
+      if (const std::string dir = r.path.parent_path().string(); !ctx.caller_admin && !dir.empty())
+        for (std::size_t at; (at = error.find(dir)) != std::string::npos;)
+          error.erase(at, dir.size() + (at + dir.size() < error.size() && error[at + dir.size()] == '/' ? 1 : 0));
+      out->set_error(error);
     }
     return Status::Ok();
   }
@@ -9379,6 +10650,7 @@ class ImageBackend final : public api::Backend {
     StageInfer(tx, src);
     plugins::stage_program(tx, AnalysisKey(src.id), src.program->image(), src.file_space, src.file_size);
     tx.set<q::Source>(src.id, src);
+    tx.set<q::DebugFile>(src.id, DebugFileStamp(*src.program));
     // Published prototypes name functions where they were: published again
     // by their background passes at the new addresses (Commit schedules them).
     facts::Snapshot head = p.db->snapshot();
@@ -9426,6 +10698,7 @@ class ImageBackend final : public api::Backend {
     StageInfer(tx, src);
     plugins::stage_program(tx, AnalysisKey(src.id), src.program->image(), src.file_space, src.file_size);
     tx.set<q::Source>(src.id, src);
+    tx.set<q::DebugFile>(src.id, DebugFileStamp(*src.program));
     facts::Snapshot head = p.db->snapshot();
     for (std::uint64_t e : std::exchange(p.infer_published[src.id], {}))
       if (*head.get<q::InferPublished>({src.id, e})) tx.set<q::InferPublished>({src.id, e}, std::nullopt);
@@ -9443,6 +10716,21 @@ class ImageBackend final : public api::Backend {
     po.loaded = std::move(loaded);
     po.debug_info = core_->options.import_debug_info;
     po.binary = src.path;
+    // A stripped ELF's separate debug file, found locally (docs/backend.md
+    // "External debug files"): beside the binary, in the configured
+    // directories, or in the cache of files fetched or loaded before. Never
+    // the network at load.
+    po.find_debug_file = [settings = CurrentDebugFileSettings(), binary = src.path](const loader::Image &image)
+        -> std::optional<Program::Options::DebugFile> {
+      DebugFileQuery q;
+      q.build_id = image.build_id;
+      q.link = ReadDebugLink(image);
+      q.binary = binary;
+      std::vector<std::string> log;
+      auto found = FindDebugFile(settings, q, /*standard=*/false, /*network=*/false, log);
+      if (!found || !found->bytes) return std::nullopt;
+      return Program::Options::DebugFile{found->file, std::move(found->bytes)};
+    };
     if (!src.loader.empty()) {
       // A loader plugin, by name; a newer version of it loads the program
       // just as well (its derived facts then recompute: the source differs).
@@ -9659,6 +10947,7 @@ class ImageBackend final : public api::Backend {
       if (!src.loader.empty()) src.loader = src.program->format().substr(std::string_view("plugin:").size());
       ids.push_back(src.id);
       tx.set<q::Source>(src.id, src);
+      tx.set<q::DebugFile>(src.id, DebugFileStamp(*src.program));
       tx.set<q::DecompilerOptions>(src.id, DefaultDecompilerOptions());
       // Not persisted (the bytes are): the same ProgramInfo as at import,
       // so discovery's stored memos validate.
@@ -10011,20 +11300,120 @@ class ImageBackend final : public api::Backend {
     return Status::Ok();
   }
 
+  // References back from a library (api_minor 81, feature
+  // "library-importers"; docs/api.md "Libraries"): the programs whose
+  // imports resolve to this program, each such import, and the importer's
+  // references to its thunk and slot.
+  Status ListLibraryImporters(const CallContext &ctx, const pb::ListLibraryImportersRequest &req,
+                              pb::ListLibraryImportersResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    SetSnapshot(r, resp.mutable_snapshot());
+    std::optional<std::uint64_t> want_address;
+    std::string want_name;
+    if (req.has_address()) {
+      View v(r);
+      const std::uint64_t a = req.address().offset();
+      const Func *f = v.functions().containing(a);
+      want_address = f ? f->entry : a;
+    } else if (req.has_name()) {
+      want_name = libs::StripVersion(req.name());
+      if (want_name.empty()) return Error(StatusCode::kInvalidArgument, "name is empty");
+    }
+    const std::string library_id = r.program->id();
+    struct Importer {
+      std::shared_ptr<const ProgramEntry> entry;
+      std::string name;
+      std::vector<LibraryLink> links;
+    };
+    std::vector<Importer> importers;
+    {
+      std::lock_guard lock(core_->mu);
+      for (const auto &[id, c] : r.project->programs) {
+        if (c.get() == r.program.get() || !c->source.program) continue;
+        const ProgramState st = StateOf(*r.project, *c, r.log_size);
+        if (st.deleted) continue;
+        std::vector<LibraryLink> links = LibrariesOfLocked(*r.project, *c, r.log_size);
+        if (std::none_of(links.begin(), links.end(),
+                         [&](const LibraryLink &l) { return l.target && l.target->id() == library_id; }))
+          continue;
+        importers.push_back({c, st.name, std::move(links)});
+      }
+    }
+    std::sort(importers.begin(), importers.end(), [](const Importer &a, const Importer &b) {
+      return std::tie(a.name, a.entry->source.ordinal) < std::tie(b.name, b.entry->source.ordinal);
+    });
+    const std::uint32_t max_refs = req.max_references() ? std::min<std::uint32_t>(req.max_references(), 1000) : 50;
+    for (const Importer &imp : importers) {
+      if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+      std::vector<ImportItem> items;
+      {
+        Read ir;
+        if (!ResolveProgram(ctx, imp.entry->id(), {}, {}, ir).ok()) continue;
+        View iv(ir);
+        items = ImportsOf(iv);
+      }
+      if (!want_name.empty())
+        std::erase_if(items, [&](const ImportItem &i) { return i.name != want_name; });
+      if (items.empty()) continue;
+      for (pb::ResolvedImport &x : ResolveImports(ctx, imp.links, items, IsPeProgram(*imp.entry))) {
+        if (!x.resolved() || x.program_id() != library_id) continue;
+        if (want_address && x.address().offset() != *want_address) continue;
+        pb::LibraryImporter *o = resp.add_importers();
+        o->set_program_id(imp.entry->id());
+        o->set_program_name(imp.name);
+        o->set_library(x.library());
+        if (req.include_references()) {
+          // The importer's references to the thunk, then to the slot (but
+          // the thunk's own jump through it).
+          std::set<std::pair<std::uint64_t, std::uint64_t>> seen;
+          for (const pb::Address *at : {x.has_thunk() ? &x.thunk() : nullptr, x.has_slot() ? &x.slot() : nullptr}) {
+            if (!at || static_cast<std::uint32_t>(o->references_size()) >= max_refs) continue;
+            pb::GetXrefsRequest xr;
+            xr.set_program_id(imp.entry->id());
+            *xr.mutable_address() = *at;
+            xr.set_direction(pb::XREF_DIRECTION_TO);
+            xr.mutable_page()->set_page_size(max_refs + 1);
+            pb::GetXrefsResponse xs;
+            if (!GetXrefs(ctx, xr, xs).ok()) continue;
+            for (pb::Xref &ref : *xs.mutable_xrefs()) {
+              if (at == &x.slot() && x.has_thunk() && ref.from_function().offset() == x.thunk().offset()) continue;
+              if (!seen.insert({ref.from_address().offset(), ref.to_address().offset()}).second) continue;
+              if (static_cast<std::uint32_t>(o->references_size()) >= max_refs) {
+                o->set_references_truncated(true);
+                break;
+              }
+              *o->add_references() = std::move(ref);
+            }
+          }
+        }
+        *o->mutable_resolved() = std::move(x);
+      }
+    }
+    return Status::Ok();
+  }
+
   // ImportProgramRequest.folder_id: the program into that folder; false
   // (with a warning) when it can't go there.
-  bool PlaceInFolder(const pb::ImportProgramRequest &req, const std::string &program_id, pb::ImportProgramResponse &resp) {
+  bool PlaceInFolder(const std::string &project_id, const std::string &folder_id, const pb::Provenance &provenance,
+                     const std::string &program_id, std::vector<std::string> &warnings) {
     pb::MoveToFolderRequest m;
-    m.set_project_id(req.project_id());
-    m.set_folder_id(req.folder_id());
+    m.set_project_id(project_id);
+    m.set_folder_id(folder_id);
     m.add_program_ids(program_id);
-    *m.mutable_provenance() = req.provenance();
+    *m.mutable_provenance() = provenance;
     pb::MoveToFolderResponse mr;
     if (auto st = MoveToFolder(CallContext{}, m, mr); !st.ok()) {
-      resp.add_warnings("not moved into the folder: " + st.message);
+      warnings.push_back("not moved into the folder: " + st.message);
       return false;
     }
     return true;
+  }
+  bool PlaceInFolder(const pb::ImportProgramRequest &req, const std::string &program_id, pb::ImportProgramResponse &resp) {
+    std::vector<std::string> w;
+    const bool ok = PlaceInFolder(req.project_id(), req.folder_id(), req.provenance(), program_id, w);
+    for (std::string &x : w) resp.add_warnings(std::move(x));
+    return ok;
   }
 
   // The program's ProgramInfo at head.
@@ -10036,28 +11425,64 @@ class ImageBackend final : public api::Backend {
     FillProgramInfo(*p, *p->programs.at(id), upto, TreeLocked(*p, upto), out);
   }
 
-  // ImportOptions.import_libraries: the libraries the imported program (and
-  // then theirs, to library_depth) needs that the project has no program
-  // for, found on the search paths (libs::SearchDirs) and imported.
-  void ImportLibraries(const CallContext &ctx, const pb::ImportProgramRequest &req, pb::ImportProgramResponse &resp) {
-    const pb::ImportOptions &o = req.options();
-    const std::uint32_t max_depth = std::min<std::uint32_t>(o.library_depth() ? o.library_depth() : 2, 8);
-    const std::vector<std::string> user(o.library_search_paths().begin(), o.library_search_paths().end());
+  // ImportOptions.import_libraries: the libraries the imported programs (and
+  // then theirs, to library_depth) need that the project has no program for,
+  // found and imported. Where they are looked for: on the host (the search
+  // paths, the file's directory and runpath, the host's library directories:
+  // libs::SearchDirs), or inside the program's own root file system (an
+  // extracted one on the host, or the container layer it was imported
+  // from: libs::RootSearchDirs) instead of the host's directories.
+  struct LibraryTop {
+    std::string program_id;
+    std::shared_ptr<libs::LibraryRoot> root;          // null: the host's directories
+    std::shared_ptr<ContainerLibraryRoot> container;  // the root, when it is a container's layer
+    std::string origin;                               // the program's directory in the root
+    std::string folder_id;                            // where its libraries go
+  };
+  struct LibraryImportJob {
+    std::string project_id;
+    pb::Provenance provenance;
+    bool analyze = false;
+    std::uint32_t max_depth = 2;
+    std::vector<std::string> search_paths;  // host dirs; in a container, paths in its layer
+  };
+  struct LibraryImported {
+    std::string program_id;
+    std::string needed_by;  // the program that needs it
+    std::string from;       // its host path or container path
+    std::string key;        // its host path or session path
+  };
+  struct LibraryImportResult {
+    std::vector<LibraryImported> imported;
+    std::vector<pb::MissingLibrary> missing;
+    std::vector<std::string> warnings;
+  };
+
+  void ImportLibrariesOf(const CallContext &ctx, const LibraryImportJob &job, const std::vector<LibraryTop> &tops,
+                         LibraryImportResult &out) {
+    const std::uint32_t max_depth = std::min<std::uint32_t>(job.max_depth ? job.max_depth : 2, 8);
     constexpr std::size_t kMaxImported = 64;
-    std::deque<std::pair<std::string, std::uint32_t>> queue{{resp.program().program_id(), 1}};
-    std::set<std::string> visited{resp.program().program_id()}, missing;
+    constexpr std::uint64_t kMaxRootLibraryBytes = std::uint64_t{1} << 30;
+    struct Item {
+      LibraryTop at;
+      std::uint32_t depth = 1;
+    };
+    std::deque<Item> queue;
+    std::set<std::string> visited, missing;
+    for (const LibraryTop &t : tops)
+      if (visited.insert(t.program_id).second) queue.push_back({t, 1});
     std::size_t imported = 0;
-    while (!queue.empty()) {
-      auto [id, depth] = queue.front();
+    while (!queue.empty() && !ctx.cancelled()) {
+      Item cur = std::move(queue.front());
       queue.pop_front();
       Project *p = nullptr;
-      if (!FindProgramProject(id, p).ok()) continue;
+      if (!FindProgramProject(cur.at.program_id, p).ok()) continue;
       std::shared_ptr<const ProgramEntry> e;
       std::string needed_by;
       std::vector<std::pair<std::string, std::string>> needs;  // name, the program it is ("" none)
       {
         std::lock_guard lock(core_->mu);
-        e = p->programs.at(id);
+        e = p->programs.at(cur.at.program_id);
         const Seq upto = p->log().size();
         needed_by = StateOf(*p, *e, upto).name;
         for (const std::string &n : e->program().image().needed) {
@@ -10066,46 +11491,180 @@ class ImageBackend final : public api::Backend {
         }
       }
       const loader::Image &img = e->program().image();
-      const bool host = !e->source.path.empty() && e->source.container_path.empty();
-      const std::vector<fs::path> dirs = libs::SearchDirs(user, e->source.path, img, host);
+      std::vector<fs::path> host_dirs;
+      std::vector<std::string> root_dirs;
+      if (cur.at.container) {
+        // A container's search paths are paths in its layer.
+        root_dirs = libs::RootSearchDirs(*cur.at.root, job.search_paths, cur.at.origin, img);
+      } else if (cur.at.root) {
+        // A host root: the search paths stay host directories (an admin
+        // named them), then the root's.
+        host_dirs = libs::SearchDirs(job.search_paths, {}, img, false);
+        root_dirs = libs::RootSearchDirs(*cur.at.root, {}, cur.at.origin, img);
+      } else {
+        const bool host = !e->source.path.empty() && e->source.container_path.empty();
+        host_dirs = libs::SearchDirs(job.search_paths, e->source.path, img, host);
+      }
       for (auto &[n, target] : needs) {
+        if (ctx.cancelled()) break;
         if (target.empty()) {
           if (missing.contains(n)) continue;
-          std::optional<fs::path> found = imported < kMaxImported ? libs::FindLibrary(n, dirs, img) : std::nullopt;
-          if (!found) {
+          std::optional<std::string> host_file, root_key;
+          if (imported < kMaxImported) {
+            if (auto f = libs::FindLibrary(n, host_dirs, img)) host_file = f->string();
+            else if (cur.at.root) root_key = libs::FindLibraryIn(*cur.at.root, n, root_dirs, img);
+          }
+          if (!host_file && !root_key) {
             missing.insert(n);
-            pb::MissingLibrary *m = resp.add_libraries_not_found();
-            m->set_name(n);
-            m->set_needed_by(needed_by);
+            pb::MissingLibrary m;
+            m.set_name(n);
+            m.set_needed_by(needed_by);
+            out.missing.push_back(std::move(m));
             continue;
           }
           pb::ImportProgramRequest lr;
-          lr.set_project_id(req.project_id());
-          lr.set_path(found->string());
+          lr.set_project_id(job.project_id);
           lr.set_name(n);
-          *lr.mutable_provenance() = req.provenance();
-          lr.mutable_options()->set_analyze(o.analyze());
-          pb::ImportProgramResponse lresp;
-          ImportProgress progress(ctx.caller, req.project_id(), n);
+          *lr.mutable_provenance() = job.provenance;
+          lr.mutable_options()->set_analyze(job.analyze);
+          std::optional<PreloadedImport> pre;
+          std::string from;
           Status st;
-          try {
-            st = ImportProgramImpl(lr, lresp, progress, nullptr, ctx.caller);
-          } catch (const std::exception &x) {
-            st = Error(StatusCode::kInternal, x.what());
+          if (root_key && cur.at.container) {
+            // From the container: its bytes, recording its container path.
+            from = cur.at.container->container_path(*root_key);
+            st = FsGuard([&]() -> Status {
+              auto src = cur.at.container->open(*root_key);
+              auto bytes = std::make_shared<loader::Bytes>(static_cast<std::size_t>(src->size()));
+              if (src->read(0, *bytes) != bytes->size())
+                return Error(StatusCode::kDataLoss, "short read");
+              pre = PreloadedImport{std::move(bytes), from};
+              return Status::Ok();
+            });
+          } else if (root_key && cur.at.root) {
+            // From a root file system on the host: read through the root,
+            // so a link swapped in since it was found isn't followed out
+            // of it (docs/bug-scrub.md, "Extraction TOCTOU").
+            from = *root_key;
+            lr.set_path(from);
+            auto bytes = cur.at.root->read_all(*root_key, kMaxRootLibraryBytes);
+            if (bytes) pre = PreloadedImport{std::move(bytes), {}, true};
+            else st = Error(StatusCode::kNotFound, "cannot read it inside the root (changed, or larger than 1 GiB)");
+          } else {
+            from = *host_file;
+            lr.set_path(from);
+          }
+          pb::ImportProgramResponse lresp;
+          if (st.ok()) {
+            ImportProgress progress(ctx.caller, job.project_id, n);
+            try {
+              st = ImportProgramImpl(lr, lresp, progress, pre ? &*pre : nullptr, ctx.caller);
+            } catch (const std::exception &x) {
+              st = Error(StatusCode::kInternal, x.what());
+            }
           }
           if (!st.ok()) {
             missing.insert(n);
-            resp.add_warnings("library " + n + " (" + found->string() + ") not imported: " + st.message);
+            out.warnings.push_back("library " + n + " (" + from + ") not imported: " + st.message);
             continue;
           }
           ++imported;
           target = lresp.program().program_id();
-          if (!req.folder_id().empty()) PlaceInFolder(req, target, resp);
-          RefillProgram(target, resp.add_libraries());
+          if (!cur.at.folder_id.empty())
+            PlaceInFolder(job.project_id, cur.at.folder_id, job.provenance, target, out.warnings);
+          out.imported.push_back({target, needed_by, from, root_key ? *root_key : from});
+          if (cur.depth < max_depth && visited.insert(target).second) {
+            LibraryTop next = cur.at;
+            next.program_id = target;
+            next.origin = root_key ? cur.at.root->origin(*root_key) : std::string();
+            queue.push_back({std::move(next), cur.depth + 1});
+          }
+          continue;
         }
-        if (depth < max_depth && visited.insert(target).second) queue.emplace_back(target, depth + 1);
+        // A program already in the project: its libraries too, in the same
+        // root (where in it isn't known: not beside it).
+        if (cur.depth < max_depth && visited.insert(target).second) {
+          LibraryTop next = cur.at;
+          next.program_id = target;
+          next.origin.clear();
+          queue.push_back({std::move(next), cur.depth + 1});
+        }
       }
     }
+  }
+
+  // The root file system a path import finds its libraries in
+  // (ImportOptions.library_root, else the extracted one the file lies in
+  // under a --browse-root), canonical; "" for the host's directories.
+  // Error: a library_root outside every --browse-root.
+  Status LibraryRootOf(const pb::ImportProgramRequest &req, std::string &out) {
+    out.clear();
+    std::vector<fs::path> roots;
+    for (const std::string &r : core_->options.browse_roots) {
+      std::error_code ec;
+      fs::path c = fs::canonical(r, ec);
+      if (!ec) roots.push_back(std::move(c));
+    }
+    auto under = [&](const fs::path &p) -> const fs::path * {
+      for (const fs::path &r : roots) {
+        const fs::path rel = p.lexically_relative(r);
+        if (!rel.empty() && *rel.begin() != "..") return &r;
+      }
+      return nullptr;
+    };
+    const std::string &want = req.options().library_root();
+    if (!want.empty()) {
+      if (roots.empty())
+        return Error(StatusCode::kFailedPrecondition,
+                     "library_root reads the daemon's files under --browse-root, and the daemon has none");
+      std::error_code ec;
+      const fs::path c = fs::canonical(want, ec);
+      if (ec || !fs::is_directory(c, ec)) return Error(StatusCode::kNotFound, "library_root " + want + " is not a directory");
+      if (!under(c)) return Error(StatusCode::kPermissionDenied, "library_root " + want + " is not under a --browse-root directory");
+      out = c.string();
+      return Status::Ok();
+    }
+    if (!req.has_path() || roots.empty()) return Status::Ok();
+    std::error_code ec;
+    const fs::path file = fs::canonical(req.path(), ec);
+    if (ec) return Status::Ok();
+    if (const fs::path *r = under(file))
+      if (auto found = libs::FindRootFileSystem(file, *r)) out = found->string();
+    return Status::Ok();
+  }
+
+  // ImportProgram's libraries (ImportOptions.import_libraries); `root`:
+  // LibraryRootOf's answer.
+  void ImportLibraries(const CallContext &ctx, const pb::ImportProgramRequest &req, const std::string &root,
+                       pb::ImportProgramResponse &resp) {
+    const pb::ImportOptions &o = req.options();
+    LibraryImportJob job;
+    job.project_id = req.project_id();
+    job.provenance = req.provenance();
+    job.analyze = o.analyze();
+    job.max_depth = o.library_depth();
+    job.search_paths.assign(o.library_search_paths().begin(), o.library_search_paths().end());
+    LibraryTop top;
+    top.program_id = resp.program().program_id();
+    top.folder_id = req.folder_id();
+    if (!root.empty()) {
+      top.root = libs::HostRoot(root);
+      resp.set_library_root(root);
+      std::error_code ec;
+      const fs::path file = req.has_path() ? fs::canonical(req.path(), ec) : fs::path();
+      if (!ec && !file.empty()) {
+        const fs::path rel = file.parent_path().lexically_relative(root);
+        if (!rel.empty() && *rel.begin() != "..")
+          top.origin = rel == "." ? "/" : "/" + rel.string();
+        else
+          job.search_paths.push_back(file.parent_path().string());  // beside it, on the host
+      }
+    }
+    LibraryImportResult r;
+    ImportLibrariesOf(ctx, job, {top}, r);
+    for (const LibraryImported &l : r.imported) RefillProgram(l.program_id, resp.add_libraries());
+    for (pb::MissingLibrary &m : r.missing) *resp.add_libraries_not_found() = std::move(m);
+    for (std::string &w : r.warnings) resp.add_warnings(std::move(w));
   }
 
   // --- Folders (api_minor 37; docs/api.md, "Folders") -------------------------
@@ -12208,6 +13767,343 @@ class ImageBackend final : public api::Backend {
     return Status::Ok();
   }
 
+  // A BSim match applied to a queried function (docs/bsim.md, "Applying
+  // matches"; api_minor 76): its name, its name and a skeleton signature,
+  // or its name, signature and types. From the match's program in the
+  // project (ported as PortFunctionMarkup ports), else from the database's
+  // record. Every pair in one revision.
+  Status ApplyBSimMatches(const CallContext &ctx, const pb::ApplyBSimMatchesRequest &req,
+                          pb::ApplyBSimMatchesResponse &resp) override {
+    if (req.kind() == pb::BSIM_APPLY_KIND_UNSPECIFIED) return Error(StatusCode::kInvalidArgument, "kind is required");
+    if (req.program_id().empty()) return Error(StatusCode::kInvalidArgument, "program_id is required");
+    if (req.pairs().empty()) return Error(StatusCode::kInvalidArgument, "pairs is required");
+    if (req.pairs_size() > 10000) return Error(StatusCode::kInvalidArgument, "at most 10000 pairs at once");
+    for (const pb::BSimApplyPair &x : req.pairs())
+      if (!x.has_function() || !x.has_match() || x.executable().empty())
+        return Error(StatusCode::kInvalidArgument, "each pair needs function, executable and match");
+    std::shared_ptr<BsimEntry> e;
+    if (auto st = AttachedBsim(req.project_id(), req.database(), e); !st.ok()) return st;
+    Read pr;
+    if (auto st = ResolveProject(ctx, req.project_id(), {}, 0, pr); !st.ok()) return st;
+    Project &p = *pr.project;
+    pb::Provenance prov = req.provenance();
+    if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED) prov.set_kind(pb::PROVENANCE_KIND_USER);
+    if (prov.id().empty()) prov.set_id(ctx.caller.substr(ctx.caller.find(':') + 1));
+
+    // The matches, as the database has them.
+    struct Hit {
+      std::string exe_id, exe_name, name, prototype, error;
+      bool default_name = false;
+    };
+    std::vector<Hit> hits(req.pairs_size());
+    std::string db_name;
+    {
+      std::lock_guard use(e->mu);
+      db_name = e->db.info().name.empty() ? fs::path(req.database()).stem().string() : e->db.info().name;
+      for (int i = 0; i < req.pairs_size(); ++i) {
+        const pb::BSimApplyPair &x = req.pairs(i);
+        Hit &hit = hits[i];
+        const bsim::Executable *exe = e->db.find_executable(x.executable());
+        if (!exe) {
+          hit.error = "no executable " + x.executable() + " in " + db_name;
+          continue;
+        }
+        hit.exe_id = exe->id;
+        hit.exe_name = exe->name;
+        const auto fns = e->db.functions(exe->id);
+        auto f = std::find_if(fns.begin(), fns.end(), [&](const bsim::FunctionRecord &r) { return r.entry == x.match().offset(); });
+        if (f == fns.end()) {
+          hit.error = "no function at 0x" + Hex(x.match().offset()) + " in " + exe->name;
+          continue;
+        }
+        hit.name = f->name;
+        hit.prototype = f->prototype;
+        hit.default_name = (f->flags & bsim::kDefaultName) != 0 || diff::is_default_name(f->name);
+      }
+    }
+    const std::map<std::string, std::string> by_sha = ProgramsBySha(p);
+
+    std::lock_guard write(p.write_mu);
+    if (auto st = CheckWritable(p, req.program_id(), 0); !st.ok()) return st;
+    DiffRead base;
+    {
+      std::lock_guard lock(core_->mu);
+      if (auto st = PinLocked(p, p.head, base.r); !st.ok()) return st;
+    }
+    base.session.program_a = base.session.program_b = req.program_id();
+    if (auto st = ProgramsAt(base); !st.ok()) return st;
+    View vt(base.b);
+    // The queried functions (by entry, or containing the address); one in
+    // two pairs gets neither.
+    std::vector<const Func *> targets(req.pairs_size(), nullptr);
+    std::map<std::uint64_t, int> uses;
+    for (int i = 0; i < req.pairs_size(); ++i) {
+      const std::uint64_t a = req.pairs(i).function().offset();
+      const Func *f = vt.functions().at(a);
+      if (!f) f = vt.functions().containing(a);
+      targets[i] = f;
+      if (f) ++uses[f->entry];
+    }
+
+    const facts::ProvenanceKind analysis = facts::ProvenanceKind::Analysis;
+    std::vector<PlannedOp> ops;
+    std::map<std::string, std::string> types_defined;
+    std::vector<std::size_t> pair_of_op;  // which pair each op is for
+    const std::string apply_what = req.kind() == pb::BSIM_APPLY_KIND_NAME ? "name"
+                                   : req.kind() == pb::BSIM_APPLY_KIND_SIGNATURE ? "signature"
+                                                                                  : "signature and types";
+    for (int i = 0; i < req.pairs_size(); ++i) {
+      const pb::BSimApplyPair &x = req.pairs(i);
+      const Hit &hit = hits[i];
+      pb::BSimApplied &out = *resp.add_results();
+      out.mutable_function()->set_offset(targets[i] ? targets[i]->entry : x.function().offset());
+      out.set_executable_id(hit.exe_id);
+      *out.mutable_match() = x.match();
+      auto failed = [&](const std::string &why) {
+        out.set_status(pb::BSIM_APPLY_STATUS_FAILED);
+        out.set_message(why);
+        resp.set_failed(resp.failed() + 1);
+      };
+      if (!hit.error.empty()) {
+        failed(hit.error);
+        continue;
+      }
+      if (!targets[i]) {
+        failed("no function at 0x" + Hex(x.function().offset()) + " in " + req.program_id());
+        continue;
+      }
+      const Func &tf = *targets[i];
+      const std::uint64_t to = tf.entry;
+      if (uses[to] > 1) {
+        failed("more than one match is selected for " + vt.Symbol(to) + ": none applied");
+        continue;
+      }
+      pb::Function tfn;
+      FillFunction(vt, tf, &tfn);
+      out.set_name_before(vt.Symbol(to));
+      out.set_name_after(out.name_before());
+      out.set_signature_before(tfn.prototype());
+      out.set_signature_after(tfn.prototype());
+
+      // The match's program in the project, with its function there.
+      std::string from_program;
+      if (!req.database_only())
+        if (auto it = by_sha.find(hit.exe_id); it != by_sha.end()) from_program = it->second;
+      DiffRead h = base;
+      std::optional<View> vf;
+      if (!from_program.empty()) {
+        h.session.program_a = from_program;
+        if (ProgramsAt(h).ok()) {
+          vf.emplace(h.a);
+          if (!vf->functions().at(x.match().offset())) vf.reset();
+        }
+        if (!vf) from_program.clear();
+      }
+      if (from_program == req.program_id() && x.match().offset() == to) {
+        failed("the match is the function itself");
+        continue;
+      }
+      out.set_from_program(from_program);
+
+      const std::size_t first_op = ops.size();
+      std::vector<std::string> notes;
+      std::uint32_t skipped = 0, types = 0;
+      bool named = false, signed_ = false;
+      const std::string where = hit.name + " in " + hit.exe_name;
+      pb::PortedFrom pf;  // the database's record
+      pf.mutable_function()->set_offset(x.match().offset());
+      pf.mutable_address()->set_offset(x.match().offset());
+      pf.set_bsim_database(req.database());
+      pf.set_bsim_executable(hit.exe_id);
+      auto add = [&](facts::FactKey key, FactValue value, pb::AssertionBody body) {
+        PlannedOp op;
+        op.key = std::move(key);
+        op.value = std::move(value);
+        op.body = std::move(body);
+        op.ported = pf;
+        ops.push_back(std::move(op));
+      };
+
+      // Through PortFunctionMarkup: the name, and with types the signature.
+      const bool port_signature = vf && req.kind() == pb::BSIM_APPLY_KIND_SIGNATURE_AND_TYPES;
+      std::string source_prototype = hit.prototype;
+      if (vf) {
+        pb::Function sfn;
+        FillFunction(*vf, *vf->functions().at(x.match().offset()), &sfn);
+        source_prototype = sfn.prototype();
+        pb::PortFunctionMarkupRequest preq;
+        preq.set_from_program(from_program);
+        *preq.mutable_from_entry() = x.match();
+        preq.set_to_program(req.program_id());
+        preq.mutable_to_entry()->set_offset(to);
+        preq.add_items()->set_kind(pb::FUNCTION_MARKUP_KIND_NAME);
+        // A signature the source knows (not the decompiler's guess).
+        if (port_signature && !source_prototype.empty()) preq.add_items()->set_kind(pb::FUNCTION_MARKUP_KIND_SIGNATURE);
+        preq.set_overwrite(req.overwrite());
+        PortExtra extra;
+        extra.analysis_signature_is_guess = true;
+        extra.bsim_database = req.database();
+        extra.bsim_executable = hit.exe_id;
+        pb::PortFunctionMarkupResponse presp;
+        if (auto st = PlanPortMarkup(ctx, preq, h, *vf, vt, extra, ops, types_defined, presp); !st.ok()) {
+          if (st.code == StatusCode::kCancelled) return st;
+          failed(st.message);
+          ops.resize(first_op);
+          continue;
+        }
+        for (const pb::PortedMarkup &m : presp.ported()) {
+          if (m.kind() == pb::FUNCTION_MARKUP_KIND_NAME) out.set_name_after(m.after());
+          if (m.kind() == pb::FUNCTION_MARKUP_KIND_SIGNATURE) out.set_signature_after(m.after());
+        }
+        named = presp.names() > 0;
+        signed_ = presp.signatures() > 0;
+        types += presp.types();
+        skipped += presp.skipped();
+        for (const std::string &w : presp.warnings()) notes.push_back(w);
+        const std::string cur = vt.Symbol(to), src = vf->Symbol(x.match().offset());
+        const bool name_kept = !named && !src.empty() && !diff::is_default_name(src) && src != cur && !cur.empty() &&
+                               !diff::is_default_name(cur);
+        if (name_kept) notes.push_back(cur + " keeps its name (not a default one)");
+        if (port_signature && source_prototype.empty()) notes.push_back("no signature to apply: " + where + " has none known");
+        else if (port_signature && !signed_ && presp.skipped() > (name_kept ? 1u : 0u))
+          notes.push_back(cur + " keeps its signature (someone set it)");
+      } else {
+        // The database's name.
+        const std::string cur = vt.Symbol(to);
+        if (hit.name.empty() || hit.default_name) {
+          notes.push_back("the match's name " + hit.name + " is a default one: not applied");
+        } else if (cur != hit.name) {
+          if (!req.overwrite() && !cur.empty() && !diff::is_default_name(cur)) {
+            ++skipped;
+            notes.push_back(cur + " keeps its name (not a default one)");
+          } else {
+            pb::AssertionBody body;
+            body.mutable_rename()->mutable_target()->mutable_address()->set_offset(to);
+            body.mutable_rename()->set_name(hit.name);
+            add(vt.Key(FactKind::Name, to), hit.name, std::move(body));
+            out.set_name_after(hit.name);
+            named = true;
+          }
+        }
+      }
+
+      // A skeleton signature from the prototype's text (Ghidra's Apply
+      // Signature): SIGNATURE, or SIGNATURE_AND_TYPES from the database alone.
+      if (req.kind() != pb::BSIM_APPLY_KIND_NAME && !port_signature) {
+        const facts::FactKey kb = vt.Key(FactKind::Type, to);
+        const auto w = vt.Winner(kb);
+        // The function's own: someone's assertion (not analysis's), or the
+        // demangler's or a library's prototype.
+        const bool own = w ? w->prov.kind != analysis
+                           : tfn.has_prototype_origin() && tfn.prototype_origin().has_derived() &&
+                                 (tfn.prototype_origin().derived().rule() == "analysis.demangler" ||
+                                  tfn.prototype_origin().derived().rule().starts_with("library:"));
+        std::vector<std::string> placeholders;
+        std::optional<ParsedRetype> parsed;
+        std::string why;
+        if (!source_prototype.empty()) {
+          auto names = base.b.snapshot->get<q::TypeNames>(vt.id());
+          ParseCContext c{vt.program(), *names, [&](const std::string &hash) { return TypeClosureOf(base.b, vt, hash); },
+                          core_->options.browse_roots};
+          parsed = ParseSkeletonPrototype(c, source_prototype, &placeholders, &why);
+        }
+        if (source_prototype.empty()) {
+          notes.push_back("no signature to apply: " + where + " has none known");
+        } else if (parsed && vt.Text(kb) == "h:" + parsed->hash) {
+          // Already the same.
+        } else if (own && !req.overwrite()) {
+          ++skipped;
+          notes.push_back(vt.Symbol(to) + " keeps its signature (someone set it)");
+        } else {
+          if (!parsed) {
+            notes.push_back("the signature " + source_prototype + " doesn't parse here: " + why);
+          } else {
+            for (auto &[hash, def] : parsed->types) {
+              if (types_defined.contains(hash) || vt.Asserted(TypeDefKey(vt.space(), hash)) ||
+                  vt.Asserted(TypeDefKey(kProjectSpace, hash)))
+                continue;
+              types_defined.emplace(hash, def.record);
+              add(TypeDefKey(vt.space(), hash), def.record, def.body);
+              ++types;
+            }
+            pb::AssertionBody body;
+            body.mutable_retype()->mutable_target()->mutable_address()->set_offset(to);
+            body.mutable_retype()->mutable_type()->set_type_hash(parsed->hash);
+            add(kb, "h:" + parsed->hash, std::move(body));
+            if (vf) {  // read from the program: recorded as ported from it
+              pb::PortedFrom &q = *ops.back().ported;
+              q.set_program_id(from_program);
+              if (auto sw = vf->Winner(vf->Key(FactKind::Type, x.match().offset()))) {
+                q.set_source_seq(sw->seq);
+                *q.mutable_source_id() = ToPbId(sw->id);
+              }
+            }
+            out.set_signature_after(source_prototype);
+            signed_ = true;
+            if (req.kind() == pb::BSIM_APPLY_KIND_SIGNATURE_AND_TYPES && !placeholders.empty())
+              notes.push_back(hit.exe_name + " isn't a program of this project, and the database has no type definitions");
+            if (!placeholders.empty()) {
+              std::string list;
+              for (const std::string &n : placeholders) list += (list.empty() ? "" : ", ") + n;
+              notes.push_back("placeholder structures for " + list);
+            }
+          }
+        }
+      }
+
+      for (std::size_t k = first_op; k < ops.size(); ++k) pair_of_op.push_back(i);
+      if (named) resp.set_names(resp.names() + 1);
+      if (signed_) resp.set_signatures(resp.signatures() + 1);
+      resp.set_types(resp.types() + types);
+      out.set_types(types);
+      std::string message;
+      for (const std::string &n : notes) message += (message.empty() ? "" : "; ") + n;
+      out.set_message(message);
+      if (ops.size() > first_op) {
+        out.set_status(pb::BSIM_APPLY_STATUS_APPLIED);
+      } else if (skipped || !notes.empty()) {
+        out.set_status(pb::BSIM_APPLY_STATUS_SKIPPED);
+        resp.set_skipped(resp.skipped() + 1);
+      } else {
+        out.set_status(pb::BSIM_APPLY_STATUS_UNCHANGED);
+      }
+    }
+
+    if (req.dry_run() || ops.empty()) {
+      std::lock_guard lock(core_->mu);
+      SetHeadSnapshot(p, resp.mutable_snapshot());
+      return Status::Ok();
+    }
+    // Each assertion's reason names its match; the revision's, the apply.
+    const bool reasoned = !prov.reason().empty();
+    std::size_t applied = 0;
+    for (const auto &r : resp.results()) applied += r.status() == pb::BSIM_APPLY_STATUS_APPLIED;
+    pb::Provenance rev_prov = prov;
+    if (!reasoned)
+      rev_prov.set_reason(applied == 1 ? "BSim match applied (" + apply_what + ") from " + db_name
+                                       : std::to_string(applied) + " BSim matches applied (" + apply_what + ") from " + db_name);
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    for (std::size_t k = 0; k < ops.size(); ++k) {
+      PlannedOp &op = ops[k];
+      op.prov = prov;
+      if (!reasoned) {
+        const Hit &hit = hits[pair_of_op[k]];
+        op.prov.set_reason("BSim match (" + apply_what + "): " + hit.name + " in " + hit.exe_name + " (" + db_name + ")");
+      }
+      pb::Assertion meta;
+      *meta.mutable_provenance() = op.prov;
+      if (op.body.kind_case() != pb::AssertionBody::KIND_NOT_SET) *meta.mutable_body() = op.body;
+      meta.set_revision(rev);
+      if (op.ported) *meta.mutable_ported_from() = *op.ported;
+      resp.add_seqs(tx.assert_fact(ToFacts(op.prov), op.key, op.value, 0, Deterministic(meta)));
+    }
+    Commit(p, tx, rev_prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
   // --- revkit::infer, in the background (docs/infer.md) ------------------------
 
   // Whether `src` gets inferred prototypes (ImageBackendOptions::
@@ -12628,14 +14524,17 @@ class ImageBackend final : public api::Backend {
       // Only bounds and flow overrides steer discovery; for any other edit
       // the functions and references are the previous revision's, already
       // computed, so the commit doesn't validate discovery again.
-      const bool steers = k.kind == FactKind::FunctionBounds || k.kind == FactKind::FlowOverride || k.kind == FactKind::NoReturn ||
-                          k.kind == FactKind::Patch || k.kind == FactKind::CodeUnit || k.kind == FactKind::Reference;
+      const bool steers = k.kind == FactKind::FunctionBounds || k.kind == FactKind::FlowOverride || k.kind == FactKind::NoReturn || k.kind == FactKind::Fallthrough ||
+                          k.kind == FactKind::Patch || k.kind == FactKind::CodeUnit || k.kind == FactKind::Reference ||
+                          k.kind == FactKind::RegisterValue;
       auto f_before = before->get<q::Functions>(program);
       auto f_after = steers ? snap.get<q::Functions>(program) : f_before;
       auto xrefs = steers ? snap.get<q::Xrefs>(program) : before->get<q::Xrefs>(program);
       std::vector<pb::InvalidatedQuery> qs;
       // How far a listing edit reaches, before or after the commit.
       std::uint64_t extent = 1;
+      if (k.kind == FactKind::RegisterValue)
+        if (auto sub = analysis::parse_register_value_sub(k.sub)) extent = sub->length;
       if (k.kind == FactKind::CodeUnit || k.kind == FactKind::Mutability)
         for (const facts::Snapshot *sn : {&*before, &snap}) {
           const auto *bytes = std::get_if<std::string>(&*sn->get<facts::AssertedFact>(k));
@@ -12691,9 +14590,9 @@ class ImageBackend final : public api::Backend {
         if (program.empty()) continue;
         if (k.kind == FactKind::Match) {
           if (auto s = diff::parse_match_sub(k.sub)) sessions.insert(s->session);
-        } else if (k.kind == FactKind::FunctionBounds || k.kind == FactKind::FlowOverride || k.kind == FactKind::NoReturn ||
+        } else if (k.kind == FactKind::FunctionBounds || k.kind == FactKind::FlowOverride || k.kind == FactKind::NoReturn || k.kind == FactKind::Fallthrough ||
                    k.kind == FactKind::Patch || k.kind == FactKind::MemoryRegion ||
-                   k.kind == FactKind::CodeUnit || k.kind == FactKind::Reference ||
+                   k.kind == FactKind::CodeUnit || k.kind == FactKind::Reference || k.kind == FactKind::RegisterValue ||
                    (k.kind == FactKind::Name && k.sub.empty())) {
           steered.insert(program);
         }
@@ -13514,6 +15413,7 @@ class ImageBackend final : public api::Backend {
       programs.push_back(src.id);
       tx.set<q::Programs>(0, std::move(programs));
       tx.set<q::Source>(src.id, src);
+      tx.set<q::DebugFile>(src.id, DebugFileStamp(*src.program));
       tx.set<q::DecompilerOptions>(src.id, DefaultDecompilerOptions());
       pb::Provenance prov;
       prov.set_kind(pb::PROVENANCE_KIND_IMPORT);
@@ -14261,12 +16161,207 @@ class ImageBackend final : public api::Backend {
     if (!vf.functions().at(from)) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(from) + " in " + req.from_program());
     if (!vt.functions().at(to)) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(to) + " in " + req.to_program());
 
+    const std::string from_where = req.from_program() + "@0x" + Hex(from);
+    std::vector<PlannedOp> ops;
+    std::map<std::string, std::string> types_defined;
+    if (auto st = PlanPortMarkup(ctx, req, h, vf, vt, {}, ops, types_defined, resp); !st.ok()) return st;
+    if (req.dry_run() || ops.empty()) {
+      std::lock_guard lock(core_->mu);
+      SetHeadSnapshot(p, resp.mutable_snapshot());
+      return Status::Ok();
+    }
+    if (prov.reason().empty()) prov.set_reason("ported from " + from_where);
+    auto tx = p.db->begin();
+    const std::uint64_t rev = tx.next_revision();
+    for (PlannedOp &op : ops) {
+      op.prov = prov;
+      pb::Assertion meta;
+      *meta.mutable_provenance() = op.prov;
+      if (op.body.kind_case() != pb::AssertionBody::KIND_NOT_SET) *meta.mutable_body() = op.body;
+      meta.set_revision(rev);
+      if (op.ported) *meta.mutable_ported_from() = *op.ported;
+      resp.add_seqs(tx.assert_fact(ToFacts(op.prov), op.key, op.value, 0, Deterministic(meta)));
+    }
+    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
+    std::lock_guard lock(core_->mu);
+    SetHeadSnapshot(p, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+ private:
+  // A session read: the project at a revision, and A's and B's programs.
+  struct DiffRead {
+    Read r, a, b;
+    DiffSessionRecord session;
+  };
+
+  Status ResolveSession(const CallContext &ctx, const std::string &project_id, const std::string &session_id,
+                        const pb::ReadOptions &read, const std::string &page_token, DiffRead &out) {
+    if (session_id.empty()) return Error(StatusCode::kInvalidArgument, "session_id is required");
+    std::uint64_t token_revision = 0;
+    if (!page_token.empty() && !ParsePageToken(page_token, token_revision, out.r.page_offset))
+      return Error(StatusCode::kInvalidArgument, "malformed page_token");
+    if (auto st = ResolveProject(ctx, project_id, read, token_revision, out.r); !st.ok()) return st;
+    return SessionAt(session_id, out);
+  }
+
+  // The session as of out.r's revision, and its programs' reads.
+  Status SessionAt(const std::string &session_id, DiffRead &out) {
+    auto sessions = out.r.snapshot->get<q::DiffSessions>(kProjectSpace);
+    auto it = std::find_if(sessions->begin(), sessions->end(), [&](const DiffSessionRecord &s) { return s.id == session_id; });
+    if (it == sessions->end())
+      return Error(StatusCode::kNotFound, "no diff session " + session_id + " in project " + out.r.project->id);
+    out.session = *it;
+    return ProgramsAt(out);
+  }
+
+  // out.session's programs as of out.r's revision (both may be one program).
+  Status ProgramsAt(DiffRead &out) {
+    std::lock_guard lock(core_->mu);
+    for (auto [side, id] : {std::pair{&out.a, out.session.program_a}, std::pair{&out.b, out.session.program_b}}) {
+      auto pit = out.r.project->programs.find(id);
+      if (pit == out.r.project->programs.end() || pit->second->first_revision > out.r.revision)
+        return Error(StatusCode::kFailedPrecondition,
+                     "program " + id + " is not in the project at revision " + std::to_string(out.r.revision));
+      *side = out.r;
+      side->program = pit->second;
+    }
+    return Status::Ok();
+  }
+
+  // Under the project's writer: the session at head.
+  Status ReadSessionAtHead(Project &p, const DiffSessionRecord &s, DiffRead &out) {
+    {
+      std::lock_guard lock(core_->mu);
+      if (auto st = PinLocked(p, p.head, out.r); !st.ok()) return st;
+    }
+    return SessionAt(s.id, out);
+  }
+
+  static std::string Hex(std::uint64_t v) {
+    char buf[24];
+    std::snprintf(buf, sizeof buf, "%llx", static_cast<unsigned long long>(v));
+    return buf;
+  }
+
+  static Status UniquePairs(const std::vector<std::tuple<std::uint64_t, std::uint64_t, diff::Tier, float>> &pairs) {
+    std::set<std::uint64_t> as, bs;
+    for (const auto &[a, b, t, c] : pairs) {
+      if (!as.insert(a).second) return Error(StatusCode::kInvalidArgument, "0x" + Hex(a) + " appears in two pairs");
+      if (!bs.insert(b).second) return Error(StatusCode::kInvalidArgument, "0x" + Hex(b) + " appears in two pairs");
+    }
+    return Status::Ok();
+  }
+
+  static Status CheckPairs(View &va, View &vb, const std::vector<std::tuple<std::uint64_t, std::uint64_t, diff::Tier, float>> &pairs) {
+    for (const auto &[a, b, t, c] : pairs) {
+      if (!va.functions().at(a)) return Error(StatusCode::kInvalidArgument, "no function at 0x" + Hex(a) + " in " + va.id());
+      if (!vb.functions().at(b)) return Error(StatusCode::kInvalidArgument, "no function at 0x" + Hex(b) + " in " + vb.id());
+    }
+    return Status::Ok();
+  }
+
+  // The session's decisions at a view of program B: accepted and applied
+  // matches (effective values), and rejected pairs.
+  struct SessionDecisions {
+    struct Entry {
+      diff::MatchValue value;
+      facts::FactKey key;
+    };
+    std::map<std::uint64_t, Entry> by_b;
+    std::map<std::uint64_t, std::uint64_t> b_of_a;
+    std::map<std::pair<std::uint64_t, std::uint64_t>, facts::FactKey> rejected;
+  };
+
+  static SessionDecisions Decisions(View &vb, const std::string &session) {
+    SessionDecisions out;
+    const facts::Snapshot &snap = vb.snapshot();
+    auto buckets = snap.get<facts::AssertedBuckets>({FactKind::Match, vb.space()});
+    for (std::uint64_t bucket : *buckets) {
+      auto keys = snap.get<facts::AssertedKeys>(facts::BucketKey{FactKind::Match, vb.space(), bucket});
+      for (const auto &[offset, sub] : *keys) {
+        auto s = diff::parse_match_sub(sub);
+        if (!s || s->session != session) continue;
+        const facts::FactKey key = vb.Key(FactKind::Match, offset, sub);
+        auto v = diff::MatchValue::parse(vb.Text(key));
+        if (!v) continue;
+        if (s->rejected_a) {
+          if (v->rejected) out.rejected.emplace(std::pair{*s->rejected_a, offset}, key);
+        } else if (!v->rejected) {
+          out.by_b.emplace(offset, SessionDecisions::Entry{*v, key});
+          out.b_of_a.emplace(v->a, offset);
+        }
+      }
+    }
+    return out;
+  }
+
+  // Live assertions on a key (effective or shadowed): what undoing a decision retracts.
+  static std::vector<Seq> LiveAssertions(Project &p, const facts::FactKey &key, Seq upto) {
+    std::vector<Seq> out;
+    // `key` is as read (moved in a rebased program); the log's is stored.
+    facts::FactKey stored = key;
+    if (key.kind != FactKind::Rebase)
+      if (const facts::Shift sh = ShiftOf(p, key.addr.space, upto); !sh.identity())
+        stored = facts::shifted_key(Relocator().get(), key, sh.inverse());
+    for (const facts::BlameEntry &e : p.log().blame(stored, upto).candidates)
+      if (e.op.kind == facts::OpKind::Assert &&
+          (e.status == facts::OpStatus::Effective || e.status == facts::OpStatus::Shadowed))
+        out.push_back(e.op.seq);
+    return out;
+  }
+
+  static Seq AssertMatch(facts::FactDb::Transaction &tx, View &vb, const std::string &session, const pb::Provenance &prov,
+                         std::uint64_t rev, std::uint64_t a, std::uint64_t b, diff::MatchState state, diff::Tier tier,
+                         float conf) {
+    pb::AssertionBody body;
+    auto *m = body.mutable_diff_match();
+    m->set_session_id(session);
+    m->mutable_entry_a()->set_offset(a);
+    m->mutable_entry_b()->set_offset(b);
+    m->set_status(ToApi(state));
+    m->set_tier(ToApi(tier));
+    m->set_confidence(conf);
+    return tx.assert_fact(ToFacts(prov), vb.Key(FactKind::Match, b, diff::match_sub(session)),
+                          diff::MatchValue{state, false, a, tier, conf}.text(), 0, Meta(prov, &body, rev));
+  }
+
+  // --- ApplyMarkup's plan ---
+
+  struct PlannedOp {
+    facts::FactKey key;
+    FactValue value;
+    pb::AssertionBody body;
+    pb::Provenance prov;
+    std::optional<pb::PortedFrom> ported;
+    bool is_match = false;
+    int depends_plan = -1;  // index of the Match op this run records
+    Seq depends_seq = 0;    // or an existing Match assertion
+  };
+  // What a port adds for PortFunctionMarkup beyond its request
+  // (ApplyBSimMatches ports through it).
+  struct PortExtra {
+    // Analysis's signatures (inference, parameter ID) are guesses: replaced without overwrite.
+    bool analysis_signature_is_guess = false;
+    // Recorded in each assertion's ported_from.
+    std::string bsim_database, bsim_executable;
+  };
+
+  // PortFunctionMarkup's plan for one pair (h's a is the source, b the
+  // target; vf and vt their views; both functions exist): the ops to
+  // commit, appended to `ops` (each with its body and ported_from; the
+  // caller sets their provenance), the types they define (shared by every
+  // pair of one revision), and the counts, items and warnings in `resp`.
+  Status PlanPortMarkup(const CallContext &ctx, const pb::PortFunctionMarkupRequest &req, DiffRead &h, View &vf, View &vt,
+                        const PortExtra &extra, std::vector<PlannedOp> &ops, std::map<std::string, std::string> &types_defined,
+                        pb::PortFunctionMarkupResponse &resp) {
+    const std::uint64_t from = req.from_entry().offset(), to = req.to_entry().offset();
     // The session (optional): recorded in ported_from, with the pair's Match.
     Seq match_seq = 0;
     if (!req.session_id().empty()) {
       auto sessions = h.r.snapshot->get<q::DiffSessions>(kProjectSpace);
       auto it = std::find_if(sessions->begin(), sessions->end(), [&](const DiffSessionRecord &x) { return x.id == req.session_id(); });
-      if (it == sessions->end()) return Error(StatusCode::kNotFound, "no diff session " + req.session_id() + " in project " + p.id);
+      if (it == sessions->end()) return Error(StatusCode::kNotFound, "no diff session " + req.session_id() + " in project " + h.r.project->id);
       const bool forward = it->program_a == req.from_program() && it->program_b == req.to_program();
       const bool backward = it->program_b == req.from_program() && it->program_a == req.to_program();
       if (!forward && !backward)
@@ -14294,8 +16389,6 @@ class ImageBackend final : public api::Backend {
       if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
     }
 
-    std::vector<PlannedOp> ops;
-    std::map<std::string, std::string> types_defined;
     auto ported_from = [&](std::uint64_t address, const facts::FactKey *source) {
       pb::PortedFrom out;
       out.set_session_id(req.session_id());
@@ -14303,6 +16396,8 @@ class ImageBackend final : public api::Backend {
       out.mutable_function()->set_offset(from);
       out.mutable_address()->set_offset(address);
       out.set_match_seq(match_seq);
+      out.set_bsim_database(extra.bsim_database);
+      out.set_bsim_executable(extra.bsim_executable);
       if (source)
         if (auto w = vf.Winner(*source)) {
           out.set_source_seq(w->seq);
@@ -14315,7 +16410,6 @@ class ImageBackend final : public api::Backend {
       op.key = std::move(key);
       op.value = std::move(value);
       op.body = std::move(body);
-      op.prov = prov;
       op.ported = std::move(pf);
       ops.push_back(std::move(op));
     };
@@ -14373,7 +16467,10 @@ class ImageBackend final : public api::Backend {
       if (value.empty() && err_f.empty() && (from_set || !everything) && !ff.prototype().c_declaration().empty())
         value = "c:" + ff.prototype().c_declaration();
       const std::string cur = vt.Text(kb);
-      const bool to_set = !cur.empty() || (err_t.empty() && SignatureSet(ft));
+      bool to_set = !cur.empty() || (err_t.empty() && SignatureSet(ft));
+      // Analysis's prototype (inference, parameter ID) is a guess too, for a caller who says so.
+      if (to_set && extra.analysis_signature_is_guess)
+        if (auto w = vt.Winner(kb); w && w->prov.kind == facts::ProvenanceKind::Analysis) to_set = false;
       const std::string before = err_t.empty() ? ft.prototype().c_declaration() : cur;
       const std::string after = value.starts_with("h:") ? vf.PrototypeDisplay(value.substr(2), vt.Symbol(to))
                                 : value.starts_with("c:") ? value.substr(2) : value;
@@ -14656,179 +16753,9 @@ class ImageBackend final : public api::Backend {
         if (!cpair.contains(a)) resp.add_warnings("0x" + Hex(a) + " isn't called from an instruction with a partner: nothing to port it to");
     }
 
-    if (req.dry_run() || ops.empty()) {
-      std::lock_guard lock(core_->mu);
-      SetHeadSnapshot(p, resp.mutable_snapshot());
-      return Status::Ok();
-    }
-    if (prov.reason().empty()) prov.set_reason("ported from " + from_where);
-    auto tx = p.db->begin();
-    const std::uint64_t rev = tx.next_revision();
-    for (PlannedOp &op : ops) {
-      op.prov = prov;
-      pb::Assertion meta;
-      *meta.mutable_provenance() = op.prov;
-      if (op.body.kind_case() != pb::AssertionBody::KIND_NOT_SET) *meta.mutable_body() = op.body;
-      meta.set_revision(rev);
-      if (op.ported) *meta.mutable_ported_from() = *op.ported;
-      resp.add_seqs(tx.assert_fact(ToFacts(op.prov), op.key, op.value, 0, Deterministic(meta)));
-    }
-    Commit(p, tx, prov, pb::CHANGE_CAUSE_ASSERTION, nullptr);
-    std::lock_guard lock(core_->mu);
-    SetHeadSnapshot(p, resp.mutable_snapshot());
     return Status::Ok();
   }
 
- private:
-  // A session read: the project at a revision, and A's and B's programs.
-  struct DiffRead {
-    Read r, a, b;
-    DiffSessionRecord session;
-  };
-
-  Status ResolveSession(const CallContext &ctx, const std::string &project_id, const std::string &session_id,
-                        const pb::ReadOptions &read, const std::string &page_token, DiffRead &out) {
-    if (session_id.empty()) return Error(StatusCode::kInvalidArgument, "session_id is required");
-    std::uint64_t token_revision = 0;
-    if (!page_token.empty() && !ParsePageToken(page_token, token_revision, out.r.page_offset))
-      return Error(StatusCode::kInvalidArgument, "malformed page_token");
-    if (auto st = ResolveProject(ctx, project_id, read, token_revision, out.r); !st.ok()) return st;
-    return SessionAt(session_id, out);
-  }
-
-  // The session as of out.r's revision, and its programs' reads.
-  Status SessionAt(const std::string &session_id, DiffRead &out) {
-    auto sessions = out.r.snapshot->get<q::DiffSessions>(kProjectSpace);
-    auto it = std::find_if(sessions->begin(), sessions->end(), [&](const DiffSessionRecord &s) { return s.id == session_id; });
-    if (it == sessions->end())
-      return Error(StatusCode::kNotFound, "no diff session " + session_id + " in project " + out.r.project->id);
-    out.session = *it;
-    return ProgramsAt(out);
-  }
-
-  // out.session's programs as of out.r's revision (both may be one program).
-  Status ProgramsAt(DiffRead &out) {
-    std::lock_guard lock(core_->mu);
-    for (auto [side, id] : {std::pair{&out.a, out.session.program_a}, std::pair{&out.b, out.session.program_b}}) {
-      auto pit = out.r.project->programs.find(id);
-      if (pit == out.r.project->programs.end() || pit->second->first_revision > out.r.revision)
-        return Error(StatusCode::kFailedPrecondition,
-                     "program " + id + " is not in the project at revision " + std::to_string(out.r.revision));
-      *side = out.r;
-      side->program = pit->second;
-    }
-    return Status::Ok();
-  }
-
-  // Under the project's writer: the session at head.
-  Status ReadSessionAtHead(Project &p, const DiffSessionRecord &s, DiffRead &out) {
-    {
-      std::lock_guard lock(core_->mu);
-      if (auto st = PinLocked(p, p.head, out.r); !st.ok()) return st;
-    }
-    return SessionAt(s.id, out);
-  }
-
-  static std::string Hex(std::uint64_t v) {
-    char buf[24];
-    std::snprintf(buf, sizeof buf, "%llx", static_cast<unsigned long long>(v));
-    return buf;
-  }
-
-  static Status UniquePairs(const std::vector<std::tuple<std::uint64_t, std::uint64_t, diff::Tier, float>> &pairs) {
-    std::set<std::uint64_t> as, bs;
-    for (const auto &[a, b, t, c] : pairs) {
-      if (!as.insert(a).second) return Error(StatusCode::kInvalidArgument, "0x" + Hex(a) + " appears in two pairs");
-      if (!bs.insert(b).second) return Error(StatusCode::kInvalidArgument, "0x" + Hex(b) + " appears in two pairs");
-    }
-    return Status::Ok();
-  }
-
-  static Status CheckPairs(View &va, View &vb, const std::vector<std::tuple<std::uint64_t, std::uint64_t, diff::Tier, float>> &pairs) {
-    for (const auto &[a, b, t, c] : pairs) {
-      if (!va.functions().at(a)) return Error(StatusCode::kInvalidArgument, "no function at 0x" + Hex(a) + " in " + va.id());
-      if (!vb.functions().at(b)) return Error(StatusCode::kInvalidArgument, "no function at 0x" + Hex(b) + " in " + vb.id());
-    }
-    return Status::Ok();
-  }
-
-  // The session's decisions at a view of program B: accepted and applied
-  // matches (effective values), and rejected pairs.
-  struct SessionDecisions {
-    struct Entry {
-      diff::MatchValue value;
-      facts::FactKey key;
-    };
-    std::map<std::uint64_t, Entry> by_b;
-    std::map<std::uint64_t, std::uint64_t> b_of_a;
-    std::map<std::pair<std::uint64_t, std::uint64_t>, facts::FactKey> rejected;
-  };
-
-  static SessionDecisions Decisions(View &vb, const std::string &session) {
-    SessionDecisions out;
-    const facts::Snapshot &snap = vb.snapshot();
-    auto buckets = snap.get<facts::AssertedBuckets>({FactKind::Match, vb.space()});
-    for (std::uint64_t bucket : *buckets) {
-      auto keys = snap.get<facts::AssertedKeys>(facts::BucketKey{FactKind::Match, vb.space(), bucket});
-      for (const auto &[offset, sub] : *keys) {
-        auto s = diff::parse_match_sub(sub);
-        if (!s || s->session != session) continue;
-        const facts::FactKey key = vb.Key(FactKind::Match, offset, sub);
-        auto v = diff::MatchValue::parse(vb.Text(key));
-        if (!v) continue;
-        if (s->rejected_a) {
-          if (v->rejected) out.rejected.emplace(std::pair{*s->rejected_a, offset}, key);
-        } else if (!v->rejected) {
-          out.by_b.emplace(offset, SessionDecisions::Entry{*v, key});
-          out.b_of_a.emplace(v->a, offset);
-        }
-      }
-    }
-    return out;
-  }
-
-  // Live assertions on a key (effective or shadowed): what undoing a decision retracts.
-  static std::vector<Seq> LiveAssertions(Project &p, const facts::FactKey &key, Seq upto) {
-    std::vector<Seq> out;
-    // `key` is as read (moved in a rebased program); the log's is stored.
-    facts::FactKey stored = key;
-    if (key.kind != FactKind::Rebase)
-      if (const facts::Shift sh = ShiftOf(p, key.addr.space, upto); !sh.identity())
-        stored = facts::shifted_key(Relocator().get(), key, sh.inverse());
-    for (const facts::BlameEntry &e : p.log().blame(stored, upto).candidates)
-      if (e.op.kind == facts::OpKind::Assert &&
-          (e.status == facts::OpStatus::Effective || e.status == facts::OpStatus::Shadowed))
-        out.push_back(e.op.seq);
-    return out;
-  }
-
-  static Seq AssertMatch(facts::FactDb::Transaction &tx, View &vb, const std::string &session, const pb::Provenance &prov,
-                         std::uint64_t rev, std::uint64_t a, std::uint64_t b, diff::MatchState state, diff::Tier tier,
-                         float conf) {
-    pb::AssertionBody body;
-    auto *m = body.mutable_diff_match();
-    m->set_session_id(session);
-    m->mutable_entry_a()->set_offset(a);
-    m->mutable_entry_b()->set_offset(b);
-    m->set_status(ToApi(state));
-    m->set_tier(ToApi(tier));
-    m->set_confidence(conf);
-    return tx.assert_fact(ToFacts(prov), vb.Key(FactKind::Match, b, diff::match_sub(session)),
-                          diff::MatchValue{state, false, a, tier, conf}.text(), 0, Meta(prov, &body, rev));
-  }
-
-  // --- ApplyMarkup's plan ---
-
-  struct PlannedOp {
-    facts::FactKey key;
-    FactValue value;
-    pb::AssertionBody body;
-    pb::Provenance prov;
-    std::optional<pb::PortedFrom> ported;
-    bool is_match = false;
-    int depends_plan = -1;  // index of the Match op this run records
-    Seq depends_seq = 0;    // or an existing Match assertion
-  };
   struct MarkupPlan {
     pb::DiffApplyPolicy policy = pb::DIFF_APPLY_POLICY_SAFE;
     std::vector<PlannedOp> ops;
@@ -16685,6 +18612,17 @@ class ImageBackend final : public api::Backend {
       }
       if (!found) return Error(StatusCode::kNotFound, "no folder " + req.folder_id() + " in project " + project);
     }
+    std::optional<LibraryImportJob> lib_job;
+    std::vector<LibraryTop> lib_tops;
+    if (req.options().import_libraries() && !req.preview()) {
+      lib_job.emplace();
+      lib_job->project_id = project;
+      lib_job->provenance = req.provenance();
+      lib_job->analyze = req.options().analyze();
+      lib_job->max_depth = req.options().library_depth();
+      lib_job->search_paths.assign(req.options().library_search_paths().begin(),
+                                   req.options().library_search_paths().end());
+    }
     auto ensure_folder = [&](const std::vector<std::string> &names, std::string &id, std::string &path) -> Status {
       path = base;
       id = folder_ids[base];
@@ -16805,8 +18743,37 @@ class ImageBackend final : public api::Backend {
           prog.set_folder_path(fpath);
         }
       }
+      if (lib_job) {
+        LibraryTop top;
+        top.program_id = prog.program_id();
+        top.folder_id = prog.folder_id();
+        FsGuard([&]() -> Status {
+          top.container = ContainerLibraryRoot::Of(fss->session, item.path, ctx.cancelled);
+          top.root = top.container;
+          top.origin = top.container->origin(item.path);
+          return Status::Ok();
+        });
+        if (top.root) lib_tops.push_back(std::move(top));
+      }
       *out->mutable_program() = std::move(prog);
       resp.set_imported(resp.imported() + 1);
+    }
+    // ImportOptions.import_libraries: the libraries they need, from the same
+    // file system (docs/filesystems.md, "Libraries of imported programs").
+    if (lib_job && !lib_tops.empty()) {
+      LibraryImportResult lr;
+      ImportLibrariesOf(ctx, *lib_job, lib_tops, lr);
+      for (const LibraryImported &l : lr.imported) {
+        pb::FileSystemImport *out = resp.add_items();
+        out->set_path(l.key);
+        out->set_container_path(l.from);
+        out->set_action("imported");
+        out->set_library_of(l.needed_by);
+        RefillProgram(l.program_id, out->mutable_program());
+        resp.set_imported(resp.imported() + 1);
+      }
+      for (pb::MissingLibrary &m : lr.missing) *resp.add_libraries_not_found() = std::move(m);
+      for (std::string &w : lr.warnings) resp.add_library_warnings(std::move(w));
     }
     {
       std::lock_guard lock(core_->mu);
@@ -16828,6 +18795,8 @@ class ImageBackend final : public api::Backend {
   MachineStore machines_;
   Uploads uploads_;
   FileSystemRegistry filesystems_;
+  // Parks idle SLEIGH engines (ParkIdleEngines); last, so it stops first.
+  std::jthread sweeper_;
 
  public:
   facts::Engine *EngineOf(const std::string &project_id) {

@@ -288,10 +288,15 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
   // --- actions ---
 
   const opened = (r: ImportFromFileSystemResponse) => {
-    const done = r.items.filter((i) => i.action === "imported");
+    const done = r.items.filter((i) => i.action === "imported" && !i.libraryOf);
+    const libs = r.items.filter((i) => i.action === "imported" && i.libraryOf);
     const first = done[0]?.program;
     const failed = r.items.filter((i) => i.action === "failed");
+    // The libraries brought with them from this file system (api_minor 79).
+    const missing = r.librariesNotFound ?? [];
     const text = `Imported ${done.length} program${done.length === 1 ? "" : "s"}` +
+      (libs.length ? ` and ${libs.length} librar${libs.length === 1 ? "y" : "ies"} they need (${libs.map((i) => i.program?.name).join(", ")})` : "") +
+      (missing.length ? `; not in the file system: ${missing.map((m) => m.name).join(", ")}` : "") +
       (r.skipped ? `, ${r.skipped} skipped` : "") + (failed.length ? `, ${failed.length} failed (${failed[0].reason})` : "") + (r.capped ? " (capped)" : "");
     say(text, failed.length && !done.length ? "error" : "");
     if (first) toast(text, { action: { label: `Open ${first.name}`, run: () => { close(); o.onOpenProgram(first.programId); } }, ms: 10000 });
@@ -522,6 +527,11 @@ async function showBatchImport(o: FileSystemBrowserOptions, fs: FileSystemSessio
   const detectRaw = check("Try raw detection on other data (slow: seconds per file)", "fs-batch-detect-raw", false);
   const keepFolders = check("Recreate the folders in the project", "fs-batch-keep-folders", false);
   const analyze = check("Analyze after import", "fs-batch-analyze", true);
+  // Feature library-roots (api_minor 79): the libraries they need, found in this file system.
+  const libraries = o.features.has("library-roots")
+    ? check("Also import the libraries they need, from this file system", "fs-batch-libraries", false,
+      "The shared libraries the programs need (ELF DT_NEEDED, PE import DLLs) that the project lacks: beside each program, on its runpath, in /etc/ld.so.conf's directories and /lib and /usr/lib of the container it is in; two levels deep")
+    : null;
   const cap = h("input", { class: "ask-input", type: "number", min: "1", max: "1000", value: "100", "data-testid": "fs-batch-cap", "aria-label": "At most this many programs" }) as HTMLInputElement;
   const folderSel = h("select", { class: "ctl-select", "data-testid": "fs-batch-folder", "aria-label": "Into folder" }, h("option", { value: "" }, "/")) as HTMLSelectElement;
   const preview = h("div", { class: "archive-programs fs-preview", "data-testid": "fs-batch-preview" });
@@ -532,7 +542,7 @@ async function showBatchImport(o: FileSystemBrowserOptions, fs: FileSystemSessio
     { class: "modal archive fs-batch", role: "dialog", "aria-modal": "true", tabindex: "-1", "aria-label": "Import programs", "data-testid": "fs-batch-dialog" },
     h("div", { class: "modal-title" }, `Import programs from ${paths.length === 1 ? displayPath(paths[0]) : `${paths.length} folders`}`),
     h("div", { class: "archive-note dim" }, "Programs only: ELF, PE, and raw images whose header names their processor."),
-    recursive.el, descend.el, detectRaw.el, keepFolders.el, analyze.el,
+    recursive.el, descend.el, detectRaw.el, keepFolders.el, analyze.el, ...(libraries ? [libraries.el] : []),
     h("label", { class: "archive-line" }, "At most", cap, "programs, into folder", folderSel),
     h("div", { class: "archive-section dim" }, "Preview"),
     preview,
@@ -561,7 +571,7 @@ async function showBatchImport(o: FileSystemBrowserOptions, fs: FileSystemSessio
     recursive: recursive.input.checked, descend: descend.input.checked, detectRaw: detectRaw.input.checked,
     keepFolders: keepFolders.input.checked, programsOnly: true, preview: previewOnly,
     maxPrograms: Math.max(1, Math.min(1000, Number(cap.value) || 100)), folderId: folderSel.value,
-    options: { analyze: analyze.input.checked }, provenance: userProvenance(`batch import from ${fs.name}`),
+    options: { analyze: analyze.input.checked, importLibraries: !!libraries?.input.checked }, provenance: userProvenance(`batch import from ${fs.name}`),
   });
   let generation = 0;
   const refresh = async () => {

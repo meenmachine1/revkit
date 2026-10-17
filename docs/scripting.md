@@ -808,6 +808,12 @@ bytes) where Ghidra returns one.
   `getGlobalSymbols`, `getSymbol(reference)`, `createLabel`,
   `getExternalEntryPointIterator`. A **`Symbol`** has its name
   (`setName`), address, `SymbolType`, `SourceType` and references.
+- **`getRelocationTable()`** (feature `relocation-table`): `getRelocations`
+  (all, at an address, or in a set), `hasRelocation`,
+  `getRelocationAddressAfter`, `getSize`, `isRelocatable`. A
+  **`Relocation`** has its address, type, symbol name, bytes, values (the
+  addend) and status, always `UNKNOWN`: revkit applies relocations to no
+  bytes except the RELATIVE ones a rebase moves.
 - **`getListing()`**: instructions (`getInstructionAt`,
   `getInstructionContaining`, `getInstructionAfter`/`Before`,
   `getInstructions(forward | set | start)`), data (`getDataAt`,
@@ -1038,7 +1044,6 @@ shim class names the class and method and uses its family's line.
 | `Program.getProgramContext` | processor context is not exposed to scripts |
 | `Program.getDomainFile` | no Ghidra project files; current_program.summary().info names the program |
 | `Program.getChanges` | current_program.assertions() lists what changed |
-| `Program.getRelocationTable` | relocations are applied by the loader and not listed to scripts |
 | `Program.getSourceFileManager` | no source-file mapping in revkit |
 | `Program.getUsrPropertyManager` | use notes: note(addr, text, tag) |
 | `Program.getTreeManager` | no program trees (fragments) in revkit |

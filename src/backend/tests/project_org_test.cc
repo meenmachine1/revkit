@@ -12,6 +12,7 @@
 #include <zlib.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -35,8 +36,17 @@ pb::Provenance User(const std::string &who = "alice") {
 
 fs::path Corpus(const std::string &rel) { return fs::path(REVKIT_CORPUS) / rel; }
 
+// Under one directory per process, removed when the process exits.
 fs::path Scratch(const std::string &name) {
-  fs::path d = fs::temp_directory_path() / ("revkit-project-org-" + std::to_string(::getpid())) / name;
+  struct Root {
+    fs::path path = fs::temp_directory_path() / ("revkit-project-org-" + std::to_string(::getpid()));
+    ~Root() {
+      std::error_code ec;
+      if (!std::getenv("RK_KEEP_TEST_DIRS")) fs::remove_all(path, ec);
+    }
+  };
+  static Root root;
+  fs::path d = root.path / name;
   fs::remove_all(d);
   fs::create_directories(d);
   return d;
@@ -427,6 +437,21 @@ TEST(ProjectArchiveContainer, ValidatesTheOps) {
   other = ops;
   other.push_back(op(2, facts::FactKey::name({space, 0x2000}), std::string("y")));
   refused(other, "repeats");
+  // A stamp past the clock's next day (UINT64_MAX wrapped the importer's
+  // clock to 0): refused when the importer bounds stamps, as it does.
+  {
+    other = ops;
+    other.push_back(op(3, facts::FactKey::name({space, 0x2000}), std::string("y")));
+    other.back().stamp = UINT64_MAX;
+    archive::Limits bounded;
+    bounded.max_stamp = archive::FutureStampLimit();
+    m.mutable_log()->set_count(other.size());
+    auto future = archive::ValidateLog(m, other, bounded, owner);
+    ASSERT_TRUE(future);
+    EXPECT_NE(future->message.find("past this daemon's clock"), std::string::npos) << future->message;
+    other.back().stamp = bounded.max_stamp - (std::uint64_t{48} * 3600 * 1000 << facts::kStampLogicalBits);
+    EXPECT_FALSE(archive::ValidateLog(m, other, bounded, owner));
+  }
   other = {ops[1]};
   refused(other, "has no record");
   other = ops;

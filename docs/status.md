@@ -153,7 +153,9 @@ feature by feature.
   decode); decompilation is bounded (timeouts, a varnode bound,
   cancellation, a memory-aware scheduler); prototype inference converges
   on cmake in 9 rounds and 1.84 GB. Results and the two scale gates are in
-  [docs/scale.md](scale.md).
+  [docs/scale.md](scale.md). Idle SLEIGH engines are parked and shared by
+  language: 8 tiny programs and lua hold 302 MB instead of 1051 MB
+  ([docs/memory.md](memory.md)).
 
 ## Loaders
 

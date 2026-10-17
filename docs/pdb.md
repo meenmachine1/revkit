@@ -86,7 +86,10 @@ directory they are kept in `<project_dir>/.revkit/symbols.json` and used
 at the next start unless flags are given. **Downloads are off by
 default**: the daemon contacts a server only after an admin turned them
 on (`--symbol-downloads` or `SetSymbolSettings`), see
-[security.md](security.md#symbol-servers).
+[security.md](security.md#symbol-servers). The same settings carry an
+ELF's debug file directories and debuginfod servers (`api_minor` 86,
+[backend.md](backend.md#external-debug-files)); an older client's
+`SetSymbolSettings` clears those, the Python SDK's keeps them.
 
 ## C++ classes
 

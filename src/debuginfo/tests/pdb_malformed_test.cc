@@ -2,12 +2,14 @@
 // paths the fixtures don't reach (MSVC-style frame symbols, OMAP), broken
 // containers and records, truncation and random mutation of a real PDB.
 // Nothing may crash, hang or read out of bounds (run these under ASan).
+#include "../msf.h"
 #include "pdb_builder.h"
 #include "revkit/debuginfo/pdb.h"
 #include "revkit/types/print.h"
 
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -370,6 +372,44 @@ TEST(PdbMalformed, SharedArgumentListsAreBudgeted) {
   TypeStore s;
   PdbDebugInfo info = read_pdb(testing::build_pdb(p), s);
   EXPECT_TRUE(has_diag(info, "too many parameters"));
+}
+
+// Streams sharing blocks: 20,000 streams of a 3 MB file each list one
+// data block 40 times, 3.2 GB to gather in all. What all reads gather is
+// budgeted (four times the file plus 64 MiB); a real PDB reads each of its
+// streams about once.
+TEST(PdbMalformed, SharedStreamBlocksAreBudgeted) {
+  constexpr std::uint32_t bs = 4096, streams = 20000, per = 40;
+  const std::uint64_t dir_bytes = 4 + 4ull * streams + 4ull * streams * per;
+  const std::uint32_t dir_blocks = std::uint32_t((dir_bytes + bs - 1) / bs);
+  const std::uint32_t data_block = 2 + dir_blocks, blocks = data_block + 1;
+  std::vector<std::uint8_t> f(std::size_t(blocks) * bs);
+  auto put32 = [&](std::size_t at, std::uint32_t v) {
+    for (int i = 0; i < 4; ++i) f[at + i] = std::uint8_t(v >> (8 * i));
+  };
+  std::memcpy(f.data(), "Microsoft C/C++ MSF 7.00\r\n\x1a" "DS\0\0\0", 32);
+  put32(32, bs);
+  put32(36, 1);
+  put32(40, blocks);
+  put32(44, std::uint32_t(dir_bytes));
+  put32(52, 1);  // the block map
+  for (std::uint32_t i = 0; i < dir_blocks; ++i) put32(bs + 4 * i, 2 + i);
+  std::size_t at = 2 * bs;
+  put32(at, streams);
+  at += 4;
+  for (std::uint32_t i = 0; i < streams; ++i, at += 4) put32(at, bs * per);
+  for (std::uint32_t i = 0; i < streams; ++i)
+    for (std::uint32_t k = 0; k < per; ++k, at += 4) put32(at, data_block);
+  pdb::Msf msf(f);
+  ASSERT_EQ(msf.stream_count(), streams);
+  std::uint64_t read = 0;
+  try {
+    for (std::uint32_t i = 0; i < streams; ++i) read += msf.read(i).size();
+    ADD_FAILURE() << "read " << read << " bytes";
+  } catch (const PdbError &e) {
+    EXPECT_NE(std::string(e.what()).find("shared"), std::string::npos) << e.what();
+  }
+  EXPECT_LE(read, 4 * f.size() + (std::uint64_t{64} << 20));
 }
 
 TEST(PdbMalformed, BadSymbols) {

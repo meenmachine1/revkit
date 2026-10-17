@@ -67,6 +67,7 @@ const KIND_TEXT: Record<number, string> = {
   [XrefKind.DATA_WRITE]: "write",
   [XrefKind.DATA_POINTER]: "data",
   [XrefKind.THUNK]: "thunk",
+  [XrefKind.FALLTHROUGH]: "fallthrough",
 };
 
 export const xrefKindText = (k: XrefKind) => KIND_TEXT[k] ?? "ref";

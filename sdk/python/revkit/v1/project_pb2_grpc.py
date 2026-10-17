@@ -145,6 +145,11 @@ class ProjectServiceStub:
                 request_serializer=revkit_dot_v1_dot_project__pb2.GetSymbolSettingsRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_project__pb2.GetSymbolSettingsResponse.FromString,
                 _registered_method=True)
+        self.LoadDebugFile = channel.unary_unary(
+                '/revkit.v1.ProjectService/LoadDebugFile',
+                request_serializer=revkit_dot_v1_dot_project__pb2.LoadDebugFileRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_project__pb2.LoadDebugFileResponse.FromString,
+                _registered_method=True)
         self.SetSymbolSettings = channel.unary_unary(
                 '/revkit.v1.ProjectService/SetSymbolSettings',
                 request_serializer=revkit_dot_v1_dot_project__pb2.SetSymbolSettingsRequest.SerializeToString,
@@ -445,6 +450,18 @@ class ProjectServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def LoadDebugFile(self, request, context):
+        """Loads an ELF's separate debug file into an open program (api_minor
+        85, feature "debug-files"; admin): a file on the daemon's host, an
+        upload, or the one the program's build ID or .gnu_debuglink names,
+        found locally or (when an admin turned it on) on debuginfod servers.
+        Its DWARF becomes import:dwarf assertions in one revision. A file of
+        another build is refused unless `force`.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def SetSymbolSettings(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -673,6 +690,11 @@ def add_ProjectServiceServicer_to_server(servicer, server):
                     servicer.GetSymbolSettings,
                     request_deserializer=revkit_dot_v1_dot_project__pb2.GetSymbolSettingsRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_project__pb2.GetSymbolSettingsResponse.SerializeToString,
+            ),
+            'LoadDebugFile': grpc.unary_unary_rpc_method_handler(
+                    servicer.LoadDebugFile,
+                    request_deserializer=revkit_dot_v1_dot_project__pb2.LoadDebugFileRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_project__pb2.LoadDebugFileResponse.SerializeToString,
             ),
             'SetSymbolSettings': grpc.unary_unary_rpc_method_handler(
                     servicer.SetSymbolSettings,
@@ -1325,6 +1347,33 @@ class ProjectService:
             '/revkit.v1.ProjectService/GetSymbolSettings',
             revkit_dot_v1_dot_project__pb2.GetSymbolSettingsRequest.SerializeToString,
             revkit_dot_v1_dot_project__pb2.GetSymbolSettingsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def LoadDebugFile(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.ProjectService/LoadDebugFile',
+            revkit_dot_v1_dot_project__pb2.LoadDebugFileRequest.SerializeToString,
+            revkit_dot_v1_dot_project__pb2.LoadDebugFileResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -562,7 +562,7 @@ std::size_t decompress_block(Codec codec, std::span<const std::byte> in, std::sp
       } else {
         throw Error("LZ4 frames are not blocks");
       }
-      std::memcpy(out.data(), dec.data(), dec.size());
+      if (!dec.empty()) std::memcpy(out.data(), dec.data(), dec.size());
       return dec.size();
     }
   }

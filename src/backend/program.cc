@@ -6,6 +6,7 @@
 
 #include "relocate.h"
 
+#include "revkit/inputs/debug_info.h"
 #include "revkit/inputs/inputs.h"
 #include "revkit/lift/context.hh"
 
@@ -123,7 +124,18 @@ std::shared_ptr<Program> Program::Load(std::shared_ptr<const loader::Bytes> byte
   }
 
   if (options.loaded) options.loaded(*p->image_);
-  if (options.debug_info) p->debug_ = inputs::read_debug_info(*p->image_, options.binary);
+  if (options.debug_info) {
+    std::shared_ptr<const loader::Bytes> separate;
+    const loader::Image &im = *p->image_;
+    if (options.find_debug_file && im.format == loader::Format::elf && !loader::find_section(im, ".debug_info") &&
+        !loader::find_section(im, ".zdebug_info"))
+      if (auto f = options.find_debug_file(im)) {
+        separate = std::move(f->bytes);
+        p->debug_file_ = std::move(f->file);
+      }
+    p->debug_ = inputs::read_debug_info(im, options.binary, separate);
+    if (!p->debug_ || !p->debug_->dwarf) p->debug_file_.clear();
+  }
   DecompilerPool::Config dc;
   dc.image = p->image_;
   dc.language_id = p->language_.id();
@@ -153,6 +165,21 @@ void Program::MakeEngines(std::unique_ptr<DecompilerPool> decompiler) {
         },
         std::max(1u, options_.lifters / 2));
   decompiler_ = std::move(decompiler);
+}
+
+std::size_t Program::ParkIdleEngines(std::chrono::steady_clock::duration idle_for) const {
+  std::size_t n = 0;
+  for (auto *pool : {lifters_.get(), walk_lifters_.get(), thumb_lifters_.get()})
+    if (pool) n += pool->ParkIdle(idle_for);
+  if (decompiler_) n += decompiler_->ParkIdleEngines(idle_for);
+  std::vector<std::shared_ptr<const Program>> variants;
+  {
+    std::lock_guard lock(variants_mu_);
+    for (const auto &[key, v] : variants_) variants.push_back(v);
+  }
+  for (const auto &v : variants)
+    if (v.get() != this) n += v->ParkIdleEngines(idle_for);
+  return n;
 }
 
 std::shared_ptr<const Program> Program::WithMemory(const analysis::MemoryMapInfo &map,
@@ -316,7 +343,8 @@ std::vector<StaticXref> Program::FunctionXrefs(const analysis::FunctionInfo &f, 
   // operand each is in, which is decoded when a reference is served.
   static constexpr pb::XrefKind kKinds[] = {pb::XREF_KIND_CALL,         pb::XREF_KIND_JUMP,
                                             pb::XREF_KIND_CONDITIONAL_JUMP, pb::XREF_KIND_DATA_POINTER,
-                                            pb::XREF_KIND_DATA_READ,    pb::XREF_KIND_DATA_WRITE};
+                                            pb::XREF_KIND_DATA_READ,    pb::XREF_KIND_DATA_WRITE,
+                                            pb::XREF_KIND_FALLTHROUGH};
   std::vector<StaticXref> out;
   std::size_t r = 0;
   for (std::size_t k = 0; k < flow.insns.size(); ++k) {
@@ -325,7 +353,9 @@ std::vector<StaticXref> Program::FunctionXrefs(const analysis::FunctionInfo &f, 
     if (!f.body.contains(facts::Address{f.entry.space, i.address})) continue;
     for (; r < flow.refs.size() && flow.refs[r].insn == k; ++r) {
       const analysis::FlowRef &x = flow.refs[r];
-      out.push_back({x.from(flow), x.to, kKinds[static_cast<unsigned>(x.kind)], StaticXref::kOperandFromText, x.delay_slot});
+      // (A fallthrough override's is the mnemonic's, as Ghidra's.)
+      out.push_back({x.from(flow), x.to, kKinds[static_cast<unsigned>(x.kind)],
+                     x.kind == analysis::RefKind::fallthrough ? -1 : StaticXref::kOperandFromText, x.delay_slot});
     }
     // A recovered jump table: the jump refers to every case.
     if (i.kind == analysis::FlowKind::jump_indirect)
@@ -511,7 +541,8 @@ pb::FlowKind FlowOf(const lift::Instruction &insn, const std::string &code_space
   return kind;
 }
 
-std::vector<StaticRow> Program::Page(const RowIndex &index, std::int64_t page, PatchedBytes *patches) const {
+std::vector<StaticRow> Program::Page(const RowIndex &index, std::int64_t page, PatchedBytes *patches,
+                                     const DataSettingsMap *settings) const {
   std::vector<StaticRow> rows;
   const std::int64_t first = page * RowIndex::kPageRows,
                      last = std::min(index.total_rows, first + RowIndex::kPageRows);
@@ -528,7 +559,7 @@ std::vector<StaticRow> Program::Page(const RowIndex &index, std::int64_t page, P
     const std::uint64_t next = r + 1 < s.first_row + s.row_count() ? index.row_address(r + 1) : s.end;
     row.length = static_cast<std::uint32_t>(next - row.address);
     row.kind = pb::LISTING_ROW_KIND_UNDEFINED;
-    if (s.data) DataRow(index, s, k, row, patches);
+    if (s.data) DataRow(index, s, k, row, patches, settings);
     // Patched bytes in the row: decoded from them (bytes outside any patch
     // decode from the image, with its context commits, as before).
     facts::PatchList over;
@@ -578,10 +609,24 @@ std::uint32_t Program::DataComponents(const analysis::DataItem &d) {
 
 namespace {
 
+// (Bytes that aren't UTF-8 show escaped: a protobuf string must be UTF-8.)
 std::string Quoted(std::string_view text, const char *prefix) {
   std::string q = prefix;
   q += '"';
-  for (char c : text) {
+  for (std::size_t i = 0; i < text.size(); ++i) {
+    const char c = text[i];
+    if (static_cast<unsigned char>(c) >= 0x80) {
+      const std::size_t n = Utf8Sequence(text, i);
+      if (n == 0) {
+        char buf[8];
+        std::snprintf(buf, sizeof buf, "\\x%02x", static_cast<unsigned char>(c));
+        q += buf;
+      } else {
+        q.append(text.substr(i, n));
+        i += n - 1;
+      }
+      continue;
+    }
     switch (c) {
       case '\n': q += "\\n"; break;
       case '\t': q += "\\t"; break;
@@ -607,7 +652,9 @@ std::string Quoted(std::string_view text, const char *prefix) {
 // (`type`: its C spelling, for arrays of characters): the text the listing
 // shows, or the address a pointer holds.
 void Program::UserValue(analysis::ValueFormat format, std::uint64_t at, std::uint64_t size, StaticRow &row,
-                        PatchedBytes *patches) const {
+                        PatchedBytes *patches, const DataSettings &settings) const {
+  if (!settings.empty() && format != analysis::ValueFormat::aggregate)
+    return SetValue(format, at, size, row, patches, settings);
   const bool big = image_->endian == loader::Endian::big;
   if (format == analysis::ValueFormat::pointer && size <= 8) {
     const std::string b = read(at, static_cast<std::uint32_t>(size), patches);
@@ -632,13 +679,93 @@ void Program::UserValue(analysis::ValueFormat format, std::uint64_t at, std::uin
   row.data_value = size > 8 ? "??" : FormatValue(format, b, big);
 }
 
+// A value as data settings say (data_settings.h): integers in their
+// format, signedness, byte order and padding; floats and pointers in their
+// byte order (a pointer also by its kind, mask and shift); char arrays in
+// their charset and termination.
+void Program::SetValue(analysis::ValueFormat format, std::uint64_t at, std::uint64_t size, StaticRow &row,
+                       PatchedBytes *patches, const DataSettings &s) const {
+  using F = analysis::ValueFormat;
+  const bool big = s.endian == DataSettings::Endian::big      ? true
+                   : s.endian == DataSettings::Endian::little ? false
+                                                              : image_->endian == loader::Endian::big;
+  if (format == F::string) {
+    const std::string b = read(at, static_cast<std::uint32_t>(std::min<std::uint64_t>(size, kMaxDataRowBytes)), patches);
+    const std::string charset = s.charset.empty() ? "UTF-8" : s.charset;
+    row.data_value = QuoteChars(b, charset, big, s.termination == DataSettings::Termination::all, CharsetPrefix(charset));
+    return;
+  }
+  if (size == 0 || size > 8) {
+    row.data_value = "??";
+    return;
+  }
+  const std::string b = read(at, static_cast<std::uint32_t>(size), patches);
+  if (b.size() != size) {
+    row.data_value = "??";
+    return;
+  }
+  if (format == F::pointer) {
+    std::uint64_t v = 0;
+    for (std::size_t i = 0; i < b.size(); ++i) v |= std::uint64_t{static_cast<unsigned char>(b[big ? b.size() - 1 - i : i])} << (8 * i);
+    if (s.mask) v &= *s.mask;
+    if (s.shift) v = *s.shift >= 0 ? v << *s.shift : v >> -*s.shift;
+    if (s.pointer == DataSettings::Pointer::image_base) v += image_->image_base;
+    else if (s.pointer == DataSettings::Pointer::relative) v += at;
+    if (size < 8 && s.pointer != DataSettings::Pointer::image_base && s.pointer != DataSettings::Pointer::relative &&
+        !s.shift)
+      v &= (std::uint64_t{1} << (8 * size)) - 1;
+    row.data_target = v;
+    return;
+  }
+  if (format == F::floating) {
+    std::string ordered = b;
+    if (big != (image_->endian == loader::Endian::big)) std::reverse(ordered.begin(), ordered.end());
+    row.data_value = FormatValue(format, ordered, image_->endian == loader::Endian::big);
+    return;
+  }
+  // Integers, characters, booleans, enums and undefined bytes: a boolean or
+  // a character keeps its look unless a format is set.
+  if (s.format == DataSettings::Format::unset && (format == F::boolean || format == F::character) &&
+      s.sign == DataSettings::Sign::unset && s.padding == DataSettings::Padding::unset) {
+    std::string ordered = b;
+    if (big != (image_->endian == loader::Endian::big)) std::reverse(ordered.begin(), ordered.end());
+    row.data_value = FormatValue(format, ordered, image_->endian == loader::Endian::big);
+    return;
+  }
+  const bool is_signed = s.sign == DataSettings::Sign::is_signed     ? true
+                         : s.sign == DataSettings::Sign::is_unsigned ? false
+                                                                     : format == F::signed_int;
+  const DataSettings::Format f = s.format != DataSettings::Format::unset ? s.format
+                                 : format == F::character             ? DataSettings::Format::character
+                                                                      : DataSettings::Format::hex;
+  row.data_value = FormatInteger(b, big, is_signed, f, s.padding);
+}
+
 void Program::DataRow(const RowIndex &index, const ListingSpan &span, std::int64_t k, StaticRow &row,
-                      PatchedBytes *patches) const {
+                      PatchedBytes *patches, const DataSettingsMap *settings) const {
   auto it = std::lower_bound(index.data.begin(), index.data.end(), span.start,
                              [](const analysis::DataItem &d, std::uint64_t v) { return d.address < v; });
   if (it == index.data.end() || it->address != span.start) return;
   const analysis::DataItem &d = *it;
   row.kind = pb::LISTING_ROW_KIND_DATA;
+  // The settings this row shows by: its item's (a struct field's own) over its type's.
+  auto settings_of = [&](std::string_view field, const std::string &type) {
+    row.data_settings_type = type;
+    return settings ? settings->at(d.address, field, type) : DataSettings{};
+  };
+  const bool big_program = image_->endian == loader::Endian::big;
+  auto program_order = [&](const DataSettings &s) {
+    return s.endian == DataSettings::Endian::big ? true : s.endian == DataSettings::Endian::little ? false : big_program;
+  };
+  // A string's text from its bytes, as its settings say (after a Pascal length).
+  auto string_value = [&](const DataSettings &s, std::string_view charset, std::uint64_t skip, const char *prefix) {
+    const std::uint64_t n = std::min<std::uint64_t>(d.length, kMaxDataRowBytes);
+    std::string b = read(d.address, static_cast<std::uint32_t>(n), patches);
+    b.erase(0, std::min<std::size_t>(b.size(), skip));
+    const std::string cs = s.charset.empty() ? std::string(charset) : s.charset;
+    row.data_value = QuoteChars(b, cs, program_order(s), s.termination == DataSettings::Termination::all,
+                                s.charset.empty() ? std::string_view(prefix) : CharsetPrefix(cs));
+  };
   if (d.origin == analysis::kDataUser) {
     const analysis::DataSpec &spec = d.spec;
     if (k == 0) {
@@ -648,24 +775,43 @@ void Program::DataRow(const RowIndex &index, const ListingSpan &span, std::int64
       row.data_components = DataComponents(d);
       row.data_collapsed = spec.collapsed;
       if (spec.string != analysis::StringKind::none) {
-        row.data_value = Quoted(d.text, spec.string == analysis::StringKind::utf8 ? "" : spec.string == analysis::StringKind::utf16 ? "u" : "U");
+        const char *prefix = spec.string == analysis::StringKind::utf8 ? "" : spec.string == analysis::StringKind::utf16 ? "u" : "U";
+        const DataSettings s = settings_of("", spec.string == analysis::StringKind::utf8    ? "string"
+                                               : spec.string == analysis::StringKind::utf16 ? "unicode"
+                                                                                            : "unicode32");
+        if (s.charset.empty() && s.termination == DataSettings::Termination::unset && s.endian == DataSettings::Endian::unset) {
+          row.data_value = Quoted(d.text, prefix);
+        } else {
+          const std::uint64_t skip = spec.layout == analysis::StringLayout::pascal     ? 1
+                                     : spec.layout == analysis::StringLayout::pascal16 ? 2
+                                                                                       : 0;
+          string_value(s, spec.string == analysis::StringKind::utf8 ? "UTF-8" : spec.string == analysis::StringKind::utf16 ? "UTF-16" : "UTF-32",
+                       skip, prefix);
+        }
       } else if (spec.count > 0) {
+        const DataSettings s = settings_of("", spec.type_name);
         if (spec.format == analysis::ValueFormat::character) {
-          UserValue(analysis::ValueFormat::string, d.address, d.length, row, patches);
+          UserValue(analysis::ValueFormat::string, d.address, d.length, row, patches, s);
         } else {
           std::string v = "{";
           for (std::uint64_t i = 0; i < spec.count && i < 8; ++i) {
             StaticRow e;
-            UserValue(spec.format, d.address + i * spec.element, spec.element, e, patches);
+            UserValue(spec.format, d.address + i * spec.element, spec.element, e, patches, s);
             if (i) v += ", ";
-            v += e.data_target ? FormatValue(analysis::ValueFormat::hex, read(d.address + i * spec.element, spec.pointer_size, patches),
-                                             image_->endian == loader::Endian::big)
-                               : e.data_value;
+            if (e.data_target && !s.empty()) {
+              char buf[32];
+              std::snprintf(buf, sizeof buf, "%0*llxh", static_cast<int>(2 * spec.pointer_size), static_cast<unsigned long long>(*e.data_target));
+              v += buf;
+            } else {
+              v += e.data_target ? FormatValue(analysis::ValueFormat::hex, read(d.address + i * spec.element, spec.pointer_size, patches),
+                                               image_->endian == loader::Endian::big)
+                                 : e.data_value;
+            }
           }
           row.data_value = v + (spec.count > 8 ? ", ...}" : "}");
         }
       } else {
-        UserValue(spec.format, d.address, d.length, row, patches);
+        UserValue(spec.format, d.address, d.length, row, patches, settings_of("", spec.type_name));
       }
       return;
     }
@@ -678,7 +824,8 @@ void Program::DataRow(const RowIndex &index, const ListingSpan &span, std::int64
       row.data_depth = 1;
       row.data_type = spec.type_name;
       row.data_mnemonic = spec.format == analysis::ValueFormat::pointer ? "addr" : spec.type_name;
-      UserValue(spec.format, row.address, spec.element, row, patches);
+      // An element shows by its array's settings.
+      UserValue(spec.format, row.address, spec.element, row, patches, settings_of("", spec.type_name));
       return;
     }
     if (i >= spec.fields.size()) return;
@@ -698,44 +845,71 @@ void Program::DataRow(const RowIndex &index, const ListingSpan &span, std::int64
     row.data_depth = f.depth;
     row.data_type = f.type;
     row.data_mnemonic = f.format == analysis::ValueFormat::pointer ? "addr" : f.type;
-    UserValue(f.format, row.address, f.size, row, patches);
+    UserValue(f.format, row.address, f.size, row, patches, settings_of(name, f.type));
     return;
   }
   auto quoted = [&](const char *prefix) {
     std::string q = prefix;
     q += '"';
-    for (char c : d.text) {
+    for (std::size_t i = 0; i < d.text.size(); ++i) {
+      const char c = d.text[i];
       switch (c) {
         case '\n': q += "\\n"; break;
         case '\t': q += "\\t"; break;
         case '\r': q += "\\r"; break;
         case '"': q += "\\\""; break;
         case '\\': q += "\\\\"; break;
-        default: q += c;
+        default:
+          if (static_cast<unsigned char>(c) < 0x80) {
+            q += c;
+          } else if (const std::size_t n = Utf8Sequence(d.text, i)) {
+            q.append(d.text, i, n);
+            i += n - 1;
+          } else {
+            char buf[8];
+            std::snprintf(buf, sizeof buf, "\\x%02x", static_cast<unsigned char>(c));
+            q += buf;
+          }
       }
     }
     return q + '"';
   };
   switch (d.kind) {
-    case analysis::DataKind::string:
+    case analysis::DataKind::string: {
       row.data_type = "string";
       row.data_mnemonic = "ds";
-      row.data_value = quoted("");
+      const DataSettings s = settings_of("", row.data_type);
+      if (s.charset.empty() && s.termination == DataSettings::Termination::unset) row.data_value = quoted("");
+      else string_value(s, "UTF-8", 0, "");
       break;
+    }
     case analysis::DataKind::unicode:
-    case analysis::DataKind::unicode32:
+    case analysis::DataKind::unicode32: {
       row.data_type = d.kind == analysis::DataKind::unicode ? "unicode" : "unicode32";
       row.data_mnemonic = row.data_type;
-      row.data_value = quoted(d.kind == analysis::DataKind::unicode ? "u" : "U");
+      const char *prefix = d.kind == analysis::DataKind::unicode ? "u" : "U";
+      const DataSettings s = settings_of("", row.data_type);
+      if (s.charset.empty() && s.termination == DataSettings::Termination::unset && s.endian == DataSettings::Endian::unset)
+        row.data_value = quoted(prefix);
+      else string_value(s, d.kind == analysis::DataKind::unicode ? "UTF-16" : "UTF-32", 0, prefix);
       break;
-    case analysis::DataKind::pointer:
+    }
+    case analysis::DataKind::pointer: {
       row.data_type = "pointer";
       row.data_mnemonic = "addr";
-      row.data_target = d.value;
+      const DataSettings s = settings_of("", row.data_type);
+      if (s.empty()) row.data_target = d.value;
+      else SetValue(analysis::ValueFormat::pointer, d.address, d.length, row, patches, s);
       break;
+    }
     default: {
       row.data_type = d.length == 1 ? "undefined" : "undefined" + std::to_string(d.length);
       row.data_mnemonic = row.data_type;
+      const DataSettings s = settings_of("", row.data_type);
+      if (!s.empty()) {
+        SetValue(analysis::ValueFormat::hex, d.address, d.length, row, patches, s);
+        break;
+      }
       // The value as the bytes read, little or big end first.
       const std::string b = read(d.address, d.length, patches);
       if (b.size() == d.length && d.length <= 8) {

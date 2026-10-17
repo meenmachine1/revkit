@@ -78,10 +78,14 @@ const std::map<std::string, MethodPolicy, std::less<>> &Table() {
       {"revkit.v1.ProjectService/RemoveMemoryRegion", kEditProject},
       {"revkit.v1.ProjectService/SetImageBase", kEditProject},
       {"revkit.v1.ProjectService/SetProgramLanguage", kEditProject},
-      {"revkit.v1.ProjectService/CompareLanguages", kView},
+      // Decodes the program's code under other languages: its project's.
+      {"revkit.v1.ProjectService/CompareLanguages", kViewProject},
       // Load PDB reads files on the daemon's host and may download from
       // symbol servers; the symbol path is the daemon's (docs/security.md).
       {"revkit.v1.ProjectService/LoadPdb", kAdminProject},
+      // Load debug file too, and it may contact debuginfod servers
+      // (api_minor 86; docs/security.md).
+      {"revkit.v1.ProjectService/LoadDebugFile", kAdminProject},
       {"revkit.v1.ProjectService/GetSymbolSettings", kAdmin},
       {"revkit.v1.ProjectService/SetSymbolSettings", kAdmin},
       // Folders (api_minor 35): organizing a project is an edit, like
@@ -127,11 +131,18 @@ const std::map<std::string, MethodPolicy, std::less<>> &Table() {
       {"revkit.v1.QueryService/FindTypes", kViewProject},
       {"revkit.v1.QueryService/GetFunctionGraph", kViewProject},
       {"revkit.v1.QueryService/ListData", kViewProject},
+      {"revkit.v1.QueryService/ListComments", kViewProject},
+      {"revkit.v1.QueryService/ListRegisterValues", kViewProject},
+      {"revkit.v1.QueryService/ListSymbolTree", kViewProject},
+      {"revkit.v1.QueryService/PlanClearFlow", kViewProject},
+      {"revkit.v1.QueryService/ListRelocations", kViewProject},
+      {"revkit.v1.QueryService/ListLibraryImporters", kViewProject},
       {"revkit.v1.QueryService/GetClassHierarchy", kViewProject},
       {"revkit.v1.QueryService/ListCallingConventions", kViewProject},
       // Batch reads for scripts (api_minor 29): what the per-item reads
       // (Decompile, ReadMemory, GetInstruction) allow, in one call.
       {"revkit.v1.QueryService/DecompileMany", kViewProject},
+      {"revkit.v1.QueryService/ExportC", kViewProject},
       {"revkit.v1.QueryService/FindBytes", kViewProject},
       {"revkit.v1.QueryService/ListInstructions", kViewProject},
       // The byte viewer, the overview bars and next/previous (api_minor 44).
@@ -320,6 +331,7 @@ const std::map<std::string, MethodPolicy, std::less<>> &Table() {
       {"revkit.v1.BSimService/UpdateBSimExecutable", kEditProject},
       {"revkit.v1.BSimService/DeleteBSimExecutables", kEditProject},
       {"revkit.v1.BSimService/SearchBSim", kViewProject},
+      {"revkit.v1.BSimService/ApplyBSimMatches", kEditProject},
 
       // Scripts (api_minor 31; docs/scripting.md, docs/security.md): seeing
       // the libraries is a read; saving a script is an editor's at least.
@@ -479,9 +491,12 @@ Status Authorize(const auth::Principal *caller, std::string_view method, const g
     return Error(StatusCode::kPermissionDenied, caller->display() + " (" + auth::to_string(caller->role) +
                                                     ") may not call " + std::string(method) + ": it needs " +
                                                     auth::to_string(need));
-  if (policy->project_scoped && !caller->projects.empty()) {
+  // A caller limited to some projects may name only those, whatever the
+  // method (ListScripts' project_id, for one, is optional); a
+  // project-scoped method must name one.
+  if (!caller->projects.empty()) {
     auto named = ProjectsNamedBy(request);
-    if (named.empty())
+    if (named.empty() && policy->project_scoped)
       return Error(StatusCode::kPermissionDenied,
                    caller->display() + " is limited to some projects; " + std::string(method) + " must name one");
     for (const std::string &p : named)

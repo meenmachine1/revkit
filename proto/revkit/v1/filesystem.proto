@@ -286,6 +286,9 @@ message FileSystemImport {
   repeated string warnings = 7;
   // The import options used (raw detection's answer, a header's processor).
   string language_id = 8;
+  // A library imported because a program needs it
+  // (ImportOptions.import_libraries; api_minor 79): that program's name.
+  string library_of = 9;
 }
 
 message ImportFromFileSystemResponse {
@@ -296,6 +299,11 @@ message ImportFromFileSystemResponse {
   // More programs were found than max_programs.
   bool capped = 5;
   Snapshot snapshot = 6;
+  // ImportOptions.import_libraries (api_minor 79): the libraries needed but
+  // found nowhere in the file system (those found are items with
+  // library_of), and the ones that failed to import.
+  repeated MissingLibrary libraries_not_found = 7;
+  repeated string library_warnings = 8;
 }
 
 message ExtractFromFileSystemRequest {

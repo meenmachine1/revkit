@@ -22,3 +22,9 @@ signed-integer-overflow:ghidra/src/cpp/slghsymbol.cc
 # space-id constructors leave unset: an uninitialized enum read whose value
 # those constants never use.
 enum:ghidra/src/cpp/semantics.hh
+# SleighBuilder::buildEmpty casts each operand's defining symbol to
+# SubtableSymbol before it checks the symbol's type with a virtual call
+# (getType), and only uses it as one once the check passes: the cast of a
+# VarnodeListSymbol is a vptr report, never a use. Seen in raw-firmware
+# detection's sweeps (python SDK test_detect), part 2 of the scrub.
+vptr:ghidra/src/cpp/sleigh.cc

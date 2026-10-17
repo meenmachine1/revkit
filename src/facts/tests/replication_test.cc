@@ -244,6 +244,20 @@ TEST(Replication, CausallyLaterEditWinsDespiteASlowClock) {
   EXPECT_TRUE(fast.db->log().blame(FactKey::name(kA)).concurrent.empty());
 }
 
+// An op stamped UINT64_MAX (a crafted archive or a broken peer) wrapped
+// the hybrid clock to 0: every later local edit sorted before it and lost.
+// The clock saturates instead, so an edit made after it still wins.
+TEST(Replication, TheClockSaturatesInsteadOfWrapping) {
+  Replica a(1), b(2);
+  a.put(kAlice, FactKey::name(kA), "first");
+  auto ops = a.db->ops_since(b.db->version_vector());
+  ASSERT_EQ(ops.size(), 1u);
+  ops[0].stamp = UINT64_MAX;
+  ASSERT_EQ(b.merge(ops).staged, 1u);
+  b.put(kAlice, FactKey::name(kA), "later");
+  EXPECT_EQ(b.eff(FactKey::name(kA)), FactValue("later"));
+}
+
 TEST(Replication, TransactionsWinOrLoseAsAUnit) {
   // Two concurrent batches touching the same keys at the same rank: one
   // batch wins every key, so a multi-key edit is never torn.

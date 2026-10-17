@@ -18,6 +18,7 @@ import {
   ProvenanceKind,
   clearCode, createRevkit, defineData, disassemble, FactKind, LISTING_EDIT_FEATURE, listingEdit, listingEditOf,
   ListingRowKind, Mutability, setMutability, type AppendAssertionsResponse, type AssertionBody, type ListingRow,
+  DATA_SETTINGS_FEATURE, DataFormat, ListingTokenKind, setDataSettings,
 } from "../src/index";
 
 const bin = process.env.RK_DAEMON ?? path.resolve(import.meta.dirname, "../../../build/tools/rk-daemon/rk-daemon");
@@ -100,6 +101,21 @@ async function main() {
     assert.equal(r.length, 16);
     assert.equal(r.dataType, "uint32_t[4]");
     assert.ok(r.dataCollapsed && r.dataComponents === 4);
+    // Data settings (feature data-settings): the array in decimal, then undone.
+    assert.ok(info.features.includes(DATA_SETTINGS_FEATURE), "the daemon has feature data-settings");
+    assert.throws(() => setDataSettings(0x90, { format: "roman" as "hex" }), /format is one of/);
+    const shown = (x: ListingRow) => x.tokens.filter((t) => t.kind === ListingTokenKind.DATA_VALUE).map((t) => t.text).join("");
+    assert.equal(shown(r), "{00000001h, 00000002h, 00000003h, 00000004h}");
+    const dec = await edit(setDataSettings(0x90, { format: "decimal" }));
+    r = await row(0x90n);
+    assert.equal(shown(r), "{1, 2, 3, 4}");
+    assert.equal(r.dataSettings?.format, DataFormat.DECIMAL);
+    assert.equal(r.dataSettingsType, "uint32_t");
+    const ints = await edit(setDataSettings({ typeName: "uint32_t" }, { format: "binary" }));
+    assert.equal((await row(0x90n)).dataTypeSettings?.format, DataFormat.BINARY);
+    await undo(ints);
+    await undo(dec);
+    assert.equal(shown(await row(0x90n)), "{00000001h, 00000002h, 00000003h, 00000004h}");
     const dw = await edit(defineData(0x90, "dword"));
     assert.equal((await row(0x90n)).length, 4);
     await undo(dw);

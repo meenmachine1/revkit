@@ -703,8 +703,45 @@ daemon contacting a server on the internet on its users' behalf, so:
   written only into the configured cache under a name built from the
   PDB's name (no directories) and key, checked against the program's
   identity before use, and expanded from a cabinet in memory.
-- **Where it goes.** The URL is the admin's; redirects are followed
-  (msdl redirects to a CDN). HTTPS is checked with OpenSSL's defaults.
+- **Where it goes.** The URL is the admin's. A redirect is followed
+  within the same scheme, host and port, or to another host over https
+  only (msdl redirects to a CDN); never from https to http, never to a
+  location with spaces or control characters, at most five. Certificates
+  are checked (the system's roots and the host name). The PDB's name is
+  percent-encoded into the path, and a whole download has a deadline (30
+  times the read timeout) besides its size limit
+  (`src/backend/http_fetch.cc`).
+
+## debuginfod
+
+Load debug file ([backend.md](backend.md#external-debug-files)) can fetch
+an ELF's separate debug file from debuginfod servers. The same rules as
+the symbol servers', tighter where debuginfod allows it:
+
+- **Off by default.** Nothing is fetched until an admin sets
+  `debuginfod` and lists servers (`SetSymbolSettings`, or `rk-daemon
+  --debuginfod <url>`). The daemon's `DEBUGINFOD_URLS` is shown as a
+  suggestion (`suggested_debuginfod_urls`) and never used by itself.
+  Programs loading (imports, projects opening) never fetch: they read only
+  files beside the binary, in the configured directories and in the cache.
+- **What a server learns.** A request names the program's build ID
+  (`/buildid/<id>/debuginfo`), from the daemon's address, with a
+  `revkit-debuginfod` user agent: which build someone is analysing.
+- **Who can trigger it.** `LoadDebugFile` is an admin's call on the
+  project (it reads paths on the daemon's host too).
+- **Transport.** `https://` only, unless an admin also allows `http://`
+  (`debuginfod_allow_http`); URLs with a user name or password, a query
+  or a fragment are refused. Certificates are checked with OpenSSL's
+  defaults. A redirect is followed only to the same scheme, host and port
+  (at most 5): never to another host, unlike the symbol servers (above).
+  A whole transfer has a deadline, 30 times the read timeout.
+- **What arrives is untrusted.** At most `debug_file_max_bytes` (1 GiB by
+  default) is read before the transfer is dropped; the bytes must be an
+  ELF with `.debug_info` whose build ID is the program's before they are
+  kept, then the loader and the DWARF reader read them as they read any
+  binary. They are written atomically into
+  `<project_dir>/.revkit/debuginfod/<build id>/debuginfo` (the build ID is
+  checked to be hex), and the cache is trimmed to `debug_cache_max_bytes`.
 
 ## Limits and known gaps
 

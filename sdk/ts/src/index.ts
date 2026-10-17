@@ -89,7 +89,8 @@ export interface Revkit {
    * 40, feature "filesystems"); see openFileSystem. */
   filesystems: Client<typeof FileSystemService>;
   /** BSim signature databases: create, attach, ingest, list (api_minor 69,
-   * feature "bsim"). */
+   * feature "bsim"); search (72, "bsim-search"); apply matches (76,
+   * "bsim-apply"). */
   bsim: Client<typeof BSimService>;
 }
 

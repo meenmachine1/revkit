@@ -135,6 +135,11 @@ class Session {
     bool cfi = true;  // false: frame pointers and stack scanning only (tests)
     // A recorded snapshot instead of now (what was recorded of the stack).
     std::optional<std::uint64_t> snapshot;
+    // Outside the program (a shared library the caller knows, another
+    // project program): the CFI rules at a runtime pc, and whether a
+    // runtime pc is a function's first instruction. Unset: none.
+    std::function<std::optional<CfiRow>(std::uint64_t runtime)> library_cfi;
+    std::function<bool(std::uint64_t runtime)> library_entry;
   };
   // The frames above the stop: the program's call-frame information where
   // it covers a pc, else frame pointers, else a stack scan.

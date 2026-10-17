@@ -423,6 +423,8 @@ Status ParseC(const ParseCContext &c, const pb::ParseCRequest &req, pb::ParseCRe
   return Status::Ok();
 }
 
+static ParsedRetype RetypeOf(types::TypeStore &store, const ProgramTypes &program, TypeId type);
+
 std::optional<ParsedRetype> ParseRetype(const ParseCContext &c, const std::string &declaration, bool function) {
   if (declaration.size() > 65536) return std::nullopt;
   types::TypeStore store;
@@ -433,9 +435,14 @@ std::optional<ParsedRetype> ParseRetype(const ParseCContext &c, const std::strin
   o.limits.wall_time = std::chrono::milliseconds(2000);
   std::optional<cparse::Declaration> d = cparse::parse_declaration(store, declaration, o);
   if (!d || d->function != function) return std::nullopt;
+  return RetypeOf(store, program, d->type);
+}
+
+// The type and the records of what it reaches that the program lacks.
+static ParsedRetype RetypeOf(types::TypeStore &store, const ProgramTypes &program, TypeId type) {
   ParsedRetype out;
-  out.hash = store.hash(d->type).hex();
-  std::vector<TypeId> stack{d->type};
+  out.hash = store.hash(type).hex();
+  std::vector<TypeId> stack{type};
   std::set<TypeId> seen;
   auto by_hash = [&](TypeId x) {
     pb::TypeNodeRef r;
@@ -454,6 +461,63 @@ std::optional<ParsedRetype> ParseRetype(const ParseCContext &c, const std::strin
     types::for_each_ref(t, [&](TypeId &x, types::EdgeKind) { stack.push_back(x); });
   }
   return out;
+}
+
+std::optional<ParsedRetype> ParseSkeletonPrototype(const ParseCContext &c, const std::string &declaration,
+                                                   std::vector<std::string> *placeholders, std::string *error) {
+  auto fail = [&](std::string why) -> std::optional<ParsedRetype> {
+    if (error) *error = std::move(why);
+    return std::nullopt;
+  };
+  if (declaration.size() > 65536) return fail("the prototype is longer than 64 KiB");
+  types::TypeStore store;
+  ProgramTypes program(c.names, c.closure, store);
+  // Type names the program lacks, found by parsing (the parser names each
+  // it can't resolve), and their placeholders.
+  std::set<std::string> unknown;
+  std::map<std::string, TypeId> made;
+  cparse::Options o;
+  o.profile = ProgramProfile(c.program);
+  o.limits.wall_time = std::chrono::milliseconds(2000);
+  o.lookup = [&](std::string_view key) -> std::optional<TypeId> {
+    if (auto t = program.lookup(key)) return t;
+    constexpr std::string_view kTypedef = "typedef ";
+    if (!key.starts_with(kTypedef)) return std::nullopt;
+    const std::string name(key.substr(kTypedef.size()));
+    if (!unknown.contains(name)) return std::nullopt;
+    if (auto it = made.find(name); it != made.end()) return it->second;
+    types::AggregateType a;
+    a.kind = types::AggregateKind::Struct;
+    a.name = name;
+    a.complete = false;
+    return made[name] = store.intern(types::Type(std::move(a)));
+  };
+  static constexpr std::string_view kUnknown = "unknown type name '";
+  for (int round = 0; round < 32; ++round) {
+    cparse::Result result;
+    std::optional<cparse::Declaration> d = cparse::parse_declaration(store, declaration, o, &result);
+    if (d && d->function) {
+      ParsedRetype out = RetypeOf(store, program, d->type);
+      if (placeholders)
+        for (const auto &[hash, def] : out.types)
+          if (const pb::TypeNode &n = def.body.define_type().type();
+              (n.kind() == pb::TYPE_KIND_STRUCT || n.kind() == pb::TYPE_KIND_UNION) && n.incomplete())
+            placeholders->push_back(n.name());
+      return out;
+    }
+    if (d) return fail("not a function prototype");
+    bool more = false;
+    for (const cparse::Diagnostic &x : result.diagnostics)
+      if (x.text.starts_with(kUnknown))
+        if (std::size_t end = x.text.find('\'', kUnknown.size()); end != std::string::npos)
+          more |= unknown.insert(x.text.substr(kUnknown.size(), end - kUnknown.size())).second;
+    if (!more) {
+      for (const cparse::Diagnostic &x : result.diagnostics)
+        if (x.severity == cparse::Severity::Error) return fail(x.text);
+      return fail("the prototype doesn't parse");
+    }
+  }
+  return fail("too many unknown type names");
 }
 
 }  // namespace revkit::backend

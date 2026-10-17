@@ -10,6 +10,7 @@
 #include <functional>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 
 namespace revkit::lift {
@@ -226,6 +227,31 @@ std::uint64_t function_scope_id(const FunctionFacts &f, std::uint64_t at) {
 }
 
 }  // namespace
+
+std::string fallthrough_kind(const FallthroughKind &k) {
+  char buf[48];
+  std::snprintf(buf, sizeof buf, "%s 0x%llx", k.falls ? "FALLTHROUGH" : "NO_FALLTHROUGH",
+                static_cast<unsigned long long>(k.to));
+  return buf;
+}
+
+std::optional<FallthroughKind> parse_fallthrough_kind(const std::string &kind) {
+  FallthroughKind k;
+  std::string_view rest;
+  if (kind.starts_with("FALLTHROUGH 0x")) rest = std::string_view(kind).substr(14);
+  else if (kind.starts_with("NO_FALLTHROUGH 0x")) {
+    k.falls = false;
+    rest = std::string_view(kind).substr(17);
+  } else
+    return std::nullopt;
+  if (rest.empty() || rest.size() > 16) return std::nullopt;
+  for (char c : rest) {
+    const int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+    if (d < 0) return std::nullopt;
+    k.to = k.to << 4 | static_cast<std::uint64_t>(d);
+  }
+  return k;
+}
 
 std::string to_xml(const DecompElement &e) {
   std::ostringstream os;

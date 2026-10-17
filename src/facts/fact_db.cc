@@ -1,6 +1,7 @@
 #include "revkit/facts/fact_db.h"
 
 #include <algorithm>
+#include <limits>
 #include <chrono>
 #include <cstdio>
 #include <random>
@@ -538,7 +539,10 @@ std::int64_t FactDb::now() const {
 
 Stamp FactDb::tick() {
   const Stamp physical = static_cast<Stamp>(std::max<std::int64_t>(0, now() / 1000000)) << kStampLogicalBits;
-  const Stamp s = std::max(clock_.load() + 1, physical);
+  // Saturating: a clock at the top stays there instead of wrapping to 0,
+  // where every later stamp would sort before the ones already made.
+  const Stamp c = clock_.load();
+  const Stamp s = std::max(c == std::numeric_limits<Stamp>::max() ? c : c + 1, physical);
   clock_ = s;
   return s;
 }

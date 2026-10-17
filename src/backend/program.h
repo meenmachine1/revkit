@@ -7,9 +7,11 @@
 // fact-store queries in queries.h, which memoize and persist their results.
 #pragma once
 
+#include "data_settings.h"
 #include "decompiler.h"
 #include "model.h"
 #include "pool.h"
+#include <chrono>
 
 #include "revkit/analysis/analysis.h"
 #include "revkit/analysis/memory.h"
@@ -86,6 +88,13 @@ class Program : public std::enable_shared_from_this<Program> {
     // `binary`, the path it was read from, if known).
     bool debug_info = true;
     std::filesystem::path binary;
+    // An ELF without .debug_info: its separate debug file, found and
+    // checked (debug_files.h), and where it was; null when there is none.
+    struct DebugFile {
+      std::filesystem::path file;
+      std::shared_ptr<const loader::Bytes> bytes;
+    };
+    std::function<std::optional<DebugFile>(const loader::Image &)> find_debug_file;
     // An image a loader plugin built (docs/plugins.md): used instead of
     // parsing the file, with `format` ("plugin:name@version") and, unless
     // language_id is set, `language`.
@@ -156,9 +165,15 @@ class Program : public std::enable_shared_from_this<Program> {
   std::optional<Decoded> instruction(std::uint64_t addr, bool thumb = false, PatchedBytes *patches = nullptr) const;
 
   DecompilerPool &decompiler() const { return *decompiler_; }
+  // Lets the SLEIGH engines idle for `idle_for` go to their language's
+  // spares (docs/memory.md "SLEIGH engines"), this program's and its
+  // memory-map variants'. How many parked.
+  std::size_t ParkIdleEngines(std::chrono::steady_clock::duration idle_for) const;
   // The debug info read at load (null if none): the decompiler's inputs and
   // the import assertions both come from it.
   const std::shared_ptr<const inputs::DebugInfo> &debug() const { return debug_; }
+  // The separate debug file its DWARF came from ("" its own, or none).
+  const std::filesystem::path &debug_file() const { return debug_file_; }
   // A SLEIGH engine over the image, for the caller's exclusive use.
   Pool<lift::Lifter>::Lease lifter() const { return lifters_->Acquire(); }
   // One only the stack analysis of functions' decompiler inputs decodes
@@ -194,15 +209,20 @@ class Program : public std::enable_shared_from_this<Program> {
   // Each data item is one DATA row.
   RowIndex Rows(const CodeMap &code, const LabelMap &labels, const analysis::DataList &data) const;
   // Rows [page * kPageRows, ...) with bytes and SLEIGH tokens, as patched.
-  std::vector<StaticRow> Page(const RowIndex &rows, std::int64_t page, PatchedBytes *patches = nullptr) const;
+  // Data rows show as `settings` say (data_settings.h; none: as their types do).
+  std::vector<StaticRow> Page(const RowIndex &rows, std::int64_t page, PatchedBytes *patches = nullptr,
+                              const DataSettingsMap *settings = nullptr) const;
   // `k`: the row's index in its span (a user's expanded item: 0 is the
   // item, then its fields or elements).
   void DataRow(const RowIndex &rows, const ListingSpan &span, std::int64_t k, StaticRow &row,
-               PatchedBytes *patches = nullptr) const;
+               PatchedBytes *patches = nullptr, const DataSettingsMap *settings = nullptr) const;
   // A user data item's own fields' and elements' rows when expanded.
   static std::uint32_t DataComponents(const analysis::DataItem &d);
   void UserValue(analysis::ValueFormat format, std::uint64_t at, std::uint64_t size, StaticRow &row,
-                 PatchedBytes *patches) const;
+                 PatchedBytes *patches, const DataSettings &settings = {}) const;
+  // A value of `format` with settings (none empty): integers, floats, pointers, char arrays.
+  void SetValue(analysis::ValueFormat format, std::uint64_t at, std::uint64_t size, StaticRow &row,
+                PatchedBytes *patches, const DataSettings &settings) const;
   static constexpr std::uint32_t kMaxDataRowBytes = 4096;  // bytes a data row carries
   static constexpr std::uint64_t kMaxElementRows = 4096;   // an expanded array's element rows
 
@@ -249,6 +269,7 @@ class Program : public std::enable_shared_from_this<Program> {
   std::unique_ptr<Pool<lift::Lifter>> walk_lifters_;   // see walk_lifter()
   std::unique_ptr<DecompilerPool> decompiler_;
   std::shared_ptr<const inputs::DebugInfo> debug_;
+  std::filesystem::path debug_file_;
 
   // What the program's memory-map variants share with it: the bookkeeping
   // below is per program, whatever its memory.

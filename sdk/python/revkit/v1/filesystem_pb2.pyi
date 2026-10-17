@@ -262,7 +262,7 @@ class ImportFromFileSystemRequest(_message.Message):
     def __init__(self, session_id: _Optional[str] = ..., project_id: _Optional[str] = ..., folder_id: _Optional[str] = ..., paths: _Optional[_Iterable[str]] = ..., recursive: _Optional[bool] = ..., descend: _Optional[bool] = ..., programs_only: _Optional[bool] = ..., detect_raw: _Optional[bool] = ..., preview: _Optional[bool] = ..., max_programs: _Optional[int] = ..., options: _Optional[_Union[_project_pb2.ImportOptions, _Mapping]] = ..., keep_folders: _Optional[bool] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ...) -> None: ...
 
 class FileSystemImport(_message.Message):
-    __slots__ = ("path", "container_path", "detected", "action", "reason", "program", "warnings", "language_id")
+    __slots__ = ("path", "container_path", "detected", "action", "reason", "program", "warnings", "language_id", "library_of")
     PATH_FIELD_NUMBER: _ClassVar[int]
     CONTAINER_PATH_FIELD_NUMBER: _ClassVar[int]
     DETECTED_FIELD_NUMBER: _ClassVar[int]
@@ -271,6 +271,7 @@ class FileSystemImport(_message.Message):
     PROGRAM_FIELD_NUMBER: _ClassVar[int]
     WARNINGS_FIELD_NUMBER: _ClassVar[int]
     LANGUAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    LIBRARY_OF_FIELD_NUMBER: _ClassVar[int]
     path: str
     container_path: str
     detected: str
@@ -279,23 +280,28 @@ class FileSystemImport(_message.Message):
     program: _project_pb2.ProgramInfo
     warnings: _containers.RepeatedScalarFieldContainer[str]
     language_id: str
-    def __init__(self, path: _Optional[str] = ..., container_path: _Optional[str] = ..., detected: _Optional[str] = ..., action: _Optional[str] = ..., reason: _Optional[str] = ..., program: _Optional[_Union[_project_pb2.ProgramInfo, _Mapping]] = ..., warnings: _Optional[_Iterable[str]] = ..., language_id: _Optional[str] = ...) -> None: ...
+    library_of: str
+    def __init__(self, path: _Optional[str] = ..., container_path: _Optional[str] = ..., detected: _Optional[str] = ..., action: _Optional[str] = ..., reason: _Optional[str] = ..., program: _Optional[_Union[_project_pb2.ProgramInfo, _Mapping]] = ..., warnings: _Optional[_Iterable[str]] = ..., language_id: _Optional[str] = ..., library_of: _Optional[str] = ...) -> None: ...
 
 class ImportFromFileSystemResponse(_message.Message):
-    __slots__ = ("items", "imported", "skipped", "failed", "capped", "snapshot")
+    __slots__ = ("items", "imported", "skipped", "failed", "capped", "snapshot", "libraries_not_found", "library_warnings")
     ITEMS_FIELD_NUMBER: _ClassVar[int]
     IMPORTED_FIELD_NUMBER: _ClassVar[int]
     SKIPPED_FIELD_NUMBER: _ClassVar[int]
     FAILED_FIELD_NUMBER: _ClassVar[int]
     CAPPED_FIELD_NUMBER: _ClassVar[int]
     SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    LIBRARIES_NOT_FOUND_FIELD_NUMBER: _ClassVar[int]
+    LIBRARY_WARNINGS_FIELD_NUMBER: _ClassVar[int]
     items: _containers.RepeatedCompositeFieldContainer[FileSystemImport]
     imported: int
     skipped: int
     failed: int
     capped: bool
     snapshot: _common_pb2.Snapshot
-    def __init__(self, items: _Optional[_Iterable[_Union[FileSystemImport, _Mapping]]] = ..., imported: _Optional[int] = ..., skipped: _Optional[int] = ..., failed: _Optional[int] = ..., capped: _Optional[bool] = ..., snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ...) -> None: ...
+    libraries_not_found: _containers.RepeatedCompositeFieldContainer[_project_pb2.MissingLibrary]
+    library_warnings: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, items: _Optional[_Iterable[_Union[FileSystemImport, _Mapping]]] = ..., imported: _Optional[int] = ..., skipped: _Optional[int] = ..., failed: _Optional[int] = ..., capped: _Optional[bool] = ..., snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., libraries_not_found: _Optional[_Iterable[_Union[_project_pb2.MissingLibrary, _Mapping]]] = ..., library_warnings: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ExtractFromFileSystemRequest(_message.Message):
     __slots__ = ("session_id", "paths", "host_dir", "overwrite")

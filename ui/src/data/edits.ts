@@ -5,7 +5,7 @@
 // "Assertions, provenance, blame").
 
 import { create } from "@bufbuild/protobuf";
-import { AssertionBodySchema, CommentKind, type CopyTypesMode, EquateScope, FlowOverrideKind, InstructionSet, Mutability, ReferenceType, ScalarFormat, StringEncoding, StringLayout, type AssertionBody, type DefineData, type FactKey, type Provenance, type Revkit, type TypeNode, type TypeNodeRef } from "@revkit/api";
+import { AssertionBodySchema, CommentKind, type DataSettings, type CopyTypesMode, EquateScope, FlowOverrideKind, InstructionSet, Mutability, ReferenceType, ScalarFormat, StringEncoding, StringLayout, type AssertionBody, type DefineData, type FactKey, type Provenance, type Revkit, type TypeNode, type TypeNodeRef } from "@revkit/api";
 import { userProvenance } from "../api/client";
 
 export type RenameTarget = { case: "address"; address: bigint } | { case: "local"; function: bigint; storageKey: string };
@@ -144,9 +144,37 @@ export class Edits {
     return this.append(label, [Edits.flowBody(address, kind)]);
   }
 
+  /** Where control goes on after an instruction (feature fallthrough-override;
+   * Ghidra's Set Fallthrough): `target`, null for nowhere (no fallthrough),
+   * or "clear" for its own (Clear Fallthrough). */
+  static fallthroughBody(address: bigint, target: bigint | null | "clear"): AssertionBody {
+    return create(AssertionBodySchema, {
+      kind: {
+        case: "fallthrough",
+        value:
+          target === "clear"
+            ? { address: { offset: address } }
+            : target === null
+              ? { address: { offset: address }, noFallthrough: true }
+              : { address: { offset: address }, target: { offset: target } },
+      },
+    });
+  }
+
   /** Whether a function returns, as the user says (feature no-return; Ghidra's Set No-Return). */
   static noReturnBody(entry: bigint, noReturn: boolean): AssertionBody {
     return create(AssertionBodySchema, { kind: { case: "noReturn", value: { function: { offset: entry }, noReturn } } });
+  }
+
+  /** A register's value over [first, last] (feature register-values; Ghidra's
+   * Set Register Values), or no value there (`value` null: Clear Register Values). */
+  static registerValueBody(register: string, first: bigint, last: bigint, value: bigint | null): AssertionBody {
+    return create(AssertionBodySchema, {
+      kind: {
+        case: "registerValue",
+        value: { registerName: register, range: { first: { offset: first }, last: { offset: last } }, value: value ?? 0n, clear: value === null },
+      },
+    });
   }
 
   /** A call's signature override (feature call-signature-override): a C
@@ -320,6 +348,17 @@ export class Edits {
   }
 
   /** Constant, volatile, writable or back to the memory map's say, by range. */
+  /** How a data item displays (feature data-settings): the item at `address`
+   * (`field`: a struct field's row), or with `typeName` the type's defaults;
+   * settings with nothing set remove them. */
+  static dataSettingsBody(target: { address: bigint; field?: string } | { typeName: string }, settings: DataSettings): AssertionBody {
+    const value =
+      "typeName" in target
+        ? { typeName: target.typeName, settings }
+        : { address: { offset: target.address }, field: target.field ?? "", settings };
+    return create(AssertionBodySchema, { kind: { case: "dataSettings", value } });
+  }
+
   static mutabilityBody(address: bigint, length: bigint, mutability: Mutability): AssertionBody {
     return create(AssertionBodySchema, { kind: { case: "mutability", value: { address: { offset: address }, length, mutability } } });
   }

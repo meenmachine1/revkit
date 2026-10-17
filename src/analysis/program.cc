@@ -3,12 +3,14 @@
 
 #include "revkit/analysis/analysis.h"
 #include "revkit/analysis/data.h"
+#include "revkit/analysis/register_values.h"
 
 #include "revkit/lift/abi.hh"
 #include "revkit/lift/context.hh"
 #include "revkit/lift/lifter.hh"
 
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <cstddef>
 #include <optional>
@@ -71,6 +73,24 @@ void ContextSetting::encode(Encoder &e) const {
   e.bytes(name);
   e.varint(value);
   range.encode(e);
+}
+
+void RegisterDefault::encode(Encoder &e) const {
+  e.bytes(name);
+  facts::encode(e, slot);
+  range.encode(e);
+  e.varint(value);
+  e.bytes(origin);
+}
+
+RegisterDefault RegisterDefault::decode(Decoder &d) {
+  RegisterDefault r;
+  r.name = std::string(d.bytes());
+  r.slot = facts::decode<RegisterSlot>(d);
+  r.range = Range::decode(d);
+  r.value = d.varint();
+  r.origin = std::string(d.bytes());
+  return r;
 }
 
 ContextSetting ContextSetting::decode(Decoder &d) {
@@ -168,12 +188,14 @@ void ProgramInfo::encode(Encoder &e) const {
     }
   }
   if (!call_preserved.empty()) facts::encode(e, call_preserved);
-  // A trailer, so records of single-space programs are unchanged.
+  // A trailer, so records of single-space programs are unchanged; then
+  // the register defaults, so records of programs without any are too.
   if (spaces.size() > 1 || (spaces.size() == 1 && (spaces[0].wordsize != 1 || spaces[0].digits != 8)) ||
-      !register_memory.empty()) {
+      !register_memory.empty() || !register_defaults.empty()) {
     facts::encode(e, spaces);
     facts::encode(e, register_memory);
   }
+  if (!register_defaults.empty()) facts::encode(e, register_defaults);
 }
 
 ProgramInfo ProgramInfo::decode(Decoder &d) {
@@ -215,6 +237,7 @@ ProgramInfo ProgramInfo::decode(Decoder &d) {
     p.spaces = facts::decode<std::vector<SpaceInfo>>(d);
     p.register_memory = facts::decode<std::vector<Range>>(d);
   }
+  if (!d.done()) p.register_defaults = facts::decode<std::vector<RegisterDefault>>(d);
   return p;
 }
 
@@ -423,6 +446,10 @@ struct LanguageFacts {
   std::vector<RegisterSlot> call_preserved;
   std::vector<lift::SpaceDef> spaces;
   std::vector<lift::RegisterDef> memory_registers;  // registers outside the register space
+  // The registers analysis gives default values (register_defaults).
+  std::map<std::string, RegisterSlot> named;
+  // The register space's registers values may be set on (value_registers).
+  std::vector<NamedRegister> registers;
 };
 
 const LanguageFacts &language_facts(const std::string &language, const std::string &compiler) {
@@ -450,6 +477,13 @@ const LanguageFacts &language_facts(const std::string &language, const std::stri
       facts.isa_register = RegisterSlot{isa->offset, isa->size};
       if (auto lr = lifter.register_varnode("lr")) facts.link_register = RegisterSlot{lr->offset, lr->size};
     }
+    for (const lift::RegisterDef &r : lifter.registers()) {
+      if (r.space != "register" || r.size == 0 || r.size > 8 || r.name == "contextreg" || lifter.has_context(r.name)) continue;
+      if (!facts.registers.empty() && facts.registers.back().slot == RegisterSlot{r.offset, r.size}) continue;
+      facts.registers.push_back({r.name, RegisterSlot{r.offset, r.size}});
+    }
+    for (const char *name : {"gp", "r2", "r12", "r13"})
+      if (auto r = lifter.register_varnode(name); r && r->space == "register") facts.named.emplace(name, RegisterSlot{r->offset, r->size});
     try {
       for (const std::string &name : lift::read_abi(language, compiler).call_preserved)
         if (auto r = lifter.register_varnode(name)) facts.call_preserved.push_back(RegisterSlot{r->offset, r->size});
@@ -465,6 +499,30 @@ const LanguageFacts &language_facts(const std::string &language, const std::stri
 
 }  // namespace
 
+namespace {
+
+const LanguageFacts &language_facts_of(const ProgramInfo &info) { return language_facts(info.language, info.compiler); }
+
+}  // namespace
+
+const std::vector<NamedRegister> &value_registers(const ProgramInfo &info) { return language_facts_of(info).registers; }
+
+std::optional<NamedRegister> find_register(const ProgramInfo &info, std::string_view name) {
+  if (name.empty()) return std::nullopt;
+  const std::vector<NamedRegister> &all = value_registers(info);
+  for (const NamedRegister &r : all)
+    if (r.name == name) return r;
+  auto lower = [](std::string_view s) {
+    std::string out(s);
+    for (char &c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return out;
+  };
+  const std::string want = lower(name);
+  for (const NamedRegister &r : all)
+    if (lower(r.name) == want) return r;
+  return std::nullopt;
+}
+
 void prepare_language(const std::string &language) {
   // As describe() splits it.
   if (std::count(language.begin(), language.end(), ':') >= 4) {
@@ -475,10 +533,147 @@ void prepare_language(const std::string &language) {
   }
 }
 
+// ---- register defaults ----
+
+namespace {
+
+// A word of the image's memory, in its byte order.
+std::optional<std::uint64_t> read_word(const loader::Image &image, std::uint64_t at, unsigned n) {
+  if (n == 0 || n > 8) return std::nullopt;
+  std::array<std::byte, 8> buf{};
+  if (image.memory.read(at, std::span<std::byte>(buf.data(), n)) != n) return std::nullopt;
+  std::uint64_t v = 0;
+  const bool big = image.endian == loader::Endian::big;
+  for (unsigned i = 0; i < n; ++i) v = (v << 8) | std::to_integer<unsigned>(buf[big ? i : n - 1 - i]);
+  return v;
+}
+
+// The ELF dynamic table's value for `tag` (PT_DYNAMIC), moved by the
+// load's rebase, if it has one.
+std::optional<std::uint64_t> dynamic_value(const loader::Image &image, std::uint64_t tag) {
+  constexpr std::uint32_t kPtDynamic = 2;
+  const unsigned w = image.bits / 8;
+  for (const loader::Segment &s : image.segments) {
+    if (s.type != kPtDynamic) continue;
+    const std::uint64_t at = s.vaddr + (image.image_base - image.file_base);
+    for (std::uint64_t off = 0; off + 2 * w <= s.mem_size; off += 2 * w) {
+      auto t = read_word(image, at + off, w);
+      if (!t || *t == 0) break;  // DT_NULL
+      if (*t == tag) {
+        auto v = read_word(image, at + off + w, w);
+        if (v) return *v + (image.image_base - image.file_base);
+        return std::nullopt;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+const loader::Symbol *defined_symbol(const loader::Image &image, std::string_view name) {
+  for (const loader::Symbol &s : image.symbols)
+    if (s.defined && s.name == name) return &s;
+  return nullptr;
+}
+
+const loader::Section *section_named(const loader::Image &image, std::string_view name) {
+  for (const loader::Section &s : image.sections)
+    if (s.name == name && s.alloc && s.size != 0) return &s;
+  return nullptr;
+}
+
+// What Ghidra's MIPS and PowerPC support assumes registers hold, from the
+// ELF file (docs/api.md, "Register values"):
+// - MIPS gp over the code: DT_MIPS_GP_VALUE (the loader's _mips_gp_value),
+//   else the _gp (or _GP) symbol (MipsAddressAnalyzer), else
+//   __gnu_local_gp, else the GOT's base + 0x7ff0 (the ABI's gp, as
+//   Ghidra's MIPS relocations compute it: .got, or DT_PLTGOT).
+// - PowerPC 64, ELFv1: r2 at each function's entry from its .opd
+//   descriptor (PowerPC64_ElfExtension.markupDescriptorEntry); ELFv2: r2
+//   over the code at the TOC base (.TOC., else .got + 0x8000, else the
+//   start of .toc; Ghidra's TOC_BASE prefers .toc).
+// - PowerPC 32: r13 at _SDA_BASE_ and r2 at _SDA2_BASE_ over the code
+//   (PowerPC_ElfRelocationContext's small data bases, which Ghidra sets
+//   when relocations need them; here wherever the symbols are defined).
+std::vector<RegisterDefault> register_defaults(const loader::Image &image, const ProgramInfo &info,
+                                               const std::map<std::string, RegisterSlot> &named) {
+  std::vector<RegisterDefault> out;
+  if (image.format != loader::Format::elf) return out;
+  auto over_code = [&](const std::string &reg, std::uint64_t value, const char *origin) {
+    auto slot = named.find(reg);
+    if (slot == named.end()) return;
+    const std::uint64_t mask = slot->second.second >= 8 ? ~std::uint64_t{0} : (std::uint64_t{1} << (8 * slot->second.second)) - 1;
+    for (const Range &r : info.code) out.push_back({reg, slot->second, r, value & mask, origin});
+  };
+  const std::string &lang = info.language;
+  if (lang.starts_with("MIPS:")) {
+    std::optional<std::uint64_t> gp = dynamic_value(image, 0x70000030);  // DT_MIPS_GP_VALUE
+    if (!gp)
+      for (const char *name : {"_gp", "_GP", "__gnu_local_gp"})
+        if (const loader::Symbol *s = defined_symbol(image, name)) {
+          gp = s->value;
+          break;
+        }
+    if (!gp) {
+      if (const loader::Section *got = section_named(image, ".got")) gp = got->addr + 0x7ff0;
+      else if (auto pltgot = dynamic_value(image, 3)) gp = *pltgot + 0x7ff0;  // DT_PLTGOT
+    }
+    if (gp) over_code("gp", *gp, "mips-gp");
+  } else if (lang.starts_with("PowerPC:") && info.pointer_size == 8) {
+    // EF_PPC64_ABI: 1 = ELFv1 (function descriptors), 2 = ELFv2; 0 is v1
+    // big-endian and v2 little-endian.
+    const unsigned abi = image.flags & 3;
+    const bool v2 = abi == 2 || (abi == 0 && image.endian == loader::Endian::little);
+    auto r2 = named.find("r2");
+    if (r2 == named.end()) return out;
+    if (!v2) {
+      const loader::Section *opd = section_named(image, ".opd");
+      if (opd == nullptr || opd->perms.exec) return out;
+      // Three-pointer descriptors (entry, TOC, environment) unless the
+      // first two TOC words say two.
+      const unsigned w = info.pointer_size;
+      std::uint64_t step = 3 * w;
+      auto t0 = read_word(image, opd->addr + w, w), t1 = read_word(image, opd->addr + 3 * w, w);
+      auto t2 = read_word(image, opd->addr + 4 * w, w);
+      if (t0 && t1 && t2 && *t1 == *t0 && *t2 != *t0) step = 2 * w;
+      std::set<std::uint64_t> seen;
+      for (std::uint64_t at = opd->addr; at + 2 * w <= opd->addr + opd->size; at += step) {
+        auto entry = read_word(image, at, w), toc = read_word(image, at + w, w);
+        if (!entry || !toc || *entry == 0 || *toc == 0) continue;
+        if (!info.is_code(*entry) || !seen.insert(*entry).second) continue;
+        out.push_back({"r2", r2->second, {*entry, *entry}, *toc, "ppc64-opd"});
+      }
+      std::sort(out.begin(), out.end(), [](const RegisterDefault &a, const RegisterDefault &b) { return a.range < b.range; });
+    } else {
+      std::optional<std::uint64_t> toc;
+      if (const loader::Symbol *s = defined_symbol(image, ".TOC.")) toc = s->value;
+      else if (const loader::Section *got = section_named(image, ".got")) toc = got->addr + 0x8000;
+      else if (const loader::Section *t = section_named(image, ".toc")) toc = t->addr;
+      if (toc) over_code("r2", *toc, "ppc64-toc");
+      // A function's global entry computes r2 from r12, which holds the
+      // entry's address (PowerPC64_ElfExtension.setEntryPointContext);
+      // calls from the program itself go to the local entry after it.
+      if (auto r12 = named.find("r12"); r12 != named.end()) {
+        std::set<std::uint64_t> entries;
+        for (const loader::Symbol &sym : image.symbols)
+          if (sym.defined && sym.type == loader::SymbolType::func && info.is_code(sym.value)) entries.insert(sym.value);
+        if (image.entry && info.is_code(*image.entry)) entries.insert(*image.entry);
+        for (std::uint64_t e : entries) out.push_back({"r12", r12->second, {e, e}, e, "ppc64-entry"});
+      }
+    }
+  } else if (lang.starts_with("PowerPC:") && info.pointer_size == 4) {
+    if (const loader::Symbol *s = defined_symbol(image, "_SDA_BASE_")) over_code("r13", s->value, "ppc-sda");
+    if (const loader::Symbol *s = defined_symbol(image, "_SDA2_BASE_")) over_code("r2", s->value, "ppc-sda2");
+  }
+  return out;
+}
+
+}  // namespace
+
 ProgramInfo describe(const loader::Image &image, const std::string &language, facts::SpaceId space,
                      const ByteSource &bytes) {
   ProgramInfo info;
   std::vector<lift::ProcessorSymbol> processor;
+  const std::map<std::string, RegisterSlot> *named = nullptr;
   info.language = language;
   if (std::count(language.begin(), language.end(), ':') >= 4) {
     auto colon = language.rfind(':');
@@ -513,6 +708,7 @@ ProgramInfo describe(const loader::Image &image, const std::string &language, fa
     info.isa_register = lf.isa_register;
     info.link_register = lf.link_register;
     info.call_preserved = lf.call_preserved;
+    named = &lf.named;
     if (info.isa_register) info.isa_context = "TMode";
   }
   info.big_endian = image.endian == loader::Endian::big;
@@ -698,6 +894,7 @@ ProgramInfo describe(const loader::Image &image, const std::string &language, fa
     info.search = true;
     info.patterns = load_start_patterns(info.language, info.compiler);
   }
+  if (named != nullptr) info.register_defaults = register_defaults(image, info, *named);
   return info;
 }
 

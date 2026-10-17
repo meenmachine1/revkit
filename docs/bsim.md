@@ -14,6 +14,7 @@ any tool can read: the daemon (`BSimService`), `rk-bsim`, the SDKs.
 - [rk-bsim](#rk-bsim)
 - [In the daemon](#in-the-daemon)
 - [Searching](#searching)
+- [Applying matches](#applying-matches)
 - [Evaluation](#evaluation)
 - [Differences from Ghidra's BSim](#differences-from-ghidras-bsim)
 
@@ -177,6 +178,74 @@ the cursor; All functions and Overview search the program. Python
 `Program.bsim_search(db, ...)`; MCP `bsim_search` (an address, or
 `all_functions`) and `bsim_overview`.
 
+## Applying matches
+
+`ApplyBSimMatches{database, program_id, pairs, kind, overwrite, dry_run,
+database_only, provenance}` (`api_minor` 76, feature `bsim-apply`) applies
+hits to the queried functions, as Ghidra's BSim results window does. Each
+pair is a queried function of the program (its entry or an address inside)
+and a match (`BSimMatch`'s executable and function entry); `kind`:
+
+| kind | applies | Ghidra's |
+| --- | --- | --- |
+| `NAME` | the match's name | Apply Name |
+| `SIGNATURE` | the name and a *skeleton* signature: the match's prototype, each type name the program has (its own, a bound one, its library archive's) being its type and each it lacks an empty placeholder structure of that name (an incomplete `struct`, defined in the program with it) | Apply Signature |
+| `SIGNATURE_AND_TYPES` | the name, the signature and every type it reaches, defined in the program by hash | Apply Signature and Data Types |
+
+**Where the values come from.** When the match's file is a program of the
+project (by sha256, the match's `program_id`) and has a function at the
+match's entry, its markup *now*: the name and, for `SIGNATURE_AND_TYPES`,
+the prototype with its types are ported by `PortFunctionMarkup`'s code
+([diff.md](diff.md#comparing-two-functions)), so a rename made in the
+source since the ingest comes along. Otherwise (or with `database_only`)
+the database's record: the name and the prototype stored at ingest. The
+database stores no type definitions, so `SIGNATURE_AND_TYPES` from it is
+a skeleton too (the result's message says so). A signature is only one
+something knows (debug info, the user's, an import's, the demangler's, a
+library's, inference, parameter ID), never the decompiler's guess, which
+the target makes as well.
+
+**What a function keeps.** As `PortFunctionMarkup`: without `overwrite` a
+name goes only over a default one (`FUN_…`), never a match's default name
+at all; a signature only over a guess: none, the decompiler's, or
+analysis's (inference, parameter ID), which here count as guesses too,
+since a matched function's signature is better evidence. Debug info's,
+the user's, an agent's, the demangler's and a library's are kept.
+
+**One undo step.** Every pair's assertions are one revision; `seqs` are
+the assertions in order, and retracting them undoes the apply. Each
+assertion records where it came from: provenance (the caller's, default a
+user) with a reason naming the match (`BSim match (name): inflate in
+libz.so (zlib)`, unless the caller gave one), and `ported_from` with the
+database and the matched executable (`bsim_database`, `bsim_executable`,
+the match's entry as `function`) and, when it was read from the program,
+that program and the source assertion.
+
+**Results.** One `BSimApplied` per pair, in order, as Ghidra's apply
+results list them: `APPLIED` (or would, in a `dry_run`), `UNCHANGED` (it
+has that already), `SKIPPED` (it keeps its own; the match's name is a
+default one; no signature known; one that doesn't parse here), `FAILED`
+(no such function or match; a function given two matches gets neither,
+as Ghidra's apply refuses it), with a message, the name and signature
+before and after, where the values came from (`from_program`), and the
+types defined. The response counts names, signatures, types, skipped and
+failed.
+
+Python `Client.bsim_apply(db, program_id, pairs, kind, overwrite=,
+dry_run=, database_only=)`, pairs `(function, match)` with a `BSimMatch`
+or `(function, executable, entry)`, and `Program.bsim_apply(db, pairs,
+kind)`; TypeScript `rk.bsim.applyBSimMatches`; MCP `bsim_apply` (the
+addresses and ids `bsim_search` returns). The UI's BSim view applies the
+selected hits ([ui.md](ui.md#bsim)).
+
+Tests: `bsim_api_test.cc` `ApplyMatches` (a debug build and its stripped
+twin: a dry run, names for two functions in one revision with their
+provenance, unchanged, kept without overwrite and replaced with it, a
+skeleton signature from the database with its placeholder, signature
+and types from the program with the structure itself, undo, the
+failures), `sdk/python/tests/test_bsim.py`, `test_mcp_tools.py`,
+`ui/e2e/bsim.ts`.
+
 ## Evaluation
 
 `scripts/bsim-eval.py` measures the whole path (ingest, signing, search)
@@ -234,3 +303,10 @@ done here.
   whole.
 - No function tags, call-graph (child) records, or Ghidra's
   `generatesigs`/`commitsigs` XML: ingest signs and stores in one step.
+- Applying a match reads the matched function's program when it is in the
+  project, else the database's record; Ghidra needs the matched program
+  (from a Ghidra server or open in the tool). The database stores no
+  types, so signature and types without the program is a skeleton. Ghidra
+  also applies the namespace; revkit's names carry theirs (`ns::f`).
+  A skeleton keeps the types the program already has by name rather than
+  replacing every non-primitive type with a placeholder.

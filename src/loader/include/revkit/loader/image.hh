@@ -442,4 +442,14 @@ struct RawOptions {
   friend bool operator==(const RawOptions &, const RawOptions &) = default;
 };
 
+// The relocation table (relocations.cc). A relocation type's name as the
+// format names it ("R_X86_64_JUMP_SLOT", "IMAGE_REL_BASED_DIR64"; "type N"
+// for an ELF type of a machine it has no names for).
+std::string relocation_type_name(const Image &image, std::uint32_t type);
+// A PE image's base relocations (the .reloc directory), by address, at
+// most `limit`: `type` is IMAGE_REL_BASED_*; HIGHLOW and DIR64 are
+// `absolute`, with the stored link-time word as `addend` and where it
+// points at this image's base as `target`. Empty for ELF and raw images.
+std::vector<Relocation> pe_base_relocations(const Image &image, std::size_t limit = std::size_t{1} << 24);
+
 }  // namespace revkit::loader

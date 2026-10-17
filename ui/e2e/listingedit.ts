@@ -6,8 +6,10 @@
 // byte and cycles it to a word, ' a char, [ an array that + expands and its marker
 // collapses, i shows who defined it; " makes a string, the context menu's
 // Data group marks it constant and its Recently used group redefines it;
-// Shift+B still toggles the bytes column; Ctrl+Z undoes every step, and
-// page B follows live. run.ts calls listingEditChecks() with pages A and B
+// Shift+B still toggles the bytes column; the menu's Set fallthrough…
+// sends twice's first instruction on to checksum and Clear fallthrough
+// gives its own back (feature fallthrough-override); Ctrl+Z undoes every
+// step, and page B follows live. run.ts calls listingEditChecks() with pages A and B
 // open on default/prog.
 
 import type { Page } from "playwright";
@@ -34,6 +36,11 @@ interface Row {
   dataCollapsed: boolean;
   unit: string;
   mutability: number;
+  settings: string;
+  typeSettings: string;
+  settingsType: string;
+  /** The fallthrough override's address (hex), "none", or null. */
+  fallthrough: string | null;
 }
 
 interface Snap {
@@ -253,5 +260,79 @@ export async function listingEditChecks(c: ListingEditContext) {
     await untilRows(a, "a word from the recent group", (r) => at(r)?.kind === KIND.Data && at(r)!.length === 2);
     for (let i = 0; i < 3; i++) await undo(a); // word, constant, string
     for (const p of [a, b]) await untilRows(p, "the string as analysis had it", (r) => !!at(r) && !at(r)!.unit && !at(r)!.mutability);
+  });
+
+  await check("data settings: the Data menu's Settings… shows a word in decimal (page B follows), every word's default in binary under it, All default leaves the type's; Ctrl+Z", async () => {
+    assert(fmt, `printf's format string: ${JSON.stringify(found)}`);
+    const info = await rpc<{ features?: string[] }>(base, "MetaService/GetServerInfo", { client: "e2e" });
+    assert(info.features?.includes("data-settings"), `features: ${JSON.stringify(info.features)}`);
+    const s = hx(fmtAt);
+    const at = (r: Row[]) => unitAt(r, s);
+    await go(a, fmtAt);
+    await go(b, fmtAt);
+    await key(a, "b");
+    await untilRows(a, "a byte at the format string", (r) => at(r)?.kind === KIND.Data && at(r)!.length === 1 && at(r)!.unit === "user:e2e");
+    await key(a, "b");
+    const word = await untilRows(a, "a word at the format string", (r) => at(r)?.kind === KIND.Data && at(r)!.length === 2 && at(r)!.unit === "user:e2e");
+    const bytes = await rpc<{ data?: string }>(base, "QueryService/ReadMemory", { programId: "default/prog", address: { offset: fmtAt.toString() }, length: 2 });
+    const raw = Uint8Array.from(atob(bytes.data ?? ""), (ch) => ch.charCodeAt(0));
+    const value = raw[0] | (raw[1] << 8);
+    assert(at(word)!.operands.toLowerCase() === value.toString(16).padStart(4, "0") + "h", `the word as hex first: ${at(word)!.operands} (${value})`);
+    const settings = async (fill: () => Promise<void>) => {
+      await go(a, fmtAt);
+      await menu(a);
+      await a.locator("[data-testid=ctx-data]").click();
+      await a.locator("[data-testid=submenu] [data-testid=ctx-le-settings]").click();
+      await a.locator("[data-testid=data-settings]").waitFor({ timeout: 5000 });
+      await fill();
+      await a.locator("[data-testid=data-settings]").waitFor({ state: "detached", timeout: 10000 });
+    };
+    // This item, decimal.
+    await settings(async () => {
+      await a.selectOption("[data-testid=ds-format]", "2");
+      await shot(a, "data-settings");
+      await a.click("[data-testid=ds-submit]");
+    });
+    for (const p of [a, b]) await untilRows(p, "the word in decimal", (r) => at(r)?.operands === `${value}` && at(r)!.settings === "decimal");
+    assert(((await a.getAttribute("#undo", "title")) ?? "").includes("Data settings of"), "the settings undo step");
+    // Every word: binary, under the item's own decimal.
+    const type = at(await rows(a))!.settingsType;
+    await settings(async () => {
+      await a.selectOption("[data-testid=ds-scope]", "type");
+      await a.selectOption("[data-testid=ds-format]", "4");
+      await a.click("[data-testid=ds-submit]");
+    });
+    await untilRows(a, "the type's default shown, the item's own winning", (r) => at(r)?.typeSettings === "binary" && at(r)!.operands === `${value}`);
+    // All default: the item's go, the type's show.
+    await settings(async () => {
+      assert((await a.inputValue("[data-testid=ds-format]")) === "2", "the form shows the item's own format");
+      assert(((await a.textContent("[data-testid=ds-inherited]")) ?? "").includes(type), "the form names the type's defaults");
+      await a.click("[data-testid=ds-reset]");
+    });
+    for (const p of [a, b]) await untilRows(p, "the word in binary", (r) => at(r)?.operands === `${value.toString(2)}b` && !at(r)!.settings);
+    for (let i = 0; i < 5; i++) await undo(a); // all default, type, decimal, word, byte
+    for (const p of [a, b]) await untilRows(p, "the format string as before", (r) => !!at(r) && !at(r)!.unit && !at(r)!.typeSettings);
+  });
+
+  await check("listing edit: the menu's Set fallthrough… sends twice's first instruction on to checksum (its mark, page B too), Clear fallthrough gives its own back; Ctrl+Z each", async () => {
+    const checksum = await c.sym("checksum");
+    const at = (r: Row[]) => unitAt(r, hx(twice));
+    await go(a, twice);
+    await go(b, twice);
+    await menu(a);
+    assert((await a.locator("[data-testid=ctx-fallthrough-clear]").count()) === 0, "no Clear fallthrough without an override");
+    await a.locator("[data-testid=ctx-fallthrough-set]").click();
+    await c.answer(a, `0x${hx(checksum)}`);
+    for (const p of [a, b]) await untilRows(p, "the fallthrough set", (r) => at(r)?.fallthrough === hx(checksum));
+    await shot(a, "listing-edit-fallthrough");
+    assert(((await a.getAttribute("#undo", "title")) ?? "").includes(`Set fallthrough to`), "the Set fallthrough undo step");
+    await go(a, twice);
+    await menu(a);
+    await a.locator("[data-testid=ctx-fallthrough-clear]").click();
+    for (const p of [a, b]) await untilRows(p, "the fallthrough cleared", (r) => !!at(r) && at(r)!.fallthrough === null);
+    await undo(a); // the clear
+    await untilRows(a, "the fallthrough back", (r) => at(r)?.fallthrough === hx(checksum));
+    await undo(a); // the set
+    for (const p of [a, b]) await untilRows(p, "as analysis has it", (r) => !!at(r) && at(r)!.fallthrough === null);
   });
 }

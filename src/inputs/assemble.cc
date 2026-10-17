@@ -500,16 +500,36 @@ class Assembler {
 
   void tracked() {
     std::vector<TrackedRegister> regs = tracked_registers(image_, p_.language_id);
-    if (regs.empty()) return;
+    // Analysis's register values from the loader (ProgramInfo::
+    // register_defaults: MIPS gp, the PowerPC TOC and small data bases),
+    // where a function starts, as Ghidra's program context holds them.
+    const std::vector<an::RegisterDefault> &defaults = p_.analysis->info().register_defaults;
+    if (regs.empty() && defaults.empty()) return;
+    // Per register, by range (disjoint within a register).
+    std::map<std::string, std::vector<const an::RegisterDefault *>> by_register;
+    for (const an::RegisterDefault &d : defaults) by_register[d.name].push_back(&d);
+    for (auto &[name, v] : by_register)
+      std::sort(v.begin(), v.end(), [](const an::RegisterDefault *a, const an::RegisterDefault *b) { return a->range < b->range; });
     for (const lift::FunctionFacts &f : in_.functions) {
       if (f.body.empty() || external_entries_.contains(f.entry)) continue;
-      auto &list = in_.tracked[f.entry];
+      std::vector<lift::TrackedFacts> list;
       for (const TrackedRegister &r : regs) {
         lift::TrackedFacts t;
         t.register_name = r.name;
         t.value = r.value;
         list.push_back(std::move(t));
       }
+      for (const auto &[name, v] : by_register) {
+        auto it = std::upper_bound(v.begin(), v.end(), f.entry, [](std::uint64_t x, const an::RegisterDefault *d) { return x < d->range.first; });
+        if (it == v.begin() || !(*std::prev(it))->range.contains(f.entry)) continue;
+        lift::TrackedFacts t;
+        t.register_name = name;
+        t.value = (*std::prev(it))->value;
+        list.push_back(std::move(t));
+      }
+      if (list.empty()) continue;
+      auto &out = in_.tracked[f.entry];
+      out.insert(out.end(), std::make_move_iterator(list.begin()), std::make_move_iterator(list.end()));
     }
   }
 

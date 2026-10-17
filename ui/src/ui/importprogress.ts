@@ -14,6 +14,7 @@ import { h } from "./dom";
 
 export const IMPORT_PROGRESS_FEATURE = "import-progress";
 const POLL_MS = 250;
+const POLL_TIMEOUT_MS = 10000;
 
 /** A random import_id: 96 bits, hex. */
 export function newImportId(): string {
@@ -154,7 +155,8 @@ export function followImport(rk: Revkit, projectId: string, importId: string, vi
     timer = undefined;
     if (stopped) return;
     try {
-      const p = await rk.projects.getImportProgress({ projectId, importId });
+      // Bounded: a poll that gets no answer is asked again, not waited on forever.
+      const p = await rk.projects.getImportProgress({ projectId, importId }, { timeoutMs: POLL_TIMEOUT_MS });
       if (stopped) return;
       view.update(p);
       if (p.done) return;

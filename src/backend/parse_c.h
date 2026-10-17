@@ -82,4 +82,14 @@ struct ParsedRetype {
 };
 std::optional<ParsedRetype> ParseRetype(const ParseCContext &c, const std::string &declaration, bool function);
 
+// A function prototype as text (a BSim database's, docs/bsim.md "Applying
+// matches") as a skeleton signature of the program, as Ghidra's BSim Apply
+// Signature makes one: a type name the program has (its own, bound, or its
+// library archive's) is its type; one it lacks becomes an empty placeholder
+// structure of that name (an incomplete struct), whose records come with
+// the result to define. `placeholders` gets their names. nullopt (and
+// `error`) when the text isn't a prototype even so.
+std::optional<ParsedRetype> ParseSkeletonPrototype(const ParseCContext &c, const std::string &declaration,
+                                                   std::vector<std::string> *placeholders, std::string *error);
+
 }  // namespace revkit::backend

@@ -3,8 +3,9 @@
 // a letter typed on the list goes there; Escape clears it), the sortable
 // columns, the details of the program picked, the Open program button
 // (disabled on a folder, enabled on a program), and opening with Enter, a
-// double click and the button. run.ts calls openDialogChecks() with its
-// helpers.
+// double click and the button, and a raw import opening its program when
+// the import's last progress gets no answer. run.ts calls openDialogChecks()
+// with its helpers.
 
 import type { Page } from "playwright";
 import path from "node:path";
@@ -156,5 +157,45 @@ export async function openDialogChecks(c: OpenDialogContext) {
     await rpc(base, "ProjectService/MoveToFolder", { projectId: "default", folderId: "", programIds: [second.programId], provenance: prov });
     await rpc(base, "ProjectService/DeleteProgram", { programId: second.programId, provenance: prov });
     await rpc(base, "ProjectService/DeleteFolder", { projectId: "default", folderId, provenance: prov });
+  });
+  await check("open dialog: a raw import opens its program even when the import's last progress gets no answer", async () => {
+    // docs/known-issues.md (fixed): after the import answered, the dialog
+    // asked for its last progress and waited for the answer, which may not
+    // come (the browser's six connections to the daemon held by other tabs'
+    // streams); it stayed at "opening it…". Every GetImportProgress after
+    // the import's answer is held here, unanswered.
+    const p = await open(base);
+    let answered = false;
+    let held = 0;
+    await p.route("**/revkit.v1.ProjectService/GetImportProgress", async (route) => {
+      if (!answered) return route.continue();
+      held++;
+      await new Promise(() => {});  // never answered
+    });
+    // The response's headers come before the page has its body.
+    p.on("response", (r) => {
+      if (r.url().endsWith("/revkit.v1.ProjectService/ImportProgram")) answered = true;
+    });
+    await openDialog(p);
+    await p.click("[data-testid=open-import-binary]");
+    await p.waitForSelector("[data-testid=open-import-view]:not([hidden])");
+    await p.click("[data-testid=raw-options] summary");
+    await p.fill("[data-testid=raw-language]", "x86:LE:64:default:gcc");
+    await p.fill("[data-testid=raw-base]", "0x10000000");
+    await p.fill("[data-testid=open-path]", c.exe);
+    const before = new Set((await rpc<{ programs: Prog[] }>(base, "ProjectService/ListPrograms", { projectId: "default" })).programs.map((x) => x.programId));
+    const was = new URL(p.url()).searchParams.get("program");
+    await p.click("[data-testid=raw-import]");
+    try {
+      await p.waitForURL((u) => (u.searchParams.get("program") ?? was) !== was, { timeout: 20000 });
+    } catch {
+      throw new Error(`not opened; the dialog says "${await p.textContent(".open-status").catch(() => "")}"`);
+    }
+    await p.waitForSelector("body[data-ready='1']", { timeout: 20000 });
+    const id = new URL(p.url()).searchParams.get("program") ?? "";
+    assert(id && !before.has(id), `opened the imported program: ${p.url()}`);
+    assert(held > 0, "the last progress was asked for, and held");
+    await p.context().close();
+    await rpc(base, "ProjectService/DeleteProgram", { programId: id, provenance: prov });
   });
 }

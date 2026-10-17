@@ -50,6 +50,9 @@
 //                          makes its target a function (FlowGraph::
 //                          ref_calls), a jump type from a computed jump
 //                          adds a target the flow goes on at
+//   FALLTHROUGH@addr       a FallthroughOverride (SetFallthrough): the
+//                          instruction's fallthrough goes there instead of
+//                          to the next instruction, or nowhere
 // Flow reads the overrides on the instructions it decodes and the bounds
 // at the seeds it reaches, each through its 256-byte span of the key index
 // (facts::AssertedSpan), so an edit re-runs only the flows that saw it.
@@ -110,6 +113,7 @@
 #include "revkit/loader/image.hh"
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -248,6 +252,23 @@ struct SpaceInfo {
   friend bool operator==(const SpaceInfo &, const SpaceInfo &) = default;
 };
 
+// A register value analysis assumes over a range from what the loader
+// knows (docs/api.md, "Register values"): MIPS gp from _gp, PowerPC 64 r2
+// at the TOC base, PowerPC 32 r13 and r2 at _SDA_BASE_ and _SDA2_BASE_.
+// The user's values (FactKind::RegisterValue) paint over these
+// (analysis.register_values, register_values.h).
+struct RegisterDefault {
+  std::string name;  // the register, as the language spells it ("gp", "r2")
+  RegisterSlot slot;
+  Range range;
+  std::uint64_t value = 0;
+  std::string origin;  // which rule: "mips-gp", "ppc64-toc", "ppc64-opd", "ppc64-entry", "ppc-sda", "ppc-sda2"
+
+  void encode(facts::Encoder &e) const;
+  static RegisterDefault decode(facts::Decoder &d);
+  friend bool operator==(const RegisterDefault &, const RegisterDefault &) = default;
+};
+
 // What the loader knows about the program, as the analysis input.
 struct ProgramInfo {
   std::string language;  // SLEIGH language id, "x86:LE:64:default"
@@ -308,6 +329,10 @@ struct ProgramInfo {
   // keys: their varnodes are read as registers (at their keys in the
   // register space) rather than memory. Sorted, merged.
   std::vector<Range> register_memory;
+  // Register values from the loader's symbols and sections (see
+  // RegisterDefault), by register name then range; empty for most
+  // programs.
+  std::vector<RegisterDefault> register_defaults;
 
   // Bytes per addressable unit of the code space (1 but on word-addressed
   // code: AVR, PIC).
@@ -383,6 +408,19 @@ enum class FlowOverride : std::int64_t { none = 1, branch = 2, call = 3, call_re
 // FUNCTION_BOUNDS value meaning "no function starts here".
 inline constexpr std::int64_t kNotAFunction = 0;
 
+// A FALLTHROUGH value (SetFallthrough): an Address, where control goes on
+// after the instruction; kNoFallthrough, it doesn't go on; kDefaultFallthrough
+// (or nothing), the next instruction (the override cleared).
+inline constexpr std::int64_t kDefaultFallthrough = 0;
+inline constexpr std::int64_t kNoFallthrough = 1;
+struct FallthroughOverride {
+  bool falls = true;     // false: no fallthrough
+  std::uint64_t to = 0;  // where it goes on, if it falls
+  friend bool operator==(const FallthroughOverride &, const FallthroughOverride &) = default;
+};
+// The override a FALLTHROUGH value says, if any (nullopt: the default).
+std::optional<FallthroughOverride> fallthrough_override(const facts::FactValue &v);
+
 // Input: what the loader says (describe()), set by the importer
 // (stage_image). Queries read Program, which lays the memory map's edits
 // over it (memory.h).
@@ -431,7 +469,8 @@ struct ThunkInfo {
 // unconditional jump.
 struct Thunk {
   static constexpr std::string_view name = "analysis.thunk";
-  static constexpr std::uint32_t version = 5;  // 4: patches through patch.page; 5: the user's no-return marks
+  static constexpr std::uint32_t version = 6;  // 4: patches through patch.page; 5: the user's no-return marks;
+                                               // 6: fallthrough overrides
   using Key = Location;
   using Value = ThunkInfo;
   static Value compute(facts::QueryContext &ctx, const Key &addr);
@@ -474,6 +513,16 @@ struct FlowInsn {
   // execution: blhi, ldrls pc, movne pc, lr): when it doesn't, control
   // falls through, whatever its kind says.
   bool conditional = false;
+  // The user's fallthrough override (FactKind::Fallthrough, SetFallthrough;
+  // Ghidra's Set Fallthrough): control goes on at `fall_to` when it falls
+  // through, or, with falls_through false, doesn't go on at all, instead of
+  // the next instruction.
+  bool fall_override = false;
+  std::uint64_t fall_to = 0;
+
+  // Where control goes on when the instruction falls through: the next
+  // instruction, or the override's address.
+  std::uint64_t fallthrough() const { return fall_override ? fall_to : address + length; }
 
   void encode(facts::Encoder &e) const;
   static FlowInsn decode(facts::Decoder &d);
@@ -484,7 +533,9 @@ struct FlowInsn {
 // them: direct flow targets, and constants (or constants copied to a
 // temporary) that are mapped addresses, other than the instruction's own
 // flow targets and fallthrough.
-enum class RefKind : std::uint8_t { call, jump, conditional_jump, data_pointer, data_read, data_write };
+// `fallthrough`: a fallthrough override's address (Ghidra's FALL_THROUGH
+// reference).
+enum class RefKind : std::uint8_t { call, jump, conditional_jump, data_pointer, data_read, data_write, fallthrough };
 
 struct FlowRef {
   std::uint32_t insn = 0;   // index in FlowGraph::insns
@@ -560,7 +611,7 @@ struct FlowGraph {
 // decoded, or doesn't decode. Flow overrides change instructions' kinds.
 struct Flow {
   static constexpr std::string_view name = "analysis.flow";
-  static constexpr std::uint32_t version = 19;  // 5: interworking, computed targets, literals; 6: data refs;
+  static constexpr std::uint32_t version = 21;  // 5: interworking, computed targets, literals; 6: data refs;
                                                 // 7: computed targets on raw images, big-endian data refs;
                                                 // 8: fill (runs of one repeated byte) is not code;
                                                 // 9: calls to switch helpers; 10: far jumps; 11: shifts out;
@@ -573,7 +624,10 @@ struct Flow {
                                                 // references (user_refs.h); 18: the user's
                                                 // no-return marks (FactKind::NoReturn); 19: direct
                                                 // memory varnodes as data references (x86-64's
-                                                // read-modify-write [rip+x])
+                                                // read-modify-write [rip+x]); 20: the user's
+                                                // fallthrough overrides (FactKind::Fallthrough);
+                                                // 21: register values over ranges
+                                                // (register_values.h)
   using Key = Location;
   using Value = FlowGraph;
   static Value compute(facts::QueryContext &ctx, const Key &entry);
@@ -665,7 +719,7 @@ struct FunctionList {
 // call targets, and asserted bodies win (see "Assertions" above).
 struct Functions {
   static constexpr std::string_view name = "analysis.functions";
-  static constexpr std::uint32_t version = 21;  // 6: removals match Thumb entries; 7: on raw images, unproven
+  static constexpr std::uint32_t version = 22;  // 6: removals match Thumb entries; 7: on raw images, unproven
                                                // candidates must be credible code (not text, fill, random bytes);
                                                // 8: reach; 9: of ARM functions too; 10: switch helpers,
                                                // names from labelled patterns; 11: prologues in gaps, code
@@ -677,7 +731,7 @@ struct Functions {
                                                // data, search finds inside instructions dropped;
                                                // 18: patches through patch.page; 19: the listing's edits;
                                                // 20: shrink-wrapped guards count no delay slots (MIPS); 21: the user's no-return marks
-                                               // (FactKind::NoReturn)
+                                               // (FactKind::NoReturn); 22: fallthrough overrides
   using Key = ProgramKey;
   using Value = FunctionList;
   static Value compute(facts::QueryContext &ctx, const Key &key);
@@ -789,6 +843,10 @@ void release_idle_decoders(facts::ThreadPool *pool = nullptr);
 // wait for them: for a loader to overlap with its own work once it knows
 // the language. They go with the next release_idle_decoders().
 void prepare_decoders(const std::string &language, facts::ThreadPool &pool);
+// Parks the idle decoders' SLEIGH engines (lift::Lifter::park; docs/memory.md
+// "SLEIGH engines") once no decoder has been taken or returned for
+// `idle_for`. How many parked.
+std::size_t park_decoders(std::chrono::steady_clock::duration idle_for = {});
 
 // Reads a program's code through a query context, so the bytes read become
 // the query's dependencies, decoding with a SLEIGH engine leased from

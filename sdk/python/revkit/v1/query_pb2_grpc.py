@@ -55,6 +55,16 @@ class QueryServiceStub:
                 request_serializer=revkit_dot_v1_dot_query__pb2.ListSymbolsRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_query__pb2.ListSymbolsResponse.FromString,
                 _registered_method=True)
+        self.ListSymbolTree = channel.unary_unary(
+                '/revkit.v1.QueryService/ListSymbolTree',
+                request_serializer=revkit_dot_v1_dot_query__pb2.ListSymbolTreeRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.ListSymbolTreeResponse.FromString,
+                _registered_method=True)
+        self.PlanClearFlow = channel.unary_unary(
+                '/revkit.v1.QueryService/PlanClearFlow',
+                request_serializer=revkit_dot_v1_dot_query__pb2.PlanClearFlowRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.PlanClearFlowResponse.FromString,
+                _registered_method=True)
         self.GetFunction = channel.unary_unary(
                 '/revkit.v1.QueryService/GetFunction',
                 request_serializer=revkit_dot_v1_dot_query__pb2.GetFunctionRequest.SerializeToString,
@@ -74,6 +84,11 @@ class QueryServiceStub:
                 '/revkit.v1.QueryService/GetXrefs',
                 request_serializer=revkit_dot_v1_dot_query__pb2.GetXrefsRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_query__pb2.GetXrefsResponse.FromString,
+                _registered_method=True)
+        self.ListLibraryImporters = channel.unary_unary(
+                '/revkit.v1.QueryService/ListLibraryImporters',
+                request_serializer=revkit_dot_v1_dot_query__pb2.ListLibraryImportersRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.ListLibraryImportersResponse.FromString,
                 _registered_method=True)
         self.Decompile = channel.unary_unary(
                 '/revkit.v1.QueryService/Decompile',
@@ -105,6 +120,21 @@ class QueryServiceStub:
                 request_serializer=revkit_dot_v1_dot_query__pb2.ListDataRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_query__pb2.ListDataResponse.FromString,
                 _registered_method=True)
+        self.ListComments = channel.unary_unary(
+                '/revkit.v1.QueryService/ListComments',
+                request_serializer=revkit_dot_v1_dot_query__pb2.ListCommentsRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.ListCommentsResponse.FromString,
+                _registered_method=True)
+        self.ListRegisterValues = channel.unary_unary(
+                '/revkit.v1.QueryService/ListRegisterValues',
+                request_serializer=revkit_dot_v1_dot_query__pb2.ListRegisterValuesRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.ListRegisterValuesResponse.FromString,
+                _registered_method=True)
+        self.ListRelocations = channel.unary_unary(
+                '/revkit.v1.QueryService/ListRelocations',
+                request_serializer=revkit_dot_v1_dot_query__pb2.ListRelocationsRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.ListRelocationsResponse.FromString,
+                _registered_method=True)
         self.GetClassHierarchy = channel.unary_unary(
                 '/revkit.v1.QueryService/GetClassHierarchy',
                 request_serializer=revkit_dot_v1_dot_query__pb2.GetClassHierarchyRequest.SerializeToString,
@@ -119,6 +149,11 @@ class QueryServiceStub:
                 '/revkit.v1.QueryService/DecompileMany',
                 request_serializer=revkit_dot_v1_dot_query__pb2.DecompileManyRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_query__pb2.DecompileManyResponse.FromString,
+                _registered_method=True)
+        self.ExportC = channel.unary_stream(
+                '/revkit.v1.QueryService/ExportC',
+                request_serializer=revkit_dot_v1_dot_query__pb2.ExportCRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.ExportCResponse.FromString,
                 _registered_method=True)
         self.FindBytes = channel.unary_unary(
                 '/revkit.v1.QueryService/FindBytes',
@@ -205,6 +240,25 @@ class QueryServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListSymbolTree(self, request, context):
+        """Ghidra's symbol tree, one level at a time: Imports (by library),
+        Exports, Functions, Labels, Classes and Namespaces (api_minor 82,
+        feature "symbol-tree").
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PlanClearFlow(self, request, context):
+        """Ghidra's Clear Flow and Repair, planned: the code the flow from an
+        instruction reaches that nothing else reaches, as the ClearCode edits
+        that clear it (api_minor 83, feature "clear-flow"). Writes nothing: a
+        client asserts the edits (in one AppendAssertions, one undo step).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetFunction(self, request, context):
         """The function at an entry point, or containing an address.
         """
@@ -228,6 +282,16 @@ class QueryServiceServicer:
 
     def GetXrefs(self, request, context):
         """References to and/or from an address or range (page_size default 500).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListLibraryImporters(self, request, context):
+        """References back from a library (api_minor 81, feature
+        "library-importers"): the programs of the project whose imports resolve
+        to this program (ProjectService.ListProgramLibraries' resolution), each
+        import that does, and the importer's references to its thunk and slot.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -284,6 +348,34 @@ class QueryServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListComments(self, request, context):
+        """Every comment of the program, by address, with its kind, function and
+        who wrote it (api_minor 77, feature "comment-table"; Ghidra's comment
+        window).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListRegisterValues(self, request, context):
+        """Register values over address ranges, per register: the user's
+        (SetRegisterValue) and analysis's (the loader's MIPS gp, PowerPC TOC
+        and small data bases), as analysis and the decompiler take them
+        (api_minor 87, feature "register-values"; Ghidra's register manager).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListRelocations(self, request, context):
+        """The relocations the file carries (Ghidra's relocation table), by
+        address: ELF dynamic and object relocations, PE base relocations
+        (api_minor 78, feature "relocation-table").
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetClassHierarchy(self, request, context):
         """C++ classes from MSVC run-time type information (api_minor 45,
         feature "msvc-rtti"; docs/pe.md): every class a TypeDescriptor names,
@@ -319,6 +411,16 @@ class QueryServiceServicer:
         the call starts. A function that fails to decompile is a result with
         `failure`, as for Decompile; an entry with no function is a result with
         `error`. Cancelling the call stops the work not yet started.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ExportC(self, request, context):
+        """Ghidra's C/C++ exporter: functions decompiled into one .c file and,
+        when asked, a .h of the program's types and the functions' prototypes
+        (api_minor 80, feature "export-c"). Progress messages while the
+        functions decompile, then the files in parts.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -447,6 +549,16 @@ def add_QueryServiceServicer_to_server(servicer, server):
                     request_deserializer=revkit_dot_v1_dot_query__pb2.ListSymbolsRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_query__pb2.ListSymbolsResponse.SerializeToString,
             ),
+            'ListSymbolTree': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListSymbolTree,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.ListSymbolTreeRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.ListSymbolTreeResponse.SerializeToString,
+            ),
+            'PlanClearFlow': grpc.unary_unary_rpc_method_handler(
+                    servicer.PlanClearFlow,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.PlanClearFlowRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.PlanClearFlowResponse.SerializeToString,
+            ),
             'GetFunction': grpc.unary_unary_rpc_method_handler(
                     servicer.GetFunction,
                     request_deserializer=revkit_dot_v1_dot_query__pb2.GetFunctionRequest.FromString,
@@ -466,6 +578,11 @@ def add_QueryServiceServicer_to_server(servicer, server):
                     servicer.GetXrefs,
                     request_deserializer=revkit_dot_v1_dot_query__pb2.GetXrefsRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_query__pb2.GetXrefsResponse.SerializeToString,
+            ),
+            'ListLibraryImporters': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListLibraryImporters,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.ListLibraryImportersRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.ListLibraryImportersResponse.SerializeToString,
             ),
             'Decompile': grpc.unary_unary_rpc_method_handler(
                     servicer.Decompile,
@@ -497,6 +614,21 @@ def add_QueryServiceServicer_to_server(servicer, server):
                     request_deserializer=revkit_dot_v1_dot_query__pb2.ListDataRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_query__pb2.ListDataResponse.SerializeToString,
             ),
+            'ListComments': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListComments,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.ListCommentsRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.ListCommentsResponse.SerializeToString,
+            ),
+            'ListRegisterValues': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListRegisterValues,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.ListRegisterValuesRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.ListRegisterValuesResponse.SerializeToString,
+            ),
+            'ListRelocations': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListRelocations,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.ListRelocationsRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.ListRelocationsResponse.SerializeToString,
+            ),
             'GetClassHierarchy': grpc.unary_unary_rpc_method_handler(
                     servicer.GetClassHierarchy,
                     request_deserializer=revkit_dot_v1_dot_query__pb2.GetClassHierarchyRequest.FromString,
@@ -511,6 +643,11 @@ def add_QueryServiceServicer_to_server(servicer, server):
                     servicer.DecompileMany,
                     request_deserializer=revkit_dot_v1_dot_query__pb2.DecompileManyRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_query__pb2.DecompileManyResponse.SerializeToString,
+            ),
+            'ExportC': grpc.unary_stream_rpc_method_handler(
+                    servicer.ExportC,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.ExportCRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.ExportCResponse.SerializeToString,
             ),
             'FindBytes': grpc.unary_unary_rpc_method_handler(
                     servicer.FindBytes,
@@ -683,6 +820,60 @@ class QueryService:
             _registered_method=True)
 
     @staticmethod
+    def ListSymbolTree(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.QueryService/ListSymbolTree',
+            revkit_dot_v1_dot_query__pb2.ListSymbolTreeRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.ListSymbolTreeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PlanClearFlow(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.QueryService/PlanClearFlow',
+            revkit_dot_v1_dot_query__pb2.PlanClearFlowRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.PlanClearFlowResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def GetFunction(request,
             target,
             options=(),
@@ -780,6 +971,33 @@ class QueryService:
             '/revkit.v1.QueryService/GetXrefs',
             revkit_dot_v1_dot_query__pb2.GetXrefsRequest.SerializeToString,
             revkit_dot_v1_dot_query__pb2.GetXrefsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListLibraryImporters(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.QueryService/ListLibraryImporters',
+            revkit_dot_v1_dot_query__pb2.ListLibraryImportersRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.ListLibraryImportersResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -953,6 +1171,87 @@ class QueryService:
             _registered_method=True)
 
     @staticmethod
+    def ListComments(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.QueryService/ListComments',
+            revkit_dot_v1_dot_query__pb2.ListCommentsRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.ListCommentsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListRegisterValues(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.QueryService/ListRegisterValues',
+            revkit_dot_v1_dot_query__pb2.ListRegisterValuesRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.ListRegisterValuesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListRelocations(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.QueryService/ListRelocations',
+            revkit_dot_v1_dot_query__pb2.ListRelocationsRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.ListRelocationsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def GetClassHierarchy(request,
             target,
             options=(),
@@ -1023,6 +1322,33 @@ class QueryService:
             '/revkit.v1.QueryService/DecompileMany',
             revkit_dot_v1_dot_query__pb2.DecompileManyRequest.SerializeToString,
             revkit_dot_v1_dot_query__pb2.DecompileManyResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExportC(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/revkit.v1.QueryService/ExportC',
+            revkit_dot_v1_dot_query__pb2.ExportCRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.ExportCResponse.FromString,
             options,
             channel_credentials,
             insecure,

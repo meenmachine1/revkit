@@ -95,8 +95,8 @@ using AddressKey = std::pair<std::string, std::uint64_t>;
 // change to the function list doesn't recompute it.
 struct InputsStatic {
   static constexpr std::string_view name = "inputs.static";
-  static constexpr std::uint32_t version = 5;  // 2: functions' context; 3: locals' source types; 4: the memory map (docs/memory-map.md);
-                                               // 5: demangled (docs/demangle.md)
+  static constexpr std::uint32_t version = 6;  // 2: functions' context; 3: locals' source types; 4: the memory map (docs/memory-map.md);
+                                               // 5: demangled (docs/demangle.md); 6: a separate debug file (program.debug_file)
   using Key = ProgramKey;
   using Value = inputs::StaticInputs;
   static Value compute(facts::QueryContext &ctx, const Key &program);
@@ -105,11 +105,12 @@ struct InputsStatic {
 
 struct InputsProgram {
   static constexpr std::string_view name = "inputs.program";
-  static constexpr std::uint32_t version = 14;  // 2: from inputs.static; 3: pointer slots looked up; 4: context; 5: data analysis; 6: no-return;
+  static constexpr std::uint32_t version = 15;  // 2: from inputs.static; 3: pointer slots looked up; 4: context; 5: data analysis; 6: no-return;
                                                 // 7: context_reach; 8: ARM functions' context; 9: call fixups by name; 10: locals' source types
                                                 // 11: a raw image's patches through patch.page; 12: the memory map;
                                                 // 13: demangled names and prototypes (docs/demangle.md)
                                                 // 14: revkit's library archives (library.prototypes)
+                                                // 15: a separate debug file (program.debug_file)
   using Key = ProgramKey;
   using Value = ProgramInputs;
   static Value compute(facts::QueryContext &ctx, const Key &program);
@@ -134,9 +135,9 @@ struct InputsSets {
 
 struct InputsFunction {
   static constexpr std::string_view name = "inputs.function";
-  static constexpr std::uint32_t version = 7;  // 2: CALL_RETURN on calls to switch helpers; 3: BRANCH on far jumps;
+  static constexpr std::uint32_t version = 8;  // 2: CALL_RETURN on calls to switch helpers; 3: BRANCH on far jumps;
                                                // 4: stack walked with a lifter of its own; 5: locals' source types; 6: the memory map;
-                                               // 7: demangled functions (docs/demangle.md)
+                                               // 7: demangled functions (docs/demangle.md); 8: a separate debug file (program.debug_file)
   using Key = AddressKey;
   using Value = inputs::FunctionInputs;
   static Value compute(facts::QueryContext &ctx, const Key &key);

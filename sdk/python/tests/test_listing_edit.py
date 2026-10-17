@@ -260,6 +260,58 @@ def test_clear_then_disassemble_brings_a_function_back(prog):
     assert entry in fn_entries(prog) and row_at(prog, entry).kind == INSTRUCTION
 
 
+def test_clear_flow_takes_a_function_in_one_undo_step(prog):
+    """Clear Flow and Repair (api_minor 83, feature "clear-flow"): helper's
+    whole flow, planned, cleared in one revision, and undone at once."""
+    entry = sym(prog, "helper")
+    plan = prog.plan_clear_flow(entry)
+    assert plan.ranges and plan.ranges[0].address.offset == entry and plan.kept == 0
+    assert [f.offset for f in plan.functions] == [entry]
+    assert sum(r.length for r in plan.ranges) == prog.function(entry).size
+    plan2, resp = prog.clear_flow(entry, reason="not code")
+    assert plan2 == plan and len(resp.assertions) == len(plan.ranges)
+    assert entry not in fn_entries(prog) and row_at(prog, entry).kind == UNDEFINED
+    prog.retract(*(a.seq for a in resp.assertions), reason="undo")
+    assert entry in fn_entries(prog) and row_at(prog, entry).kind == INSTRUCTION
+
+
+def test_fallthrough_override_moves_flow_and_clears(prog):
+    """Set Fallthrough (api_minor 84, feature "fallthrough-override"): main's
+    call to helper goes on two instructions later; then nowhere; cleared,
+    then undone, as analysis had it."""
+    main = sym(prog, "main")
+    helper = sym(prog, "helper")
+    insns = list(prog.instructions(function=main, pcode=False))
+    k = next(i for i, x in enumerate(insns) if helper in [t.offset for t in x.flow_targets])
+    call, skipped, target = insns[k].address.offset, insns[k + 1].address.offset, insns[k + 2].address.offset
+    size = prog.function(main).size
+
+    moved = prog.set_fallthrough(call, target, reason="skips an instruction")
+    a = moved.assertions[0]
+    assert a.key.kind == common_pb2.FACT_KIND_FALLTHROUGH and a.key.address.offset == call
+    row = row_at(prog, call)
+    assert row.fallthrough_override and row.fallthrough.offset == target and row.fallthrough_origin.HasField("asserted")
+    assert prog.instruction(call).fall_through.offset == target
+    assert any(x.kind == listing_pb2.XREF_KIND_FALLTHROUGH and x.to_address.offset == target
+               for x in prog.xrefs_from(call))
+    # (What only the skipped instruction reached leaves the body.)
+    assert prog.function(main).size <= size
+
+    nowhere = prog.set_fallthrough(call, None)
+    row = row_at(prog, call)
+    assert row.fallthrough_override and not row.HasField("fallthrough")
+    assert not prog.instruction(call).HasField("fall_through")
+    assert prog.function(main).size < size
+
+    cleared = prog.clear_fallthrough(call)
+    assert not row_at(prog, call).fallthrough_override
+    assert prog.instruction(call).fall_through.offset == skipped
+    assert prog.function(main).size == size
+    for resp in (cleared, nowhere, moved):
+        undo(prog, resp)
+    assert not row_at(prog, call).fallthrough_override
+
+
 def test_constant_and_volatile_ranges_in_the_decompiler(prog):
     threshold = sym(prog, "threshold")
     plain = decompiled(prog, "get_threshold")

@@ -533,25 +533,85 @@ class LoadPdbResponse(_message.Message):
     assertion_seqs: _containers.RepeatedScalarFieldContainer[int]
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., pdb_file: _Optional[str] = ..., exact: _Optional[bool] = ..., source: _Optional[str] = ..., functions: _Optional[int] = ..., variables: _Optional[int] = ..., types: _Optional[int] = ..., warnings: _Optional[_Iterable[str]] = ..., search_log: _Optional[_Iterable[str]] = ..., assertion_seqs: _Optional[_Iterable[int]] = ...) -> None: ...
 
+class LoadDebugFileRequest(_message.Message):
+    __slots__ = ("program_id", "path", "upload_id", "search", "force", "provenance")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    UPLOAD_ID_FIELD_NUMBER: _ClassVar[int]
+    SEARCH_FIELD_NUMBER: _ClassVar[int]
+    FORCE_FIELD_NUMBER: _ClassVar[int]
+    PROVENANCE_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    path: str
+    upload_id: str
+    search: bool
+    force: bool
+    provenance: _common_pb2.Provenance
+    def __init__(self, program_id: _Optional[str] = ..., path: _Optional[str] = ..., upload_id: _Optional[str] = ..., search: _Optional[bool] = ..., force: _Optional[bool] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ...) -> None: ...
+
+class LoadDebugFileResponse(_message.Message):
+    __slots__ = ("snapshot", "debug_file", "exact", "source", "functions", "variables", "types", "warnings", "search_log", "assertion_seqs", "build_id", "cached")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    DEBUG_FILE_FIELD_NUMBER: _ClassVar[int]
+    EXACT_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    VARIABLES_FIELD_NUMBER: _ClassVar[int]
+    TYPES_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    SEARCH_LOG_FIELD_NUMBER: _ClassVar[int]
+    ASSERTION_SEQS_FIELD_NUMBER: _ClassVar[int]
+    BUILD_ID_FIELD_NUMBER: _ClassVar[int]
+    CACHED_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    debug_file: str
+    exact: bool
+    source: str
+    functions: int
+    variables: int
+    types: int
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    search_log: _containers.RepeatedScalarFieldContainer[str]
+    assertion_seqs: _containers.RepeatedScalarFieldContainer[int]
+    build_id: str
+    cached: bool
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., debug_file: _Optional[str] = ..., exact: _Optional[bool] = ..., source: _Optional[str] = ..., functions: _Optional[int] = ..., variables: _Optional[int] = ..., types: _Optional[int] = ..., warnings: _Optional[_Iterable[str]] = ..., search_log: _Optional[_Iterable[str]] = ..., assertion_seqs: _Optional[_Iterable[int]] = ..., build_id: _Optional[str] = ..., cached: _Optional[bool] = ...) -> None: ...
+
 class SymbolSettings(_message.Message):
-    __slots__ = ("symbol_path", "downloads", "cache_dir")
+    __slots__ = ("symbol_path", "downloads", "cache_dir", "debug_dirs", "debuginfod", "debuginfod_urls", "debuginfod_allow_http", "debug_file_max_bytes", "debug_cache_max_bytes", "debug_cache_dir")
     SYMBOL_PATH_FIELD_NUMBER: _ClassVar[int]
     DOWNLOADS_FIELD_NUMBER: _ClassVar[int]
     CACHE_DIR_FIELD_NUMBER: _ClassVar[int]
+    DEBUG_DIRS_FIELD_NUMBER: _ClassVar[int]
+    DEBUGINFOD_FIELD_NUMBER: _ClassVar[int]
+    DEBUGINFOD_URLS_FIELD_NUMBER: _ClassVar[int]
+    DEBUGINFOD_ALLOW_HTTP_FIELD_NUMBER: _ClassVar[int]
+    DEBUG_FILE_MAX_BYTES_FIELD_NUMBER: _ClassVar[int]
+    DEBUG_CACHE_MAX_BYTES_FIELD_NUMBER: _ClassVar[int]
+    DEBUG_CACHE_DIR_FIELD_NUMBER: _ClassVar[int]
     symbol_path: str
     downloads: bool
     cache_dir: str
-    def __init__(self, symbol_path: _Optional[str] = ..., downloads: _Optional[bool] = ..., cache_dir: _Optional[str] = ...) -> None: ...
+    debug_dirs: _containers.RepeatedScalarFieldContainer[str]
+    debuginfod: bool
+    debuginfod_urls: _containers.RepeatedScalarFieldContainer[str]
+    debuginfod_allow_http: bool
+    debug_file_max_bytes: int
+    debug_cache_max_bytes: int
+    debug_cache_dir: str
+    def __init__(self, symbol_path: _Optional[str] = ..., downloads: _Optional[bool] = ..., cache_dir: _Optional[str] = ..., debug_dirs: _Optional[_Iterable[str]] = ..., debuginfod: _Optional[bool] = ..., debuginfod_urls: _Optional[_Iterable[str]] = ..., debuginfod_allow_http: _Optional[bool] = ..., debug_file_max_bytes: _Optional[int] = ..., debug_cache_max_bytes: _Optional[int] = ..., debug_cache_dir: _Optional[str] = ...) -> None: ...
 
 class GetSymbolSettingsRequest(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
 class GetSymbolSettingsResponse(_message.Message):
-    __slots__ = ("settings",)
+    __slots__ = ("settings", "suggested_debuginfod_urls")
     SETTINGS_FIELD_NUMBER: _ClassVar[int]
+    SUGGESTED_DEBUGINFOD_URLS_FIELD_NUMBER: _ClassVar[int]
     settings: SymbolSettings
-    def __init__(self, settings: _Optional[_Union[SymbolSettings, _Mapping]] = ...) -> None: ...
+    suggested_debuginfod_urls: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, settings: _Optional[_Union[SymbolSettings, _Mapping]] = ..., suggested_debuginfod_urls: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class SetSymbolSettingsRequest(_message.Message):
     __slots__ = ("settings",)
@@ -1092,7 +1152,7 @@ class CancelRawDetectResponse(_message.Message):
     def __init__(self) -> None: ...
 
 class ImportOptions(_message.Message):
-    __slots__ = ("format", "language_id", "compiler_spec_id", "has_image_base", "image_base", "analyze", "raw_offset", "raw_length", "raw_permissions", "has_entry_point", "entry_point", "regions", "raw_space", "raw_format", "import_libraries", "library_search_paths", "library_depth")
+    __slots__ = ("format", "language_id", "compiler_spec_id", "has_image_base", "image_base", "analyze", "raw_offset", "raw_length", "raw_permissions", "has_entry_point", "entry_point", "regions", "raw_space", "raw_format", "import_libraries", "library_search_paths", "library_depth", "library_root")
     FORMAT_FIELD_NUMBER: _ClassVar[int]
     LANGUAGE_ID_FIELD_NUMBER: _ClassVar[int]
     COMPILER_SPEC_ID_FIELD_NUMBER: _ClassVar[int]
@@ -1110,6 +1170,7 @@ class ImportOptions(_message.Message):
     IMPORT_LIBRARIES_FIELD_NUMBER: _ClassVar[int]
     LIBRARY_SEARCH_PATHS_FIELD_NUMBER: _ClassVar[int]
     LIBRARY_DEPTH_FIELD_NUMBER: _ClassVar[int]
+    LIBRARY_ROOT_FIELD_NUMBER: _ClassVar[int]
     format: str
     language_id: str
     compiler_spec_id: str
@@ -1127,7 +1188,8 @@ class ImportOptions(_message.Message):
     import_libraries: bool
     library_search_paths: _containers.RepeatedScalarFieldContainer[str]
     library_depth: int
-    def __init__(self, format: _Optional[str] = ..., language_id: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., has_image_base: _Optional[bool] = ..., image_base: _Optional[int] = ..., analyze: _Optional[bool] = ..., raw_offset: _Optional[int] = ..., raw_length: _Optional[int] = ..., raw_permissions: _Optional[str] = ..., has_entry_point: _Optional[bool] = ..., entry_point: _Optional[int] = ..., regions: _Optional[_Iterable[_Union[MemoryRegion, _Mapping]]] = ..., raw_space: _Optional[str] = ..., raw_format: _Optional[str] = ..., import_libraries: _Optional[bool] = ..., library_search_paths: _Optional[_Iterable[str]] = ..., library_depth: _Optional[int] = ...) -> None: ...
+    library_root: str
+    def __init__(self, format: _Optional[str] = ..., language_id: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., has_image_base: _Optional[bool] = ..., image_base: _Optional[int] = ..., analyze: _Optional[bool] = ..., raw_offset: _Optional[int] = ..., raw_length: _Optional[int] = ..., raw_permissions: _Optional[str] = ..., has_entry_point: _Optional[bool] = ..., entry_point: _Optional[int] = ..., regions: _Optional[_Iterable[_Union[MemoryRegion, _Mapping]]] = ..., raw_space: _Optional[str] = ..., raw_format: _Optional[str] = ..., import_libraries: _Optional[bool] = ..., library_search_paths: _Optional[_Iterable[str]] = ..., library_depth: _Optional[int] = ..., library_root: _Optional[str] = ...) -> None: ...
 
 class MemoryRegion(_message.Message):
     __slots__ = ("name", "start", "size", "read", "write", "execute", "initialized", "is_volatile", "space")
@@ -1152,20 +1214,22 @@ class MemoryRegion(_message.Message):
     def __init__(self, name: _Optional[str] = ..., start: _Optional[int] = ..., size: _Optional[int] = ..., read: _Optional[bool] = ..., write: _Optional[bool] = ..., execute: _Optional[bool] = ..., initialized: _Optional[bool] = ..., is_volatile: _Optional[bool] = ..., space: _Optional[str] = ...) -> None: ...
 
 class ImportProgramResponse(_message.Message):
-    __slots__ = ("snapshot", "program", "analysis_job_id", "warnings", "libraries", "libraries_not_found")
+    __slots__ = ("snapshot", "program", "analysis_job_id", "warnings", "libraries", "libraries_not_found", "library_root")
     SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
     PROGRAM_FIELD_NUMBER: _ClassVar[int]
     ANALYSIS_JOB_ID_FIELD_NUMBER: _ClassVar[int]
     WARNINGS_FIELD_NUMBER: _ClassVar[int]
     LIBRARIES_FIELD_NUMBER: _ClassVar[int]
     LIBRARIES_NOT_FOUND_FIELD_NUMBER: _ClassVar[int]
+    LIBRARY_ROOT_FIELD_NUMBER: _ClassVar[int]
     snapshot: _common_pb2.Snapshot
     program: ProgramInfo
     analysis_job_id: str
     warnings: _containers.RepeatedScalarFieldContainer[str]
     libraries: _containers.RepeatedCompositeFieldContainer[ProgramInfo]
     libraries_not_found: _containers.RepeatedCompositeFieldContainer[MissingLibrary]
-    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., program: _Optional[_Union[ProgramInfo, _Mapping]] = ..., analysis_job_id: _Optional[str] = ..., warnings: _Optional[_Iterable[str]] = ..., libraries: _Optional[_Iterable[_Union[ProgramInfo, _Mapping]]] = ..., libraries_not_found: _Optional[_Iterable[_Union[MissingLibrary, _Mapping]]] = ...) -> None: ...
+    library_root: str
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., program: _Optional[_Union[ProgramInfo, _Mapping]] = ..., analysis_job_id: _Optional[str] = ..., warnings: _Optional[_Iterable[str]] = ..., libraries: _Optional[_Iterable[_Union[ProgramInfo, _Mapping]]] = ..., libraries_not_found: _Optional[_Iterable[_Union[MissingLibrary, _Mapping]]] = ..., library_root: _Optional[str] = ...) -> None: ...
 
 class MissingLibrary(_message.Message):
     __slots__ = ("name", "needed_by")
@@ -1300,7 +1364,7 @@ class GetProgramSummaryResponse(_message.Message):
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., summary: _Optional[_Union[ProgramSummary, _Mapping]] = ...) -> None: ...
 
 class ProgramSummary(_message.Message):
-    __slots__ = ("info", "language", "image_base", "entry_points", "memory", "function_count", "instruction_count", "file_size", "spaces", "import_image_base")
+    __slots__ = ("info", "language", "image_base", "entry_points", "memory", "function_count", "instruction_count", "file_size", "spaces", "import_image_base", "build_id", "debuglink", "debug_file")
     INFO_FIELD_NUMBER: _ClassVar[int]
     LANGUAGE_FIELD_NUMBER: _ClassVar[int]
     IMAGE_BASE_FIELD_NUMBER: _ClassVar[int]
@@ -1311,6 +1375,9 @@ class ProgramSummary(_message.Message):
     FILE_SIZE_FIELD_NUMBER: _ClassVar[int]
     SPACES_FIELD_NUMBER: _ClassVar[int]
     IMPORT_IMAGE_BASE_FIELD_NUMBER: _ClassVar[int]
+    BUILD_ID_FIELD_NUMBER: _ClassVar[int]
+    DEBUGLINK_FIELD_NUMBER: _ClassVar[int]
+    DEBUG_FILE_FIELD_NUMBER: _ClassVar[int]
     info: ProgramInfo
     language: LanguageInfo
     image_base: _common_pb2.Address
@@ -1321,7 +1388,10 @@ class ProgramSummary(_message.Message):
     file_size: int
     spaces: _containers.RepeatedCompositeFieldContainer[AddressSpaceInfo]
     import_image_base: _common_pb2.Address
-    def __init__(self, info: _Optional[_Union[ProgramInfo, _Mapping]] = ..., language: _Optional[_Union[LanguageInfo, _Mapping]] = ..., image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., entry_points: _Optional[_Iterable[_Union[EntryPoint, _Mapping]]] = ..., memory: _Optional[_Iterable[_Union[MemoryBlock, _Mapping]]] = ..., function_count: _Optional[int] = ..., instruction_count: _Optional[int] = ..., file_size: _Optional[int] = ..., spaces: _Optional[_Iterable[_Union[AddressSpaceInfo, _Mapping]]] = ..., import_image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ...) -> None: ...
+    build_id: str
+    debuglink: str
+    debug_file: str
+    def __init__(self, info: _Optional[_Union[ProgramInfo, _Mapping]] = ..., language: _Optional[_Union[LanguageInfo, _Mapping]] = ..., image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., entry_points: _Optional[_Iterable[_Union[EntryPoint, _Mapping]]] = ..., memory: _Optional[_Iterable[_Union[MemoryBlock, _Mapping]]] = ..., function_count: _Optional[int] = ..., instruction_count: _Optional[int] = ..., file_size: _Optional[int] = ..., spaces: _Optional[_Iterable[_Union[AddressSpaceInfo, _Mapping]]] = ..., import_image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., build_id: _Optional[str] = ..., debuglink: _Optional[str] = ..., debug_file: _Optional[str] = ...) -> None: ...
 
 class LanguageInfo(_message.Message):
     __slots__ = ("language_id", "compiler_spec_id", "processor", "endianness", "pointer_size", "default_space")

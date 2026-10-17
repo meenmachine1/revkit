@@ -107,6 +107,20 @@ message AssertionBody {
     // feature "set-language"), written by ProjectService.SetProgramLanguage
     // only.
     ProgramLanguageBody language = 30;
+    // How a data item displays (Ghidra's Data Settings and Default
+    // Settings; api_minor 84, feature "data-settings";
+    // docs/listing-edit.md#data-settings). Keyed as a NOTE with a reserved
+    // tag, so projects and archives that have them still open in daemons
+    // from before it.
+    SetDataSettings data_settings = 31;
+    // Where control goes on after an instruction (Ghidra's Set Fallthrough
+    // and Clear Fallthrough; FACT_KIND_FALLTHROUGH; api_minor 85, feature
+    // "fallthrough-override").
+    SetFallthrough fallthrough = 32;
+    // A register's value over an address range (Ghidra's Set Register
+    // Values; FACT_KIND_REGISTER_VALUE; api_minor 87, feature
+    // "register-values").
+    SetRegisterValue register_value = 33;
   }
 }
 
@@ -120,6 +134,25 @@ message ProgramLanguageBody {
   string previous_compiler_spec_id = 4;
 }
 
+// Key: REGISTER_VALUE at range.first, sub "<register>:<hex length>"
+// (docs/api.md, "Register values"). The register holds `value` wherever
+// code runs in the range, as Ghidra's Set Register Values says: analysis's
+// constants (data references: MIPS gp- and PowerPC r2-relative loads) and
+// the decompiler (the values at a function's entry, as tracked registers)
+// take it as known there. clear: no value there instead, over analysis's
+// own (the loader's MIPS _gp, the PowerPC TOC) and older ranges. Where two
+// ranges of one register overlap, the higher precedence and then the more
+// recent wins each byte. The register is the language's, by name (case
+// ignored; stored as the language spells it), at most 8 bytes, and not a
+// context register (TMode: Disassemble ARM / Thumb sets those); the value
+// must fit it.
+message SetRegisterValue {
+  string register_name = 1;
+  AddressRange range = 2;
+  uint64 value = 3;
+  bool clear = 4;
+}
+
 // Key: NO_RETURN at the function's entry. no_return true: calls to it end
 // their caller's flow there (discovery stops the caller's body, the
 // listing's flow and the decompiler's after the call); false: it returns,
@@ -129,6 +162,25 @@ message ProgramLanguageBody {
 message SetNoReturn {
   Address function = 1;
   bool no_return = 2;
+}
+
+// Key: FALLTHROUGH at the instruction. Where control goes on after the
+// instruction instead of the next one, as Ghidra's Set Fallthrough says
+// it: analysis follows `target` (function bodies, the listing's flow, the
+// function graph, references), and the decompiler sees a branch there at
+// the end of the instruction's p-code, a branch the instruction makes to
+// its next instruction going there too (Ghidra's PcodeEmit). Inline data
+// after a call (an argument block, a string) is the usual case.
+// `no_fallthrough`: control doesn't go on after it at all (Ghidra's
+// override with no address); the decompiler's p-code is unchanged then, as
+// in Ghidra. Neither: the override is cleared (Ghidra's Clear
+// Fallthrough), whoever set it; undo retracts it. A target at the
+// instruction's own next address is the default: cleared as well. An
+// instruction is required at `address`; `target` must be mapped memory.
+message SetFallthrough {
+  Address address = 1;
+  Address target = 2;
+  bool no_fallthrough = 3;
 }
 
 // Key: CALL_SIGNATURE at the call instruction. The decompiler takes this
@@ -382,6 +434,100 @@ message SetMutability {
   Address address = 1;
   uint64 length = 2;
   Mutability mutability = 3;
+}
+
+// How an integer value shows (Ghidra's Format setting). UNSPECIFIED: as
+// its type says (hex, a char as a character, a bool as true or false).
+enum DataFormat {
+  DATA_FORMAT_UNSPECIFIED = 0;
+  DATA_FORMAT_HEX = 1;      // 2ah
+  DATA_FORMAT_DECIMAL = 2;  // 42
+  DATA_FORMAT_OCTAL = 3;    // 52o
+  DATA_FORMAT_BINARY = 4;   // 101010b
+  DATA_FORMAT_CHAR = 5;     // '*' (the value's bytes, most significant first)
+}
+
+// UNSPECIFIED: as its type says (int32_t signed, uint32_t and undefined
+// bytes unsigned).
+enum DataSignedness {
+  DATA_SIGNEDNESS_UNSPECIFIED = 0;
+  DATA_SIGNEDNESS_SIGNED = 1;
+  DATA_SIGNEDNESS_UNSIGNED = 2;
+}
+
+// The byte order a value (or a UTF-16/32 string) is read in.
+// UNSPECIFIED: the program's.
+enum DataEndian {
+  DATA_ENDIAN_UNSPECIFIED = 0;
+  DATA_ENDIAN_LITTLE = 1;
+  DATA_ENDIAN_BIG = 2;
+}
+
+// Leading zeros to the value's width (hex, octal, binary). UNSPECIFIED:
+// unsigned hex is padded, the rest aren't.
+enum DataPadding {
+  DATA_PADDING_UNSPECIFIED = 0;
+  DATA_PADDING_PADDED = 1;
+  DATA_PADDING_UNPADDED = 2;
+}
+
+// Where a string's text ends. UNSPECIFIED and NUL: at the first NUL
+// character; ALL: every character of the item, NULs shown as \0.
+enum StringTermination {
+  STRING_TERMINATION_UNSPECIFIED = 0;
+  STRING_TERMINATION_NUL = 1;
+  STRING_TERMINATION_ALL = 2;
+}
+
+// What a pointer's stored value is (Ghidra's pointer-typedef settings):
+// UNSPECIFIED and ABSOLUTE the address itself; IMAGE_BASE_OFFSET the
+// address less the image base (an RVA, PE's ImageBaseOffset32); RELATIVE
+// the address less the pointer's own address.
+enum PointerKind {
+  POINTER_KIND_UNSPECIFIED = 0;
+  POINTER_KIND_ABSOLUTE = 1;
+  POINTER_KIND_IMAGE_BASE_OFFSET = 2;
+  POINTER_KIND_RELATIVE = 3;
+}
+
+// How a data item displays (Ghidra's Data Settings). Every field is
+// optional: unset falls back to the type's default settings, then to how
+// the type shows without settings. Only the listing's display changes:
+// the definition, references and the decompiler don't.
+message DataSettings {
+  // Integers (and undefined bytes, chars, bools, enums, array elements).
+  DataFormat format = 1;
+  DataSignedness signedness = 2;
+  // Integers, floats, pointers, UTF-16 and UTF-32 strings.
+  DataEndian endian = 3;
+  DataPadding padding = 4;
+  // Strings and char arrays: "US-ASCII", "ISO-8859-1", "windows-1252",
+  // "UTF-8", "UTF-16" (in `endian`), "UTF-16LE", "UTF-16BE", "UTF-32",
+  // "UTF-32LE", "UTF-32BE" (any case). "": as the definition says.
+  string charset = 5;
+  StringTermination termination = 6;
+  // Pointers: what the stored value is, after `pointer_mask` keeps its
+  // bits and `pointer_shift` shifts it left (negative: right).
+  PointerKind pointer_kind = 7;
+  optional uint64 pointer_mask = 8;
+  optional int32 pointer_shift = 9;
+}
+
+// Key: NOTE at `address` with tag "revkit:data-settings" (the item's own:
+// its row and, for an array, every element's) or
+// "revkit:data-settings:<field>" (a struct field's row, `field` its
+// data_field path "hdr.magic"); with `type_name` instead, NOTE at 0 with
+// tag "revkit:data-type-settings:<type_name>", the type's default settings
+// (Ghidra's Default Settings: every row of the type, data_settings_type on
+// ListingRow, that its own settings leave unset). Settings with nothing
+// set remove them. They stay when the data is cleared or defined again,
+// as comments do, and apply to whatever data row starts there. Data
+// analysis's rows (strings, pointers, undefined bytes) take them too.
+message SetDataSettings {
+  Address address = 1;
+  string field = 2;
+  string type_name = 3;
+  DataSettings settings = 4;
 }
 
 // Key: PATCH at address. What the patch wrote, what was there, and for an

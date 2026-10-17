@@ -142,8 +142,18 @@ class Ext final : public FileSystem {
   }
 
   // The file's blocks as runs (offsets in bytes).
-  void extents(std::span<const std::byte> node, std::vector<Run> &runs, unsigned depth, std::uint32_t &visits) const {
-    if (++visits > 1u << 20) throw LimitError("an ext extent tree is too large");
+  // How many blocks the image holds: a file's extent tree nodes, indirect
+  // blocks and data blocks are distinct blocks of it, so none can number
+  // more. That bounds the time a crafted tree or block map of repeated
+  // blocks takes (2^20 visits of 4 KiB each, or 2^22 indirect blocks of
+  // 1,024 entries each, took tens of seconds per open), as the caps alone
+  // bounded only the memory.
+  std::uint64_t image_blocks() const { return src_->size() / bs_ + 16; }
+
+  void extents(std::span<const std::byte> node, std::vector<Run> &runs, unsigned depth, std::uint32_t &visits,
+               std::uint64_t &mapped) const {
+    if (++visits > std::min<std::uint64_t>(1u << 20, image_blocks()))
+      throw LimitError("an ext extent tree is too large (it repeats its blocks)");
     Buf b(node, "an ext extent node");
     if (b.l16(0) != 0xf30a) throw Error("a bad ext extent header");
     const std::uint16_t count = b.l16(2), d = b.l16(6);
@@ -162,10 +172,12 @@ class Ext final : public FileSystem {
         const std::uint64_t phys = static_cast<std::uint64_t>(b.l16(o + 6)) << 32 | b.l32(o + 8);
         runs.push_back({logical * bs_, phys * bs_, static_cast<std::uint64_t>(len) * bs_, zero});
         if (runs.size() > (1u << 22)) throw LimitError("an ext file with too many extents");
+        if (!zero && (mapped += len) > image_blocks())
+          throw LimitError("an ext file maps more blocks than the image has");
       } else {
         const std::uint64_t leaf = static_cast<std::uint64_t>(b.l16(o + 8)) << 32 | b.l32(o + 4);
         const auto child = src_->read_exact(leaf * bs_, bs_, "an ext extent block");
-        extents(child, runs, d, visits);
+        extents(child, runs, d, visits, mapped);
       }
     }
   }
@@ -176,8 +188,10 @@ class Ext final : public FileSystem {
     const std::uint64_t nblocks = (n.size + bs_ - 1) / bs_;
     std::uint64_t logical = 0;
     std::uint32_t reads = 0;
+    std::uint64_t mapped = 0;
     auto add = [&](std::uint64_t phys) {
       if (phys) {
+        if (++mapped > image_blocks()) throw LimitError("an ext file maps more blocks than the image has");
         if (!runs.empty() && !runs.back().zero && runs.back().logical + runs.back().length == logical * bs_ &&
             runs.back().physical + runs.back().length == phys * bs_)
           runs.back().length += bs_;
@@ -197,7 +211,8 @@ class Ext final : public FileSystem {
         logical += span;  // a hole the size of the whole subtree
         return;
       }
-      if (++reads > (1u << 22)) throw LimitError("an ext block map too large");
+      if (++reads > std::min<std::uint64_t>(1u << 22, image_blocks()))
+        throw LimitError("an ext block map too large (it repeats its blocks)");
       const auto t = src_->read_exact(block * bs_, bs_, "an ext indirect block");
       for (std::uint64_t k = 0; k < per && logical < nblocks; ++k) {
         const std::uint32_t b = le32(t.data() + 4 * k);
@@ -246,7 +261,8 @@ class Ext final : public FileSystem {
     std::vector<Run> runs;
     if (n.flags & kExtents) {
       std::uint32_t visits = 0;
-      extents(std::span(n.raw).subspan(0x28, 60), runs, 0, visits);
+      std::uint64_t mapped = 0;
+      extents(std::span(n.raw).subspan(0x28, 60), runs, 0, visits, mapped);
     } else {
       blockmap(n, runs);
     }

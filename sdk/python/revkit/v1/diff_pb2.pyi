@@ -942,7 +942,7 @@ class DiffMatchBody(_message.Message):
     def __init__(self, session_id: _Optional[str] = ..., entry_a: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., entry_b: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., status: _Optional[_Union[DiffMatchStatus, str]] = ..., rejected: _Optional[bool] = ..., tier: _Optional[_Union[DiffTier, str]] = ..., confidence: _Optional[float] = ...) -> None: ...
 
 class PortedFrom(_message.Message):
-    __slots__ = ("session_id", "run_id", "program_id", "function", "address", "source_seq", "source_id", "match_seq")
+    __slots__ = ("session_id", "run_id", "program_id", "function", "address", "source_seq", "source_id", "match_seq", "bsim_database", "bsim_executable")
     SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
@@ -951,6 +951,8 @@ class PortedFrom(_message.Message):
     SOURCE_SEQ_FIELD_NUMBER: _ClassVar[int]
     SOURCE_ID_FIELD_NUMBER: _ClassVar[int]
     MATCH_SEQ_FIELD_NUMBER: _ClassVar[int]
+    BSIM_DATABASE_FIELD_NUMBER: _ClassVar[int]
+    BSIM_EXECUTABLE_FIELD_NUMBER: _ClassVar[int]
     session_id: str
     run_id: str
     program_id: str
@@ -959,7 +961,9 @@ class PortedFrom(_message.Message):
     source_seq: int
     source_id: _common_pb2.OpId
     match_seq: int
-    def __init__(self, session_id: _Optional[str] = ..., run_id: _Optional[str] = ..., program_id: _Optional[str] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., source_seq: _Optional[int] = ..., source_id: _Optional[_Union[_common_pb2.OpId, _Mapping]] = ..., match_seq: _Optional[int] = ...) -> None: ...
+    bsim_database: str
+    bsim_executable: str
+    def __init__(self, session_id: _Optional[str] = ..., run_id: _Optional[str] = ..., program_id: _Optional[str] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., source_seq: _Optional[int] = ..., source_id: _Optional[_Union[_common_pb2.OpId, _Mapping]] = ..., match_seq: _Optional[int] = ..., bsim_database: _Optional[str] = ..., bsim_executable: _Optional[str] = ...) -> None: ...
 
 class CompareFunctionsRequest(_message.Message):
     __slots__ = ("project_id", "read", "program_a", "entry_a", "program_b", "entry_b", "session_id", "omit_bytes", "markup")

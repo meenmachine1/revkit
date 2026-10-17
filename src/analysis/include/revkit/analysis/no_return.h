@@ -30,8 +30,8 @@ namespace revkit::analysis {
 
 struct NoReturnEvidence {
   static constexpr std::string_view name = "analysis.no_return_evidence";
-  static constexpr std::uint32_t version = 3;  // 2: literal pools after a call are data; 3: patches
-                                               // through patch.page
+  static constexpr std::uint32_t version = 4;  // 2: literal pools after a call are data; 3: patches
+                                               // through patch.page; 4: fallthrough overrides
   using Key = ProgramKey;
   using Value = std::vector<std::uint64_t>;  // sorted entries
   static Value compute(facts::QueryContext &ctx, const Key &key);

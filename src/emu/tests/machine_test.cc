@@ -363,6 +363,31 @@ TEST_F(FirmwareMachine, AutoAckGetsPastAPollingLoop) {
   EXPECT_TRUE(s.address && *s.address == 0xffffffffu);
 }
 
+// A peripheral whose range runs past the top of memory wrapped: the
+// device mapped nothing and its range check passed (docs/bug-scrub.md).
+TEST_F(FirmwareMachine, APeripheralPastTheEndOfMemoryIsRefused) {
+  const fs::path armfw =
+      testing::build_fixtures(REVKIT_ARMFW_DIR, REVKIT_ARMFW_OUT, REVKIT_CLANG, REVKIT_LLD, REVKIT_OBJCOPY);
+  ASSERT_FALSE(armfw.empty());
+  const std::string text = R"({
+    "language": "ARM:LE:32:v4t",
+    "memory": [{"name": "sram", "start": "0x20000000", "size": "0x10000"}],
+    "peripherals": [{"name": "t", "kind": "timer", "base": "0xfffffffffffffff0", "size": "0x100", "irq": "cpu.irq"}]
+  })";
+  MachineSpec spec = parse_machine(text);
+  const fs::path bin = armfw / "fw.bin";
+  auto image = std::make_shared<const loader::Image>(loader::load_raw_file(bin, machine_raw_options(spec, fs::file_size(bin))));
+  Options o;
+  o.language = "ARM:LE:32:v4t:default";
+  Emulator e(image, o);
+  try {
+    e.attach_machine(spec, {});
+    ADD_FAILURE() << "attached";
+  } catch (const MachineError &err) {
+    EXPECT_NE(std::string(err.what()).find("past the end of memory"), std::string::npos) << err.what();
+  }
+}
+
 TEST(Machine, ParseErrorsSayWhere) {
   try {
     parse_machine("{\n  \"memory\": [{\"start\": \"0x10\", \"size\": \"lots\"}]\n}");

@@ -73,7 +73,7 @@ def test_every_tool_group(image_daemon, binaries, tmp_path):
                 return r
 
             tools = {t.name for t in (await mcp.list_tools()).tools}
-            assert len(tools) == 156, sorted(tools)
+            assert len(tools) == 168, sorted(tools)
 
             # Function ID: the databases and a program's matches (none here).
             dbs = await call("fid_databases", program_id=a)
@@ -99,6 +99,43 @@ def test_every_tool_group(image_daemon, binaries, tmp_path):
             bad = _json(await mcp.call_tool("search_strings", {"program_id": a, "query": "(", "regex": True}))
             assert "invalid regular expression" in bad.get("error", ""), bad
             assert (await call("list_data", program_id=a, limit=5))["data"]
+            # The relocation table (feature relocation-table): a PLT slot by its symbol, its type named.
+            relocs = await call("list_relocations", program_id=a, limit=3)
+            assert relocs["format"] == "elf" and relocs["total"] >= len(relocs["relocations"]) > 0, relocs
+            assert all(r["type"].startswith("R_") and len(r["bytes"]) == 16 for r in relocs["relocations"]), relocs
+            if relocs["total"] > 3:
+                assert relocs["truncated"] and relocs["next_offset"] == 3, relocs
+            slots = (await call("list_relocations", program_id=a, contains="R_X86_64_JUMP_SLOT"))["relocations"]
+            assert slots and all(r["kind"] == "jump_slot" and r.get("symbol") for r in slots), slots
+            # Export C (feature export-c): one function's C and the header's prototype; into a directory.
+            ex = await call("export_c", program_id=a, function_addresses=[fib])
+            assert ex["functions"] == 1 and "/* fib @ " in ex["source"] and '#include "' in ex["source"], ex
+            assert "fib(" in ex["header"] and "typedef unsigned int uint;" in ex["header"], ex["header"][-500:]
+            ex_dir = tmp_path / "export-c"
+            written = await call("export_c", program_id=a, directory=str(ex_dir), header=False, file_name="all")
+            assert written["source_path"] == str(ex_dir / "all.c") and "source" not in written, written
+            assert written["functions"] >= 3 and "/* main @ " in (ex_dir / "all.c").read_text(), written
+            # The symbol tree (feature symbol-tree): the folders, then fib among the functions.
+            tree = await call("symbol_tree", program_id=a)
+            assert [n["name"] for n in tree["nodes"]] == ["Imports", "Exports", "Functions", "Labels", "Classes", "Namespaces"], tree
+            fns = await call("symbol_tree", program_id=a, path=["Functions"], contains="fib")
+            assert [n["address"] for n in fns["nodes"] if n["name"] == "fib"] == [fib], fns
+            imports = await call("symbol_tree", program_id=a, path=["Imports"])
+            assert imports["nodes"] and all(n["kind"] == "library" for n in imports["nodes"]), imports
+            # Clear Flow and Repair (feature clear-flow): twice's flow planned, cleared, undone.
+            dry = await call("clear_flow", program_id=a, address=twice, reason="mcp test", dry_run=True)
+            assert dry["dry_run"] and dry["ranges"][0]["address"] == twice and dry["functions"] == [twice], dry
+            cf = await call("clear_flow", program_id=a, address=twice, reason="mcp test")
+            assert cf["ok"] and len(cf["seqs"]) == len(dry["ranges"]), cf
+            await call("undo_changes", program_id=a, seqs=cf["seqs"], reason="mcp test")
+            assert (await call("get_function", program_id=a, address=twice))["name"] == "twice"
+            # The comment table (feature comment-table): a comment listed by kind and text; undone, gone.
+            cm = await call("set_comment", program_id=a, address=fib, text="MCP comment table", reason="mcp test", kind="pre")
+            listed = (await call("list_comments", program_id=a, kinds=["pre"], contains="COMMENT TABLE"))["comments"]
+            assert [(c["address"], c["kind"], c.get("function")) for c in listed] == [(fib, "pre", "fib")], listed
+            assert (await call("list_comments", program_id=a, kinds=["eol"], contains="comment table"))["comments"] == []
+            await call("undo_changes", program_id=a, seqs=[cm["seq"]], reason="mcp test")
+            assert (await call("list_comments", program_id=a, contains="comment table"))["comments"] == []
             # Languages (feature set-language): the variants compared; the imported one asked for changes nothing.
             fits = await call("compare_languages", program_id=a)
             assert any(f["current"] for f in fits["fits"]), fits
@@ -125,12 +162,29 @@ def test_every_tool_group(image_daemon, binaries, tmp_path):
             assert again["results"][0]["matches"][0]["entry"] == one["matches"][0]["entry"], again
             ov = await call("bsim_overview", program_id=b, min_similarity=0.5)
             assert ov["with_hits"] >= 1 and ov["results"][0]["hits"] >= 1, ov
+            # Apply (feature bsim-apply): v1 has v0's names already; a dry run of the signature says what it would do.
+            m = one["matches"][0]
+            pair = {"address": one["entry"], "executable_id": m["executable_id"], "entry": m["entry"]}
+            ap = await call("bsim_apply", program_id=b, matches=[pair], reason="mcp test")
+            assert ap["results"][0]["status"] in ("unchanged", "skipped") and ap["seqs"] == [], ap
+            dry = await call("bsim_apply", program_id=b, matches=[pair], kind="signature", overwrite=True, dry_run=True,
+                             reason="mcp test")
+            assert dry["dry_run"] and dry["seqs"] == [] and dry["results"][0]["status"] != "failed", dry
             # No return (feature no-return): twice marked, its record says so; undone, as analysis has it.
             nr = await call("set_no_return", program_id=a, function_address=twice, no_return=True, reason="mcp test")
             assert nr["ok"], nr
             assert (await call("get_function", program_id=a, address=twice)).get("no_return") is True
             await call("undo_changes", program_id=a, seqs=[nr["seq"]], reason="mcp test")
             assert not (await call("get_function", program_id=a, address=twice)).get("no_return")
+            # Fallthrough (feature fallthrough-override): twice's first instruction goes on at fib, a reference
+            # there; cleared, and both undone.
+            ft = await call("set_fallthrough", program_id=a, address=twice, target=fib, reason="mcp test")
+            assert ft["ok"], ft
+            refs = await call("xrefs", program_id=a, address=fib, kind="fallthrough")
+            assert refs["xrefs"] and refs["xrefs"][0]["from"] == twice, refs
+            cl = await call("set_fallthrough", program_id=a, address=twice, clear=True, reason="mcp test")
+            assert not (await call("xrefs", program_id=a, address=fib, kind="fallthrough"))["xrefs"]
+            await call("undo_changes", program_id=a, seqs=[cl["seq"], ft["seq"]], reason="mcp test")
             mem = await call("read_memory", program_id=a, address=fib, length=16)
             assert len(mem["hex"]) == 32 and mem["dump"]
             graph = await call("function_graph", program_id=a, function_address=fib)

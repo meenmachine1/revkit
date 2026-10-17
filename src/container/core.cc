@@ -34,7 +34,9 @@ class MemorySource final : public Source {
   }
   std::uint64_t size() const override { return bytes_.size(); }
   std::size_t read(std::uint64_t offset, std::span<std::byte> out) const override {
-    if (offset >= bytes_.size()) return 0;
+    // A zero-length read (read_exact of 0 bytes) has a null buffer, which
+    // memcpy may not be given even for 0 bytes (UBSan; extract_fuzzer).
+    if (offset >= bytes_.size() || out.empty()) return 0;
     const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(out.size(), bytes_.size() - offset));
     std::memcpy(out.data(), bytes_.data() + offset, n);
     return n;

@@ -39,6 +39,8 @@ from revkit.ghidra.compat.model import (
     Scalar,
     SourceType,
     SymbolType,
+    _Enum,
+    _enum,
     addr_int,
     array_of,
     comment_kind,
@@ -602,6 +604,10 @@ class Program(JavaObject):
 
     def getSymbolTable(self) -> "SymbolTable":
         return self._symbols
+
+    def getRelocationTable(self) -> "RelocationTable":
+        """The relocations the file carries (feature relocation-table)."""
+        return RelocationTable(self._s)
 
     def getMemory(self) -> "Memory":
         return self._memory
@@ -1351,6 +1357,88 @@ class Parameter(Variable):
 # ---------------------------------------------------------------------------
 # Symbols
 # ---------------------------------------------------------------------------
+
+
+class RelocationStatus(_Enum):
+    """``Relocation.Status``. revkit's loader applies no relocation to the
+    bytes (a rebase moves the RELATIVE ones), so each is UNKNOWN."""
+
+    _java_name = "Relocation.Status"
+
+
+_enum(RelocationStatus, ["UNKNOWN", "SKIPPED", "UNSUPPORTED", "FAILURE", "PARTIAL", "APPLIED", "APPLIED_OTHER"])
+
+
+class Relocation(JavaObject):
+    """``ghidra.program.model.reloc.Relocation`` over a ``ProgramRelocation``."""
+
+    def __init__(self, s: "Session", r: query_pb2.ProgramRelocation):
+        self._s = s
+        self._r = r
+
+    def getAddress(self) -> Address:
+        return self._s.addr(self._r.address)
+
+    def getType(self) -> int:
+        return self._r.type
+
+    def getSymbolName(self) -> Optional[str]:
+        return self._r.symbol or None
+
+    def getBytes(self) -> bytes:
+        return bytes(self._r.original)
+
+    def getLength(self) -> int:
+        return len(self._r.original)
+
+    def getValues(self) -> list:
+        return [self._r.addend]
+
+    def getStatus(self) -> RelocationStatus:
+        return RelocationStatus.UNKNOWN
+
+    def __repr__(self):
+        return f"Relocation({self._r.type_name} at {self._r.address.offset:#x})"
+
+
+class RelocationTable(JavaObject):
+    """``ghidra.program.model.reloc.RelocationTable`` (``ListRelocations``)."""
+
+    def __init__(self, s: "Session"):
+        self._s = s
+        self._cache: Optional[list] = None
+
+    def _all(self) -> list:
+        if self._cache is None:
+            self._cache = [Relocation(self._s, r) for r in self._s.prog.relocations()]
+        return self._cache
+
+    def _offsets(self) -> list:
+        return [r._r.address.offset for r in self._all()]
+
+    def getRelocations(self, a=None):
+        """``getRelocations()`` and ``getRelocations(AddressSetView)`` (iterators),
+        ``getRelocations(Address)`` (a list)."""
+        if a is None:
+            return JavaIterator(self._all())
+        if isinstance(a, AddressSetView):
+            return JavaIterator([r for r in self._all() if a.contains(r.getAddress())])
+        at = addr_int(a)
+        return [r for r in self._all() if r._r.address.offset == at]
+
+    def hasRelocation(self, a) -> bool:
+        return bool(self.getRelocations(a))
+
+    def getRelocationAddressAfter(self, a) -> Optional[Address]:
+        offs = self._offsets()
+        i = bisect.bisect_right(offs, addr_int(a))
+        return self._s.addr(offs[i]) if i < len(offs) else None
+
+    def getSize(self) -> int:
+        return len(self._all())
+
+    def isRelocatable(self) -> bool:
+        return self._s.summary.info.format != "raw"
 
 
 class SymbolTable(JavaObject):
@@ -2506,6 +2594,7 @@ _XREF_TYPE = {
     listing_pb2.XREF_KIND_DATA_WRITE: RefType.WRITE,
     listing_pb2.XREF_KIND_DATA_POINTER: RefType.DATA,
     listing_pb2.XREF_KIND_THUNK: RefType.THUNK,
+    listing_pb2.XREF_KIND_FALLTHROUGH: RefType.FALL_THROUGH,
 }
 
 

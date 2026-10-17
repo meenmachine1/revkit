@@ -1154,14 +1154,23 @@ DecompileResult InputDecompiler::decompile(std::uint64_t entry, const RunHooks *
     // PcodeOverride does), for instructions Funcdata::overrideFlow can't
     // change (conditional computed jumps).
     std::map<std::uint64_t, std::uint32_t> pcode_overrides;
+    // Fallthrough overrides (FactLookup::flow_overrides): applied to the
+    // p-code too, as Java's PcodeEmit does.
+    std::map<std::uint64_t, std::uint64_t> falls;
+    std::set<std::uint64_t> stops;
     for (const auto &[a, kind] : look.flow_overrides(entry)) {
-      if (kind.starts_with("PCODE_")) {
+      if (std::optional<FallthroughKind> ft = parse_fallthrough_kind(kind)) {
+        if (ft->to > code->getHighest()) continue;
+        if (ft->falls) falls[a] = ft->to;
+        else stops.insert(ft->to);
+      } else if (kind.starts_with("PCODE_")) {
         if (ghidra::uint4 t = override_type(kind.substr(6)); t != ghidra::Override::NONE) pcode_overrides[a] = t;
       } else if (ghidra::uint4 t = override_type(kind); t != ghidra::Override::NONE && a <= code->getHighest()) {
         overrides.emplace_back(a, t);
       }
     }
     arch_->set_pcode_overrides(std::move(pcode_overrides));
+    arch_->set_fallthroughs(std::move(falls), std::move(stops));
     if (hooks != nullptr)
       for (const auto &[a, kind] : hooks->flow_overrides)
         if (ghidra::uint4 t = override_type(kind); t != ghidra::Override::NONE && a <= code->getHighest())

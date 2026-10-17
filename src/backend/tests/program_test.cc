@@ -243,5 +243,26 @@ int main(int argc, char **argv) { (void)argv; return table[argc & 1](argc); }
   EXPECT_EQ(second, g);
 }
 
+// A pool parks the engines idle for long enough (docs/memory.md "SLEIGH
+// engines"), and a parked one decodes again when next leased.
+TEST_F(ProgramTest, PoolParksEnginesIdleLongEnough) {
+  static const auto empty = std::make_shared<const loader::Image>();
+  Pool<lift::Lifter> pool([] { return std::make_unique<lift::Lifter>(empty, "x86:LE:64:default"); }, 2);
+  const std::vector<std::byte> ret = {std::byte{0xc3}};
+  {
+    auto a = pool.Acquire();
+    auto b = pool.Acquire();
+    EXPECT_EQ(a->lift(0x1000, ret)->mnemonic, "RET");
+    EXPECT_EQ(pool.ParkIdle(std::chrono::seconds(0)), 0u);  // both leased
+  }
+  EXPECT_EQ(pool.ParkIdle(std::chrono::hours(1)), 0u);  // not idle long enough
+  EXPECT_EQ(pool.ParkIdle(std::chrono::seconds(0)), 2u);
+  EXPECT_EQ(pool.ParkIdle(std::chrono::seconds(0)), 0u);  // already parked
+  auto c = pool.Acquire();
+  EXPECT_TRUE(c->parked());
+  EXPECT_EQ(c->lift(0x1000, ret)->mnemonic, "RET");
+  EXPECT_FALSE(c->parked());
+}
+
 }  // namespace
 }  // namespace revkit::backend

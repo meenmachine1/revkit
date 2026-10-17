@@ -11,10 +11,16 @@ import { create } from "@bufbuild/protobuf";
 
 import {
   AssertionBodySchema,
+  DataEndian,
+  DataFormat,
+  DataPadding,
+  DataSignedness,
   InstructionSet,
   Mutability,
   StringEncoding,
   StringLayout,
+  StringTermination,
+  PointerKind,
   type AppendAssertionsResponse,
   type Assertion,
   type AssertionBody,
@@ -126,8 +132,62 @@ export function setMutability(address: Big, length: Big,
   });
 }
 
+export const DATA_SETTINGS_FEATURE = "data-settings";
+
+const FORMATS: Record<string, DataFormat> = {
+  hex: DataFormat.HEX, decimal: DataFormat.DECIMAL, octal: DataFormat.OCTAL, binary: DataFormat.BINARY, char: DataFormat.CHAR,
+};
+const ENDIANS: Record<string, DataEndian> = { little: DataEndian.LITTLE, big: DataEndian.BIG };
+const PADDINGS: Record<string, DataPadding> = { padded: DataPadding.PADDED, unpadded: DataPadding.UNPADDED };
+const TERMINATIONS: Record<string, StringTermination> = { nul: StringTermination.NUL, all: StringTermination.ALL };
+const POINTERS: Record<string, PointerKind> = {
+  absolute: PointerKind.ABSOLUTE, imagebase: PointerKind.IMAGE_BASE_OFFSET, relative: PointerKind.RELATIVE,
+};
+
+/** Data settings (api_minor 84, feature "data-settings"); unset leaves a
+ * setting to the type's default. */
+export interface DataSettingsOptions {
+  format?: "hex" | "decimal" | "octal" | "binary" | "char" | DataFormat;
+  signed?: boolean;
+  endian?: "little" | "big" | DataEndian;
+  padding?: "padded" | "unpadded" | DataPadding;
+  /** "US-ASCII", "ISO-8859-1", "windows-1252", "UTF-8", "UTF-16", "UTF-16LE", "UTF-16BE", "UTF-32", "UTF-32LE", "UTF-32BE". */
+  charset?: string;
+  termination?: "nul" | "all" | StringTermination;
+  /** What a pointer's stored value is: the address, an image-base offset, or relative to the pointer. */
+  pointer?: "absolute" | "image-base" | "relative" | PointerKind;
+  /** Pointers: the stored value's bits that hold it, then a left shift (negative: right). */
+  mask?: Big;
+  shift?: number;
+}
+
+/** How a data item displays (Ghidra's Data Settings): the item at `address`
+ * (`field`: a struct field's row, "hdr.magic"), or `{ typeName }` for that
+ * type's default settings. No settings removes them. */
+export function setDataSettings(target: Big | { address: Big; field?: string } | { typeName: string },
+                                o: DataSettingsOptions = {}): AssertionBody {
+  const settings = {
+    format: o.format === undefined ? DataFormat.UNSPECIFIED : pick(FORMATS, o.format, "format"),
+    signedness: o.signed === undefined ? DataSignedness.UNSPECIFIED : o.signed ? DataSignedness.SIGNED : DataSignedness.UNSIGNED,
+    endian: o.endian === undefined ? DataEndian.UNSPECIFIED : pick(ENDIANS, o.endian, "endian"),
+    padding: o.padding === undefined ? DataPadding.UNSPECIFIED : pick(PADDINGS, o.padding, "padding"),
+    charset: o.charset ?? "",
+    termination: o.termination === undefined ? StringTermination.UNSPECIFIED : pick(TERMINATIONS, o.termination, "termination"),
+    pointerKind: o.pointer === undefined ? PointerKind.UNSPECIFIED : pick(POINTERS, o.pointer, "pointer"),
+    pointerMask: o.mask === undefined ? undefined : big(o.mask),
+    pointerShift: o.shift,
+  };
+  const value =
+    typeof target === "object" && "typeName" in target
+      ? { typeName: target.typeName, settings }
+      : typeof target === "object"
+        ? { address: { offset: big(target.address) }, field: target.field ?? "", settings }
+        : { address: { offset: big(target) }, settings };
+  return create(AssertionBodySchema, { kind: { case: "dataSettings", value } });
+}
+
 /** The builders together: listingEdit.defineData(...), ... */
-export const listingEdit = { clearCode, disassemble, defineData, setMutability };
+export const listingEdit = { clearCode, disassemble, defineData, setMutability, setDataSettings };
 
 /** The edit itself in an AppendAssertions response (without the TYPE_DEF
  * assertions of a type the server parsed for defineData). */

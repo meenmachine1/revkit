@@ -251,10 +251,10 @@ ProgramHashes hash_program(const ProgramSource &src) {
         pieces.push_back({a, a + fi->length, thumb});
         extra.insert(a);
         bool falls = fi->falls_through;
-        if (fi->kind == analysis::FlowKind::call)
+        if (fi->kind == analysis::FlowKind::call && !fi->fall_override)
           for (std::uint64_t t : fi->targets)
             if (std::binary_search(no_return.begin(), no_return.end(), info.code_address(t))) falls = false;
-        if (falls) work.push_back(a + fi->length);
+        if (falls) work.push_back(fi->fallthrough());
         if (fi->kind == analysis::FlowKind::jump || fi->kind == analysis::FlowKind::branch ||
             fi->kind == analysis::FlowKind::jump_indirect)
           for (std::uint64_t t : fi->targets) work.push_back(info.code_address(t));

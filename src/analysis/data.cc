@@ -148,7 +148,8 @@ namespace {
 // auipc/addi pairs and pointers loaded from memory.
 class Consts {
  public:
-  Consts(const ProgramInfo &info, detail::ByteReader &bytes) : info_(info), bytes_(bytes) {}
+  Consts(const ProgramInfo &info, detail::ByteReader &bytes, const detail::AssumedRegister *assumed = nullptr)
+      : info_(info), bytes_(bytes), assumed_(assumed) {}
 
   // Register values: offset -> (size, value). A handful at a time, copied
   // at every branch: a sorted vector.
@@ -177,6 +178,7 @@ class Consts {
   // Runs one instruction, recording its references in `out`.
   void step(const lift::Instruction &insn, std::vector<DataRef> &out) {
     uniques_.clear();
+    at_ = insn.address;
     const std::uint64_t next = insn.address + insn.length;
     for (const lift::PcodeOp &op : insn.pcode) {
       const std::string &o = op.opcode;
@@ -272,8 +274,20 @@ class Consts {
             return val ? std::optional(mask(*val, v.size)) : std::nullopt;
         }
       }
+      // A register the flow doesn't know (never written on this path,
+      // written with an unknown value, forgotten at a call) holds the
+      // value the program says it has here (register_values.h).
+      if (assumed_ != nullptr && !overlapped(v.offset, v.size))
+        if (auto a = (*assumed_)(at_, v.offset, v.size)) return mask(*a, v.size);
     }
     return std::nullopt;
+  }
+
+  // Whether a known value covers any of the register bytes [offset, offset + size).
+  bool overlapped(std::uint64_t offset, std::uint32_t size) const {
+    for (auto it = vals_.lower_bound(offset >= 16 ? offset - 16 : 0); it != vals_.end() && it->first < offset + size; ++it)
+      if (it->first + it->second.first > offset) return true;
+    return false;
   }
 
   void set(const lift::Varnode &v, std::optional<std::uint64_t> val) {
@@ -335,6 +349,8 @@ class Consts {
 
   const ProgramInfo &info_;
   detail::ByteReader &bytes_;
+  const detail::AssumedRegister *assumed_ = nullptr;
+  std::uint64_t at_ = 0;  // the instruction step() runs
   State vals_;  // nullopt values aren't kept
   std::vector<std::tuple<std::uint64_t, std::uint32_t, std::optional<std::uint64_t>>> uniques_;
 };
@@ -344,11 +360,12 @@ class Consts {
 namespace detail {
 
 void collect_data_refs(const ProgramInfo &info, ByteReader &bytes, std::uint64_t start, std::size_t count,
-                       const std::function<DecodedAt(std::uint64_t)> &at, std::vector<DataRef> &out) {
+                       const std::function<DecodedAt(std::uint64_t)> &at, std::vector<DataRef> &out,
+                       const AssumedRegister *assumed) {
   // Depth first along the flow, as SymbolicPropogator.flowConstants goes:
   // fallthrough first, branch targets later with the values at the branch;
   // each instruction once, with the values of the first path to reach it.
-  Consts consts(info, bytes);
+  Consts consts(info, bytes, assumed);
   std::unordered_set<std::uint64_t> visited;
   visited.reserve(count);
   std::vector<std::pair<std::uint64_t, Consts::State>> work{{start, {}}};
@@ -365,7 +382,7 @@ void collect_data_refs(const ProgramInfo &info, ByteReader &bytes, std::uint64_t
         for (auto t = i->targets.rbegin(); t != i->targets.rend(); ++t)
           if (!visited.contains(info.code_address(*t))) work.emplace_back(info.code_address(*t), consts.state());
       if (!i->falls_through) break;
-      a = i->address + i->length;
+      a = i->fallthrough();
     }
   }
   std::sort(out.begin(), out.end());

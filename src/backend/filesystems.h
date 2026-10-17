@@ -5,6 +5,7 @@
 // backend's (ImportProgram's code path, with the bytes from here).
 #pragma once
 
+#include "libraries.h"
 #include "revkit/api/backend.h"
 #include "revkit/container/session.hh"
 #include "revkit/v1/filesystem.pb.h"
@@ -99,5 +100,35 @@ struct ImportPlanItem {
 };
 api::Status PlanFileSystemImport(FsSession &s, const api::CallContext &ctx, const pb::ImportFromFileSystemRequest &req,
                                  std::vector<ImportPlanItem> &out, bool &capped);
+
+// One layer of a session as the root file system a program imported from
+// it finds its libraries in (ImportOptions.import_libraries; api_minor 79,
+// docs/filesystems.md "Libraries of imported programs"). Keys are session
+// paths; links are followed inside the layer, as everywhere in a session.
+class ContainerLibraryRoot final : public libs::LibraryRoot {
+ public:
+  // `prefix`: the layers above ("/a.tar!"), "" for the outermost.
+  ContainerLibraryRoot(std::shared_ptr<container::Session> session, std::string prefix,
+                       std::function<bool()> cancelled = {})
+      : session_(std::move(session)), prefix_(std::move(prefix)), cancelled_(std::move(cancelled)) {}
+  // The root of the layer a session path is in.
+  static std::shared_ptr<ContainerLibraryRoot> Of(std::shared_ptr<container::Session> session, const std::string &path,
+                                                  std::function<bool()> cancelled = {});
+
+  std::optional<std::string> file(const std::string &path) override;
+  std::vector<std::string> names(const std::string &dir) override;
+  std::vector<unsigned char> read(const std::string &key, std::uint64_t offset, std::size_t n) override;
+  std::string origin(const std::string &key) override;
+
+  // A found file's container path ("zip://fw.zip!/lib/libc.so.6") and bytes.
+  std::string container_path(const std::string &key) const { return session_->container_path(key); }
+  std::shared_ptr<const container::Source> open(const std::string &key);
+
+ private:
+  std::optional<container::Session::Node> Locate(const std::string &raw_path);
+  std::shared_ptr<container::Session> session_;
+  std::string prefix_;
+  std::function<bool()> cancelled_;
+};
 
 }  // namespace revkit::backend

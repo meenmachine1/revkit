@@ -508,16 +508,21 @@ std::vector<Frame> Session::backtrace(const BacktraceOptions &o) {
         return r.perms.empty() || r.perms.find('x') != std::string::npos;
     return false;
   };
-  if (o.cfi && cfi_ && cfi_->size() > 0)
+  const bool own_cfi = cfi_ && cfi_->size() > 0;
+  // Live only: a library's module is known at the stop.
+  const bool library_cfi = live && o.library_cfi != nullptr;
+  if (o.cfi && (own_cfi || library_cfi))
     src.cfi = [&](std::uint64_t pc) -> std::optional<CfiRow> {
-      if (auto p = to_program(pc)) return cfi_->row_at(*p);
+      if (auto p = to_program(pc)) return own_cfi ? cfi_->row_at(*p) : std::nullopt;
+      if (library_cfi) return o.library_cfi(pc);
       return std::nullopt;
     };
   if (options_.image) src.after_call = [&](std::uint64_t address) { return after_call(address); };
-  if (options_.function_entry)
+  if (options_.function_entry || (live && o.library_entry))
     src.at_entry = [&](std::uint64_t pc) {
       auto p = to_program(pc);
-      if (!p) return false;
+      if (!p) return live && o.library_entry && o.library_entry(pc);
+      if (!options_.function_entry) return false;
       auto e = options_.function_entry(*p);
       return e && *e == *p;
     };

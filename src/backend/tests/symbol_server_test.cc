@@ -12,6 +12,7 @@
 #include <zlib.h>
 
 #include <fstream>
+#include <mutex>
 #include <thread>
 
 namespace revkit::backend {
@@ -263,6 +264,59 @@ TEST_F(SymbolStoreTest, DownloadsFromAServerOnlyWhenAllowed) {
   }
   server.stop();
   t.join();
+}
+
+
+// A PDB name's ?, # and % are the name's: percent-encoded into the path,
+// they reach the server whole (before, ? started a query and # was sent
+// as is). A redirect to plain http on another host isn't followed.
+TEST(SymbolServer, NamesAreEncodedAndRedirectsStayOnHttps) {
+  httplib::Server server, other;
+  std::vector<std::string> asked;
+  std::mutex mu;
+  bool other_asked = false;
+  other.Get(R"(/.*)", [&](const httplib::Request &, httplib::Response &res) {
+    other_asked = true;
+    res.status = 404;
+  });
+  const int other_port = other.bind_to_any_port("127.0.0.1");
+  ASSERT_GT(other_port, 0);
+  std::thread ot([&] { other.listen_after_bind(); });
+  server.Get(R"(/symbols/(.*))", [&](const httplib::Request &req, httplib::Response &res) {
+    std::lock_guard lock(mu);
+    asked.push_back(req.path);
+    if (req.path.ends_with("_")) res.set_redirect("http://127.0.0.1:" + std::to_string(other_port) + "/x.pd_");
+    else res.status = 404;
+  });
+  const int port = server.bind_to_any_port("127.0.0.1");
+  ASSERT_GT(port, 0);
+  std::thread t([&] { server.listen_after_bind(); });
+  server.wait_until_ready();
+  other.wait_until_ready();
+  const fs::path cache = fs::temp_directory_path() / ("revkit-symbols-encode-" + std::to_string(::getpid()));
+  SymbolSettings s;
+  s.path = "srv*" + cache.string() + "*http://127.0.0.1:" + std::to_string(port) + "/symbols";
+  s.downloads = true;
+  std::vector<std::string> log;
+  const debuginfo::PdbGuid guid{};
+  EXPECT_FALSE(FindPdb(s, "odd?name#x%41.pdb", guid, 1, log));
+  {
+    std::lock_guard lock(mu);
+    ASSERT_EQ(asked.size(), 2u) << ::testing::PrintToString(log);
+    const std::string key = SymbolKey(guid, 1);
+    EXPECT_EQ(asked[0], "/symbols/odd?name#x%41.pdb/" + key + "/odd?name#x%41.pdb");
+    EXPECT_EQ(asked[1], "/symbols/odd?name#x%41.pdb/" + key + "/odd?name#x%41.pd_");
+  }
+  EXPECT_FALSE(other_asked);
+  bool refused = false;
+  for (const std::string &l : log) refused = refused || l.find("another host") != std::string::npos;
+  EXPECT_TRUE(refused) << ::testing::PrintToString(log);
+  server.stop();
+  other.stop();
+  t.join();
+  ot.join();
+  std::error_code ec;
+  fs::remove_all(cache, ec);
 }
 
 }  // namespace

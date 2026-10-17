@@ -189,6 +189,38 @@ def test_reads(rk, plain, tmp_path):
     assert not r.revisions
 
 
+RELOCS = '''
+t = currentProgram.getRelocationTable()
+rels = list(t.getRelocations())
+println("size %d %d %s" % (t.getSize(), len(rels), t.isRelocatable()))
+fp = [r for r in rels if r.getSymbolName() == "strlen"]
+println("strlen %d %s" % (len(fp), fp[0].getAddress() if fp else None))
+a = rels[0].getAddress()
+println("at %s %s" % (t.hasRelocation(a), len(t.getRelocations(a))))
+println("after %s" % t.getRelocationAddressAfter(a))
+println("status %s len %d" % (rels[0].getStatus(), rels[0].getLength()))
+'''
+
+
+def test_relocation_table(rk, plain, tmp_path):
+    """The relocation table (feature relocation-table): the SDK's relocations()
+    and the shim's getRelocationTable() agree."""
+    rels = list(rk.program(plain).relocations())
+    assert rels and [r.address.offset for r in rels] == sorted(r.address.offset for r in rels)
+    assert all(r.type_name.startswith("R_X86_64_") and len(r.original) == 8 for r in rels)
+    [slot] = [r for r in rels if r.symbol == "strlen"]
+    assert list(rk.program(plain).relocations("STRLEN")) == [slot]
+    assert any(r.type_name == "R_X86_64_RELATIVE" and r.HasField("target") for r in rels)
+    r, out, err = ghidra(rk, plain, tmp_path, RELOCS)
+    assert r.ok, (r.error, r.traceback, err)
+    lines = dict(l.split(" ", 1) for l in out.splitlines())
+    assert lines["size"] == f"{len(rels)} {len(rels)} True"
+    assert lines["strlen"] == f"1 {slot.address.offset:08x}"
+    assert lines["at"] == "True 1"
+    assert lines["after"] == f"{rels[1].address.offset:08x}"
+    assert lines["status"] == "UNKNOWN len 8"
+
+
 # ---------------------------------------------------------------------------
 # Edits
 # ---------------------------------------------------------------------------

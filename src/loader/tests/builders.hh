@@ -11,6 +11,7 @@
 #include <iterator>
 #include <unistd.h>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -401,11 +402,35 @@ inline PeImage build_pe(bool wide = true) {
   return pe;
 }
 
-// A fresh scratch directory for one test.
+namespace detail {
+// The scratch directories a test process made, removed when it exits
+// (unless RK_KEEP_TEST_DIRS is set, to look at them). Each run left a few
+// hundred in /tmp before.
+struct ScratchDirs {
+  std::mutex mu;
+  std::vector<std::filesystem::path> dirs;
+  ~ScratchDirs() {
+    if (std::getenv("RK_KEEP_TEST_DIRS")) return;
+    for (const auto &d : dirs) {
+      std::error_code ec;
+      std::filesystem::remove_all(d, ec);
+    }
+  }
+};
+inline ScratchDirs &scratch_dirs() {
+  static ScratchDirs s;
+  return s;
+}
+}  // namespace detail
+
+// A fresh scratch directory for one test, removed at the process's exit.
 inline std::filesystem::path scratch_dir(const std::string &name) {
   auto dir = std::filesystem::temp_directory_path() / ("revkit-test-" + std::to_string(::getpid()) + "-" + name);
   std::filesystem::remove_all(dir);
   std::filesystem::create_directories(dir);
+  detail::ScratchDirs &all = detail::scratch_dirs();
+  std::lock_guard lock(all.mu);
+  all.dirs.push_back(dir);
   return dir;
 }
 

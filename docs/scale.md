@@ -599,5 +599,5 @@ is final would bring Chrome under 4 GB.
 (0.8 GB), the file in the fact store and in the loaded image (0.3 GB each,
 plus the patched copy for a relocated PIE), discovery's tables, every
 function's references and default names, and one SLEIGH engine per thread
-(35 MB each). The backend's `memo_budget` (2 GB) evicts memos only to a
+(35 MB each; idle ones are parked, [memory.md](memory.md#sleigh-engines)). The backend's `memo_budget` (2 GB) evicts memos only to a
 project directory; an in-memory project keeps them.

@@ -114,6 +114,17 @@ enum class FactKind : std::uint16_t {
   // for the language it was imported with. The store calls on_language in
   // the commit that changes it, and the program reloads in that language.
   Language = 18,
+  // An instruction's fallthrough, as the user sets it (docs/api.md,
+  // "Fallthrough overrides"): addr = the instruction, sub = ""; value an
+  // Address (control goes on there), 1 (it doesn't fall through) or 0 (the
+  // default).
+  Fallthrough = 19,
+  // A register's value over an address range (docs/api.md, "Register
+  // values"; Ghidra's Set Register Values): addr = the range's first byte,
+  // sub = "<register>:<hex length>"; value = the value in hex ("38180"),
+  // or "none" for no value there. Overlapping keys of one register compose
+  // by precedence, then recency (AssertedOrder), like MUTABILITY.
+  RegisterValue = 20,
 };
 
 // The longest Patch value: one 256-byte span of the key index
@@ -135,6 +146,7 @@ struct FactKey {
   }
   static FactKey function(Address entry) { return {FactKind::FunctionBounds, entry, {}}; }
   static FactKey flow_override(Address a) { return {FactKind::FlowOverride, a, {}}; }
+  static FactKey fallthrough(Address a) { return {FactKind::Fallthrough, a, {}}; }
   static FactKey note(Address a, std::string tag = {}) { return {FactKind::Note, a, std::move(tag)}; }
   static FactKey type_def(std::string type_name) { return {FactKind::TypeDef, {}, std::move(type_name)}; }
   static FactKey patch(Address a) { return {FactKind::Patch, a, {}}; }

@@ -406,3 +406,28 @@ TEST(FidCreate, BuildsRelationsAndSkipsDuplicates) {
   EXPECT_TRUE(db.superior(caller, 0xb1));
   EXPECT_TRUE(db.inferior(0xa1, callee));
 }
+
+// The duplicate check's hash is Java's wrapping long arithmetic over the
+// hashes; with real 64-bit hashes it overflows. In int64_t that was
+// undefined behaviour, and UBSan stopped the daemon in CreateFidDatabase
+// (the python SDK's test_fid under the asan build). The asan preset runs
+// this with UBSan fatal.
+TEST(FidCreate, LargeHashesWrapAsJavasLongsDo) {
+  ProgramHashes p;
+  for (std::uint64_t i = 0; i < 3; ++i) {
+    ProgramFunction f;
+    f.entry = 0x10 * (i + 1);
+    f.name = "f" + std::to_string(i);
+    f.hash = HashQuad{20, 0xcdd5a1b9e3c27b31ull * (i + 1), 0, 0xb3d9c8e1f2a74e65ull * (i + 1)};
+    p.functions.push_back(f);
+  }
+  p.functions[0].callees = {1, 2};
+  p.functions[0].external_callees = {"a_rather_long_external_name_whose_java_hash_is_negative"};
+  Database db;
+  LibraryBuilder lb(db, {"lib", "1", "", "x86:LE:64:default", "gcc"});
+  lb.add_program(p, "one", [](const std::string &) { return false; });
+  lb.add_program(p, "two", [](const std::string &) { return false; });
+  const IngestReport r = lb.finish();
+  EXPECT_EQ(r.counts.at(Disposition::included), 3u);
+  EXPECT_EQ(r.counts.at(Disposition::duplicate), 3u);
+}

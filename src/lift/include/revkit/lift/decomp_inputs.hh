@@ -232,6 +232,17 @@ struct DecompilerInputs {
   std::vector<DecompElement> types;  // named data types, in Ghidra's encoding
 };
 
+// A fallthrough override among an instruction's flow overrides (Ghidra's
+// Set Fallthrough): "FALLTHROUGH 0x<to>", control goes on at `to` (the
+// p-code branches there); "NO_FALLTHROUGH 0x<to>", it doesn't go on, and
+// `to` (its next address, where no instruction follows) doesn't decode.
+struct FallthroughKind {
+  bool falls = true;
+  std::uint64_t to = 0;
+};
+std::string fallthrough_kind(const FallthroughKind &k);
+std::optional<FallthroughKind> parse_fallthrough_kind(const std::string &kind);
+
 // Encodings, exposed for tests and for dumping what the decompiler is told.
 // The <mapsym> for a function, as Ghidra's getMappedSymbols sends it:
 // `include_default_names` for the function being decompiled, not for callees.

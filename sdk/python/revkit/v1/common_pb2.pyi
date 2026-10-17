@@ -39,6 +39,8 @@ class FactKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FACT_KIND_CALL_SIGNATURE: _ClassVar[FactKind]
     FACT_KIND_NO_RETURN: _ClassVar[FactKind]
     FACT_KIND_LANGUAGE: _ClassVar[FactKind]
+    FACT_KIND_FALLTHROUGH: _ClassVar[FactKind]
+    FACT_KIND_REGISTER_VALUE: _ClassVar[FactKind]
 PROVENANCE_KIND_UNSPECIFIED: ProvenanceKind
 PROVENANCE_KIND_USER: ProvenanceKind
 PROVENANCE_KIND_IMPORT: ProvenanceKind
@@ -66,6 +68,8 @@ FACT_KIND_REBASE: FactKind
 FACT_KIND_CALL_SIGNATURE: FactKind
 FACT_KIND_NO_RETURN: FactKind
 FACT_KIND_LANGUAGE: FactKind
+FACT_KIND_FALLTHROUGH: FactKind
+FACT_KIND_REGISTER_VALUE: FactKind
 
 class Address(_message.Message):
     __slots__ = ("space", "offset")

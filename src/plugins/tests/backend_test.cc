@@ -203,6 +203,30 @@ TEST_F(PluginBackend, ServerInfoAndPluginList) {
   EXPECT_TRUE(listed);
 }
 
+// A plugin the daemon rejected is listed with why, but only admins see
+// the daemon's plugin directory in it: ListPlugins is a viewer's call.
+TEST_F(PluginBackend, RejectedPluginsDontShowViewersTheHostPath) {
+  const std::filesystem::path bad = revkit::testing::scratch_dir("plugin-rejected");
+  std::ofstream(bad / "broken.wasm") << "not wasm";  // and no manifest: an error naming its path
+  backend::ImageBackendOptions o;
+  o.ghidra_root = REVKIT_GHIDRA_ROOT;
+  o.plugins = std::make_shared<Host>();
+  ASSERT_FALSE(o.plugins->load_dir(bad).empty());
+  auto b = backend::MakeImageBackend(o);
+  CallContext viewer;
+  viewer.caller = "user:vera";
+  viewer.caller_admin = false;
+  for (const CallContext *who : {&ctx_, &viewer}) {
+    pb::ListPluginsResponse list;
+    ASSERT_TRUE(b->ListPlugins(*who, {}, list).ok());
+    ASSERT_EQ(list.plugins_size(), 1);
+    EXPECT_FALSE(list.plugins(0).loaded());
+    EXPECT_FALSE(list.plugins(0).error().empty());
+    EXPECT_EQ(list.plugins(0).error().find(bad.string()) != std::string::npos, who == &ctx_)
+        << list.plugins(0).error();
+  }
+}
+
 TEST_F(PluginBackend, ALoaderPluginImportsACustomFormat) {
   const std::string raw = MakeRkraw(named_);
   // Detected by its magic...

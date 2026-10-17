@@ -860,6 +860,32 @@ TEST(FlowOverrides, FollowGhidra) {
   EXPECT_EQ(i.kind, FlowKind::fall);
 }
 
+// FALLTHROUGH values, and a FlowInsn's override through its codec.
+TEST(FallthroughOverrides, ValuesAndCodec) {
+  EXPECT_EQ(fallthrough_override(facts::FactValue{}), std::nullopt);
+  EXPECT_EQ(fallthrough_override(facts::FactValue{kDefaultFallthrough}), std::nullopt);
+  EXPECT_EQ(fallthrough_override(facts::FactValue{kNoFallthrough}), (FallthroughOverride{false, 0}));
+  EXPECT_EQ(fallthrough_override(facts::FactValue{facts::Address{1, 0x1009}}), (FallthroughOverride{true, 0x1009}));
+  FlowInsn i{0x1000, 5, FlowKind::call, true, false, {0x2000}};
+  EXPECT_EQ(i.fallthrough(), 0x1005u);
+  i.fall_override = true;
+  i.fall_to = 0x0ff0;  // backwards
+  i.conditional = true;
+  EXPECT_EQ(i.fallthrough(), 0x0ff0u);
+  FlowGraph g;
+  g.entry = 0x1000;
+  g.insns.push_back(i);
+  FlowInsn none{0x1005, 2, FlowKind::fall, false};
+  none.fall_override = true;
+  g.insns.push_back(none);
+  g.refs.push_back({0, RefKind::fallthrough, false, 0x0ff0});
+  const FlowGraph back = facts::decode_from_string<FlowGraph>(facts::encode_to_string(g));
+  EXPECT_EQ(back, g);
+  EXPECT_EQ(back.insns[0].fallthrough(), 0x0ff0u);
+  EXPECT_TRUE(back.insns[1].fall_override);
+  EXPECT_FALSE(back.insns[1].falls_through);
+}
+
 // ---- raw firmware on other processors ----
 
 // A SuperH-4 image written out by hand: every call goes through a register

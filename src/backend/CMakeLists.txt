@@ -16,7 +16,11 @@ pkg_check_modules(RK_RE2 REQUIRED IMPORTED_TARGET re2)
 add_library(revkit_backend STATIC
   api_util.cc
   auto_struct.cc
+  data_settings.cc
   decompiler.cc
+  debug_files.cc
+  http_fetch.cc
+  open_beneath.cc
   debug_import.cc
   debugger.cc
   define_type.cc

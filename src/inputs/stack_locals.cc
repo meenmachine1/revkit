@@ -156,8 +156,9 @@ class Walker {
           case an::FlowKind::ret: fall = false; break;
           default: break;
         }
+        if (fi->fall_override) fall = fi->falls_through;  // the user's fallthrough override
         if (!fall) break;
-        at += fi->length;
+        at = fi->fallthrough();
       }
     }
     return std::move(refs_);

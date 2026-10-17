@@ -127,10 +127,14 @@ function valueOf(a: Assertion): string {
       return b.value.remove ? "(no function)" : "function";
     case "flowOverride":
       return ["", "none", "branch", "call", "call-return", "return"][b.value.kind] ?? "override";
+    case "fallthrough":
+      return b.value.noFallthrough ? "no fallthrough" : b.value.target ? `fallthrough to ${b.value.target.offset.toString(16)}` : "(cleared)";
     case "note":
       return `${b.value.tag}: ${b.value.text || "(cleared)"}`;
     case "callSignature":
       return b.value.signature?.kind.case === "cDeclaration" ? b.value.signature.kind.value : b.value.signature ? `type ${b.value.signature.kind.value ?? ""}` : "(removed)";
+    case "registerValue":
+      return b.value.clear ? `${b.value.registerName} cleared` : `${b.value.registerName} = 0x${b.value.value.toString(16)}`;
     case "listingEdit":
     case "mutability":
     case "operandDisplay":
@@ -152,6 +156,7 @@ const UNDO_WHAT: Partial<Record<FactKind, string>> = {
   [FactKind.MUTABILITY]: "mutability",
   [FactKind.EQUATE]: "equate",
   [FactKind.REFERENCE]: "reference",
+  [FactKind.REGISTER_VALUE]: "register value",
 };
 
 function when(a: Assertion): string {

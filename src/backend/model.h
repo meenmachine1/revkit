@@ -213,6 +213,9 @@ struct StaticRow {
   std::string data_field;
   std::uint32_t data_depth = 0;
   std::optional<std::uint64_t> data_parent;
+  // Data rows: the type its default settings are kept by (data_settings.h:
+  // the element's C type, "string", "pointer", "undefined4").
+  std::string data_settings_type;
 
   void encode(facts::Encoder &e) const;
   static StaticRow decode(facts::Decoder &d);

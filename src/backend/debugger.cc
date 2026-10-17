@@ -38,6 +38,8 @@ struct DebugSessions::Entry {
   // Runtime modules that are other project programs, by module name
   // (DebugProgram::library); null: the module is none.
   std::map<std::string, std::shared_ptr<const DebugProgram>> libraries;
+  // Their call-frame information, read once each, by program id.
+  std::map<std::string, std::shared_ptr<const debug::CfiTable>> library_cfi;
   // Hooks the client answers (SetDebugHooks; docs/debugger.md "Hooks").
   struct Hook {
     int id = 0;
@@ -248,6 +250,24 @@ std::optional<LibraryHit> LibraryAt(DebugSessions::Entry &e, std::uint64_t runti
   if (!hit.program->program->image().memory.find(hit.address)) return std::nullopt;
   if (hit.program->function_at) hit.function = hit.program->function_at(hit.address);
   return hit;
+}
+
+// Unwinding through libraries that are project programs: their own CFI
+// (.eh_frame, .debug_frame; read once per session) and function entries,
+// by the library's image.
+void LibraryUnwinding(DebugSessions::Entry &e, debug::Session::BacktraceOptions &o) {
+  if (!e.program.library) return;
+  o.library_cfi = [&e](std::uint64_t runtime) -> std::optional<debug::CfiRow> {
+    auto h = LibraryAt(e, runtime);
+    if (!h) return std::nullopt;
+    auto &t = e.library_cfi[h->program->program_id];
+    if (!t) t = debug::CfiTable::from_image(h->program->program->image());
+    return t->row_at(h->address);
+  };
+  o.library_entry = [&e](std::uint64_t runtime) {
+    auto h = LibraryAt(e, runtime);
+    return h && h->function && h->function->first == h->address;
+  };
 }
 
 std::string HitText(const LibraryHit &h, std::uint64_t at) {
@@ -1047,6 +1067,7 @@ Status DebugSessions::GetBacktrace(const api::CallContext &ctx, const pb::GetDeb
   debug::Session::BacktraceOptions o;
   o.max_frames = req.max_frames() == 0 ? 64 : std::min<std::uint32_t>(req.max_frames(), 256);
   if (req.has_snapshot()) o.snapshot = req.snapshot();
+  LibraryUnwinding(*e, o);
   resp.set_snapshot(o.snapshot.value_or(s.current_snapshot()));
   if (!debug::UnwindArch::for_language(s.options().language)) {
     resp.set_unsupported("no call-stack unwinding for " + s.options().language +
@@ -1593,6 +1614,8 @@ class Evaluation {
 
   unsigned pointer_size() const { return ps_; }
   bool big_endian() const { return big_; }
+  // Unwind through the session's libraries too (LibraryUnwinding).
+  void unwind_libraries(DebugSessions::Entry &e) { entry_ = &e; }
 
   const std::vector<debug::Frame> &frames() {
     if (!frames_) {
@@ -1600,6 +1623,7 @@ class Evaluation {
       if (debug::UnwindArch::for_language(s_.options().language)) {
         debug::Session::BacktraceOptions o;
         if (!live_) o.snapshot = snap_;
+        if (entry_) LibraryUnwinding(*entry_, o);
         try {
           *frames_ = s_.backtrace(o);
         } catch (const debug::DebugError &) {
@@ -1937,6 +1961,7 @@ class Evaluation {
   ProgramTypes types_;
   std::map<std::string, std::vector<std::uint8_t>> recorded_;
   std::optional<std::vector<debug::Frame>> frames_;
+  DebugSessions::Entry *entry_ = nullptr;
   std::map<std::uint64_t, std::vector<pb::Variable>> variables_;
 };
 
@@ -1954,6 +1979,7 @@ std::shared_ptr<const ex::Expression> ParseCondition(DebugSessions::Entry &e, Ev
 bool CheckCondition(DebugSessions::Entry &e, const DebugEvalEnv &env, const std::string &text, std::string &error) {
   debug::Session &s = *e.session;
   Evaluation ev(s, e.program, env, s.timeline().last(), true);
+  ev.unwind_libraries(e);
   try {
     auto x = ParseCondition(e, ev, text);
     ex::Context c = ev.context(0u);
@@ -2215,6 +2241,7 @@ Status DebugSessions::Disassemble(const api::CallContext &ctx, const pb::Disasse
   }
   const std::uint64_t pc = live ? s.target().pc() : at_snap->pc;
   Evaluation ev(s, e->program, env, snap, live);
+  ev.unwind_libraries(*e);
   const std::uint32_t count = req.count() == 0 ? 32 : std::min<std::uint32_t>(req.count(), 512);
   auto arch = debug::UnwindArch::for_language(s.options().language);
   const std::uint32_t align = arch ? arch->insn_align : 1;

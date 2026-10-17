@@ -38,7 +38,7 @@ apply are omitted.
 | `labels` | Global symbols outside function bodies at addresses with no data (code outside functions, or no memory): `{addr, name, space}` |
 | `code_labels` | The primary symbol at addresses inside function bodies, default (`LAB_...`) ones included: `{addr, name}`, namespace-prefixed as `getCodeLabel` sends it (`switchD_001060ad_caseD_1`) |
 | `comments` | Comments in function bodies: `{addr, kind: eol\|pre\|post\|plate, text}` |
-| `tracked` | Register values the program context holds at each function entry (`getTrackedRegisters`): `{entry: [[space, offset, size, value], ...]}` (x86 `DF`, PE `GS_OFFSET`, RISC-V `gp`) |
+| `tracked` | Register values the program context holds at each function entry (`getTrackedRegisters`): `{entry: [[space, offset, size, value], ...]}` (x86 `DF`, PE `GS_OFFSET`, RISC-V `gp`; from revkit's own inputs also MIPS `gp` and the PowerPC TOC, and the user's register values: [Register values](#register-values)) |
 | `flow_overrides` | Instructions with a flow override: `{addr, kind}` with kind `BRANCH`, `CALL`, `CALL_RETURN` (ELF PLT jumps), `RETURN` |
 | `types` | Every named data type referenced above, in the decompiler's encoding (below) |
 
@@ -262,6 +262,57 @@ ways:
   (`QueryLookup::with_overlay`).
 - Retracted, analysis has its say again. Invalidation: the function list,
   the function, its listing and decompilation, and its callers'.
+
+## Fallthrough overrides
+
+A user's fallthrough override (`SetFallthrough`, a `FALLTHROUGH`
+assertion at the instruction; Ghidra's Set Fallthrough;
+[api.md](api.md#fallthrough-overrides)) reaches the decompiler as Ghidra's
+Java side applies one to the p-code it sends (`PcodeEmit` with
+`InstructionPcodeOverride.getFallThroughOverride`):
+
+- `analysis.flow` carries it on the instruction (`FlowInsn::fall_override`,
+  `fall_to`), and `inputs::assemble_function` lists it among the
+  function's `flow_overrides` as the kind `"FALLTHROUGH 0x<to>"` (with a
+  `LAB_` label at `to`, from Ghidra's `FALL_THROUGH` reference), or, for
+  no fallthrough whose next address the body has no code at,
+  `"NO_FALLTHROUGH 0x<next>"` (`lift::fallthrough_kind`). The bundle
+  carries them with the other flow overrides.
+- `InputDecompiler::decompile` gives them to the architecture
+  (`ImageArchitecture::set_fallthroughs`). `ImageSleigh::oneInstruction`
+  holds an overridden instruction's p-code back (after any `PCODE_` flow
+  override's change), points a `BRANCH` or `CBRANCH` to its next address
+  at `to`, and ends it with a `BRANCH` to `to`, so neither the last op nor
+  a relative branch past it falls through; decoding at a
+  `NO_FALLTHROUGH` address fails (`BadDataError`), so the flow stops there
+  with `halt_baddata()`, as Ghidra's decompiler does where the listing has
+  no instruction after one with no fallthrough.
+- Without overrides nothing changes: no kinds are listed and the p-code
+  passes straight through.
+
+## Register values
+
+Register values over ranges ([api.md](api.md#register-values); Ghidra's
+Set Register Values and its ELF loader's and analyzers' context) reach the
+decompiler as Ghidra's program context does, through
+`getTrackedRegisters` at the function's entry:
+
+- `inputs::assemble` (`tracked()`, shared by `rk-lift --analyze
+  --decompile` and the image backend) adds analysis's values from the
+  loader (`ProgramInfo::register_defaults`: MIPS `gp`, PowerPC 64 `r2`
+  and `r12`, PowerPC 32 `r13` and `r2`) at every function entry they
+  cover.
+- The backend's lookup (`QueryLookup::tracked`) lays the painted map at
+  the entry (`analysis.register_values.at`: the user's values over
+  analysis's) over them: a user's value replaces analysis's for that
+  register, a user's clear removes it, and a register only the user set
+  is added. `InputDecompiler::set_tracked` gives them to the decompiler as
+  a tracked set at the entry, over the language's own (x86 `DF`).
+- The decompiler propagates the value through the function, so
+  `*(int *)(gp + -0x7fe0)` becomes the global there (`counter`), and the
+  PowerPC global entry's `addis r2,r12,…` computes the TOC from `r12`.
+  Only the entry's value matters to it; analysis's references read the
+  range at each instruction.
 
 ## Call-site signature overrides
 

@@ -42,6 +42,16 @@ std::optional<std::filesystem::path> ghidra_root();
 std::unique_lock<std::shared_mutex> lock_ghidra_globals();
 std::shared_lock<std::shared_mutex> share_ghidra_globals();
 
+// SLEIGH engines alive (in Lifters, attached or not) and spare (parked,
+// held for reuse by language: at most two per language).
+struct EngineStats {
+  std::size_t live = 0;
+  std::size_t spare = 0;
+};
+EngineStats engine_stats();
+// Frees the spare engines (after a big job, before returning memory to the system).
+void trim_spare_engines();
+
 // True if `language` ("proc:endian:size:variant", optionally ":compiler")
 // names a language in the install, and the compiler spec if one is given.
 bool language_exists(const std::string &language);
@@ -251,6 +261,15 @@ class Lifter {
   // context set with set_context(), not on what was decoded before, so
   // separate Lifters over one image give identical results.
   bool context_changed() const;
+
+  // Lets the SLEIGH engine go while the Lifter is idle (docs/memory.md
+  // "SLEIGH engines"): it joins the spares of its language, which any
+  // Lifter of the language (another program's too) takes rather than decode
+  // the .sla again; the next decode here takes a spare or builds one. False
+  // (and nothing done) when decoding has committed context (ARM/Thumb
+  // switches) that a rebuild would lose. Not while another thread uses it.
+  bool park();
+  bool parked() const;
 
   // Linear sweep over [start, end). Undecodable spots are skipped by the
   // instruction alignment. Delay-slot instructions are marked.
