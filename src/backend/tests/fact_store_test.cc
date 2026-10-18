@@ -375,6 +375,125 @@ TEST_F(FactStoreTest, InferredPrototypesReachTheDecompiler) {
   EXPECT_NE(twice.find("checksum((char *)"), std::string::npos) << twice;
 }
 
+// Inference's structures (docs/infer.md, "Structures"): a pointer passed
+// on between functions points to one inferred structure, published as a
+// program type in the analysis's revision (analysis:infer.prototypes,
+// filed under /inferred), which the decompiler lays the pointer's
+// accesses on (p->field_0x10). It is a program type like any other: an
+// edit of it (a field renamed) reaches the decompilation, and reverting
+// the analysis's assertions takes it away.
+TEST_F(FactStoreTest, InferredStructuresArePublishedAsProgramTypes) {
+  const fs::path exe = testing::scratch_dir("fact-store-structs") / "nodes";
+  ASSERT_TRUE(testing::compile(REVKIT_TEST_CC, R"(
+#include <stdio.h>
+#include <stdlib.h>
+struct node { int val; double w; struct node *next; unsigned char flag; };
+__attribute__((noinline)) double node_sum(struct node *p) {
+  double s = 0;
+  for (; p; p = p->next) s += p->val * p->w + p->flag;
+  return s;
+}
+__attribute__((noinline)) void node_mark(struct node *p, int v) {
+  p->val = v;
+  p->flag = 1;
+  p->w = node_sum(p);
+}
+int main(int argc, char **argv) {
+  struct node *n = calloc(1, sizeof *n);
+  node_mark(n, argc);
+  printf("%f\n", node_sum(n));
+  return 0;
+}
+)", "-O1", exe));
+  ImageBackendOptions o;
+  o.ghidra_root = REVKIT_GHIDRA_ROOT;
+  o.infer_prototypes = InferMode::automatic;
+  auto b = MakeImageBackend(o);
+  const std::string id = Import(*b, exe);
+  const auto fns = Functions(*b, id);
+  Settle(*b, id);
+  auto prototype = [&](const char *name) {
+    pb::GetFunctionRequest req;
+    req.set_program_id(id);
+    req.mutable_address()->set_offset(fns.at(name));
+    pb::GetFunctionResponse resp;
+    EXPECT_TRUE(b->GetFunction(ctx_, req, resp).ok());
+    return resp.function();
+  };
+  const std::string sum = prototype("node_sum").prototype();
+  EXPECT_NE(sum.find("astruct_1 *"), std::string::npos) << sum;
+  EXPECT_EQ(prototype("node_sum").prototype_origin().derived().rule(), "infer.prototypes");
+  EXPECT_NE(prototype("node_mark").prototype().find("astruct_1 *"), std::string::npos);
+  // The decompiler reads the fields.
+  std::string c = Text(Decompile(*b, id, fns.at("node_sum")));
+  EXPECT_NE(c.find("->field_0x10"), std::string::npos) << c;
+  EXPECT_NE(c.find("->field_0x0"), std::string::npos) << c;
+  // A program type, the analysis's, filed under /inferred.
+  auto find = [&] {
+    pb::FindTypesRequest req;
+    req.set_program_id(id);
+    req.set_name_contains("astruct_1");
+    pb::FindTypesResponse resp;
+    EXPECT_TRUE(b->FindTypes(ctx_, req, resp).ok());
+    pb::TypeDefinition out;
+    for (const auto &t : resp.types())
+      if (t.name() == "astruct_1" && t.kind() == pb::TYPE_KIND_STRUCT && t.bound()) out = t;
+    return out;
+  };
+  const pb::TypeDefinition def = find();
+  ASSERT_FALSE(def.hash().empty());
+  EXPECT_EQ(def.category(), "/inferred");
+  EXPECT_EQ(def.origin().asserted().provenance().kind(), pb::PROVENANCE_KIND_ANALYSIS);
+  EXPECT_EQ(def.origin().asserted().provenance().id(), "infer.prototypes");
+  EXPECT_GE(def.size(), 0x19u);
+  // The user renames field_0x0 (the struct's next version, bound to its
+  // name): the decompilation shows it.
+  {
+    pb::AppendAssertionsRequest req;
+    req.set_program_id(id);
+    req.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+    req.mutable_provenance()->set_id("alice");
+    pb::TypeNode *t = req.add_assertions()->mutable_body()->mutable_define_type()->mutable_type();
+    t->set_kind(pb::TYPE_KIND_STRUCT);
+    t->set_name("astruct_1");
+    t->set_size(def.size());
+    for (const auto &f : def.composite().fields()) {
+      auto *nf = t->add_fields();
+      nf->set_name(f.offset() == 0 ? "val" : f.name());
+      nf->set_offset(f.offset());
+      nf->mutable_type()->set_hash(f.type_hash());
+    }
+    req.add_assertions()->mutable_body()->mutable_bind_type_name()->mutable_type()->set_assertion_index(0);
+    pb::AppendAssertionsResponse resp;
+    auto st = b->AppendAssertions(ctx_, req, resp);
+    ASSERT_TRUE(st.ok()) << st.message;
+  }
+  c = Text(Decompile(*b, id, fns.at("node_sum")));
+  EXPECT_NE(c.find("->val"), std::string::npos) << c;
+  auto revert = [&](pb::ProvenanceKind kind, const char *who) {
+    pb::RevertByProvenanceRequest req;
+    req.set_program_id(id);
+    req.mutable_filter()->set_kind(kind);
+    req.mutable_filter()->set_id(who);
+    req.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+    req.mutable_provenance()->set_id("alice");
+    pb::RevertByProvenanceResponse resp;
+    auto st = b->RevertByProvenance(ctx_, req, resp);
+    EXPECT_TRUE(st.ok()) << st.message;
+  };
+  // Undoing the edit brings the analysis's back; reverting the analysis's
+  // assertions takes the structure away: the parameter points to undefined
+  // bytes again.
+  revert(pb::PROVENANCE_KIND_USER, "alice");
+  c = Text(Decompile(*b, id, fns.at("node_sum")));
+  EXPECT_EQ(c.find("->val"), std::string::npos) << c;
+  EXPECT_NE(c.find("->field_0x0"), std::string::npos) << c;
+  revert(pb::PROVENANCE_KIND_ANALYSIS, "infer.prototypes");
+  c = Text(Decompile(*b, id, fns.at("node_mark")));
+  EXPECT_EQ(c.find("astruct_1"), std::string::npos) << c;
+  EXPECT_NE(c.find("undefined1 *param_1"), std::string::npos) << c;
+}
+
 // Inference reads the memory map (docs/memory-map.md): a constant a
 // function returns is an address once a region maps it, and inference,
 // run again after the edit, makes the return a pointer; undoing the region
@@ -666,7 +785,7 @@ TEST_F(FactStoreTest, AssertedEntryRerunsExactlyTheAffectedDiscovery) {
   if (!testing::compile(REVKIT_TEST_CC, kHidden, "-O1", dir / "named") ||
       !testing::compile(REVKIT_TEST_CC, kHidden, "-O1 -s", dir / "stripped"))
     GTEST_SKIP() << "no C compiler";
-  loader::Image named = loader::load_file(dir / "named", {.image_base = std::nullopt, .ghidra_image_base = true});
+  loader::Image named = loader::load_file(dir / "named", {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
   if (named.machine != 62) GTEST_SKIP() << "host isn't x86-64";
   std::map<std::string, std::uint64_t> sym;
   for (const loader::Symbol &s : named.symbols)

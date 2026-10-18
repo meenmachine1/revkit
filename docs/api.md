@@ -25,7 +25,7 @@ has a private hook: if the UI can do it, a script or an agent can too.
 | `MetaService` | `GetServerInfo` (API version, features, limits), `RestartDaemon` (admins; `api_minor` 55, feature `daemon-restart`) | `meta.proto` |
 | `ProjectService` | `ListProjects`, `OpenProject`, `CloseProject`, `ListPrograms`, `ImportProgram`, `GetProgramSummary`, `ListHostFiles`, `ListLanguages`, `RenameProgram`, `DeleteProgram`, `GetImportProgress` (`api_minor` 22, feature `import-progress`; [below](#import-progress)), `DetectRawLayout`, `GetRawDetectProgress`, `CancelRawDetect` (`api_minor` 23, feature `raw-detect`; [below](#raw-layout-detection)), `AddMemoryRegion`, `UpdateMemoryRegion`, `RemoveMemoryRegion` (`api_minor` 24, feature `memory-map`; [memory-map.md](memory-map.md)), `LoadPdb`, `GetSymbolSettings`, `SetSymbolSettings` (`api_minor` 49, feature `pdb-load`; [pdb.md](pdb.md)), `LoadDebugFile` (`api_minor` 86, feature `debug-files`; [backend.md](backend.md#external-debug-files)) | `project.proto` |
 | `AssertionService` | `AppendAssertions`, `RetractAssertions`, `GetHistory`, `Blame`, `ListAssertions`, `RevertByProvenance` | `assertion.proto` |
-| `QueryService` | `GetMemoryMap`, `ReadMemory`, `ListFunctions`, `ListSymbols`, `GetFunction`, `GetListing`, `GetInstruction`, `GetXrefs`, `Decompile`, `GetTypes`, `FindTypes`, `GetFunctionGraph`, `ListData`, `ListComments` (`api_minor` 77, feature `comment-table`), `ListRelocations` (`api_minor` 78, feature `relocation-table`), `ExportC` (`api_minor` 80, feature `export-c`; server stream), `ListSymbolTree` (`api_minor` 82, feature `symbol-tree`), `PlanClearFlow` (`api_minor` 83, feature `clear-flow`), `ListRegisterValues` (`api_minor` 87, feature `register-values`; [below](#register-values)), `GetClassHierarchy` (`api_minor` 45, feature `msvc-rtti`; [below](#msvc-classes)); `ListCallingConventions` (`api_minor` 58, feature `calling-conventions`; [below](#calling-conventions)); batch reads for scripts `DecompileMany` and `ListInstructions` (server streams) and `FindBytes` (`api_minor` 29, feature `script-batch`; [below](#batch-reads-for-scripts), [scripting.md](scripting.md)); the searches `SearchMemory`, `SearchText`, `SearchScalars` and `SearchDecompiled`, `FindTypeUses` (`api_minor` 53, feature `type-uses`) (server streams; `api_minor` 41, feature `search`; [below](#search)) | `query.proto` (models in `listing.proto`, `decompile.proto`, `types.proto`) |
+| `QueryService` | `GetMemoryMap`, `ReadMemory`, `ListFunctions`, `ListSymbols`, `GetFunction`, `GetListing`, `GetInstruction`, `GetXrefs`, `Decompile`, `GetTypes`, `FindTypes`, `GetFunctionGraph`, `ListData`, `ListComments` (`api_minor` 77, feature `comment-table`), `ListRelocations` (`api_minor` 78, feature `relocation-table`), `GetBuildInfo` (`api_minor` 88, feature `build-info`; [build-info.md](build-info.md)), `TraceValue` (`api_minor` 89, feature `value-trace`; [below](#tracing-a-value-across-calls)), `ExportC` (`api_minor` 80, feature `export-c`; server stream), `ListSymbolTree` (`api_minor` 82, feature `symbol-tree`), `PlanClearFlow` (`api_minor` 83, feature `clear-flow`), `ListRegisterValues` (`api_minor` 87, feature `register-values`; [below](#register-values)), `GetClassHierarchy` (`api_minor` 45, feature `msvc-rtti`; [below](#msvc-classes)), `ListObjcClasses` (`api_minor` 91, feature `objc`; [below](#mach-o)); `ListCallingConventions` (`api_minor` 58, feature `calling-conventions`; [below](#calling-conventions)); batch reads for scripts `DecompileMany` and `ListInstructions` (server streams) and `FindBytes` (`api_minor` 29, feature `script-batch`; [below](#batch-reads-for-scripts), [scripting.md](scripting.md)); the searches `SearchMemory`, `SearchText`, `SearchScalars` and `SearchDecompiled`, `FindTypeUses` (`api_minor` 53, feature `type-uses`) (server streams; `api_minor` 41, feature `search`; [below](#search)) | `query.proto` (models in `listing.proto`, `decompile.proto`, `types.proto`) |
 | `SubscriptionService` | `Subscribe` (server stream) | `subscription.proto` |
 | `AnalysisService` | `ListAnalyzers`, `StartAnalysis`, `CancelAnalysis`, `GetAnalysisStatus`. Since `api_minor` 28 (feature `background-inference`, when the daemon infers prototypes: `rk-daemon --infer-prototypes auto`, the default) the analyzer `infer.prototypes` runs in the background after import as a job `GetAnalysisStatus` lists while it runs (with its phase and progress; `idle` is false until it ends), `CancelAnalysis` stops it, `StartAnalysis` with `infer.prototypes` queues it again; its prototypes reach decompilations and `GetFunction` (origin `derived: infer.prototypes`) when it finishes ([infer.md](infer.md)). Function ID (`api_minor` 51, feature `function-id`; [below](#function-id), [fid.md](fid.md)): `ListFidDatabases`, `AttachFidDatabase`, `DetachFidDatabase`, `ListFidMatches`, `ApplyFidMatch`, `RejectFidMatch`, `CreateFidDatabase`, and the analyzer `function-id` in the background after import | `analysis.proto` |
 | `PluginService` | `ListPlugins`, `RunCommand`, `GetPluginFacts` (WebAssembly plugins, [plugins.md](plugins.md)) | `plugin.proto` |
@@ -39,6 +39,7 @@ has a private hook: if the UI can do it, a script or an agent can too.
 | `ScriptService` | `ListScripts`, `GetScript`, `RunScript` (server stream: started, output, progress, prompts, then result or error; or trust_required), `AnswerPrompt`, `CancelScript`, `UpdateContext`, `SaveScript`, `ListScriptRuns`: Python scripts the daemon runs in host processes with a run token acting as the caller (`api_minor` 31, feature `scripts-host`; [below](#scripts-the-daemon-runs), [scripting.md](scripting.md#the-daemons-script-service)); `SetupScriptPython` (server stream) makes the Python they run with (`api_minor` 33, feature `scripts-setup`); the Python console, `RunScript{interactive}` with `CompleteConsole` and `CancelScript{interrupt}` (`api_minor` 43, features `script-console`, `script-completion`; [scripting.md](scripting.md#the-console)) | `script.proto` |
 | `FileSystemService` | `OpenFileSystem`, `ListFileSystem`, `ReadFileSystemFile`, `GetFileSystemFileInfo`, `ImportFromFileSystem`, `ExtractFromFileSystem`, `CloseFileSystem`, `ListFileSystems`: archives, compressed files, file system images and firmware packages as trees of files, nested to any depth; reading, describing, importing (one or a batch) and extracting their files (`api_minor` 48, feature `filesystems`; [below](#container-file-systems), [filesystems.md](filesystems.md)) | `filesystem.proto` |
 | `BSimService` | `CreateBSimDatabase`, `AttachBSimDatabase`, `DetachBSimDatabase`, `ListBSimDatabases`, `IngestBSim`, `ListBSimExecutables`, `ListBSimFunctions`, `UpdateBSimExecutable`, `DeleteBSimExecutables`, `SearchBSim`: BSim signature databases, persistent stores of executables' functions and their feature vectors with an LSH index; ingesting a project's programs, listing, categorizing and deleting what is stored (`api_minor` 69, feature `bsim`); functions similar to a program's, with thresholds, filters and an overview (`api_minor` 72, feature `bsim-search`); `ApplyBSimMatches`: a match's name, signature, or signature and types applied to the queried function, one revision for many (`api_minor` 76, feature `bsim-apply`; [bsim.md](bsim.md#applying-matches)) | `bsim.proto` |
+| `ProviderService` | `ListProviders`, `DecompileExternal`, `ReadProviderOutput`, `GetProviderSettings`, `SetProviderSettings`: external decompilers (ILSpy, jadx, Vineflower, CFR, unluac, pycdc, webcrack, wasm-decompile) run in a sandbox on a program's file or a file of a file system session, their output cached (`api_minor` 92, feature `external-decompilers`; [below](#external-decompilers), [providers.md](providers.md)) | `provider.proto` |
 | `DebugService` | `CreateDebugSession` (the emulator, a GDB remote stub, a launched or attached process, a saved trace), `CloseDebugSession`, `ListDebugSessions`, `ResumeDebugSession`, `WaitDebugSession`, `InterruptDebugSession`, `GetDebugState`, `WriteDebugRegisters`, `ReadDebugMemory`, `WriteDebugMemory`, `SetDebugBreakpoints`, `SelectDebugThread`, `ListDebugModules`, `GetDebugTimeline`, `SaveDebugTrace`, `ListDebugTraces`, `DeleteDebugTrace`: debug sessions with a recorded timeline, the caller's state rather than facts; state and memory can be read at any recorded snapshot (`api_minor` 14, features `debugger`, and `debugger-live` with `rk-daemon --debug-live`). The emulator target on a machine (`api_minor` 20, feature `firmware-emulation`): `WriteDebugInput`, `GetDebugMachine`. The call stack (`api_minor` 59, feature `debugger-stack`): `GetDebugBacktrace`. Values (`api_minor` 60, feature `debugger-values`): `EvaluateDebug`; watches in a function's frame, `DebugEvalItem.frame_function` (`api_minor` 61, feature `debugger-watches`). Runtime disassembly (`api_minor` 62, feature `debugger-disassembly`): `DisassembleDebugMemory`. Copying runtime memory into the program (`api_minor` 63, feature `debugger-copy`): `CopyDebugMemory`. Conditional breakpoints (`api_minor` 64, feature `debugger-conditions`): `DebugBreakpointSpec.condition`, `ignore_count`, `disabled`, `SetDebugBreakpointsRequest.update`. Rewinding the emulator (`api_minor` 65, feature `debugger-rewind`): `RewindDebugSession`, `DebugState.rewindable`. An emulator from another session's state (`api_minor` 67, feature `debugger-emulate-from`): `DebugEmulatorTarget.from_session`, `from_snapshot`. Hooks the client answers (`api_minor` 68, feature `debugger-hooks`): `SetDebugHooks`, `AnswerDebugHook`, `DebugStop.hook` | `debugger.proto` |
 
 **Authentication** (`api_minor` 13, [security.md](security.md)). Unless the
@@ -519,6 +520,35 @@ How assertions resolve:
   analysis's rows) and `data_type_settings` (that type's defaults).
   Listing search (`SearchText`) reads the rows as shown.
   [listing-edit.md](listing-edit.md#data-settings).
+- **Build info** (`api_minor` 88, feature `build-info`;
+  [build-info.md](build-info.md)). `GetBuildInfo` reads the build metadata
+  the toolchain left in the file: `go` (Go 1.13 and later: `go_version`,
+  the main package `path`, `main` and `deps` modules with `version`,
+  `sum` and `replacement`, `settings` such as `-ldflags`, `GOOS`,
+  `GOARCH`, `CGO_ENABLED`, `vcs.revision`, `vcs.time`; `format` "inline"
+  for Go 1.18 and later or "pointer" before; the header's `address`; the
+  `module_text` and the lines it didn't take, `unparsed`), `rust`
+  (cargo-auditable's `packages` with `name`, `version`, `source`, `kind`,
+  `dependencies` as indexes and the `root`), `rustc_version` (an ELF's
+  `.comment`) and `rustc_commits` (`/rustc/<hash>/` paths). Unset when the
+  file has none; metadata that is there but doesn't decode is a line in
+  `warnings`. The UI's Build info… ([ui.md](ui.md#build-info)), the SDK's
+  `Program.build_info()` and MCP `build_info` use it. Since `api_minor`
+  93 (feature `go-pclntab`; [go.md](go.md)) also `go_pclntab`, a Go
+  program's function table (kept by stripped binaries): its `layout`
+  ("1.2", "1.16", "1.18", "1.20"), `address`, `function_count` and
+  `functions_read`, `file_count`, `text_start`, `moduledata` and
+  `found_by` ("section", "symbol", "scan").
+- **Go programs** (`api_minor` 93, feature `go-pclntab`; [go.md](go.md)).
+  At import a Go program's pclntab names its functions as `analysis:go`
+  assertions (function bounds, names where the file's symbols and the
+  debug info name nothing, a plate comment with each one's source file
+  and line, no-return marks for Go's runtime functions that never return;
+  the import's warnings count them), and a Go program on amd64 (Go 1.17
+  and later), arm64 (1.18 and later) or i386 gets Ghidra's golang
+  compiler spec (`compiler_spec_id` "golang"), whose default prototype is
+  Go's register ABI. `ListSymbolTree` puts a Go program's functions in
+  namespaces by package path.
 - **Register values** (`api_minor` 87, feature `register-values`).
   `ListRegisterValues` lists the ranges where a register holds a value,
   by register then address, with who set each: an assertion
@@ -645,6 +675,78 @@ tell processor variants apart.
 
 SDK: `Program.set_language(language_id, compiler_spec_id="")`,
 `Program.compare_languages()`. MCP: `compare_languages`, `set_language`.
+
+### Mach-O
+
+`api_minor` 90, feature `macho` ([macho.md](macho.md)). The loaders read
+Mach-O files (thin, and universal ones' slices) as Ghidra's Mac OS X
+Mach-O loader does; `ProgramInfo.format` is `macho`.
+
+- **Slices.** A universal file loads its first `arm64`/`arm64e` slice,
+  else its first `x86_64` one, else its first; `ImportOptions.macho_slice`
+  names another by its arch (`x86_64`, `arm64e`, `armv7`, `i386`, ...) or
+  index (`#1`), and a slice the file lacks is `INVALID_ARGUMENT` naming the
+  ones it has. `ProgramInfo.macho_slice` is the slice a program is and
+  `macho_slices` the file's slices (both empty for a thin file).
+  `ImportProgramRequest.program_file` (a `source` beside `path` and
+  `content`) imports a program's stored file again, from the same project
+  (`NOT_FOUND` otherwise): with `macho_slice`, the file's other slice,
+  named `<program>-<slice>` by default. The program keeps the whole file:
+  `sha256` is the universal file's.
+- **The summary.** `ProgramSummary.macho` (`MachoSummary`): arch, CPU type
+  and subtype, file type (`execute`, `dylib`, `bundle`, `object`, ...),
+  `LC_UUID` as dyld prints it (`build_id` has it as lower-case hex), the
+  platform, minimum OS and SDK (`LC_BUILD_VERSION`, else
+  `LC_VERSION_MIN_*`), source version, install name, dylinker, the dylibs
+  (`MachoDylib`: install name, kind `load`, `weak`, `reexport`, `lazy` or
+  `upward`, versions), rpaths, the slices (`MachoSlice`: arch, CPU, offset,
+  size) and `slice_index`, `code_signed`, `encrypted` with the encrypted
+  range, `fixups` (`chained`, `opcodes` or empty) and the header flags.
+- **Libraries.** A Mach-O's `needed` are its dylibs' install names; one
+  resolves to a program named as its file or with that install name, an
+  import to its own dylib first (two-level namespace); `import_libraries`
+  looks for each by its file name in the search paths, the file's
+  directory and its `LC_RPATH`s, and loads the slice of the program's CPU
+  ([Libraries](#libraries)).
+- **Relocations.** `ListRelocations` lists binds, lazy binds, rebases and
+  chained fixups (`format` `macho`, type names `BIND_TYPE_POINTER`,
+  `REBASE_TYPE_POINTER`, `DYLD_CHAINED_PTR_64`, ...).
+- **Objective-C and Swift** (`api_minor` 91, feature `objc`). At import a
+  Mach-O's Objective-C metadata becomes typed data, names and functions
+  (`analysis:objc`) and its methods' prototypes (`import:objc`), its Swift
+  descriptors names and functions (`analysis:swift`), as the PE analysis
+  does (the import's warnings count them). `ListObjcClasses` lists the
+  classes by name (each method with its selector, type encoding,
+  implementation, category and the function's current name; ivars,
+  properties, protocols, categories; a class only categories extend is
+  `external`), the protocols and the Swift types; `name_contains` filters
+  all three by name, in any case. A viewer may call it; an empty answer
+  for other formats ([macho.md](macho.md#objective-c-and-swift)).
+
+### .NET assemblies
+
+`api_minor` 94, feature `dotnet`. A PE with a CLR header (data directory
+14, `IMAGE_COR20_HEADER`) is a .NET assembly, and `ProgramInfo.dotnet`
+(`DotNetAssembly`) says what the header and the metadata root say: the
+metadata version (`v4.0.30319`), the runtime version (`2.5`), the flags,
+`il_only` or `mixed_mode`, `ready_to_run`, strong-name signing, 32-bit
+requirements, the entry point's token (or native RVA), the metadata
+streams and a `description` line.
+
+- **IL-only assemblies are imported without code analysis**
+  (`code_analysis_skipped`): their code is CIL, not machine code, so
+  nothing is decoded as instructions or discovered as functions (before,
+  the IL was disassembled as x86 from the entry stub). The import
+  succeeds, and its warnings say so: the headers, sections, resources,
+  strings and bytes stay browsable, and the stored file is there for a
+  decompiler: `DecompileExternal` gives its C# from ILSpy
+  ([below](#external-decompilers)). The import isn't refused, so the
+  program is in the project for the providers to attach their output to.
+- **Mixed-mode (C++/CLI) and ReadyToRun images** have native code beside
+  the IL, which is analysed as usual; the warnings say the IL isn't.
+- The Python SDK's `Program.dotnet()`, MCP's `program_summary` (`dotnet`)
+  and the Open dialog's details show it; the file browser names an
+  assembly's content kind `dotnet:il` or `dotnet:mixed`.
 
 ### Libraries
 
@@ -1441,6 +1543,69 @@ variable= | token= | varnode=)` (kind "def_use", "forward", "backward",
 `slice_decompiled` (a variable by name: the C lines it touches with the
 slice's tokens on each, and the instructions).
 
+### Tracing a value across calls
+
+`api_minor` 89, feature `value-trace`. `QueryService.TraceValue{program_id,
+function, direction, token | varnode_index | variable_index, max_depth,
+max_functions, max_nodes, max_edges}` carries the slices' walk (above)
+through direct calls, decompiling each function it reaches as Decompile
+serves it at the revision read:
+
+- **Backward** (`TRACE_DIRECTION_BACKWARD`: where the value comes from):
+  inside a function, the ops that compute it back to inputs and constants;
+  a call's output continues at each value the callee returns (its RETURN
+  ops); a parameter continues at the matching argument of each direct call
+  of the function (through its thunks).
+- **Forward** (where it goes): the ops that read it; an argument continues
+  at the callee's parameter; a returned value at the output of the calls.
+  From a `return` token it starts at the returned value.
+- **Calls are matched**: a walk that entered a callee from one call leaves
+  it through that call only (a returned value goes back to that call's
+  output, a parameter to that call's argument); only a walk leaving the
+  function it started in goes to every caller. So tracing `x` in `combine`
+  into `scale` comes back out to `combine`, not to `scale`'s other callers.
+- **Budgets** (0: the default): calls crossed on one path (`max_depth`,
+  default 3, at most 8; returning through a matched call costs nothing),
+  functions decompiled (`max_functions`, 12, at most 64), values
+  (`max_nodes`, 2000, at most 20000) and edges (`max_edges`, 4000, at
+  most 40000). Where one stops the walk there is an unknown of kind BUDGET
+  and `truncated` is set.
+- **Unknowns, not guesses** (`unknowns`, each with the value it stopped
+  at, the instruction and a sentence): `INDIRECT_CALL` (called through, or
+  passed to or returned by, a function pointer), `EXTERNAL_CALL` (an import
+  or a call with no known target: `strlen (import)`), `MEMORY` (read by a
+  load or written by a store: what else touches that memory isn't
+  followed; a global's writers), `NO_CALLERS` (a parameter or returned value
+  of a function nothing calls directly: an entry point, a callback),
+  `DECOMPILE_FAILED`, `BUDGET`, `UNMATCHED` (the callee doesn't use that
+  parameter, the call passes fewer arguments, the caller ignores the
+  result, an input that is no parameter).
+- **The answer**: `functions` in the order reached (the start's first),
+  each with `depth` (calls from the start: positive in callees, negative in
+  callers), the C `lines` it touches (index, text, the tokens printing
+  traced values) and the `addresses` of the ops computing them; the
+  `nodes` (function, its data-flow node, varnode, what prints it, the
+  defining instruction, depth) and `edges` in data-flow order (`DATAFLOW`
+  inside a function, `ARGUMENT` from a call's argument to the callee's
+  parameter, `RETURN` from a returned value to the call's output, each with
+  the instruction and the op); `start_nodes`; `start` (a caption).
+
+A start that prints no value is `INVALID_ARGUMENT`, as for slices; a start
+function the decompiler failed on is `FAILED_PRECONDITION`. Viewers of the
+project may call it. **Python**: `Program.trace(function, "backward" |
+"forward", variable= | token= | varnode=, max_depth=, max_functions=, ...)`;
+**MCP**: `trace_value` (a variable by name: each function with its lines
+and depth, the calls crossed, the unknowns); the UI's **Trace value across
+calls** ([ui.md](ui.md#tracing-a-value-across-calls)).
+
+Not followed yet (the next steps): values through memory (a store and the
+loads that may read it: needs alias analysis, starting with stack slots
+and globals at constant addresses), indirect calls whose targets are known
+(resolved jump tables, user references, vtables from MSVC RTTI), a
+struct field's flow from writers to readers across functions
+(`FindTypeUses` has the accesses), and the instructions of traced values
+marked in the listing as slices do.
+
 ### Call-site signature overrides
 
 `api_minor` 53, feature `call-signature-override` (Ghidra's Override
@@ -2067,10 +2232,31 @@ MCP: `fid_matches`, `apply_fid_match`, `reject_fid_match`,
   `link_path` (resolved inside its container; empty when it leaves it or
   loops), `note` and `unreadable` (encrypted, an unsupported method),
   `renamed` (a traversal or clashing name), and with `detect` what it is:
-  `detected`, `detected_kind` (`elf`, `pe`, `container`, `raw`, `text`,
-  `data`, `empty`), `container_format`, `processor`; a firmware member's
-  `language_id` and `load_address` from its header. Detection is bounded
-  to about two seconds per call (`detect_incomplete`).
+  `detected`, `detected_kind` (`elf`, `pe`, `macho`, `container`, `raw`,
+  `text`, `data`, `empty`, and from `api_minor` 95 `bytecode`: a `.pyc`, a
+  Lua or LuaJIT chunk, a Java class, DEX, WebAssembly, Hermes, a V8 code
+  cache, which were `data` before), `container_format`, `processor`; a
+  firmware member's `language_id` and `load_address` from its header.
+  Detection is bounded to about two seconds per call (`detect_incomplete`).
+- **Content kinds** (`api_minor` 95, feature `content-kinds`).
+  `FileSystemEntry.content_kind` says what a decompiler for scripts and
+  bytecode would take the file as, `family:version` where the header says
+  the version: `pyc:3.12`, `lua:5.4`, `luajit:2.1`, `java-class:21`,
+  `dex:035`, `wasm`, `hermes:96`, `v8-cache`, `dotnet:il`, `jar`, `apk`,
+  `js-source`, ... ([the list](filesystems.md#content-kinds)). From the
+  file's own header when it has one (with `detect`); else from what its
+  container says (an asar's `.js` members, in every listing). Empty for
+  native programs and plain data.
+- **Packed executables** (`api_minor` 96, feature `packed-executables`).
+  An ELF, PE or Mach-O carrying a packer's archive (PyInstaller, pkg,
+  nexe, Node SEA, Bun, an appended zip) keeps `detected_kind` `elf`/`pe`
+  and gets `container_format` naming the archive (in a listing only when
+  the file is stored plainly; always in `GetFileSystemFileInfo`); data
+  holding Lua chunks gets `lua-chunks`. `OpenFileSystem` on such a file,
+  or on its program (`ProgramInfo.payload_format`), opens the archive.
+  A batch import still imports the program and doesn't descend into its
+  archive. Importing bytecode as a program (a `.pyc`, a class file) fails
+  with `FAILED_PRECONDITION` saying what it is.
 - **Reading.** `ReadFileSystemFile{session_id, path, offset, length}` (at
   most 4 MiB a call; links followed). `GetFileSystemFileInfo{session_id,
   path, hashes?}`: the entry, its `container_path`
@@ -2098,6 +2284,56 @@ MCP: `fid_matches`, `apply_fid_match`, `reject_fid_match`,
   the session's owner); `ImportFromFileSystem` editor of the target
   project; `ExtractFromFileSystem` admin
   ([security.md](security.md#container-file-systems)).
+
+### External decompilers
+
+`ProviderService` (`api_minor` 92, feature `external-decompilers`;
+[providers.md](providers.md)) runs a dedicated decompiler on bytecode, as
+a sandboxed child process of the daemon:
+
+- **Inputs.** `ProviderInput`: a program (`program_id`: its stored file) or
+  a file of a file system session (`file{session_id, path}`). What it is
+  comes from its bytes: `ProviderInputKind{kind, version, description}`,
+  `kind` one of `dotnet`, `dex`, `apk`, `jar`, `class`, `pyc`, `lua`,
+  `luajit`, `wasm`, `js`, or empty.
+- **Providers.** `ListProviders{input?, refresh?}`: each `ProviderInfo`
+  (`name`: `ilspy`, `jadx`, `vineflower`, `cfr`, `unluac`, `pycdc`,
+  `webcrack`, `wasm-decompile`; `title`, `tool`, `license`, `homepage`,
+  `kinds`, `output` `tree` or `file`, `language`, `available`, `disabled`,
+  `version`, `reason`; for admins `path`, `found_by` and the sandbox's
+  `read_paths`), the `sandbox` the daemon enforces and the `limits`; with an
+  input, its `input_kind`, the providers that take it (`applicable`, in
+  order of preference), the `default_provider` and those with a `cached`
+  result. `refresh` looks for the tools again.
+- **Running.** `DecompileExternal{input, provider?, refresh?,
+  max_inline_bytes?}` runs the provider (the default for the input's kind
+  when empty) or answers from the cache (`cached`): `status`
+  (`PROVIDER_RUN_STATUS_OK`, `FAILED`, `CRASHED`, `TIMEOUT`,
+  `OUT_OF_MEMORY`, `OUTPUT_LIMIT`, `SANDBOX_ERROR`), `detail`, `stderr_tail`,
+  `seconds`, `provider_version`, `input_sha256`, `output`, `language`, the
+  `files` (`path`, `size`, `language`), `total_bytes`, and the `main_file`
+  with its text inline (`main_text`, `main_truncated`; 1 MiB by default).
+  A tool's failure is a status; a request that can't run is an error:
+  `FAILED_PRECONDITION` for an input no provider takes or a provider that
+  isn't available, `INVALID_ARGUMENT` for a provider that doesn't take the
+  kind or an input over `max_input_bytes`, `RESOURCE_EXHAUSTED` past two
+  running and eight waiting, `CANCELLED` when the caller goes away (the
+  tool is killed). The call waits for the tool (120 s by default), so give
+  it a long deadline.
+- **Reading.** `ReadProviderOutput{input, provider?, path, offset,
+  max_bytes}`: a file of the cached result (`data`, `size`, `language`,
+  `truncated`), 1 MiB a call by default and at most 16 MiB; `NOT_FOUND`
+  before `DecompileExternal` has run or for a path the result doesn't list.
+- **Settings.** `GetProviderSettings` and `SetProviderSettings` (admin):
+  `ProviderSettings{enabled, providers[]{name, path, disabled}, java_path,
+  node_path, dotnet_root, timeout_seconds, memory_bytes, output_bytes,
+  output_files, max_input_bytes, cache_max_bytes, allow_weak_sandbox}` (0:
+  the default); paths must be absolute and names known
+  (`INVALID_ARGUMENT`). Kept in `<project dir>/.revkit/providers.json`;
+  `GetProviderSettingsResponse.cache_dir` says where results are.
+- **Roles.** Listing, running and reading need a viewer (of the program's
+  project; a session's owner), as reading the input does; the settings an
+  admin ([security.md](security.md#external-decompilers)).
 
 ### Subscriptions and cache invalidation
 
@@ -2285,6 +2521,44 @@ then frozen.
 - `api_minor` increments with each additive change. Branches developed in
   parallel may each bump it; on merge, each additive change takes the next
   number, which is why clients should check features rather than numbers.
+  96 added packed executables and Lua in firmware as file systems (formats
+  `asar`, `pyinstaller`, `pyz`, `node-sea`, `pkg`, `nexe`, `bun`,
+  `lua-chunks`, and `zip` for an appended zip; `FileSystemEntry.container_format`
+  on a program carrying one, `ProgramInfo.payload_format`; feature
+  `packed-executables`; [filesystems.md](filesystems.md#packed-executables));
+  95 added content kinds in file system listings
+  (`FileSystemEntry.content_kind`, `detected_kind` `bytecode`; feature
+  `content-kinds`; [filesystems.md](filesystems.md#content-kinds));
+  94 added .NET assemblies recognised by their CLR header, IL-only ones
+  imported without code analysis (`ProgramInfo.dotnet`,
+  `DotNetAssembly`; feature `dotnet`; [below](#net-assemblies));
+  93 added Go function names, source lines and no-return marks from the
+  pclntab at import (`analysis:go` assertions), the golang compiler spec
+  for Go programs, Go package namespaces in `ListSymbolTree` and
+  `GetBuildInfoResponse.go_pclntab` (`GoPclntab`; feature `go-pclntab`;
+  [go.md](go.md));
+  92 added `ProviderService` (external decompilers: `ListProviders`,
+  `DecompileExternal`, `ReadProviderOutput`, `GetProviderSettings`,
+  `SetProviderSettings`; feature `external-decompilers`;
+  [providers.md](providers.md));
+  91 added Objective-C and Swift metadata at import (`analysis:objc`,
+  `analysis:swift` and `import:objc` assertions) and
+  `QueryService.ListObjcClasses` (`ObjcClass`, `ObjcMethod`, `ObjcIvar`,
+  `ObjcProperty`, `ObjcProtocol`, `SwiftType`; feature `objc`;
+  [macho.md](macho.md#objective-c-and-swift));
+  90 added Mach-O (format `macho`; [macho.md](macho.md)):
+  `ImportOptions.macho_slice` (a universal file's slice by arch name or
+  `#N`), `ImportProgramRequest.program_file` (a program's stored file
+  imported again), `ProgramInfo.macho_slice` and `macho_slices`, and
+  `ProgramSummary.macho` (`MachoSummary`, `MachoDylib`, `MachoSlice`;
+  feature `macho`; [below](#mach-o));
+  89 added `QueryService.TraceValue` (`TraceValueRequest`/`Response`,
+  `TraceDirection`, `TraceNode`, `TraceEdge`, `TraceEdgeKind`,
+  `TraceUnknown`, `TraceUnknownKind`, `TraceFunction`, `TraceLine`; feature
+  `value-trace`; [above](#tracing-a-value-across-calls));
+  88 added `QueryService.GetBuildInfo` (`GoBuildInfo`, `GoModule`,
+  `GoModuleReplacement`, `GoBuildSetting`, `RustDependencies`,
+  `RustPackage`; feature `build-info`; [build-info.md](build-info.md));
   87 added register values over ranges: `SetRegisterValue` assertions
   (`FACT_KIND_REGISTER_VALUE`), `QueryService.ListRegisterValues`
   (`RegisterValueRange`, `RegisterDescription`),
@@ -2717,6 +2991,20 @@ with rk.open_filesystem("default", file="fw.zip") as fs:          # or host_path
     fs.import_("/bin/busybox")                                       # program.container_path "zip://fw.zip!/bin/busybox"
 ```
 
+External decompilers (`api_minor` 92; [providers.md](providers.md)): a
+dedicated decompiler's source for bytecode, run in the daemon's sandbox:
+
+```python
+prog = rk.program("default/Tiny.dll")
+print(prog.providers().input_kind.description)                     # ".NET assembly"
+ext = prog.decompile_external()                                     # ILSpy (the default for .NET)
+print(ext.ok, ext.provider, ext.version, ext.cached, ext.files)
+print(ext.text())                                                   # the main file's C#
+with rk.open_filesystem("default", file="release.zip") as fs:
+    for path, java in fs.decompile_external("/app.apk").sources():     # jadx: (path, Java) pairs
+        ...
+```
+
 Against a daemon with accounts, pass a token (or a login) and how to trust
 its certificate; the daemon stamps who you are, so leave `actor` unset:
 
@@ -2737,6 +3025,10 @@ How it fits together:
 - `import_program(..., progress=callback)` (feature `import-progress`)
   calls `callback` with each `GetImportProgressResponse` while the import
   runs, from a polling thread, and once when it has ended.
+  `import_program(..., macho_slice="x86_64")` loads a universal Mach-O's
+  other slice, `program_file=<program_id>` a stored file again (feature
+  `macho`); `Program.macho()` is the summary's `MachoSummary` (None for
+  other formats).
 - `detect_raw_layout(project_id, path=... | content=..., language_id=,
   processor=, progress=callback, cancel=event, timeout=600)` (feature
   `raw-detect`; its own deadline, not the client's unary one)
@@ -2999,23 +3291,57 @@ annotations-only archive's binaries) and imports it (`ts_sdk_projects`,
 revkit-mcp --daemon 127.0.0.1:50051 --agent claude --agent-version opus-5.5   # stdio
 ```
 
-154 tools, all built on the public SDK. `about` (and the server's
+171 tools, all built on the public SDK. `about` (and the server's
 instructions) gives an agent the workflow (list programs, pick one, find
 functions, decompile, rename, retype and comment with a reason, search
 again), the address syntax, how long results page, its provenance and the
 daemon's features.
 
+**The workflow guide.** `revkit/agent_guide.md`, installed with the SDK,
+is the longer version: finding or importing a program, getting one's
+bearings, finding what matters, reading, recording what one learns with
+reasons, reviewing and undoing, BSim and comparing, running code. The
+server serves it as the resource `revkit://guide` (`text/markdown`) and as
+the prompt `investigate` (arguments `goal` and `program_id`: the guide,
+then the task); `about` points at both.
+
+**Registering it with an agent: `revkit-mcp setup`** (or `revkit mcp
+setup` from the `revkit` launcher, which passes the daemon's address). It
+writes the server into the user config of each agent it finds (or those
+named with `--client claude|codex|cursor|gemini|all`; `--scope project`
+for the current directory's project config instead), with
+`--daemon <address> --agent <the agent's name>`:
+
+| Agent | Where (user scope; project scope) | Entry |
+| --- | --- | --- |
+| Claude Code | `claude mcp add-json --scope user` when the `claude` command is there, else `mcpServers` in `~/.claude.json`; `.mcp.json` | `{"type": "stdio", "command", "args", "env"}` |
+| Codex | `~/.codex/config.toml` (`$CODEX_HOME`); `.codex/config.toml` | `[mcp_servers.revkit]` with `command`, `args`, `[mcp_servers.revkit.env]` |
+| Cursor | `~/.cursor/mcp.json`; `.cursor/mcp.json` | `{"type": "stdio", "command", "args", "env"}` |
+| Gemini CLI | `~/.gemini/settings.json`; `.gemini/settings.json` | `{"command", "args", "env"}` |
+
+It shows each change (a diff, or the command it would run) and asks
+before writing (`--yes` doesn't ask; without a terminal it writes nothing
+unless given `--yes`); `--dry-run` only shows. A file it changes is copied
+first to `<file>.revkit-backup-<time>`, other servers and settings in it
+are kept, and an entry already as it would write it is left alone, so
+running it again changes nothing. A token is never written into a config:
+`--token-file` puts the file's path in `RK_TOKEN_FILE`. `--command` names
+another `revkit-mcp`, `--name` another server name. The formats are each
+tool's documented ones (cited in `revkit/mcp_setup.py`); setup needs only
+Python's standard library.
+
 | Group | Tools |
 | --- | --- |
 | Start | `about` |
-| Programs | `list_programs`, `program_summary`, `analysis_status`, `list_languages`, `detect_raw_layout` (admin; read-only: suggestions with hex addresses, a confidence per answer, evidence, tie group, the refusal), `import_program` (admin; `raw_offset` and `regions` for raw images), `load_pdb` (a PE's PDB; feature `pdb-load`), `load_debug_file` (a stripped ELF's separate debug file by path, or found by build ID and debuglink, and on debuginfod servers only when an admin turned them on; feature `debug-files`) |
+| Programs | `list_programs`, `program_summary`, `build_info` (a Go binary's Go version, modules and build settings; a Rust binary's cargo-auditable crates, rustc version and commits), `analysis_status`, `list_languages`, `detect_raw_layout` (admin; read-only: suggestions with hex addresses, a confidence per answer, evidence, tie group, the refusal), `import_program` (admin; `raw_offset` and `regions` for raw images, `macho_slice` for a universal Mach-O; `program_summary` has a `macho` object for one), `load_pdb` (a PE's PDB; feature `pdb-load`), `load_debug_file` (a stripped ELF's separate debug file by path, or found by build ID and debuglink, and on debuginfod servers only when an admin turned them on; feature `debug-files`) |
 | Project | `create_folder` (a path, with its parents), `move_to_folder`, `rename_folder`, `delete_folder`, `export_project` (a .rkproj on the server's machine; programs, folders, annotations only), `import_project` (admin; into a new or an existing project, binaries by local path); `list_programs` shows each program's folder |
-| Code | `list_functions` (filters: named or unnamed, thunks, decompile failures, an address range; sorted by address or name), `search_symbols`, `get_function`, `disassemble` (with the address to continue from), `decompile` (by line; with variable storage keys, and the struct fields it uses: name, offset and the struct's hash), `instruction` (p-code), `function_graph` (by block; optionally without instructions), `callers`, `callees`, `xrefs` (by kind), `list_classes` (C++ classes from MSVC RTTI; feature `msvc-rtti`), `list_calling_conventions` (the compiler spec's models and their C spelling; feature `calling-conventions`) |
+| Code | `list_functions` (filters: named or unnamed, thunks, decompile failures, an address range; sorted by address or name), `search_symbols`, `get_function`, `disassemble` (with the address to continue from), `decompile` (by line; with variable storage keys, and the struct fields it uses: name, offset and the struct's hash), `instruction` (p-code), `function_graph` (by block; optionally without instructions), `callers`, `callees`, `xrefs` (by kind), `list_classes` (C++ classes from MSVC RTTI; feature `msvc-rtti`), `list_objc_classes` (a Mach-O's Objective-C classes, protocols and Swift types; feature `objc`), `list_calling_conventions` (the compiler spec's models and their C spelling; feature `calling-conventions`) |
 | Navigation | `find_next` (the next or previous function, label, instruction, data, undefined bytes, different byte or note; feature `find-next`), `overview` (each block's and each slice's bytes by kind and entropy, and the high-entropy regions; feature `overview`) |
 
 | File systems | `open_filesystem` (a local file, a host path or a program's stored file; archives, compressed files, file system images, firmware packages), `list_filesystem` (with what each file is), `read_filesystem_file`, `filesystem_file_info` (hashes, the container path, the container it holds), `import_from_filesystem` (one file, or a batch: programs below folders and inside nested containers, with `preview` and `max_programs`), `close_filesystem` |
+| External decompilers | `list_providers` (which are installed; with a program or a file of an open file system, what it is and which take it), `decompile_external` (a .NET assembly's C# from ILSpy, a DEX's or jar's Java, a `.pyc`'s Python, ...: the main file and the file list), `read_provider_output` (any file of the output; feature `external-decompilers`) |
 | Code | `list_functions`, `search_symbols`, `get_function`, `disassemble`, `decompile` (with variable storage keys, and the struct fields it uses: name, offset and the struct's hash), `instruction` (p-code), `function_graph`, `callers`, `callees`, `xrefs` |
-| Search | `search_memory` (hex with wildcards, strings in ASCII/UTF-8/UTF-16, decimals, floats, binary, regex; the label and code unit of each match), `search_text` (what the listing shows: comments, labels, signatures, instructions, data; plain or regex), `search_scalars` (a value or range in operands and data), `search_decompiled` (C of every function or those listed), `find_type_uses` (where a struct or one field is used, with each field use's access; feature `type-uses`), `slice_decompiled` (where a variable's value comes from or flows to in the C; feature `decompile-slices`) |
+| Search | `search_memory` (hex with wildcards, strings in ASCII/UTF-8/UTF-16, decimals, floats, binary, regex; the label and code unit of each match), `search_text` (what the listing shows: comments, labels, signatures, instructions, data; plain or regex), `search_scalars` (a value or range in operands and data), `search_decompiled` (C of every function or those listed), `find_type_uses` (where a struct or one field is used, with each field use's access; feature `type-uses`), `slice_decompiled` (where a variable's value comes from or flows to in the C; feature `decompile-slices`), `trace_value` (the same across calls: into callees' returns and parameters, out to callers; with what it couldn't follow; feature `value-trace`) |
 | Data and types | `list_strings`, `search_strings` (a substring in any case, a regular expression, case-sensitive, a minimum length), `list_data`, `list_comments` (every comment, by kind and text), `list_relocations` (the relocation table: type names, symbols, targets), `export_c` (the program as a .c and a .h, into a directory or inline), `symbol_tree` (Ghidra's symbol tree a level at a time: imports by library, exports, classes, namespaces), `read_memory`, `find_types` (with each type's category, and a `category` filter), `get_type`, `parse_c` (C declarations checked against the program: new, replaces or identical, diagnostics), `export_type_archive` (a type archive's header and sidecar: named types, a category, the user's or all), `list_type_archives` (the library archives the project applies: on or off, what each gives the program; feature `project-types`) |
 | Memory map | `memory_map`, `add_memory_region` (RAM, MMIO, or a file's bytes by host path), `update_memory_region`, `remove_memory_region` |
 | Edits | `rename`, `rename_variable`, `retype` (a global's type or a function's prototype, from a C declaration), `retype_variable`, `rename_field` and `retype_field` (a struct's or union's field, by the struct's name or hash and the field's name or offset: its next version laid out by `ParseC` and bound in one edit, as the UI's Types view does), `import_header` (define C declarations' types and bind their names, one edit), `import_type_archive` (an archive's types, checked against its hashes, one edit; nothing when the program has them), `set_type_category`, `move_types_to_project` and `copy_types_to_program` (project-wide types), `set_type_archive` (a library archive on or off for the project), `set_comment`, `add_note`, `create_function`, `remove_function`, `set_flow_override`, `set_fallthrough` (where control goes on after an instruction, nowhere, or `clear`; feature `fallthrough-override`), `override_call_signature` (one call's prototype; feature `call-signature-override`), `set_register_value` and `list_register_values` (a register's value over a range, MIPS `gp` or the PowerPC TOC; feature `register-values`); from the listing (feature `listing-edit`): `define_data`, `clear_code`, `clear_flow` (Clear Flow and Repair; feature `clear-flow`), `disassemble_here`, `set_mutability`, `set_data_settings` (an item's, a field's or a type's display; feature `data-settings`); equates and references (features `equates`, `user-references`): `convert_operand`, `set_equate`, `list_equates`, `rename_equate`, `remove_equate`, `add_reference`, `remove_reference`, `set_primary_reference`; structures (feature `auto-struct`): `auto_structure` (Auto Create, or with `fill` Auto Fill in, from a variable's use; previews, `apply` defines it and retypes the variable), `create_structure` (from the data in a range) |
@@ -3046,7 +3372,7 @@ program and `import_header` defines them and binds their names in one edit.
   `Program.resolve`); the emulator, debug and diff tools take hex numbers.
 - **Paging.** Long results come a page at a time: `list_functions`,
   `search_symbols`, `list_strings`, `search_strings`, `list_data`, `xrefs`, `find_types`,
-  `list_classes`, `list_equates` and `list_my_changes` by `offset`, `decompile` by
+  `list_classes`, `list_objc_classes`, `list_equates` and `list_my_changes` by `offset`, `decompile` by
   `start_line`, `function_graph` by `block_offset`, `disassemble` from its
   `next`, the searches from `start`. A result with `"truncated": true` says
   in `more` how to get the next page. Any result is also cut to about 50,000

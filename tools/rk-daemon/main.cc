@@ -26,6 +26,7 @@
 #include "revkit/backend/image_backend.h"
 #include "revkit/container/container.hh"
 #include "revkit/plugins/host.h"
+#include "revkit/providers/providers.h"
 #include "revkit/runtime/runtime.h"
 
 #include <dirent.h>
@@ -73,6 +74,13 @@ struct Options {
   bool symbol_downloads = false;
   std::vector<std::string> debug_dirs;
   std::vector<std::string> debuginfod_urls;
+  // External decompilers (docs/providers.md).
+  bool providers = true;
+  std::vector<std::string> provider_paths, providers_off;
+  double provider_timeout = 0;
+  std::uint64_t provider_memory_mb = 0;
+  bool provider_weak = false;
+  bool provider_given = false;
   revkit::backend::InferMode infer_prototypes = revkit::backend::InferMode::automatic;
   bool function_id = true;
   std::string param_id = "auto";
@@ -164,6 +172,16 @@ void usage(std::ostream &os) {
         "  --debuginfod <url>      let Load debug file fetch from this https debuginfod server\n"
         "                          (repeatable; network access, off by default: docs/security.md;\n"
         "                          DEBUGINFOD_URLS is only suggested in the settings)\n"
+        "  --no-providers          turn every external decompiler off (docs/providers.md)\n"
+        "  --provider <name>=<path>\n"
+        "                          the tool (or jar) for a provider: ilspy, jadx, vineflower, cfr,\n"
+        "                          unluac, pycdc, webcrack, wasm-decompile (repeatable; otherwise\n"
+        "                          PATH and the known locations)\n"
+        "  --provider-off <name>   turn one external decompiler off (repeatable)\n"
+        "  --provider-timeout <s>  one external decompilation's deadline (default 120)\n"
+        "  --provider-memory <MiB> its memory limit (default 4096)\n"
+        "  --provider-allow-weak-sandbox\n"
+        "                          run them where the kernel has no Landlock (files not confined)\n"
         "  --retain <n>            revisions kept readable per project (default 256)\n"
         "  --memo-budget <MiB>     derived facts kept in memory per project before the oldest\n"
         "                          are evicted (default 2048; tests run smaller daemons)\n"
@@ -335,6 +353,22 @@ std::optional<Options> parse_args(int argc, char **argv) {
     else if (arg == "--symbol-downloads") opt.symbol_downloads = true;
     else if (arg == "--debug-dir" && (v = value())) opt.debug_dirs.emplace_back(v);
     else if (arg == "--debuginfod" && (v = value())) opt.debuginfod_urls.emplace_back(v);
+    else if (arg == "--no-providers") opt.providers = false, opt.provider_given = true;
+    else if (arg == "--provider" && (v = value())) {
+      const std::string pv = v;
+      const auto eq = pv.find('=');
+      if (eq == std::string::npos || !revkit::providers::find_definition(pv.substr(0, eq)) || pv.size() <= eq + 1 ||
+          pv[eq + 1] != '/')
+        throw std::runtime_error("--provider " + pv + ": expected <name>=<absolute path> with a known provider name");
+      opt.provider_paths.push_back(pv);
+      opt.provider_given = true;
+    } else if (arg == "--provider-off" && (v = value())) {
+      if (!revkit::providers::find_definition(v)) throw std::runtime_error(std::string("--provider-off: no provider ") + v);
+      opt.providers_off.emplace_back(v);
+      opt.provider_given = true;
+    } else if (arg == "--provider-timeout" && (v = value())) opt.provider_timeout = std::stod(v), opt.provider_given = true;
+    else if (arg == "--provider-memory" && (v = value())) opt.provider_memory_mb = std::stoull(v), opt.provider_given = true;
+    else if (arg == "--provider-allow-weak-sandbox") opt.provider_weak = true, opt.provider_given = true;
     else if (arg == "--infer-prototypes" && i + 1 < argc &&
              (std::string_view(argv[i + 1]) == "auto" || std::string_view(argv[i + 1]) == "on" ||
               std::string_view(argv[i + 1]) == "off")) {
@@ -523,6 +557,13 @@ std::shared_ptr<revkit::api::Backend> make_backend(const Options &opt) {
   image.debug_dirs = opt.debug_dirs;
   image.debuginfod_urls = opt.debuginfod_urls;
   image.debuginfod = !opt.debuginfod_urls.empty();
+  image.providers = opt.providers;
+  image.provider_paths = opt.provider_paths;
+  image.providers_disabled = opt.providers_off;
+  image.provider_timeout_seconds = opt.provider_timeout;
+  image.provider_memory_bytes = opt.provider_memory_mb << 20;
+  image.provider_allow_weak_sandbox = opt.provider_weak;
+  image.provider_options_given = opt.provider_given;
   image.infer_prototypes = opt.infer_prototypes;
   image.function_id = opt.function_id;
   image.param_id = revkit::inputs::parse_param_id_mode(opt.param_id).value_or(revkit::inputs::ParamIdMode::automatic);

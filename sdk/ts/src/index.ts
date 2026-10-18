@@ -27,6 +27,7 @@ import { PatchService } from "./gen/revkit/v1/patch_pb";
 import { PluginService } from "./gen/revkit/v1/plugin_pb";
 import { PresenceService } from "./gen/revkit/v1/presence_pb";
 import { ProjectService } from "./gen/revkit/v1/project_pb";
+import { ProviderService } from "./gen/revkit/v1/provider_pb";
 import { QueryService } from "./gen/revkit/v1/query_pb";
 import { ScriptService } from "./gen/revkit/v1/script_pb";
 import { SubscriptionService } from "./gen/revkit/v1/subscription_pb";
@@ -48,6 +49,7 @@ export * from "./gen/revkit/v1/patch_pb";
 export * from "./gen/revkit/v1/plugin_pb";
 export * from "./gen/revkit/v1/presence_pb";
 export * from "./gen/revkit/v1/project_pb";
+export * from "./gen/revkit/v1/provider_pb";
 export * from "./gen/revkit/v1/query_pb";
 export * from "./gen/revkit/v1/script_pb";
 export * from "./gen/revkit/v1/subscription_pb";
@@ -92,6 +94,11 @@ export interface Revkit {
    * feature "bsim"); search (72, "bsim-search"); apply matches (76,
    * "bsim-apply"). */
   bsim: Client<typeof BSimService>;
+  /** External decompilers: ILSpy, jadx, Vineflower, CFR, unluac, pycdc,
+   * webcrack, wasm-decompile, run sandboxed on a program's file or a file
+   * of a file system session (api_minor 92, feature "external-decompilers";
+   * docs/providers.md). */
+  providers: Client<typeof ProviderService>;
 }
 
 /** One typed client per service, sharing a transport. */
@@ -114,6 +121,7 @@ export function createRevkit(transport: Transport): Revkit {
     scripts: createClient(ScriptService, transport),
     filesystems: createClient(FileSystemService, transport),
     bsim: createClient(BSimService, transport),
+    providers: createClient(ProviderService, transport),
   };
 }
 

@@ -1,9 +1,10 @@
 # Install rules and CPack for a relocatable revkit (docs/packaging.md):
 #
 #   <prefix>/bin/                 rk-daemon, rk-decompd (its decompiler worker,
-#                                 found beside it), rk-lift, rk-decomp, rk-emu,
-#                                 rk-dbg, rk-diff, rk-infer, rk-debuginfo, rk-cparse,
-#                                 rk-bsim
+#                                 found beside it), rk-sandbox (the external
+#                                 decompilers' sandbox, found beside it), rk-lift,
+#                                 rk-decomp, rk-emu, rk-dbg, rk-diff, rk-infer,
+#                                 rk-debuginfo, rk-cparse, rk-bsim
 #   <prefix>/lib/revkit/          private shared libraries (REVKIT_BUNDLE_LIBS)
 #   <prefix>/share/revkit/ui/     the web UI (REVKIT_UI_DIST, when built)
 #   <prefix>/share/revkit/ghidra/ Ghidra's processor specs (REVKIT_GHIDRA_SPECS,
@@ -21,7 +22,7 @@
 
 include(GNUInstallDirs)
 
-set(REVKIT_SHIPPED_TOOLS rk-daemon rk-decompd rk-lift rk-decomp rk-emu rk-dbg rk-diff rk-infer rk-debuginfo rk-cparse rk-bsim)
+set(REVKIT_SHIPPED_TOOLS rk-daemon rk-decompd rk-sandbox rk-lift rk-decomp rk-emu rk-dbg rk-diff rk-infer rk-debuginfo rk-cparse rk-bsim)
 set(REVKIT_UI_DIST "${PROJECT_SOURCE_DIR}/ui/dist" CACHE PATH "Built web UI to install as share/revkit/ui")
 set(REVKIT_GHIDRA_SPECS "" CACHE PATH
     "Ghidra spec tree to install as share/revkit/ghidra (scripts/gather-ghidra-specs.sh output; empty: none)")
@@ -94,6 +95,7 @@ install(FILES LICENSE README.md THIRD_PARTY_NOTICES.md docs/getting-started.md D
 install(FILES third_party/ghidra/GHIDRA_LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR}/licenses RENAME Ghidra-Apache-2.0.txt)
 install(FILES third_party/llvm-demangle/LICENSE.TXT DESTINATION ${CMAKE_INSTALL_DOCDIR}/licenses
         RENAME LLVM-Apache-2.0-with-LLVM-exception.txt)
+install(FILES third_party/rea/LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR}/licenses RENAME rea-MIT.txt)
 if(REVKIT_EXTRA_LICENSES)
   install(DIRECTORY "${REVKIT_EXTRA_LICENSES}/" DESTINATION ${CMAKE_INSTALL_DOCDIR}/licenses OPTIONAL)
 endif()

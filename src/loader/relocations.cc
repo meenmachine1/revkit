@@ -115,6 +115,32 @@ std::string pe_name(std::uint32_t machine, std::uint32_t type) {
   }
 }
 
+// The fixups the Mach-O loader lists (docs/macho.md): bind types 1-3,
+// rebases 0x10 + REBASE_TYPE_*, indirect symbol slots 0x20, chained fixups
+// 0x8800 + DYLD_CHAINED_PTR_*.
+std::string macho_name(std::uint32_t type) {
+  static constexpr const char *bind[] = {"", "BIND_TYPE_POINTER", "BIND_TYPE_TEXT_ABSOLUTE32", "BIND_TYPE_TEXT_PCREL32"};
+  static constexpr const char *chained[] = {"",
+                                            "DYLD_CHAINED_PTR_ARM64E",
+                                            "DYLD_CHAINED_PTR_64",
+                                            "DYLD_CHAINED_PTR_32",
+                                            "DYLD_CHAINED_PTR_32_CACHE",
+                                            "DYLD_CHAINED_PTR_32_FIRMWARE",
+                                            "DYLD_CHAINED_PTR_64_OFFSET",
+                                            "DYLD_CHAINED_PTR_ARM64E_KERNEL",
+                                            "DYLD_CHAINED_PTR_64_KERNEL_CACHE",
+                                            "DYLD_CHAINED_PTR_ARM64E_USERLAND",
+                                            "DYLD_CHAINED_PTR_ARM64E_FIRMWARE",
+                                            "DYLD_CHAINED_PTR_X86_64_KERNEL_CACHE",
+                                            "DYLD_CHAINED_PTR_ARM64E_USERLAND24",
+                                            "DYLD_CHAINED_PTR_ARM64E_SHARED_CACHE"};
+  if (type >= 1 && type <= 3) return bind[type];
+  if (type >= 0x11 && type <= 0x13) return std::string("REBASE") + (bind[type - 0x10] + 4);
+  if (type == 0x20) return "INDIRECT_SYMBOL";
+  if (type > 0x8800 && type <= 0x8800 + 13) return chained[type - 0x8800];
+  return "type " + std::to_string(type);
+}
+
 std::uint64_t read_le(const Image &image, std::uint64_t addr, unsigned size, bool &ok) {
   std::byte b[8]{};
   ok = image.memory.read(addr, std::span<std::byte>(b, size)) == size;
@@ -127,6 +153,7 @@ std::uint64_t read_le(const Image &image, std::uint64_t addr, unsigned size, boo
 
 std::string relocation_type_name(const Image &image, std::uint32_t type) {
   if (image.format == Format::pe) return pe_name(image.machine, type);
+  if (image.format == Format::macho) return macho_name(type);
   const Names &names = elf_names(image.machine);
   if (auto it = names.find(type); it != names.end()) return std::string(elf_prefix(image.machine)) + std::string(it->second);
   return "type " + std::to_string(type);

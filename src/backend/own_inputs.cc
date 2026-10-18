@@ -23,6 +23,8 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
+#include <set>
 #include <stdexcept>
 
 namespace revkit::backend {
@@ -484,6 +486,35 @@ std::optional<infer::Prototype> QueryLookup::inferred(std::uint64_t entry) {
   return *query([&] { return ctx_->get<q::InferPublished>({program_, entry}); });
 }
 
+// The inferred structures an inferred prototype points to (astruct_<n>:
+// program types since inference published them, ImageBackend's
+// StageInferredStructures), in `store`: each name's binding, resolved as any
+// program type is (types.resolved: with the user's edits of it). A name
+// the program no longer binds (the user retracted it) stays an incomplete
+// struct of that name.
+infer::StructureIds QueryLookup::inferred_structures(const infer::Prototype &p, types::TypeStore &store) {
+  std::set<std::string> names;
+  std::function<void(const infer::VType &)> walk = [&](const infer::VType &t) {
+    if (t.meta == infer::Meta::struct_ && t.name.starts_with("astruct_")) names.insert(t.name);
+    for (const infer::VType &x : t.pointee) walk(x);
+  };
+  walk(p.ret);
+  for (const infer::VType &t : p.params) walk(t);
+  infer::StructureIds out;
+  if (names.empty()) return out;
+  auto named = query([&] { return ctx_->get<q::TypeNames>(program_); });
+  for (const std::string &n : names) {
+    const std::string *hash = named->bound("struct " + n);
+    if (hash == nullptr) continue;
+    auto closure = query([&] { return ctx_->get<q::ResolvedTypes>({program_, *hash}); });
+    if (closure->empty()) continue;
+    const std::map<std::string, std::string> records(closure->begin(), closure->end());
+    const std::map<std::string, types::TypeId> ids = InternRecords(records, store);
+    if (auto it = ids.find(*hash); it != ids.end()) out.emplace(n, it->second);
+  }
+  return out;
+}
+
 std::optional<lift::CommittedSignature> QueryLookup::param_id(std::uint64_t entry) {
   if (!param_id_deps_) return *query([&] { return ctx_->get<q::ParamIdPublished>({program_, entry}); });
   // A thunk shows what it thunks; a function sees only its dependencies
@@ -648,7 +679,17 @@ const lift::FunctionFacts *QueryLookup::with_overlay(const lift::FunctionFacts &
     if (!param_id_deps_)
       if (std::optional<infer::Prototype> p = inferred(f.entry)) {
         Asserted t;
-        t.id = infer::to_type(*p, t.store, InferOrg());
+        const infer::StructureIds structures = inferred_structures(*p, t.store);
+        // A structure the program no longer has (its assertions retracted:
+        // the user undid it) is undefined bytes behind the pointer.
+        std::function<void(infer::VType &)> gone = [&](infer::VType &v) {
+          if (v.meta == infer::Meta::struct_ && v.name.starts_with("astruct_") && !structures.contains(v.name))
+            v = infer::VType::unknown(1);
+          for (infer::VType &x : v.pointee) gone(x);
+        };
+        gone(p->ret);
+        for (infer::VType &v : p->params) gone(v);
+        t.id = infer::to_type(*p, t.store, InferOrg(), &structures);
         done = apply(t, lift::SignatureSource::analysis);
       }
     if (!done)

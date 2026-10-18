@@ -37,7 +37,7 @@
 // page, the HttpOnly cookie, an edit stamped user:alice, emulating, a
 // reload, logging out, and signing in from another origin with a bearer
 // token as the Tauri shell does), and raw layout detection in the Open
-// dialog (e2e/detect.ts), and scripts (e2e/scripts.ts), demangled names (e2e/demangle.ts), the class hierarchy (e2e/classes.ts), Function ID (e2e/fid.ts), and the daemon status chip
+// dialog (e2e/detect.ts), and scripts (e2e/scripts.ts), demangled names (e2e/demangle.ts), the class hierarchy (e2e/classes.ts), Mach-O slices (e2e/macho.ts), Function ID (e2e/fid.ts), and the daemon status chip
 // (e2e/daemon.ts: connected, a killed daemon, Reconnect), the searches (e2e/search.ts), the polish pass's menus, focus and narrow windows (e2e/uipolish.ts), the keymap presets (e2e/keymap.ts), resizable dialogs (e2e/dialogsize.ts), the Open dialog's table (e2e/opendialog.ts) and shared libraries (e2e/libraries.ts). Every edit is checked in a second page and
 // undone.
 
@@ -63,7 +63,11 @@ import { searchChecks } from "./search";
 import { demangleChecks } from "./demangle";
 import { hoverChecks } from "./hover";
 import { classesChecks } from "./classes";
+import { machoChecks } from "./macho";
 import { debugFileChecks } from "./debugfiles";
+import { buildInfoChecks } from "./buildinfo";
+import { providerChecks } from "./providers";
+import { traceChecks } from "./trace";
 import { projectTypesChecks } from "./projecttypes";
 import { fidChecks } from "./fid";
 import { callsiteChecks } from "./callsite";
@@ -2750,8 +2754,60 @@ async function main() {
     },
   });
 
+  // Mach-O (e2e/macho.ts): a universal file's slices in the Open dialog.
+  if (wants("macho.ts")) await machoChecks({
+    base, dir: tmp, check, rpc, assert, log,
+    page: async (query) => {
+      const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => log(`  [pageerror] ${e.message}`));
+      await p.goto(`${base}/?${query}`);
+      await p.waitForSelector("body[data-ready='1']", { timeout: 20000 });
+      return p;
+    },
+  });
+
   // Separate debug files (e2e/debugfiles.ts): Load debug file… and its settings.
   if (wants("debugfiles.ts")) await debugFileChecks({
+    base, dir: tmp, check, rpc, assert, log,
+    page: async (query) => {
+      const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => log(`  [pageerror] ${e.message}`));
+      await p.goto(`${base}/?${query}`);
+      await p.waitForSelector("body[data-ready='1']", { timeout: 20000 });
+      return p;
+    },
+  });
+
+  // Build info (e2e/buildinfo.ts): a Go program's modules and settings.
+  if (wants("buildinfo.ts")) await buildInfoChecks({
+    base, dir: tmp, check, rpc, assert, log,
+    page: async (query) => {
+      const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => log(`  [pageerror] ${e.message}`));
+      await p.goto(`${base}/?${query}`);
+      await p.waitForSelector("body[data-ready='1']", { timeout: 20000 });
+      return p;
+    },
+  });
+
+  // External decompilers (e2e/providers.ts): ILSpy's C# in the decompiler pane, a jar in the file system browser.
+  if (wants("providers.ts")) await providerChecks({
+    base, dir: tmp, check, rpc, assert, log,
+    page: async (query) => {
+      const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => log(`  [pageerror] ${e.message}`));
+      await p.goto(`${base}/?${query}`);
+      await p.waitForSelector("body[data-ready='1']", { timeout: 20000 });
+      return p;
+    },
+  });
+
+  // Trace value across calls (e2e/trace.ts).
+  if (wants("trace.ts")) await traceChecks({
     base, dir: tmp, check, rpc, assert, log,
     page: async (query) => {
       const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });

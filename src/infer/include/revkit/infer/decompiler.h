@@ -15,6 +15,7 @@
 
 #include "revkit/decompd/builder.h"
 #include "revkit/decompd/pool.h"
+#include "revkit/infer/accesses.h"
 #include "revkit/infer/vtype.h"
 #include "revkit/lift/context.hh"
 #include "revkit/lift/image_arch.hh"
@@ -51,6 +52,12 @@ struct Slot {
   // (static data) or code (a function).
   bool data_address = false;
   bool code_address = false;
+  // Call arguments: the caller's parameter (its index in the caller's
+  // Observation::params) passed on unchanged, -1 for any other value.
+  std::int32_t from_param = -1;
+  // Parameters: every read of it passes it on to a call unchanged (so the
+  // function doesn't use it itself).
+  bool passed_only = false;
 
   friend bool operator==(const Slot &, const Slot &) = default;
   void encode(facts::Encoder &e) const;
@@ -68,6 +75,37 @@ struct CallSite {
   friend bool operator==(const CallSite &, const CallSite &) = default;
   void encode(facts::Encoder &e) const;
   static CallSite decode(facts::Decoder &d);
+};
+
+// How a pointer-sized parameter is used as a pointer: what
+// infer::pointer_accesses finds through it (loads and stores at constant
+// offsets, and the calls it is passed to; trimmed to offset, size, kind,
+// value, and for a passed one the call's address, callee and argument
+// index), and through each value loaded through it, by offset (one level:
+// `param_1->field_0x18->...`). What structure inference composes after the
+// fixpoint (infer.h, InferredStructure).
+struct PointerUse {
+  std::int32_t param = -1;  // index in Observation::params (-1: a call's result)
+  std::uint64_t call = 0;   // a call's result: the call's address
+  std::vector<PointerAccess> accesses;
+  // Offsets whose loaded value flows back into the variable (`p =
+  // p->next`): fields pointing to the same kind of thing.
+  std::vector<std::int64_t> self;
+  bool returned = false;  // the function returns the value unchanged
+  struct Field {
+    std::int64_t offset = 0;
+    std::vector<PointerAccess> accesses;
+    std::vector<std::int64_t> self;  // as PointerUse::self, for the loaded value
+    bool returned = false;           // the function returns the loaded value
+    friend bool operator==(const Field &, const Field &) = default;
+    void encode(facts::Encoder &e) const;
+    static Field decode(facts::Decoder &d);
+  };
+  std::vector<Field> fields;  // by offset
+
+  friend bool operator==(const PointerUse &, const PointerUse &) = default;
+  void encode(facts::Encoder &e) const;
+  static PointerUse decode(facts::Decoder &d);
 };
 
 struct Observation {
@@ -99,6 +137,10 @@ struct Observation {
   std::vector<std::string> spills;
   bool reads_al = false;
   std::vector<CallSite> calls;
+  // The pointer-sized parameters' uses as pointers (those with any), and
+  // the pointer-sized results of calls (`param` -1, `call` the call).
+  std::vector<PointerUse> pointer_uses;
+  std::vector<PointerUse> results;
   // Function entries the decompiler looked up (callees, function pointers):
   // what this observation depends on besides the function itself.
   std::vector<std::uint64_t> consulted;
@@ -149,6 +191,8 @@ struct RunOptions {
   // Fill Observation::spills and reads_al. A worker leaves it to the
   // process that has the image's bytes.
   bool prologue = true;
+  // Jumps the decompiler takes as tail calls (CALL_RETURN flow overrides).
+  std::vector<std::uint64_t> call_returns;
 };
 
 // One Ghidra architecture over an image. Not thread-safe: one thread at a

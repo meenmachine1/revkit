@@ -77,6 +77,7 @@ class Program : public std::enable_shared_from_this<Program> {
     std::string language_id;       // "proc:endian:size:variant"; empty = detect
     std::string compiler_spec_id;  // empty = detect
     std::optional<std::uint64_t> image_base;
+    std::string macho_slice;  // a universal Mach-O's slice (loader::LoadOptions); empty: the default
     unsigned decompilers = 2;
     // Decompiler workers shared with other programs (null: the program's own).
     std::shared_ptr<decompd::WorkerPool> decompile_workers;

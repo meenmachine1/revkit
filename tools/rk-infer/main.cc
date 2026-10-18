@@ -2,7 +2,7 @@
 // and write them in the reference format (docs/reference-format.md), so
 // tools/rk-debuginfo/protonorm.py can score them against debug info.
 //
-//   rk-infer [-j N] [--local] [--no-library] [--no-defaults] [--rounds N]
+//   rk-infer [-j N] [--local] [--no-library] [--no-defaults] [--no-structures] [--rounds N]
 //            [--decompile] [--stats FILE] [--memo-budget MB] [--store DIR]
 //            [--max-varnodes N] [-o OUT.json] BINARY
 
@@ -65,6 +65,7 @@ void usage() {
                "  --local          round 0 only: the decompiler's own view of each function\n"
                "  --no-library     no library signatures for imports\n"
                "  --no-defaults    leave undefinedN types as they are\n"
+               "  --no-structures  no structures for classes of passed-on pointers (the output's \"structures\")\n"
                "  --rounds <n>     at most n inter-procedural rounds (default 16)\n"
                "  --decompile      add decompiled_c, every prototype locked to the inferred one\n"
                "  --no-feedback    with --decompile: decompile without the inferred prototypes\n"
@@ -93,6 +94,7 @@ std::optional<Options> parse(int argc, char **argv) {
     else if (a == "--local") o.infer.interprocedural = false;
     else if (a == "--no-library") o.infer.library = false;
     else if (a == "--no-defaults") o.infer.defaults = false;
+    else if (a == "--no-structures") o.infer.structures = false;
     else if (a == "--rounds") o.infer.max_rounds = static_cast<std::uint32_t>(std::stoul(value()));
     else if (a == "--decompile") o.decompile = true;
     else if (a == "--no-feedback") o.feedback = false;
@@ -159,6 +161,10 @@ void trace(const revkit::facts::Snapshot &snap, const an::ProgramKey &prog, std:
   for (auto c : n->callers) std::cerr << " " << hex(c);
   std::cerr << "\n   callees:";
   for (auto c : n->callees) std::cerr << " " << hex(c);
+  if (!n->call_returns.empty()) {
+    std::cerr << "\n   tail calls at:";
+    for (auto c : n->call_returns) std::cerr << " " << hex(c);
+  }
   std::cerr << "\n";
   for (std::uint32_t k = 0; k <= rounds; ++k) {
     auto o = infer::observation(snap, infer::RoundKey{{prog, entry}, k});
@@ -187,8 +193,20 @@ void trace(const revkit::facts::Snapshot &snap, const an::ProgramKey &prog, std:
         std::cerr << "\n";
       }
     }
+    auto own = snap.get<infer::Own>(infer::RoundKey{{prog, entry}, k});
+    std::cerr << "    own " << (own->known ? own->proto.print("f", org) : "unknown") << "\n";
     std::cerr << "    => " << (r->known ? r->proto.print("f", org) : "unknown") << " changes=" << r->changes
               << (r->widened ? " widened" : "") << "\n";
+  }
+  // Its table family's members, as their own evidence has them in the last
+  // round (Round votes over these).
+  auto families = snap.get<infer::Families>(prog);
+  if (const std::vector<std::uint64_t> *family = families->find(entry)) {
+    std::cerr << "   family of " << family->size() << ":\n";
+    for (std::uint64_t m : *family) {
+      auto o = snap.get<infer::Own>(infer::RoundKey{{prog, m}, rounds});
+      std::cerr << "    " << hex(m) << " " << (o->known ? o->proto.print("f", org) : "unknown") << "\n";
+    }
   }
 }
 
@@ -392,6 +410,20 @@ int run(const Options &opt) {
     if (auto it = decompiled.find(n.entry); it != decompiled.end())
       out << ",\"decompiled_c\":" << json_string(it->second);
     out << "}";
+  }
+  out << "\n],\n\"structures\":[";
+  first = true;
+  for (const infer::InferredStructure &s : result.structures) {
+    out << (first ? "\n" : ",\n");
+    first = false;
+    out << "{\"name\":" << json_string(s.name) << ",\"size\":" << s.size << ",\"functions\":" << s.functions
+        << ",\"accesses\":" << s.accesses << ",\"parameters\":" << s.parameters << ",\"returns\":" << s.returns << ",\"fields\":[";
+    for (std::size_t i = 0; i < s.fields.size(); ++i) {
+      const infer::InferredField &f = s.fields[i];
+      out << (i ? "," : "") << "{\"offset\":" << f.offset << ",\"size\":" << f.size << ",\"type\":"
+          << json_string(infer::print(f.type, org)) << ",\"accesses\":" << f.accesses << "}";
+    }
+    out << "]}";
   }
   out << "\n],\n\"producer\":{\"name\":\"rk-infer\"}\n}\n";
   if (opt.out.empty()) {

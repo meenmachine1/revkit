@@ -105,7 +105,7 @@ class RawImport : public ::testing::Test {
 TEST_F(RawImport, RemovingAThumbFunctionSticks) {
   std::uint64_t thumb = 0;
   {
-    loader::Image elf = loader::load_file(dir_ / "fw.elf", {.image_base = std::nullopt, .ghidra_image_base = true});
+    loader::Image elf = loader::load_file(dir_ / "fw.elf", {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
     for (const loader::Symbol &sym : elf.symbols)
       if (sym.name == "thumb_scale") thumb = sym.value & ~std::uint64_t{1};
   }
@@ -139,7 +139,7 @@ TEST_F(RawImport, RemovingAThumbFunctionSticks) {
 TEST_F(RawImport, ThumbFunctionsDecompileAsThumb) {
   std::uint64_t thumb = 0;
   {
-    loader::Image elf = loader::load_file(dir_ / "fw.elf", {.image_base = std::nullopt, .ghidra_image_base = true});
+    loader::Image elf = loader::load_file(dir_ / "fw.elf", {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
     for (const loader::Symbol &sym : elf.symbols)
       if (sym.name == "thumb_scale") thumb = sym.value & ~std::uint64_t{1};
   }

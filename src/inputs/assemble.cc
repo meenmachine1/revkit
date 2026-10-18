@@ -171,7 +171,8 @@ lift::DataFacts slot_data(const StaticInputs::Slot &slot, std::string name, unsi
 class Assembler {
  public:
   Assembler(const Program &p, const Options &o)
-      : p_(p), o_(o), image_(*p.image), riscv_(p.language_id.starts_with("RISCV:")) {}
+      : p_(p), o_(o), image_(*p.image), riscv_(p.language_id.starts_with("RISCV:")),
+        macho_(p.image->format == loader::Format::macho) {}
 
   // What doesn't depend on discovery, in the order run() lays it out.
   StaticInputs build_static() {
@@ -200,8 +201,9 @@ class Assembler {
     }
     st.memory = std::exchange(in_.memory, {});
     // (A raw image's symbols are its processor spec's labels: the 8051's
-    // PCON, AVR's PORTB, which Ghidra's decompiler names too.)
-    if (o_.data && (image_.format == loader::Format::elf || image_.format == loader::Format::raw))
+    // PCON, AVR's PORTB, which Ghidra's decompiler names too. A Mach-O's
+    // are labels: nlist entries have no sizes.)
+    if (o_.data && (image_.format == loader::Format::elf || image_.format == loader::Format::raw || macho_))
       st.symbols = symbol_candidates();
     if (o_.data && o_.relocations) st.slots = slot_values(st.patches);
     return st;
@@ -336,7 +338,7 @@ class Assembler {
       }
       // A stub shows its import's code label, as Ghidra's thunk of an
       // EXTERNAL function does.
-      if (!f.import.empty() && image_.format == loader::Format::elf && o_.relocations)
+      if (!f.import.empty() && (image_.format == loader::Format::elf || macho_) && o_.relocations)
         ff.label = "<EXTERNAL>_" + f.import;
       // RISC-V PLT stubs end in `jalr t1`, which writes a register, so
       // Ghidra doesn't make them thunks: they keep a default name and say
@@ -359,6 +361,15 @@ class Assembler {
         if (auto it = fixups.find(ff.name); it != fixups.end()) ff.call_fixup = it->second;
       names_[ff.entry] = ff.name;
       in_.functions.push_back(std::move(ff));
+    }
+  }
+
+  const char *format_name() const {
+    switch (image_.format) {
+      case loader::Format::pe: return "pe";
+      case loader::Format::elf: return "elf";
+      case loader::Format::macho: return "macho";
+      default: return "raw";
     }
   }
 
@@ -387,7 +398,7 @@ class Assembler {
     std::vector<StaticInputs::Symbol> out;
     out.reserve(best.size());
     for (const auto &[addr, s] : best) {
-      const bool data = s->type == loader::SymbolType::object && image_.memory.is_mapped(addr);
+      const bool data = !macho_ && s->type == loader::SymbolType::object && image_.memory.is_mapped(addr);
       out.push_back({addr, s->name, s->size, data, data ? mutability(addr) : lift::Mutability::normal});
     }
     return out;
@@ -395,7 +406,7 @@ class Assembler {
 
   // Those no function claims (by entry or body).
   void symbols(const StaticInputs &st) {
-    if (image_.format != loader::Format::elf && image_.format != loader::Format::raw) return;
+    if (image_.format != loader::Format::elf && image_.format != loader::Format::raw && !macho_) return;
     std::unordered_set<std::uint64_t> entries;
     for (const lift::FunctionFacts &f : in_.functions) entries.insert(f.entry);
     for (const StaticInputs::Symbol &s : st.symbols) {
@@ -492,7 +503,7 @@ class Assembler {
         lift::FunctionFacts f = default_function(x.address, x.name);
         f.body.emplace_back(x.address, x.address);
         f.label = "<EXTERNAL>_" + x.name;
-        if (o_.no_return) f.noreturn = an::is_known_no_return(x.name);
+        if (o_.no_return) f.noreturn = an::is_known_no_return(x.name, macho_);
         in_.functions.push_back(std::move(f));
       }
     }
@@ -551,7 +562,7 @@ class Assembler {
       x.label = name;
       lift::FunctionFacts f = default_function(0, name);
       f.label = library + "_" + name;
-      if (o_.no_return) f.noreturn = an::is_known_no_return(name);
+      if (o_.no_return) f.noreturn = an::is_known_no_return(name, macho_);
       x.function = std::move(f);
       in_.external_refs.push_back(std::move(x));
       if (o_.data) {
@@ -652,8 +663,7 @@ class Assembler {
     if (!lib) {
       try {
         const an::ProgramInfo &info = p_.analysis->info();
-        const char *format = image_.format == loader::Format::pe ? "pe" : image_.format == loader::Format::elf ? "elf" : "raw";
-        lib = default_library(image_, cparse::profile_for_language(info.language, info.compiler, format));
+        lib = default_library(image_, cparse::profile_for_language(info.language, info.compiler, format_name()));
       } catch (const std::exception &) {
       }
     }
@@ -767,8 +777,7 @@ class Assembler {
     std::optional<cparse::Profile> profile;
     try {
       const an::ProgramInfo &info = p_.analysis->info();
-      const char *format = image_.format == loader::Format::pe ? "pe" : image_.format == loader::Format::elf ? "elf" : "raw";
-      profile = cparse::profile_for_language(info.language, info.compiler, format);
+      profile = cparse::profile_for_language(info.language, info.compiler, format_name());
     } catch (const std::exception &) {
     }
     const DataOrg org = data_org(image_, p_.language_id);
@@ -880,6 +889,7 @@ class Assembler {
   const Options &o_;
   const loader::Image &image_;
   const bool riscv_;
+  const bool macho_;
   lift::DecompilerInputs in_;
   ExternalBlock external_;
   std::string prefix_;

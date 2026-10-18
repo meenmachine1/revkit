@@ -81,7 +81,9 @@ struct ImageBackendOptions {
   // Microsoft-specific analysis of a PE at import (docs/pe.md): MSVC RTTI
   // and vftables, the PE headers and directories and exception data as
   // analysis:msvc and analysis:pe assertions (typed data, names, functions,
-  // virtual methods' `this`).
+  // virtual methods' `this`); also a Mach-O's Objective-C and Swift
+  // metadata (analysis:objc, analysis:swift) and a Go program's function
+  // table (analysis:go, docs/go.md).
   bool import_pe_analysis = true;
   // Where Load PDB looks a program's PDB up (docs/pdb.md "Symbol
   // servers"): _NT_SYMBOL_PATH syntax; whether it may download from the
@@ -106,6 +108,21 @@ struct ImageBackendOptions {
   bool debuginfod_allow_http = false;
   std::uint64_t debug_file_max_bytes = 0;
   std::uint64_t debug_cache_max_bytes = 0;
+  // External decompilers (docs/providers.md, api_minor 92): all of them on
+  // or off, tools' paths ("jadx=/opt/jadx/lib/jadx-1.5.6-all.jar"), the
+  // ones turned off, the per-run timeout and memory (0: 120 s, 4 GiB), and
+  // whether they may run where the kernel has no Landlock.
+  // SetProviderSettings changes them while running; with a project
+  // directory they are kept in <project_dir>/.revkit/providers.json (read
+  // at startup unless provider_options_given) and results are cached in
+  // <project_dir>/.revkit/providers/.
+  bool providers = true;
+  std::vector<std::string> provider_paths;
+  std::vector<std::string> providers_disabled;
+  double provider_timeout_seconds = 0;
+  std::uint64_t provider_memory_bytes = 0;
+  bool provider_allow_weak_sandbox = false;
+  bool provider_options_given = false;
   // Threads for import-time analysis (function discovery, references);
   // 0: the hardware's, at most 8.
   unsigned analysis_threads = 0;

@@ -1,6 +1,7 @@
 #include "revkit/inputs/ghidra_types.h"
 
 #include "revkit/inputs/demangled.h"
+#include "revkit/lift/abi.hh"
 
 #include <algorithm>
 #include <regex>
@@ -72,9 +73,9 @@ const Builtin kBuiltins[] = {
     {"sdword", 0xab, "int", 4},         {"int5", 0x92, "int", 5},           {"int6", 0x93, "int", 6},
     {"int7", 0x94, "int", 7},           {"sqword", 0xad, "int", 8},         {"int16", 0x90, "int", 16},
     {"char", 0x7b, "int", 1, true},     {"uchar", 0xbe, "uint", 1, true},   {"schar", 0xaa, "int", 1, true},
-    {"short", 0xa8, "int", 2},          {"ushort", 0xc8, "uint", 2},        {"int", 0x95, "int", 4},
-    {"uint", 0xc4, "uint", 4},          {"long", 0x97, "int", 0},           {"ulong", 0xc6, "uint", 0},
-    {"longlong", 0x9a, "int", 8},       {"ulonglong", 0xc7, "uint", 8},     {"float2", 0x86, "float", 2},
+    {"short", 0xa8, "int", 0},          {"ushort", 0xc8, "uint", 0},        {"int", 0x95, "int", 0},
+    {"uint", 0xc4, "uint", 0},          {"long", 0x97, "int", 0},           {"ulong", 0xc6, "uint", 0},
+    {"longlong", 0x9a, "int", 0},       {"ulonglong", 0xc7, "uint", 0},     {"float2", 0x86, "float", 2},
     {"float", 0x8a, "float", 4},        {"double", 0x82, "float", 8},       {"float10", 0x84, "float", 10},
     {"float16", 0x85, "float", 16},     {"longdouble", 0x99, "float", 0},   {"bool", 0x79, "bool", 1},
     {"wchar_t", 0xcd, "int", 0, false, true}, {"wchar16", 0xcb, "int", 2, false, true},
@@ -163,6 +164,24 @@ DataOrg data_org(const loader::Image &image, const std::string &language_id) {
   } else if (image.bits == 32) {
     o.lng = 4;
   }
+  // Go's specs (x86-64-golang.cspec, AARCH64_golang.cspec: an 8-byte int;
+  // x86-32-golang.cspec: an 8-byte long) say their own sizes, as the
+  // decompiler's core types take them (docs/go.md).
+  if (language_id.ends_with(":golang")) {
+    try {
+      const lift::DataOrganization d =
+          lift::read_data_organization(language_id.substr(0, language_id.size() - 7), "golang");
+      auto take = [&](const char *key, unsigned &to) {
+        if (auto it = d.values.find(key); it != d.values.end() && it->second > 0) to = static_cast<unsigned>(it->second);
+      };
+      take("short_size", o.shrt);
+      take("integer_size", o.integer);
+      take("long_size", o.lng);
+      take("long_long_size", o.longlong);
+      take("wchar_size", o.wchar);
+    } catch (const std::exception &) {
+    }
+  }
   return o;
 }
 
@@ -172,16 +191,23 @@ GhidraTypes::GhidraTypes(const types::TypeStore &store, DataOrg org,
 
 DecompElement GhidraTypes::builtin(const std::string &name) const { return builtin_type(name, org_); }
 
+// The size of a built-in whose size the data organization says (Ghidra's
+// IntegerDataType, ShortDataType, LongDataType... take theirs from it).
+static unsigned sized(std::string_view name, const DataOrg &org) {
+  if (name == "long" || name == "ulong") return org.lng;
+  if (name == "int" || name == "uint") return org.integer;
+  if (name == "short" || name == "ushort") return org.shrt;
+  if (name == "longlong" || name == "ulonglong") return org.longlong;
+  if (name == "longdouble") return org.long_double;
+  return org.wchar;
+}
+
 DecompElement builtin_type(const std::string &name, const DataOrg &org_) {
   if (name == "void") return el("void");
   const Builtin *b = find_builtin(name);
   if (b == nullptr) b = find_builtin("undefined");
   int size = b->size;
-  if (size == 0) {
-    if (std::string(b->name) == "long" || std::string(b->name) == "ulong") size = static_cast<int>(org_.lng);
-    else if (std::string(b->name) == "longdouble") size = static_cast<int>(org_.long_double);
-    else size = static_cast<int>(org_.wchar);
-  }
+  if (size == 0) size = static_cast<int>(sized(b->name, org_));
   Attrs a;
   if (b->is_char) a.emplace_back("char", true);
   a.emplace_back("id", kBuiltin | b->id);
@@ -305,9 +331,8 @@ DecompElement GhidraTypes::generic(bool is_float, bool is_signed, bool is_char, 
       std::uint64_t bsize = 0;
       if (b != nullptr) {
         bsize = static_cast<std::uint64_t>(b->size);
-        if (m->second == "long" || m->second == "ulong") bsize = org_.lng;
-        else if (m->second == "longdouble") bsize = org_.long_double_aligned;
-        else if (m->second == "wchar_t") bsize = org_.wchar;
+        if (m->second == "longdouble") bsize = org_.long_double_aligned;
+        else if (bsize == 0) bsize = sized(m->second, org_);
       }
       const bool signed_type = b != nullptr && std::string(b->meta) == "int";
       const bool integer = b != nullptr && (std::string(b->meta) == "int" || std::string(b->meta) == "uint");

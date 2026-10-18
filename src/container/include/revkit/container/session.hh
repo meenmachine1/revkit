@@ -61,8 +61,14 @@ class Session {
   std::shared_ptr<FileSystem> mount(const Node &file, const std::function<bool()> &cancelled = {});
   // Its format by magic ("" when it isn't one), reading only its head.
   std::string container_format(const Node &file, const std::function<bool()> &cancelled = {});
-  // identify() and guess() over a file's first bytes.
-  Guess describe(const Node &file, const std::function<bool()> &cancelled = {});
+  // A packer's archive or Lua chunks it carries (identify_payload), reading
+  // as much of it as that takes; "" when none.
+  std::string payload_format(const Node &file, const std::function<bool()> &cancelled = {});
+  // identify() and guess() over a file's first bytes. `payloads`: also
+  // look for a payload (Guess::payload) in a program or data file; Cheap
+  // only looks where reading the file costs no decompression.
+  enum class Payloads { no, cheap, yes };
+  Guess describe(const Node &file, const std::function<bool()> &cancelled = {}, Payloads payloads = Payloads::no);
 
   // "zip://fw.zip!/rootfs.sqfs!/bin/busybox": the outermost format and
   // name, then the session path. A host directory: "file:///srv/fw/x.zip!/a".
@@ -75,6 +81,7 @@ class Session {
  private:
   Session() = default;
   std::shared_ptr<const Source> open_entry(const Node &node, const Context &ctx);
+  void attach_unpacked(FileSystem &asar, const Node &file, const Context &ctx);
   void touch();
   bool evict_one();
 

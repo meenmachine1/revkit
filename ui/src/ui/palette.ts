@@ -141,6 +141,11 @@ export class Palette {
     let items: Item[];
     if (q.startsWith(">")) {
       const words = q.slice(1).trim().toLowerCase().split(/\s+/).filter(Boolean);
+      const typed = words.join(" ");
+      const rank = (c: { title: string }) => {
+        const t = c.title.toLowerCase().replace(/^(file|tools|help): /, "");
+        return t.startsWith(typed) ? 0 : words.every((w) => t.includes(w)) ? 1 : 2;
+      };
       items = this.commands()
         .filter((c) => c.enabled?.() ?? true)
         .filter((c) => {
@@ -148,8 +153,9 @@ export class Palette {
           const d = c.detail?.toLowerCase() ?? "";
           return words.every((w) => t.includes(w) || d.includes(w));
         })
-        // Title matches first, then those only the description matches.
-        .sort((a, b) => Number(!words.every((w) => a.title.toLowerCase().includes(w))) - Number(!words.every((w) => b.title.toLowerCase().includes(w))))
+        // Titles that start with what was typed first, then the other title
+        // matches, then those only the description matches.
+        .sort((a, b) => rank(a) - rank(b))
         .map((c) => ({ label: c.title, detail: c.detail, keys: c.keys, run: c.run, command: true }));
     } else {
       try {

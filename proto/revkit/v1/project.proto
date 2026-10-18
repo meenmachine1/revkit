@@ -920,6 +920,58 @@ message ProgramInfo {
   // 0 from older daemons).
   string compiler_spec_id = 15;
   uint64 file_size = 16;
+  // A slice of a universal Mach-O (api_minor 90, feature "macho"): the
+  // slice this program is ("arm64") and every slice the file has, in its
+  // order ("x86_64", "arm64"). Empty for any other file.
+  string macho_slice = 17;
+  repeated string macho_slices = 18;
+  // A .NET assembly (api_minor 94, feature "dotnet"): what its CLR header
+  // says. Unset for any other program.
+  DotNetAssembly dotnet = 19;
+  // A packer's archive the file carries besides its code (api_minor 96,
+  // feature "packed-executables"; docs/filesystems.md): "pyinstaller",
+  // "node-sea", "pkg", "nexe", "bun", or "zip" for an appended zip (py2exe,
+  // a self-extractor); "lua-chunks" for a raw image holding Lua chunks.
+  // OpenFileSystem with this program_id opens it. Empty when there is none.
+  string payload_format = 20;
+}
+
+// A PE's CLR header (data directory 14, IMAGE_COR20_HEADER) and metadata
+// root (docs/bytecode-lifting.md). An IL-only assembly's code is CIL, not
+// machine code: it is imported with no code analysis (no functions are
+// discovered, nothing is decoded as instructions), and its headers,
+// sections, resources and strings are browsable as in any PE. A
+// mixed-mode (C++/CLI) or ReadyToRun image has native code beside the IL,
+// which is analysed as usual.
+message DotNetAssembly {
+  // The metadata root's version string: the runtime it was built for
+  // ("v4.0.30319"; .NET Core and .NET 5 and later write it too, "v2.0.50727"
+  // for .NET 2.0 to 3.5).
+  string metadata_version = 1;
+  // The CLR header's runtime version ("2.5").
+  string runtime_version = 2;
+  // COMIMAGE_FLAGS_*, as stored.
+  uint32 flags = 3;
+  // COMIMAGE_FLAGS_ILONLY: no native code but the entry stub.
+  bool il_only = 4;
+  // Not IL-only: native code (C++/CLI) beside the IL.
+  bool mixed_mode = 5;
+  // Precompiled native code beside the IL (a READYTORUN_HEADER).
+  bool ready_to_run = 6;
+  bool strong_name_signed = 7;
+  bool requires_32bit = 8;
+  bool prefers_32bit = 9;
+  // The managed entry point's method token (0x06000001), or with
+  // native_entry_point the RVA of a native one; 0 for a library.
+  uint32 entry_point = 10;
+  bool native_entry_point = 11;
+  // The metadata streams ("#~", "#Strings", "#US", "#GUID", "#Blob").
+  repeated string streams = 12;
+  // Code analysis was skipped (IL-only, not ReadyToRun).
+  bool code_analysis_skipped = 13;
+  // A line for people: "IL-only .NET assembly, metadata v4.0.30319,
+  // runtime 2.5, strong-name signed".
+  string description = 14;
 }
 
 message ListProgramsRequest {
@@ -946,8 +998,13 @@ message ImportProgramRequest {
     // File contents, for browser clients and remote daemons. Bounded by
     // ServerInfo.max_request_bytes.
     bytes content = 3;
+    // The file of a program already in this project, as it was imported:
+    // to load it again another way (a universal Mach-O's other slice,
+    // ImportOptions.macho_slice). Added in api_minor 90 (feature "macho").
+    string program_file = 9;
   }
-  // Program name; defaults to the file's basename ("upload" for content).
+  // Program name; defaults to the file's basename ("upload" for content;
+  // the program's name, with the slice for a Mach-O slice, for program_file).
   string name = 4;
   // Loader overrides. Leave empty to let the loader detect.
   ImportOptions options = 5;
@@ -1290,6 +1347,16 @@ message ImportOptions {
   // (FileSystemService.ImportFromFileSystem) always looks in the program's
   // own container, and its library_search_paths are paths in it.
   string library_root = 18;
+
+  // A universal (fat) Mach-O's slice to load (api_minor 90, feature
+  // "macho"): its arch name ("arm64", "arm64e", "x86_64", "i386",
+  // "armv7"), or "#N" for the Nth slice from 0. Empty: the first arm64 or
+  // arm64e slice, else the first x86-64 one, else the first. A thin file
+  // ignores it; a slice the file doesn't have is INVALID_ARGUMENT, naming
+  // those it has. The imported program's ProgramInfo.macho_slice says which
+  // was loaded. Libraries a Mach-O imports (import_libraries) load the
+  // slice of their own universal files with the program's CPU type.
+  string macho_slice = 19;
 }
 
 // A memory region declared at import (ImportOptions.regions).
@@ -1470,9 +1537,75 @@ message ProgramSummary {
   // An ELF's GNU build ID (lower-case hex) and .gnu_debuglink file name,
   // and the separate debug file its DWARF was read from at load, if any
   // (api_minor 86, feature "debug-files").
+  // A Mach-O's LC_UUID, as lower-case hex without dashes (MachoSummary.uuid
+  // has it as dyld prints it).
   string build_id = 11;
   string debuglink = 12;
   string debug_file = 13;
+  // A Mach-O's header and load commands (api_minor 90, feature "macho");
+  // unset for other formats.
+  MachoSummary macho = 14;
+}
+
+// What a Mach-O's header and load commands say (docs/macho.md).
+message MachoSummary {
+  // The CPU, as lipo names it: "arm64", "arm64e", "x86_64", "arm64_32",
+  // "armv7", "i386"; and the raw CPU type and subtype.
+  string arch = 1;
+  uint32 cpu_type = 2;
+  uint32 cpu_subtype = 3;
+  // "execute", "dylib", "bundle", "object", "dylinker", "kext", "dsym",
+  // "fileset", "core", "preload", "dylib_stub" (or "type N").
+  string file_type = 4;
+  // LC_UUID as dyld prints it ("C2D7..-...."); empty without one.
+  string uuid = 5;
+  // LC_BUILD_VERSION (else LC_VERSION_MIN_*): "macos", "ios", "tvos",
+  // "watchos", "maccatalyst", "iossimulator", ...; versions as "11.0".
+  string platform = 6;
+  string min_os = 7;
+  string sdk = 8;
+  // LC_SOURCE_VERSION "A.B.C.D.E" (trailing zeros dropped).
+  string source_version = 9;
+  // A dylib's own name (LC_ID_DYLIB): "@rpath/libfoo.dylib".
+  string install_name = 10;
+  // LC_LOAD_DYLINKER: "/usr/lib/dyld".
+  string dylinker = 11;
+  repeated MachoDylib dylibs = 12;
+  // LC_RPATH, as written ("@loader_path/../Frameworks").
+  repeated string rpaths = 13;
+  // A universal file's slices, in file order, and which one this is.
+  repeated MachoSlice slices = 14;
+  uint32 slice_index = 15;
+  // LC_CODE_SIGNATURE: the signature blob is present (it isn't checked).
+  bool code_signed = 16;
+  // LC_ENCRYPTION_INFO(_64) with a nonzero cryptid: the range is
+  // encrypted (FairPlay) and its code unreadable. Nothing is decrypted.
+  bool encrypted = 17;
+  uint32 crypt_offset = 18;
+  uint32 crypt_size = 19;
+  // How dyld fixes it up: "chained" (LC_DYLD_CHAINED_FIXUPS), "opcodes"
+  // (LC_DYLD_INFO), or "" (neither: relocations and indirect symbols).
+  string fixups = 20;
+  // Header flags as named: "PIE", "TWOLEVEL", "DYLDLINK", "NOUNDEFS", ...
+  repeated string flags = 21;
+}
+
+message MachoDylib {
+  string name = 1;
+  // "load", "weak", "reexport", "lazy", "upward".
+  string kind = 2;
+  // "1319.0.0"-style versions ("" when 0).
+  string current_version = 3;
+  string compatibility_version = 4;
+}
+
+message MachoSlice {
+  string arch = 1;
+  uint32 cpu_type = 2;
+  uint32 cpu_subtype = 3;
+  // Where it is in the file.
+  uint64 offset = 4;
+  uint64 size = 5;
 }
 
 message LanguageInfo {

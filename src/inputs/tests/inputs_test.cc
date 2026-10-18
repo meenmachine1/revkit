@@ -46,7 +46,7 @@ class Corpus : public ::testing::Test {
     if (!fs::exists(path_)) GTEST_SKIP() << "corpus not built";
     lift::initialize(REVKIT_GHIDRA_ROOT);
     image_ = std::make_shared<const loader::Image>(
-        loader::load_file(path_, {.image_base = std::nullopt, .ghidra_image_base = true}));
+        loader::load_file(path_, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}}));
     language_ = loader::guess_language(*image_)->id();
   }
   fs::path path_;

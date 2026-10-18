@@ -45,7 +45,7 @@ struct Program {
 std::unique_ptr<Program> analyse(const std::filesystem::path &file) {
   auto p = std::make_unique<Program>();
   p->image = std::make_shared<const loader::Image>(
-      loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true}));
+      loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}}));
   auto lang = loader::guess_language(*p->image);
   if (!lang) throw std::runtime_error("no language");
   register_queries(p->db->engine());
@@ -59,7 +59,7 @@ std::unique_ptr<Program> analyse(const std::filesystem::path &file) {
 }
 
 std::map<std::string, std::uint64_t> symbols(const std::filesystem::path &file) {
-  loader::Image img = loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true});
+  loader::Image img = loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
   std::map<std::string, std::uint64_t> out;
   for (const loader::Symbol &s : img.symbols)
     if (s.defined) out[s.name] = s.value;

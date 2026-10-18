@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<language_definitions>
+  <language processor="PyVM" endian="little" size="32" variant="cpython312" version="1.0"
+            slafile="py312.sla" processorspec="py312.pspec" id="PyVM:LE:32:cpython312">
+    <description>CPython 3.12 bytecode (experiment)</description>
+    <compiler name="default" spec="py312.cspec" id="default"/>
+  </language>
+</language_definitions>

@@ -100,6 +100,7 @@ void FillEntry(const container::FileSystem &fs, std::uint32_t idx, const std::st
   out->set_renamed(e.renamed);
   if (e.kind == Kind::directory) out->set_child_count(static_cast<std::uint32_t>(e.children.size()));
   if (!e.language.empty()) out->set_language_id(e.language);
+  if (!e.content_kind.empty()) out->set_content_kind(e.content_kind);
   if (e.load_address) {
     out->set_load_address(*e.load_address);
     out->set_has_load_address(true);
@@ -110,7 +111,12 @@ void FillGuess(const container::Guess &g, pb::FileSystemEntry *out) {
   out->set_detected(g.description);
   out->set_detected_kind(g.kind.empty() ? "data" : g.kind);
   if (g.kind == "container") out->set_container_format(g.format);
+  // A program or data file carrying a packer's archive or Lua chunks
+  // (api_minor 96): a program still, and a container to open.
+  if (!g.payload.empty()) out->set_container_format(g.payload);
   if (!g.processor.empty()) out->set_processor(g.processor);
+  // The file's own header says what it is; else what its container said.
+  if (!g.content_kind.empty()) out->set_content_kind(g.content_kind);
 }
 
 std::function<bool()> Cancelled(const api::CallContext &ctx) { return ctx.cancelled; }
@@ -282,7 +288,8 @@ Status ListFileSystemEntries(FsSession &fss, const api::CallContext &ctx, const 
       }
       try {
         Session::Node n{layer, list[i], prefix + layer->path_of(list[i]), prefix, depth};
-        FillGuess(s.describe(n, cancelled), out);
+        // Payloads only where reading the file costs no decompression.
+        FillGuess(s.describe(n, cancelled, Session::Payloads::cheap), out);
       } catch (const container::Error &err) {
         out->set_detected(std::string("unreadable: ") + err.what());
         out->set_detected_kind("data");
@@ -342,7 +349,7 @@ Status FileSystemFileInfo(FsSession &fss, const api::CallContext &ctx, const pb:
       file = Session::Node{n.fs, *t, n.prefix + n.fs->path_of(*t), n.prefix, n.depth};
     }
     if (file.fs->entry(file.entry).kind != Kind::file) return Status::Ok();
-    FillGuess(s.describe(file, cancelled), e);
+    FillGuess(s.describe(file, cancelled, Session::Payloads::yes), e);
     const auto magic = s.head(file, 64, cancelled);
     resp.set_magic(std::string(reinterpret_cast<const char *>(magic.data()), magic.size()));
     if (!e->container_format().empty()) {
@@ -622,7 +629,7 @@ Status PlanFileSystemImport(FsSession &fss, const api::CallContext &ctx, const p
       }
       item.detected = g.description;
       item.kind = g.kind;
-      const bool program = g.kind == "elf" || g.kind == "pe";
+      const bool program = g.kind == "elf" || g.kind == "pe" || g.kind == "macho";
       if (named && !req.programs_only()) {
         item.action = "import";
       } else if (program) {

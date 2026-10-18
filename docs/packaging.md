@@ -106,7 +106,8 @@ Executables are linked with an RPATH of `$ORIGIN/../lib/revkit`, as
 libraries' own dependencies, and find `share/revkit` (the web UI, the
 Ghidra specs) relative to themselves, so an installed tree runs from any
 directory. `rk-daemon` starts its decompiler workers from `rk-decompd`
-beside it.
+beside it, and its external decompilers through `rk-sandbox` beside it
+([providers.md](providers.md)).
 
 `scripts/package.sh` builds the preset in Docker on Debian 12
 (`packaging/linux/build.Dockerfile`: GCC 12, CMake 3.25, the system gRPC
@@ -179,7 +180,7 @@ needs Rust and the Tauri system packages below. It uses at most
 | `revkit-desktop_<v>_amd64.deb` | 4 MB | the desktop app; depends on `revkit (= <v>)` and WebKitGTK 4.1 |
 | `revkit-desktop_<v>_amd64.AppImage` | 160 MB | the desktop app with the portable bundle inside, and the build host's GTK and WebKitGTK libraries (listed with their source packages in `….AppImage.packages.txt`) |
 
-Executables in the bundle: `rk-daemon`, `rk-decompd`, `rk-lift`,
+Executables in the bundle: `rk-daemon`, `rk-decompd`, `rk-sandbox`, `rk-lift`,
 `rk-decomp`, `rk-emu`, `rk-dbg`, `rk-diff`, `rk-infer`, `rk-debuginfo`,
 `rk-cparse`, `rk-bsim`, and `rk-script` (a shell script).
 Measurement and development tools (`rk-backend-bench`, `rk-factbench`,

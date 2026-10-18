@@ -1,0 +1,87 @@
+# Experiment: a SLEIGH sketch of some Lua 5.4 opcodes. R[n] is an 8-byte
+# slot of the frame (stk:n*8); K[n] is a table the loader lays out at KBASE.
+# Values are treated as integers: the arithmetic opcodes' metamethod
+# fallback (the MMBIN that follows each) is folded into the instruction.
+define endian=little;
+define alignment=4;
+define space ram      type=ram_space      size=4 default;
+define space stk      type=ram_space      size=4;
+define space register type=register_space size=4;
+
+define register offset=0x0   size=4 [ SP PC RA ];
+define register offset=0x10  size=8 [ ret ];
+define register offset=0x100 size=8 [ a0 a1 a2 a3 ];
+
+define token ins(32) op=(0,6) A=(7,14) k=(15,15) B=(16,23) sB=(16,23) C=(24,31) sC=(24,31)
+                     Bx=(15,31) sJ=(7,31) ;
+define token ins2(32) op2=(0,6) A2=(7,14) B2=(16,23) C2=(24,31) sJ2=(7,31);
+
+define pcodeop lua_gettabup;
+define pcodeop lua_concat;
+
+@define KBASE "0x400"
+
+ra:  r is A [ r = A * 8; ] { export *[stk]:8 r; }
+ra1: r is A [ r = (A + 1) * 8; ] { export *[stk]:8 r; }
+ra2: r is A [ r = (A + 2) * 8; ] { export *[stk]:8 r; }
+ra3: r is A [ r = (A + 3) * 8; ] { export *[stk]:8 r; }
+rb:  r is B [ r = B * 8; ] { export *[stk]:8 r; }
+rc:  r is C [ r = C * 8; ] { export *[stk]:8 r; }
+kc:  k is C [ k = $(KBASE) + C * 8; ] { export *:8 k; }
+kbx: k is Bx [ k = $(KBASE) + Bx * 8; ] { export *:8 k; }
+isc: v is sC [ v = sC - 127; ] { export *[const]:8 v; }
+isb: v is sB [ v = sB - 127; ] { export *[const]:8 v; }
+sbx: v is Bx [ v = Bx - 65535; ] { export *[const]:8 v; }
+
+:MOVE ra, rb        is op=0 & ra & rb { ra = rb; }
+:LOADI ra, sbx      is op=1 & ra & sbx { ra = sbx; }
+:LOADK ra, kbx      is op=3 & ra & kbx { ra = kbx; }
+
+# arithmetic + the MMBIN* that always follows it
+:ADD ra, rb, rc     is (op=34 & ra & rb & rc) ; op2=46 { ra = rb + rc; }
+:SUB ra, rb, rc     is (op=35 & ra & rb & rc) ; op2=46 { ra = rb - rc; }
+:MUL ra, rb, rc     is (op=36 & ra & rb & rc) ; op2=46 { ra = rb * rc; }
+:ADDI ra, rb, isc   is (op=21 & ra & rb & isc) ; op2=47 { ra = rb + isc; }
+:ADDK ra, rb, kc    is (op=22 & ra & rb & kc) ; op2=48 { ra = rb + kc; }
+:MULK ra, rb, kc    is (op=24 & ra & rb & kc) ; op2=48 { ra = rb * kc; }
+
+# test + the JMP that always follows it: if (cond ~= k) skip the jump
+jdest: d is sJ2 [ d = inst_next + (sJ2 - 0xffffff) * 4; ] { export *:4 d; }
+:GTI ra, isb, jdest is (op=64 & ra & isb & k=0) ; op2=56 & jdest { if (ra s<= isb) goto jdest; }
+:GTI ra, isb, jdest is (op=64 & ra & isb & k=1) ; op2=56 & jdest { if (ra s> isb) goto jdest; }
+:LT ra, rb, jdest   is (op=58 & ra & rb & k=0) ; op2=56 & jdest { if (ra s>= rb) goto jdest; }
+:LT ra, rb, jdest   is (op=58 & ra & rb & k=1) ; op2=56 & jdest { if (ra s< rb) goto jdest; }
+jmp1: d is sJ [ d = inst_next + (sJ - 0xffffff) * 4; ] { export *:4 d; }
+:JMP jmp1           is op=56 & jmp1 { goto jmp1; }
+
+# numeric for: R[A] index, R[A+1] limit, R[A+2] step, R[A+3] control
+fexit: d is Bx [ d = inst_next + (Bx + 1) * 4; ] { export *:4 d; }
+fback: d is Bx [ d = inst_next - Bx * 4; ] { export *:4 d; }
+:FORPREP ra, fexit  is op=74 & ra & ra1 & ra2 & ra3 & fexit {
+  local skip:1 = ((ra2 s> 0) && (ra s> ra1)) || ((ra2 s< 0) && (ra s< ra1));
+  if (skip) goto fexit;
+  ra3 = ra;
+}
+:FORLOOP ra, fback  is op=73 & ra & ra1 & ra2 & ra3 & fback {
+  ra = ra + ra2;
+  local more:1 = ((ra2 s> 0) && (ra s<= ra1)) || ((ra2 s< 0) && (ra s>= ra1));
+  if (!more) goto inst_next;
+  ra3 = ra;
+  goto fback;
+}
+
+:RETURN1 ra         is op=72 & ra { ret = ra; return [RA]; }
+:RETURN0            is op=71 { return [RA]; }
+
+# GETTABUP R[A] := UpValue[B][K[C]:string] (a global when B is _ENV)
+:GETTABUP ra, B, kc is op=11 & ra & B & kc { ra = lua_gettabup(B:1, kc); }
+# CALL A B C: R[A](R[A+1], ..., R[A+B-1]), one result into R[A] when C=2
+callargs: is B=1 { }
+callargs: is B=2 & ra1 { a0 = ra1; }
+callargs: is B=3 & ra1 & ra2 { a0 = ra1; a1 = ra2; }
+:CALL ra, B, C      is op=68 & ra & B & C & callargs {
+  build callargs;
+  local t:4 = ra:4;
+  call [t];
+  ra = ret;
+}

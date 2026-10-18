@@ -314,6 +314,14 @@ export async function autoStructEditChecks(c: AutoStructEditContext) {
   execFileSync(gcc, ["-O1", "-fno-inline", "-fno-pie", "-no-pie", path.join(d, "chain.c"), "-o", path.join(d, "chain")]);
   const imp = await rpc<{ program: { programId: string } }>(base, "ProjectService/ImportProgram", { projectId: "default", path: path.join(d, "chain"), name: "chain", provenance: { kind: "PROVENANCE_KIND_USER", id: "e2e" } });
   const prog = imp.program.programId;
+  // Background analysis first: inference types touch's and sum2's parameter
+  // with a structure of its own (astruct_<n>, category /inferred), and the
+  // checks start from the decompilation it settles on.
+  for (let i = 0; i < 600; i++) {
+    const s = await rpc<{ idle?: boolean }>(base, "AnalysisService/GetAnalysisStatus", { programId: prog });
+    if (s.idle) break;
+    await new Promise((r) => setTimeout(r, 200));
+  }
   type Fn = { entry?: { offset?: string }; name: string };
   const fns = (await rpc<{ functions?: Fn[] }>(base, "QueryService/ListFunctions", { programId: prog, page: { pageSize: 1000 } })).functions ?? [];
   const touch = fns.find((f) => f.name === "touch");
@@ -343,8 +351,13 @@ export async function autoStructEditChecks(c: AutoStructEditContext) {
     await p.waitForFunction((t) => document.querySelector("#undo")?.getAttribute("title") !== t, before);
   };
 
+  let inferred = "";  // inference's structure touch's param_1 pointed to
   await check("auto-struct edit: rename and retype fields in the preview (Enter commits a cell), a type into the next field is refused inline, Ctrl+Enter applies; the decompiler reads them", async () => {
-    await untilText("touch decompiled", (t) => t.includes("param_1 + 8"));
+    // param_1 is inference's structure (param_1->field_0x8->field_0xc), or
+    // without inference a char * (param_1 + 8): Auto create structure makes a
+    // new one either way.
+    const was = await untilText("touch decompiled", (t) => /\btouch\(/.test(t) && (t.includes("param_1 + 8") || /param_1->field_0x8\b/.test(t)));
+    inferred = /\b(astruct_\d+) \*\s*param_1\b/.exec(was)?.[1] ?? "";
     await rightClick(p, "param_1", "k-pa");
     await p.locator("[data-testid=ctx-auto-struct]").click();
     await ready();
@@ -362,8 +375,9 @@ export async function autoStructEditChecks(c: AutoStructEditContext) {
     await cellAt("type", "0x8").fill("undefined8");
     await cellAt("type", "0x8").press("Enter");
     await p.locator("[data-testid=as-field-error]").waitFor({ state: "detached", timeout: 10000 });
-    // The int store at 0x10 reads as four bytes (the parameter was inferred
-    // char *): remove 0x11..0x13 (×), then rename 0x10 to flags and retype it
+    // The int store at 0x10 reads as four bytes when the parameter was
+    // inferred char * (no inference): remove 0x11..0x13 (×), if there; then
+    // rename 0x10 to flags and retype it
     // unsigned int; the edits survive a name change.
     for (const off of ["0x11", "0x12", "0x13"]) {
       const remove = p.locator(`[data-testid=as-field][data-offset='${off}'] [data-testid=as-field-remove]`);
@@ -412,12 +426,16 @@ export async function autoStructEditChecks(c: AutoStructEditContext) {
     await undo();
     await untilText("the chain undone", (t) => !/->count\b/.test(t) && /param_1->flags\b/.test(t));
     await undo();
-    await untilText("the outer struct undone", (t) => !t.includes("outer_e2e"));
+    // Back to the parameter's type before: inference's structure, if it had one.
+    await untilText("the outer struct undone", (t) => !t.includes("outer_e2e") && (!inferred || new RegExp(`\\b${inferred} \\*\\s*param_1\\b`).test(t)));
   });
   await check("auto-struct edit: retype a parameter of a function nothing gave a prototype: the return value's code stays (the return isn't locked to void)", async () => {
     const sum2 = fns.find((f) => f.name === "sum2");
     assert(sum2?.entry?.offset, "sum2 in the chain program");
     await p.evaluate((a) => (window as unknown as { __revkit: { app: { navigate: (x: bigint) => Promise<void> } } }).__revkit.app.navigate(BigInt(a)), sum2.entry.offset);
+    // Inference may give sum2 a prototype, its return included; that the
+    // return stays the decompiler's when nothing gave one is
+    // AutoStructTest.ATypedParameterLeavesTheReturnToTheDecompiler too.
     await untilText("sum2 decompiled", (t) => /\bsum2\(/.test(t) && t.includes(" + "));
     await p.locator("#cm .cm-content span.k-pa", { hasText: /^param_1$/ }).first().click();
     await p.keyboard.press("y");

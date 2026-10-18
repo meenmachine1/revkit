@@ -1,11 +1,15 @@
 // libFuzzer target for one container format (REVKIT_FUZZ=ON, clang): the
 // format named at build time (RK_FUZZ_FORMAT) opened from the input, every
 // entry listed, its links resolved and its contents read, within small
-// limits; or (RK_FUZZ_FORMAT "codecs") the LZ4 and LZO1X block decoders.
+// limits; or (RK_FUZZ_FORMAT "codecs") the LZ4 and LZO1X block decoders;
+// or ("bytecode") the bytecode headers: guess() (a PE's CLR header too)
+// and a Lua chunk's header and walk at the input's start.
 // docs/filesystems.md, "Fuzzing"; docs/roadmap.md, "Bug scrub".
 #include "revkit/container/container.hh"
 #include "revkit/container/decompress.hh"
 #include "revkit/container/session.hh"
+
+#include "../bytecode.hh"
 
 #include <cstddef>
 #include <cstdint>
@@ -29,6 +33,12 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t *data, std::size_t size
         lzo1x_decode(in, out, 1 << 20);
     } catch (const Error &) {
     }
+    return 0;
+  }
+  if (format == "bytecode") {
+    (void)guess(bytes, bytes.size());
+    if (auto h = detail::lua_header(bytes)) (void)detail::lua_chunk_length(bytes, 0, *h);
+    (void)detail::zip_content_kind(bytes);
     return 0;
   }
   Context ctx;

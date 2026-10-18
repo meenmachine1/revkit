@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<language_definitions>
+  <language processor="LuaVM" endian="little" size="32" variant="lua54" version="1.0"
+            slafile="lua54.sla" processorspec="lua54.pspec" id="LuaVM:LE:32:lua54">
+    <description>Lua 5.4 bytecode (experiment)</description>
+    <compiler name="default" spec="lua54.cspec" id="default"/>
+  </language>
+</language_definitions>

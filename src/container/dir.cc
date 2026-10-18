@@ -44,6 +44,7 @@ class Dir final : public FileSystem {
     description_ = "directory, " + summary_counts(*this);
   }
 
+  bool stored_plain(std::uint32_t) const override { return true; }
   std::shared_ptr<Source> open(std::uint32_t entry, const Context &) const override {
     std::uint32_t target = entry;
     if (entries_.at(entry).kind == Kind::symlink) {

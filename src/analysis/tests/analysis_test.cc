@@ -54,7 +54,7 @@ struct Analysed {
 std::unique_ptr<Analysed> analyse(const std::filesystem::path &file, unsigned threads = 1) {
   auto a = std::make_unique<Analysed>();
   a->image = std::make_shared<const loader::Image>(
-      loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true}));
+      loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}}));
   auto lang = loader::guess_language(*a->image);
   if (!lang) throw std::runtime_error("no language for " + file.string());
   register_queries(a->db->engine());
@@ -79,7 +79,7 @@ std::unique_ptr<Analysed> analyse(const std::filesystem::path &file, unsigned th
 
 // Address of each defined function symbol, from an unstripped twin.
 std::map<std::string, std::uint64_t> symbols(const std::filesystem::path &file) {
-  loader::Image img = loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true});
+  loader::Image img = loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
   std::map<std::string, std::uint64_t> out;
   for (const loader::Symbol &s : img.symbols)
     if (s.defined && s.type == loader::SymbolType::func) out[s.name] = s.value;

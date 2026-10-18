@@ -100,6 +100,11 @@ class QueryServiceStub:
                 request_serializer=revkit_dot_v1_dot_query__pb2.SliceDecompiledRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_query__pb2.SliceDecompiledResponse.FromString,
                 _registered_method=True)
+        self.TraceValue = channel.unary_unary(
+                '/revkit.v1.QueryService/TraceValue',
+                request_serializer=revkit_dot_v1_dot_query__pb2.TraceValueRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.TraceValueResponse.FromString,
+                _registered_method=True)
         self.GetTypes = channel.unary_unary(
                 '/revkit.v1.QueryService/GetTypes',
                 request_serializer=revkit_dot_v1_dot_query__pb2.GetTypesRequest.SerializeToString,
@@ -134,6 +139,16 @@ class QueryServiceStub:
                 '/revkit.v1.QueryService/ListRelocations',
                 request_serializer=revkit_dot_v1_dot_query__pb2.ListRelocationsRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_query__pb2.ListRelocationsResponse.FromString,
+                _registered_method=True)
+        self.GetBuildInfo = channel.unary_unary(
+                '/revkit.v1.QueryService/GetBuildInfo',
+                request_serializer=revkit_dot_v1_dot_query__pb2.GetBuildInfoRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.GetBuildInfoResponse.FromString,
+                _registered_method=True)
+        self.ListObjcClasses = channel.unary_unary(
+                '/revkit.v1.QueryService/ListObjcClasses',
+                request_serializer=revkit_dot_v1_dot_query__pb2.ListObjcClassesRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.ListObjcClassesResponse.FromString,
                 _registered_method=True)
         self.GetClassHierarchy = channel.unary_unary(
                 '/revkit.v1.QueryService/GetClassHierarchy',
@@ -314,6 +329,19 @@ class QueryServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def TraceValue(self, request, context):
+        """A value traced across calls (api_minor 89, feature "value-trace";
+        docs/api.md "Tracing a value across calls"): SliceDecompiled's
+        backward or forward walk carried through direct calls (a call's
+        output to the callee's returned values, a parameter to the callers'
+        arguments, and the reverse going forward), within budgets, with what
+        it couldn't follow listed: indirect calls, callees outside the
+        program, values through memory, functions nothing calls.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetTypes(self, request, context):
         """Type definitions by content hash.
         """
@@ -371,6 +399,27 @@ class QueryServiceServicer:
         """The relocations the file carries (Ghidra's relocation table), by
         address: ELF dynamic and object relocations, PE base relocations
         (api_minor 78, feature "relocation-table").
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetBuildInfo(self, request, context):
+        """Build metadata the toolchain left in the file (api_minor 88, feature
+        "build-info"; docs/build-info.md): Go's build info (the Go version,
+        the main module, its dependencies with versions, sums and
+        replacements, and the build settings: -ldflags, GOOS/GOARCH,
+        CGO_ENABLED, vcs.revision, ...), cargo-auditable's dependency list,
+        and the rustc version and commits a Rust binary names.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListObjcClasses(self, request, context):
+        """A Mach-O's Objective-C classes (with their categories' methods),
+        protocols and Swift types, as the runtime's metadata in the file
+        describes them (api_minor 91, feature "objc"; docs/macho.md).
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -594,6 +643,11 @@ def add_QueryServiceServicer_to_server(servicer, server):
                     request_deserializer=revkit_dot_v1_dot_query__pb2.SliceDecompiledRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_query__pb2.SliceDecompiledResponse.SerializeToString,
             ),
+            'TraceValue': grpc.unary_unary_rpc_method_handler(
+                    servicer.TraceValue,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.TraceValueRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.TraceValueResponse.SerializeToString,
+            ),
             'GetTypes': grpc.unary_unary_rpc_method_handler(
                     servicer.GetTypes,
                     request_deserializer=revkit_dot_v1_dot_query__pb2.GetTypesRequest.FromString,
@@ -628,6 +682,16 @@ def add_QueryServiceServicer_to_server(servicer, server):
                     servicer.ListRelocations,
                     request_deserializer=revkit_dot_v1_dot_query__pb2.ListRelocationsRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_query__pb2.ListRelocationsResponse.SerializeToString,
+            ),
+            'GetBuildInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetBuildInfo,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.GetBuildInfoRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.GetBuildInfoResponse.SerializeToString,
+            ),
+            'ListObjcClasses': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListObjcClasses,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.ListObjcClassesRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.ListObjcClassesResponse.SerializeToString,
             ),
             'GetClassHierarchy': grpc.unary_unary_rpc_method_handler(
                     servicer.GetClassHierarchy,
@@ -1063,6 +1127,33 @@ class QueryService:
             _registered_method=True)
 
     @staticmethod
+    def TraceValue(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.QueryService/TraceValue',
+            revkit_dot_v1_dot_query__pb2.TraceValueRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.TraceValueResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def GetTypes(request,
             target,
             options=(),
@@ -1241,6 +1332,60 @@ class QueryService:
             '/revkit.v1.QueryService/ListRelocations',
             revkit_dot_v1_dot_query__pb2.ListRelocationsRequest.SerializeToString,
             revkit_dot_v1_dot_query__pb2.ListRelocationsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetBuildInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.QueryService/GetBuildInfo',
+            revkit_dot_v1_dot_query__pb2.GetBuildInfoRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.GetBuildInfoResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListObjcClasses(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.QueryService/ListObjcClasses',
+            revkit_dot_v1_dot_query__pb2.ListObjcClassesRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.ListObjcClassesResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -5,8 +5,10 @@ and the buffered script helpers."""
 
 import io
 import json
+import re
 import shutil
 import subprocess
+import time
 
 import pytest
 
@@ -58,6 +60,14 @@ def entry(prog, name):
     return next(f.entry.offset for f in prog.functions() if f.name == name)
 
 
+def settle(prog, timeout=120.0):
+    """Until the background analysis (inference, which publishes its own
+    structures, astruct_<n>) is done."""
+    deadline = time.monotonic() + timeout
+    while not prog.analysis_status().idle and time.monotonic() < deadline:
+        time.sleep(0.1)
+
+
 def param0(prog, fn):
     f = prog.decompile(fn, text=False)
     return next(v for v in f.variables if v.kind == 1 and v.parameter_index == 0)
@@ -68,6 +78,7 @@ def test_create_apply_fill_and_undo(daemon, binary):
         info = rk.server_info()
         assert "auto-struct" in info.features and info.api_minor >= 32
         prog = rk.program(rk.import_program("default", path=str(binary)).program.program_id)
+        settle(prog)
         walk, bump = entry(prog, "walk"), entry(prog, "bump")
         it = param0(prog, walk)
 
@@ -159,12 +170,15 @@ print(a, b)
 def test_script_helpers(daemon, binary, tmp_path):
     with Client(daemon.grpc_target, actor="user:alice") as rk:
         prog = rk.program(rk.import_program("default", path=str(binary), name="script").program.program_id)
+        settle(prog)
         s = tmp_path / "structs.py"
         s.write_text(SCRIPT)
         host = HeadlessHost(None, out=io.StringIO(), err=io.StringIO(), interactive=False)
         r = run_script(s, client=rk, program_id=prog.id, args={"walk": hex(entry(prog, "walk"))}, host=host)
         assert r.ok, r.traceback
         assert len(r.revisions) == 1
-        # Two structures in one run: two names, though neither was committed when the second was made.
-        assert "astruct astruct_1" in host.out.getvalue()
-        assert {t.name for t in prog.find_types("astruct")} >= {"astruct", "astruct_1"}
+        # Two structures in one run: two names, though neither was committed when the second was made
+        # (the first the program doesn't name: inference's astruct_<n> are taken).
+        names = re.findall(r"astruct(?:_\d+)?", host.out.getvalue())
+        assert len(names) == 2 and names[0] == "astruct" and names[1] != "astruct", host.out.getvalue()
+        assert {t.name for t in prog.find_types("astruct")} >= set(names)

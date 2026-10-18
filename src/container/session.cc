@@ -1,5 +1,7 @@
 #include "revkit/container/session.hh"
 
+#include "asar.hh"
+
 #include <algorithm>
 
 namespace revkit::container {
@@ -152,8 +154,10 @@ std::shared_ptr<FileSystem> Session::mount(const Node &file, const std::function
   if (file.depth + 1 > limits_.max_depth)
     throw LimitError("containers nest deeper than " + std::to_string(limits_.max_depth) + " levels");
   const Context ctx = context(cancelled);
-  // Recognise from the head before decompressing all of it.
-  const std::string format = container_format(file, cancelled);
+  // Recognise from the head before decompressing all of it; else a
+  // payload the rest of it holds.
+  std::string format = container_format(file, cancelled);
+  if (format.empty()) format = payload_format(file, cancelled);
   if (format.empty()) return nullptr;
   auto src = open_entry(file, ctx);
   const std::string name = file.fs->entry(file.entry).name;
@@ -161,6 +165,8 @@ std::shared_ptr<FileSystem> Session::mount(const Node &file, const std::function
   for (;;) {
     try {
       fs = open_format(format, src, name, ctx);
+      // An asar's unpacked files are in <name>.unpacked beside it.
+      if (format == "asar") attach_unpacked(*fs, file, ctx);
       break;
     } catch (const LimitError &err) {
       if (std::string_view(err.what()).find("the session holds") == std::string_view::npos || !evict_one()) throw;
@@ -193,15 +199,60 @@ std::string Session::container_format(const Node &file, const std::function<bool
   return identify_head(h, e.size == UINT64_MAX ? h.size() : e.size);
 }
 
-Guess Session::describe(const Node &file, const std::function<bool()> &cancelled) {
+std::string Session::payload_format(const Node &file, const std::function<bool()> &cancelled) {
+  std::lock_guard lock(mu_);
   const Entry &e = file.fs->entry(file.entry);
-  if (e.kind == Kind::directory) return {"directory", "directory", "", ""};
+  if (e.kind == Kind::directory) return "";
+  auto src = open_entry(file, context(cancelled));
+  return identify_payload(*src, cancelled);
+}
+
+Guess Session::describe(const Node &file, const std::function<bool()> &cancelled, Payloads payloads) {
+  const Entry &e = file.fs->entry(file.entry);
+  if (e.kind == Kind::directory) return {"directory", "directory", "", "", "", ""};
   if (e.kind != Kind::file && e.kind != Kind::hardlink && e.kind != Kind::symlink)
-    return {std::string(name(e.kind)), std::string(name(e.kind)), "", ""};
+    return {std::string(name(e.kind)), std::string(name(e.kind)), "", "", "", ""};
   const auto h = head(file, kIdentifyBytes, cancelled);
   const std::uint64_t size = e.size == UINT64_MAX ? h.size() : e.size;
   const std::string format = identify_head(h, size);
-  return guess(h, size == 0 && !h.empty() ? h.size() : size, format);
+  Guess g = guess(h, size == 0 && !h.empty() ? h.size() : size, format);
+  const bool looks = g.kind == "elf" || g.kind == "pe" || g.kind == "macho" || g.kind == "raw";
+  if (looks && payloads != Payloads::no) {
+    std::uint32_t target = file.entry;
+    if (e.kind != Kind::file) {
+      auto t = file.fs->resolve_link(file.entry, limits_.max_symlink_hops);
+      if (!t) return g;
+      target = *t;
+    }
+    if (payloads == Payloads::yes || file.fs->stored_plain(target)) {
+      try {
+        g.payload = payload_format(file, cancelled);
+      } catch (const Error &) {
+      }
+    }
+  }
+  return g;
+}
+
+void Session::attach_unpacked(FileSystem &fs, const Node &file, const Context &) {
+  // The folder beside the archive, in the archive's own layer.
+  const Entry &e = file.fs->entry(file.entry);
+  auto dir_components = file.fs->components_of(e.parent);
+  dir_components.push_back(e.name + ".unpacked");
+  auto dir = file.fs->find(dir_components, true, limits_.max_symlink_hops);
+  if (!dir || file.fs->entry(*dir).kind != Kind::directory) return;
+  std::weak_ptr<FileSystem> layer = file.fs;
+  detail::attach_asar_unpacked(fs, [layer, dir_components, hops = limits_.max_symlink_hops](
+                                       const std::vector<std::string> &components, const Context &ctx)
+                                       -> std::shared_ptr<Source> {
+    auto parent = layer.lock();
+    if (!parent) return nullptr;
+    auto path = dir_components;
+    path.insert(path.end(), components.begin(), components.end());
+    auto f = parent->find(path, true, hops);
+    if (!f || parent->entry(*f).kind != Kind::file) return nullptr;
+    return parent->open(*f, ctx);
+  });
 }
 
 std::shared_ptr<const Source> Session::open_file(std::string_view path, const std::function<bool()> &cancelled) {

@@ -71,7 +71,8 @@ FunctionInputs assemble_function(const Program &p, const Options &o, const Funct
   const an::ProgramInfo &info = p.analysis->info();
   const std::string prefix = info.qualify_names ? info.code_space + "_" : std::string();
   const bool import_stub = (f.flags & an::kFunctionThunk) && !f.import.empty();
-  const bool elf = p.image->format == loader::Format::elf;
+  // (A Mach-O's stubs jump through slots that point into its EXTERNAL block too.)
+  const bool elf = p.image->format == loader::Format::elf || p.image->format == loader::Format::macho;
   auto in_body = [&](std::uint64_t a) { return f.body.contains(facts::Address{f.entry.space, a}); };
 
   // Ghidra's CALL_RETURN flow overrides: on a jump into the EXTERNAL block

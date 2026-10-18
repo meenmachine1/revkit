@@ -178,6 +178,11 @@ struct Entry {
   std::string link_target;          // symlinks (and hard links: the path inside the container)
   std::uint64_t stored_size = 0;    // bytes in the container (compressed), when known
   std::string note;                 // why it can't be read ("encrypted"), or what it is
+  // What the container says the file is, when its header can't: a
+  // packer's script ("js-source"), or bytecode it stores bare. The content
+  // kinds are listed in docs/filesystems.md; a guess from the file's own
+  // header (Guess::content_kind) wins over this.
+  std::string content_kind;
   bool renamed = false;             // its name had "..", was absolute, or clashed with a sibling
   // A firmware package's member: the language its header names (a full
   // Ghidra id, when the header settles it) and where it loads.
@@ -220,6 +225,9 @@ class FileSystem {
   // At most n bytes of its start, without decompressing the rest where the
   // format allows.
   virtual std::vector<std::byte> head(std::uint32_t entry, std::uint64_t n, const Context &ctx) const;
+  // The file's bytes are stored as they are (open() maps them, nothing is
+  // decompressed): reading all of it is cheap.
+  virtual bool stored_plain(std::uint32_t) const { return false; }
 
  protected:
   friend class TreeBuilder;
@@ -274,10 +282,9 @@ class TreeBuilder {
 
 // ---- recognition --------------------------------------------------------
 
-// The container format a file's first bytes (and size) say it is: "zip",
-// "tar", "gzip", "squashfs", ..., or "" when none. Cheap: reads at most a
-// few KiB (ISO 9660 and ext need bytes at 32 KiB and 1 KiB: pass the
-// source).
+// The container format a file is: what its first bytes (and size) say,
+// "zip", "tar", "gzip", "squashfs", ..., else what identify_payload finds
+// in the rest of it; "" when none.
 std::string identify(const Source &src);
 // The same from a file's first kIdentifyBytes (or all of it) and its size.
 constexpr std::uint64_t kIdentifyBytes = 36864;
@@ -287,11 +294,32 @@ std::string identify_head(std::span<const std::byte> head, std::uint64_t size);
 // the first bytes only (pass at least 4 KiB where there are).
 struct Guess {
   std::string description;   // as above
-  std::string kind;          // "elf", "pe", "container", "raw", "text", "data", "empty"
-  std::string format;        // "elf", "pe", a container format, "ihex", "srec", "uf2", ...
+  // "elf", "pe", "macho", "container", "raw", "text", "data", "empty", or
+  // "bytecode" (a .pyc, a Lua chunk, a Java class, DEX, WebAssembly, ...)
+  std::string kind;
+  std::string format;        // "elf", "pe", "macho", a container format, "ihex", "srec", "uf2", "pyc", ...
   std::string processor;     // "ARM:LE:32", "x86:LE:64", ... when the header names it
+  // What a decompiler for scripts and bytecode would take it as, with the
+  // version where the header says: "pyc:3.12", "lua:5.4", "luajit:2.1",
+  // "java-class:21", "dex:035", "wasm", "hermes:96", "dotnet:il", "jar",
+  // "apk", "js-source", ... (docs/filesystems.md lists them). Empty for
+  // native programs and plain data.
+  std::string content_kind;
+  // A packer's archive the file carries (a program: "pyinstaller",
+  // "node-sea", ...; data: "lua-chunks"), when it was looked for
+  // (identify_payload): Open as file system opens it.
+  std::string payload;
 };
 Guess guess(std::span<const std::byte> head, std::uint64_t size, std::string_view container_format = {});
+
+// What a file whose head names no container carries, found by reading
+// more of it (its end, its sections, notes or resources; at most its first
+// 256 MiB): a packer's archive appended to or embedded in an executable
+// ("pyinstaller", "node-sea", "pkg", "nexe", "bun", "zip" for an appended
+// zip: py2exe's library, a self-extractor), or Lua chunks in a firmware
+// image or any other file ("lua-chunks"). "" when none.
+// docs/filesystems.md, "Packed executables".
+std::string identify_payload(const Source &src, const std::function<bool()> &cancelled = {});
 
 // Opens `src` as a container of the given format (identify()'s answer).
 // `name` is the file's own name, for single-file formats' member names.

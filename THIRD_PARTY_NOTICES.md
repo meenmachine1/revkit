@@ -85,6 +85,33 @@ revkit's own.
 `src/loader/language.cc` restates the mapping in Ghidra's `.opinion` files
 (Apache-2.0) from loader facts to Ghidra language ids.
 
+`src/loader/buildinfo.cc` (Go build info and cargo-auditable dependency
+lists; docs/build-info.md) is a C++ port of parts of rea
+(https://github.com/morluto/rea: `src/go/GoBinaryImage.ts`,
+`src/go/GoModuleText.ts`, `src/rust/RustAuditableReader.ts`,
+`src/rust/RustBinaryImage.ts`), MIT License, Copyright (c) 2026 morluto. Go's
+own `debug/buildinfo` (BSD-3-Clause, Copyright The Go Authors) was the format
+reference; none of its code is copied. rea's license ships as `licenses/rea-MIT.txt`.
+
+`src/loader/gopclntab.cc` (Go's function table; docs/go.md) reads the
+pclntab layouts as Go's `runtime/symtab.go`, `runtime/runtime2.go` and
+`debug/gosym` (BSD-3-Clause, Copyright The Go Authors) define them, and
+finds a stripped binary's table (its magic, the moduledata that points to
+it) as Ghidra's Golang support does (`GoPcHeader`, `GoModuledata`,
+`GoSymbolName`; Apache-2.0); it copies no code from either. Its no-return
+names are Ghidra's `GolangFunctionsThatDoNotReturn` list (Apache-2.0), and
+the golang compiler spec choice follows Ghidra's `x86.opinion` and
+`AARCH64.opinion`. The tests read Go's own `debug/gosym/testdata/pcln115.gz`
+from the installed Go toolchain at run time; it isn't copied.
+
+`src/objc/swift.cc` (Swift class vtables in Mach-O files; docs/macho.md)
+follows rea's `src/native/AppleSwiftVtables.ts` (the descriptor layout and
+its checks), MIT License, Copyright (c) 2026 morluto. The Mach-O loader
+(`src/loader/macho.cc`) and the Objective-C reader (`src/objc`) follow
+Ghidra's Mach-O loader and Objective-C analyzer (Apache-2.0) and Apple's
+published formats (dyld's `fixup-chains.h`, objc4's runtime structures);
+they copy no code.
+
 ## Read at run time: Ghidra's processor specifications
 
 revkit reads Ghidra's compiled SLEIGH specifications and language, processor

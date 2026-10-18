@@ -115,7 +115,7 @@ struct Loaded {
 Loaded Load(const std::filesystem::path &path) {
   Loaded l;
   l.image = std::make_shared<const loader::Image>(
-      loader::load_file(path, {.image_base = std::nullopt, .ghidra_image_base = true}));
+      loader::load_file(path, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}}));
   auto lang = loader::guess_language(*l.image);
   l.language = lang->id();
   auto analysis = inputs::analyze(*l.image, l.language);

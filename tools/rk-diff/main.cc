@@ -297,7 +297,7 @@ class Signer {
 Loaded Load(facts::FactDb &db, facts::ThreadPool &pool, const std::string &id, const std::filesystem::path &file,
             const std::optional<loader::RawOptions> &raw, facts::SpaceId space) {
   loader::Image image = raw ? loader::load_raw_file(file, *raw)
-                            : loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true});
+                            : loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
   std::string lang;
   if (raw) lang = raw->language;
   else if (auto l = loader::guess_language(image)) lang = l->id();

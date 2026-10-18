@@ -39,7 +39,7 @@ target_link_libraries(revkit_httplib INTERFACE OpenSSL::SSL OpenSSL::Crypto)
 
 # --- generated code ---------------------------------------------------------
 set(RK_PROTO_ROOT ${PROJECT_SOURCE_DIR}/proto)
-set(RK_PROTOS analysis assertion auth bsim common debugger decompile diff emulator filesystem listing meta patch plugin presence project query script subscription sync types)
+set(RK_PROTOS analysis assertion auth bsim common debugger decompile diff emulator filesystem listing meta patch plugin presence project provider query script subscription sync types)
 set(RK_PROTO_OUT ${CMAKE_CURRENT_BINARY_DIR}/gen)
 file(MAKE_DIRECTORY ${RK_PROTO_OUT})
 

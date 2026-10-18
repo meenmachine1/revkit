@@ -106,6 +106,9 @@ class SliceFileSystem : public FileSystem {
   explicit SliceFileSystem(std::shared_ptr<const Source> src) : src_(std::move(src)) {}
   std::shared_ptr<Source> open(std::uint32_t entry, const Context &ctx) const override;
   std::vector<std::byte> head(std::uint32_t entry, std::uint64_t n, const Context &ctx) const override;
+  bool stored_plain(std::uint32_t entry) const override {
+    return entry < entries_.size() && entries_[entry].loc2 == 0;
+  }
   FileSystem &self() { return *this; }
   std::vector<std::string> &warnings_mut() { return warnings_; }
   void set_info(std::string format, std::string description) {

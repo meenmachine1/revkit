@@ -3,7 +3,102 @@
 What is requested but not built yet, and what is in flight. Each entry says
 what it is and why; design notes go in the feature's own doc when work starts.
 
-## Now (2026-10-15)
+## Now (2026-10-18)
+
+- ~~**Bytecode step 1: identify and extract**~~ *done* ([bytecode-lifting.md](bytecode-lifting.md#plan)):
+  ~~container formats for PyInstaller, Electron asar, Node pkg, nexe and
+  SEA, Bun executables, an appended zip (py2exe, cx_Freeze), and Lua and
+  LuaJIT chunks in firmware~~ *done* (`api_minor` 96, feature
+  `packed-executables`; [filesystems.md](filesystems.md#packed-executables));
+  Deno executables and py2exe's `PYTHONSCRIPT` written up, not read; ~~eBPF objects to
+  Ghidra's eBPF language~~ *done*; ~~.NET assemblies recognised by their
+  CLR header~~ *done* (`api_minor` 94, feature `dotnet`: IL-only ones
+  imported without code analysis); ~~the bytecode formats named in
+  detection, with content kinds~~ *done* (`api_minor` 95, feature
+  `content-kinds`; [filesystems.md](filesystems.md#content-kinds)).
+- ~~**Go function names from pclntab**~~ *done* (`api_minor` 93, feature
+  `go-pclntab`; [go.md](go.md)): a stripped Go program's functions named
+  from its pclntab (all four layouts; ELF, PIE, PE by its magic, Mach-O),
+  their source lines as plate comments, Go's no-return functions, the
+  golang compiler spec (Go's register ABI) and package namespaces in the
+  symbol tree; a stripped `ls`-sized test program goes from 839 `FUN_` to
+  1. Next for Go: strings, runtime types, signatures
+  ([go.md](go.md#not-done-yet)).
+- ~~**External decompiler providers**~~ *done* (bytecode-lifting.md step
+  2; `api_minor` 92, feature `external-decompilers`;
+  [providers.md](providers.md)): ILSpy, jadx, Vineflower, CFR, unluac,
+  pycdc, webcrack and wasm-decompile as child processes in `rk-sandbox`
+  (limits, Landlock, seccomp), cached by input hash, provider and version;
+  ILSpy's C# (and the others') in the decompiler pane for bytecode programs,
+  Decompile with … in the file system browser; `ProviderService`, the SDK
+  and MCP. Next: a DEX/APK fixture (needs `d8`), a LuaJIT provider, linking
+  source lines to the listing (step 3).
+- ~~**Inferred structures for passed-on pointers**~~ *done*
+  ([infer.md](infer.md#structures),
+  [decomp-quality.md](decomp-quality.md#inferred-structures-for-passed-on-pointers-2026-10-18)):
+  one structure per class of pointers that are one value, nested fields,
+  arrays of structures and returns typed; published by the daemon as the
+  program's types (`analysis:infer.prototypes`, `/inferred`). Tuning
+  composite 1957/809/718 → 2159/667/658, casts through parameters 2,842
+  → 77, `members` 5/1688/21 → 672/681/361. Left: length and temporaries
+  on -O2 builds (per-field copies), PE clang -O2 a tie, classes of one
+  type that never meet, structures on 32-bit targets (inference is off
+  there).
+
+## Done in the round after v0.1.2 (2026-10-16)
+
+After v0.1.2:
+
+- **Mach-O**, stage 1: ~~the loader~~ *done* (`api_minor` 90, feature
+  `macho`; [macho.md](macho.md)): thin and universal files (a slice per
+  program, the default arm64), segments and sections as Ghidra's blocks,
+  symbols, exports, binds, rebases and chained fixups, stubs and GOT slots
+  named, dylibs linked, UUID, build version, code signature and encryption
+  reported, Ghidra's language opinions; a fuzz harness. ~~Objective-C and
+  Swift metadata~~ *done* (`api_minor` 91, feature `objc`;
+  [macho.md](macho.md#objective-c-and-swift)): classes, methods (relative
+  lists too), ivars, properties, protocols, categories and selector
+  references typed and named, methods as functions with their prototypes
+  and `self` typed, Swift descriptors, accessors and vtables;
+  `ListObjcClasses`. The dyld shared cache and kernelcache come later.
+- ~~**Decompiler quality against the source, measured again**~~ *done*
+  ([decomp-quality.md](decomp-quality.md#re-measured-and-inferences-call-graph-fixed-2026-10-17)):
+  unchanged since the last run; five inference fixes (callers' pointers
+  behind casts, no-return evidence, parameters passed on, tail calls, one
+  type per passed pointer) took the tuning composite from 1758/881/845 to
+  1957/809/718. Next: structures for passed-on pointers (`*(T *)((long)
+  param_1 + off)` is most of the casts left), then float returns.
+- **Build metadata and agent setup:** ~~Go build info and Rust
+  cargo-auditable dependencies from ELF, PE and Mach-O~~ (*done*:
+  `GetBuildInfo`, `api_minor` 88, feature `build-info`;
+  [build-info.md](build-info.md)); ~~agent instructions shipped with the MCP
+  server and a setup command for coding agents~~ (*done*: the workflow
+  guide as the `revkit://guide` resource and the `investigate` prompt,
+  and `revkit-mcp setup` / `revkit mcp setup` for Claude Code, Codex,
+  Cursor and Gemini CLI; [api.md](api.md#mcp-server-revkitmcp_server));
+  ~~value tracing across calls, building on the slices~~ (*done*, a first
+  slice: `TraceValue`, `api_minor` 89, feature `value-trace`, through
+  direct calls with matched calls and budgets;
+  [api.md](api.md#tracing-a-value-across-calls); memory, resolved indirect
+  calls and struct fields are next). Next after it: Go function names from
+  pclntab (*done*, [go.md](go.md)).
+- **Lifting bytecode and scripts**: the design note is done
+  ([bytecode-lifting.md](bytecode-lifting.md)): per-language analysis
+  (Python, Lua, JavaScript engines and packers, the JVM and Dalvik, .NET,
+  WebAssembly and others), experiments and a phased plan. Next, in its
+  order: detection and extraction of packed scripts (PyInstaller, Electron
+  `asar`, pkg, Lua chunks) with two quick fixes (`EM_BPF` to eBPF; .NET
+  assemblies recognised instead of analysed as x86); external decompiler
+  providers (ILSpy, jadx, unluac, pycdc, webcrack); then JVM and Dalvik
+  end to end through Ghidra's processors, whose decompilation the
+  experiments show needs only ported injections and constant pools.
+
+Deferred from the last round: PE `.pdata` unwinding; MIPS `gp` recovery
+for stripped raw firmware and register-seeded jump tables; Ghidra's Auto
+Override and carrying fallthrough overrides through Ghidra interop; longer
+fuzz runs on the PE and markup parsers.
+
+## Done in the round after v0.1.1 (2026-10-15)
 
 Picked up again after v0.1.1, three at a time:
 
@@ -532,4 +627,5 @@ an assertion that analysis, the decompiler and the emulator follow.
 - ~~**Bug scrub**~~ (*done* 2026-10-16: [bug-scrub.md](bug-scrub.md),
   parts 1 and 2): ASan, UBSan and TSan over the test suites, fuzzing the
   parsers, and a security review of the daemon, parsers and sandboxes.
-- Mach-O.
+- Mach-O: DWARF and dSYM bundles, Swift demangling and types, the dyld
+  shared cache and kernelcache ([macho.md](macho.md#known-gaps)).

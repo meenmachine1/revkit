@@ -160,8 +160,10 @@ message FileSystemEntry {
   // What it is, from its first bytes (ListFileSystemRequest.detect):
   // "ELF 32-bit LE ARM executable", "squashfs file system", "text".
   string detected = 18;
-  // "elf", "pe", "container", "raw", "text", "data", "empty", or "" when
-  // not looked at.
+  // "elf", "pe", "macho" (api_minor 90), "container", "raw", "text", "data", "empty",
+  // "bytecode" (api_minor 95: a .pyc, a Lua or LuaJIT chunk, a Java class,
+  // DEX, WebAssembly, Hermes, a V8 code cache; DEX, classes and wasm were
+  // "data" before), or "" when not looked at.
   string detected_kind = 19;
   // A container it holds ("squashfs"): Open as file system.
   string container_format = 20;
@@ -175,6 +177,16 @@ message FileSystemEntry {
   string language_id = 23;
   uint64 load_address = 24;
   bool has_load_address = 25;
+  // What a decompiler for scripts and bytecode would take the file as
+  // (api_minor 95, feature "content-kinds"): "family:version" where the
+  // header says the version. "pyc:3.12", "lua:5.4", "luajit:2.1",
+  // "java-class:21", "dex:035", "wasm", "hermes:96", "v8-cache",
+  // "dotnet:il", "dotnet:mixed", "jar", "apk", "js-source",
+  // "python-source", ...; the full list is in docs/filesystems.md
+  // ("Content kinds"). From the file's own header when it has one (set with
+  // detect), else from its container (an asar's "js-source" members; set in
+  // every listing). Empty for native programs and plain data.
+  string content_kind = 26;
 }
 
 message ListFileSystemRequest {

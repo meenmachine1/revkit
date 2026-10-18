@@ -5,12 +5,89 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstring>
 
 namespace revkit::loader {
 namespace {
 
 using testing::build_pe;
 using testing::to_bytes;
+
+// build_pe() with a CLR header (data directory 14) at 0x2360 and a
+// metadata root at 0x23b0 in .rdata: a .NET assembly.
+std::vector<std::uint8_t> with_clr(std::uint32_t flags, const std::string &version = "v4.0.30319") {
+  testing::PeImage pe = build_pe();
+  auto &b = pe.bytes;
+  auto put = [&](std::size_t off, std::uint64_t v, unsigned n) {
+    for (unsigned i = 0; i < n; ++i) b[off + i] = static_cast<std::uint8_t>(v >> (8 * i));
+  };
+  auto f = [](std::uint32_t rva) -> std::size_t { return rva - 0x2000 + 0x600; };
+  const std::size_t dirs = pe.opt + 112;
+  put(dirs + 14 * 8, 0x2360, 4);
+  put(dirs + 14 * 8 + 4, 72, 4);
+  const std::size_t h = f(0x2360);
+  put(h, 72, 4);
+  put(h + 4, 2, 2);
+  put(h + 6, 5, 2);
+  put(h + 8, 0x23b0, 4);  // metadata
+  put(h + 12, 0x40, 4);
+  put(h + 16, flags, 4);
+  put(h + 20, 0x06000001, 4);  // entry point token
+  const std::size_t m = f(0x23b0);
+  put(m, 0x424a5342, 4);  // BSJB
+  put(m + 4, 1, 2);
+  put(m + 6, 1, 2);
+  put(m + 12, 12, 4);
+  for (std::size_t i = 0; i < version.size() && i < 12; ++i) b[m + 16 + i] = static_cast<std::uint8_t>(version[i]);
+  put(m + 30, 2, 2);  // streams
+  std::size_t at = m + 32;
+  for (const char *name : {"#~", "#Strings"}) {
+    put(at, 0x6c, 4);
+    put(at + 4, 4, 4);
+    std::size_t n = std::strlen(name);
+    std::memcpy(&b[at + 8], name, n);
+    at += 8 + ((n + 1 + 3) & ~std::size_t{3});
+  }
+  return b;
+}
+
+// A .NET assembly's CLR header: IL-only (code analysis is skipped,
+// docs/bytecode-lifting.md), or mixed-mode with native code to analyse.
+TEST(Pe, DotNetClrHeader) {
+  Image plain = parse(to_bytes(build_pe().bytes));
+  EXPECT_FALSE(plain.dotnet);
+  Image il = parse(to_bytes(with_clr(0x1 | 0x8)));
+  ASSERT_TRUE(il.dotnet);
+  EXPECT_TRUE(il.warnings.empty()) << il.warnings.front();
+  EXPECT_TRUE(il.dotnet->il_only);
+  EXPECT_TRUE(il.dotnet->strong_name_signed);
+  EXPECT_FALSE(il.dotnet->has_native_code());
+  EXPECT_EQ(il.dotnet->runtime_major, 2);
+  EXPECT_EQ(il.dotnet->runtime_minor, 5);
+  EXPECT_EQ(il.dotnet->metadata_version, "v4.0.30319");
+  EXPECT_EQ(il.dotnet->entry_point, 0x06000001u);
+  EXPECT_EQ(il.dotnet->streams, (std::vector<std::string>{"#~", "#Strings"}));
+  Image mixed = parse(to_bytes(with_clr(0x10 | 0x2)));
+  ASSERT_TRUE(mixed.dotnet);
+  EXPECT_FALSE(mixed.dotnet->il_only);
+  EXPECT_TRUE(mixed.dotnet->native_entry_point);
+  EXPECT_TRUE(mixed.dotnet->requires_32bit);
+  EXPECT_TRUE(mixed.dotnet->has_native_code());
+  // A broken metadata root is a warning; the CLR header still counts.
+  auto bad = with_clr(0x1);
+  bad[0x9b0] = 0;
+  Image b = parse(to_bytes(bad));
+  ASSERT_TRUE(b.dotnet);
+  EXPECT_TRUE(b.dotnet->metadata_version.empty());
+  EXPECT_FALSE(b.warnings.empty());
+  // A header that points outside the file: a warning, no .NET info.
+  auto out = build_pe().bytes;
+  out[build_pe().opt + 112 + 14 * 8 + 1] = 0x7f;
+  out[build_pe().opt + 112 + 14 * 8 + 4] = 72;
+  Image o = parse(to_bytes(out));
+  EXPECT_FALSE(o.dotnet);
+  EXPECT_FALSE(o.warnings.empty());
+}
 
 TEST(Pe, ParsesHeadersSectionsAndDirectories) {
   Image img = parse(to_bytes(build_pe().bytes));
@@ -95,7 +172,7 @@ TEST(Pe, Pe32) {
 }
 
 TEST(Pe, Rebase) {
-  Image img = parse(to_bytes(build_pe().bytes), {.image_base = 0x10000, .ghidra_image_base = false});
+  Image img = parse(to_bytes(build_pe().bytes), {.image_base = 0x10000, .ghidra_image_base = false, .macho_slice = {}});
   EXPECT_EQ(img.image_base, 0x10000u);
   EXPECT_EQ(*img.entry, 0x11000u);
   EXPECT_EQ(img.exports[0].address, 0x11000u);

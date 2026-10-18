@@ -4,7 +4,7 @@
 ``revkit.Client`` is a thin wrapper over them. See docs/api.md.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 from revkit.client import (  # noqa: E402
     Aborted,
@@ -13,6 +13,7 @@ from revkit.client import (  # noqa: E402
     HookEvent,
     EmulatorSession,
     Equate,
+    ExternalDecompilation,
     EquateReference,
     FailedPrecondition,
     FileSystem,
@@ -70,6 +71,7 @@ __all__ = [
     "DiffSession",
     "EmulatorSession",
     "Equate",
+    "ExternalDecompilation",
     "EquateReference",
     "FailedPrecondition",
     "FileSystem",

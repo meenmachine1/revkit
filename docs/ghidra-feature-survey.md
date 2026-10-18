@@ -21,9 +21,9 @@ whether they are current).
 <!-- survey-summary:total -->
 | Part | Features | Have | Partial | Missing | In progress |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Base (CodeBrowser, analyzers, types, search, symbols, ...) | 271 | 130 | 80 | 61 | 0 |
-| Everything else (decompiler, graphs, VT, BSim, FID, debugger, formats, ...) | 461 | 204 | 99 | 158 | 0 |
-| **Total** | **732** | **334** | **179** | **219** | **0** |
+| Base (CodeBrowser, analyzers, types, search, symbols, ...) | 274 | 134 | 80 | 60 | 0 |
+| Everything else (decompiler, graphs, VT, BSim, FID, debugger, formats, ...) | 467 | 206 | 105 | 156 | 0 |
+| **Total** | **741** | **340** | **185** | **216** | **0** |
 <!-- /survey-summary:total -->
 
 ## Part 1: Ghidra 12.1.4 Base module vs revkit: feature gaps
@@ -79,7 +79,7 @@ Key evidence used everywhere:
 | ASCII Strings Analyzer (n-gram model) | Have | `docs/data-analysis.md` step 3; its options (min length, alignment) not exposed | High | |
 | Data Archive Analyzer (library types applied to imports) | Have | revkit's own archives (glibc LP64/ILP32, Windows DLLs and CRT LLP64/ILP32) built from host headers, then Ghidra's `.gdt` for the rest; prototypes by name at library rank (`docs/types.md#library-prototypes`) | High | |
 | Data Reference Analyzer | Have | `docs/data-analysis.md` step 2 (strings, pointers `PTR_`) | High | |
-| Decompiler Parameter ID | Have | `docs/param-id.md`; plus whole-program inference `src/infer` (`docs/infer.md`) | High | |
+| Decompiler Parameter ID | Have | `docs/param-id.md`; plus whole-program inference `src/infer` (`docs/infer.md`), with structures for passed-on pointers composed across functions (beyond Ghidra; `docs/infer.md#structures`) | High | |
 | Demangler Analyzer | Have | names, namespaces and classes, prototypes from mangled signatures (`src/inputs/demangled.cc`, `docs/demangle.md`, api_minor 40) | High | |
 | Entry Point Analyzer | Have | discovery seeds (`README.md` "Function discovery") | High | |
 | Format String Analyzer (printf-family call-site varargs types) | Have | call-site prototypes from constant printf/scanf formats, decompiled again with them (`docs/types.md#format-strings`) | Med | |
@@ -90,6 +90,9 @@ Key evidence used everywhere:
 | Stack Analyzer (stack variables on the function) | Partial | locals come from the decompiler; `Function.getStackFrame` Unsupported (`docs/scripting.md`) | Low | M |
 | Subroutine Reference Analyzer | Have | `xrefs.static` (call refs), `src/backend/image_backend.cc` | Med | |
 | Windows x86 PE analyzers (PE header markup, SEH/exception data, RTTI, security cookie) | Have | [pe.md](pe.md) | - | - |
+| Mach-O Function Starts Analyzer | Have | `LC_FUNCTION_STARTS` seeds discovery ([macho.md](macho.md#symbols-exports-and-the-entry-point)) | Med | |
+| Objective-C Type Metadata Analyzer (classes, methods, selectors, protocols, categories, ivars) | Have | classes, metaclasses, method lists (relative ones too), ivars, properties, protocols, categories and the references typed and named as clang names them, methods made functions with their type encodings' prototypes and `self` typed as the class's struct, the reference blocks read-only so selectors fold (api_minor 91, [macho.md](macho.md#objective-c-and-swift)); `ListObjcClasses`, SDK `objc_classes`, MCP `list_objc_classes`. Missing: Objective-C 1, message sends resolved to their implementations | High | |
+| Swift Type Metadata Analyzer | Partial | `__swift5_types`' descriptors: names, modules, metadata accessors (named), fields, non-generic class vtables (functions) (api_minor 91, [macho.md](macho.md#objective-c-and-swift)); no structures typed, protocol conformances or demangling | Med | M |
 | Aggressive Instruction Finder | Have | firmware aggressive code finder (`README.md` Firmware, `src/analysis/search.cc`) | Med | |
 | Condense Filler Bytes | Missing | not found in `src`; `AlignmentDataType` Unsupported (`docs/scripting.md`) | Low | S |
 
@@ -399,7 +402,7 @@ Key evidence used everywhere:
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
 | Import ELF, PE, raw, Intel HEX, S-records, AVR ELF | Have | `ImportProgram` (`docs/api.md` Raw images, `docs/processors.md`) | High | |
-| Mach-O | Missing | deferred (`docs/roadmap.md` Later; `README.md` Loaders: "Mach-O is deferred") | High | L |
+| Mach-O | Have | thin 32/64-bit and universal files' slices (the default arm64, else x86_64; `ImportOptions.macho_slice`), segments and sections as Ghidra's blocks, LC_MAIN/LC_UNIXTHREAD, nlist symbols, the export trie, binds, lazy and weak binds, rebases and chained fixups (arm64e formats too), stubs and GOT slots named as Ghidra names them, the EXTERNAL block, function starts, data in code, dylibs into library linking, UUID, build version, code signature and encryption reported; Ghidra's language opinions (api_minor 90, [macho.md](macho.md)). Objective-C and Swift metadata too (rows below). Missing: DWARF/dSYM, header markup, object files' relocations | High | |
 | COFF / `.o` / `.lib`, MZ/NE (DOS), OMF, DYLD cache, XML/SARIF, GZF | Missing | not found; "Linked images only: no relocation of `.o` files" (`docs/types.md`); `ar` archives open in the file system browser but members aren't loaded as objects | Med | L |
 | Drag-and-drop import | Have | Open dialog drop (`docs/known-issues.md`) | Med | |
 | Batch import | Have | `docs/filesystems.md` | - | - |
@@ -410,7 +413,7 @@ Key evidence used everywhere:
 | Raw binary options (base, offset, length, regions) | Have | `docs/api.md` Raw images; autodetect (better) | High | |
 | ELF options (image base, apply relocations) | Partial | image base / `--file-base`, Set image base after import (api_minor 42, `docs/memory-map.md`); relocations listed, not applied (`README.md` Loaders) | Med | M |
 | Processor-defined labels and blocks | Have | `docs/processors.md` | Med | |
-| PE options (ordinal lookup, .NET CLI headers) | Partial | export ordinals parsed (`src/loader/pe.cc`); no CLI/.NET | Low | M |
+| PE options (ordinal lookup, .NET CLI headers) | Have | export ordinals parsed (`src/loader/pe.cc`); the CLR header read (api_minor 94, feature `dotnet`: `ProgramInfo.dotnet`, metadata and runtime versions, flags, IL-only or mixed-mode, ReadyToRun), an IL-only assembly imported without code analysis (`docs/api.md` ".NET assemblies"); ILSpy's C# in the decompiler pane through the external decompilers (`docs/providers.md`); no CLI metadata tables (Ghidra's CliStream markup) | Low | |
 
 ### LabelMgrPlugin
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
@@ -646,7 +649,7 @@ High value:
 11. ~~**PE analyzers**: type PE headers, SEH/unwind data, RTTI class names, `__security_cookie`.~~ *Done (api_minor 45, 46, [pe.md](pe.md)).*
 12. ~~**libc/library prototypes on ELF imports** (Data Archive Analyzer parity).~~ *Done: [types.md](types.md#library-prototypes).*
 13. ~~**Project-wide types** shared by a project's programs (project archive).~~ *Done: [types.md](types.md#project-types).*
-14. **Mach-O loader** (deferred; still the biggest format gap).
+14. ~~**Mach-O loader**.~~ *Done (api_minor 90, [macho.md](macho.md)), with Objective-C and Swift metadata (api_minor 91).*
 
 Med value:
 15. Analysis options UI: per-analyzer enable/options, one-shot analyzers on a selection.
@@ -695,7 +698,7 @@ Per topic: Have / Partial / Missing / In progress.
 | About | 1 | 1 | 0 | 0 |
 | Annotations | 0 | 0 | 1 | 0 |
 | AssemblerPlugin | 2 | 0 | 0 | 0 |
-| AutoAnalysisPlugin | 13 | 5 | 4 | 0 |
+| AutoAnalysisPlugin | 15 | 6 | 4 | 0 |
 | BlockModel | 1 | 0 | 1 | 0 |
 | BookmarkPlugin | 3 | 1 | 1 | 0 |
 | BundleManager | 1 | 1 | 0 | 0 |
@@ -735,7 +738,7 @@ Per topic: Have / Partial / Missing / In progress.
 | GhidraServer | 1 | 0 | 0 | 0 |
 | Graph | 1 | 1 | 0 | 0 |
 | HeadlessAnalyzer | 1 | 0 | 0 | 0 |
-| ImporterPlugin | 7 | 3 | 3 | 0 |
+| ImporterPlugin | 9 | 2 | 2 | 0 |
 | LabelMgrPlugin | 2 | 2 | 2 | 0 |
 | LanguageProviderPlugin | 2 | 0 | 0 | 0 |
 | LibreTranslatePlugin / TranslateStringsPlugin | 0 | 0 | 1 | 0 |
@@ -768,7 +771,7 @@ Per topic: Have / Partial / Missing / In progress.
 | Tool | 1 | 4 | 0 | 0 |
 | ValidateProgram | 0 | 1 | 0 | 0 |
 | VersionControl | 1 | 1 | 0 | 0 |
-| **Total (76 topics, 271 features)** | **130** | **80** | **61** | **0** |
+| **Total (76 topics, 274 features)** | **134** | **80** | **60** | **0** |
 <!-- /survey-summary:part1 -->
 
 ## Part 2: Ghidra 12.1.4 vs revkit: every module except Base
@@ -830,7 +833,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Set / remove equate | Have | Set equate (`E`) with enum suggestions and Remove equate on a decompiler constant (`eq-set`, `eq-remove`, `ui/src/ui/equates.ts`), the Equates window; read by the listing and the decompiler (api_minor 39; `docs/api.md#equates-and-user-references`) | - | - |
 | Force union field | Missing | not found in `ui/src/app.ts`, `proto/revkit/v1/assertion.proto` or docs (still on `docs/wishlist.md`) | Med | M |
 | Adjust pointer offset (offset-pointer typedef) | Missing | no offset attribute on pointers in `proto/revkit/v1/types.proto` (still on `docs/wishlist.md`) | Med | M |
-| Auto create / fill in structure | Have | `ui/src/ui/autostruct.ts`, `TypeService.AutoStructure` | - | - |
+| Auto create / fill in structure | Have | `ui/src/ui/autostruct.ts`, `TypeService.AutoStructure`; inference also composes structures for classes of passed-on pointers on its own, published as program types (`docs/infer.md#structures`) | - | - |
 | Edit data type from a type token | Partial | TYPE tokens have a hover card with the definition (`ui/src/ui/hover.ts`) and Find uses of type; no Edit data type action from the token (the type editor is `ui/src/ui/types.ts`) | Med | S |
 | Split out as new variable / merge | Missing | not found (still on `docs/wishlist.md`) | Med | M |
 | Find uses of a data type | Have | Find uses of type and Find uses of field from decompiler tokens and the Types window (`ui/src/app.ts` `findUses`, `ui/src/ui/search.ts` `Search.findUses`; `FindTypeUses`, api_minor 53, feature `type-uses`; `docs/ui.md` "Find uses") | - | - |
@@ -871,7 +874,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Select functions from results | Partial | the results' Make selection selects the matched lines' addresses (`docs/ui.md` "Search"), not the functions' bodies | Low | S |
 | Taint: mark source, sink, gate; clear | Missing | no taint in `src/`, `proto/`, `ui/src/` or docs | Med | L |
 | Taint: export p-code facts, run queries | Missing | not found; `find_format_string_sinks` starter script is one fixed pattern (`docs/scripting.md`) | Med | L |
-| Taint: slice tree viewer | Missing | not found | Low | M |
+| Taint: slice tree viewer | Partial | Trace value across calls: a value's flow through direct calls, each function with its lines, the calls crossed and where it stopped (`QueryService.TraceValue`, api_minor 89, feature `value-trace`; `src/backend/trace.cc`, `ui/src/ui/trace.ts`, [ui.md](ui.md#tracing-a-value-across-calls)); no sources, sinks or gates, no tree view | Low | M |
 | Taint: load SARIF, apply highlights | Missing | no SARIF import (`docs/wishlist.md` lists it) | Low | M |
 
 #### FunctionGraph and Graph (VisualGraph)
@@ -1302,16 +1305,27 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Single-file compression wrappers (gzip, bzip2, xz, lz4, zstd, lzfse, LZSS) opened transparently | Partial | gzip, bzip2, xz, lzma, zstd, lz4 as containers of one file, offered as Open as file system on import (`src/container/compressed.cc`, `decompress.cc`; `docs/filesystems.md` "Formats", `ui/src/ui/open.ts` `looksLikeContainer`); no lzfse, LZSS | Low | S |
 | Archives: zip, 7z, tar, cpio, ISO9660, ar/COFF `.a`/`.lib`, OMF libs | Partial | zip, tar, cpio, ISO 9660, ar (`src/container/*.cc`, `docs/filesystems.md` "Formats"); 7z, rar, cab, OMF not read (`docs/filesystems.md` "Known gaps") | Low | M |
 | Firmware/OS file systems: ext4, squashfs, cramfs, YAFFS2, HFS+, DMG, Android sparse | Partial | ext2/3/4, squashfs, cramfs, FAT, partition tables (`src/container/ext.cc`, `squashfs.cc`, `cramfs.cc`, `fat.cc`; `docs/filesystems.md`); no YAFFS2, HFS+, DMG, Android sparse ("Known gaps") | Med | M |
-| Android: APK, DEX/CDex, ODEX/OAT/VDEX/ART loaders, dex2jar/smali | Missing | Dalvik languages load raw only, no DEX loader, no decompile (`docs/processors.md:152,246`); APK browses as a zip (`docs/filesystems.md`), DEX only named by detection ("What each file is") | Med | L |
+| Android: APK, DEX/CDex, ODEX/OAT/VDEX/ART loaders, dex2jar/smali | Partial | DEX and APK decompile to Java through jadx as an external decompiler (`docs/providers.md`, api_minor 92: the decompiler pane, the file system browser's Decompile with jadx…); still no DEX loader: Dalvik languages load raw only and don't decompile natively (`docs/processors.md:152,246`); APK browses as a zip (`docs/filesystems.md`), APKs and DEX named by detection with their content kinds (`apk`, `dex:035`; "Content kinds"); design and experiments in `docs/bytecode-lifting.md` | Med | L |
 | Android boot / vendor_boot images, FBPK | Partial | Android boot images v0-v4 (`src/container/firmware.cc`, `docs/filesystems.md` "Formats"); no vendor_boot, FBPK | Low | S |
-| Apple: dyld shared cache, kernelcache/Mach-O fileset, universal binaries, IPSW, img2/3/4, iBoot | Missing | Mach-O deferred (README "Loaders", roadmap "Later"); `docs/filesystems.md` "Known gaps" lists no dmg/Apple containers; detection only names Mach-O as data | Med | L |
+| Apple: dyld shared cache, kernelcache/Mach-O fileset, universal binaries, IPSW, img2/3/4, iBoot | Partial | universal binaries: a slice per program by `ImportOptions.macho_slice`, the others a click away in the Open dialog ([macho.md](macho.md#universal-files-and-slices); not as a file system); no dyld cache, kernelcache/fileset, IPSW, img2/3/4, iBoot; `docs/filesystems.md` "Known gaps" lists no dmg/Apple containers | Med | L |
 | Device tree (FDT/DTB) markup | Missing | not found: a DTB is only named by detection (`docs/filesystems.md` "What each file is") and listed as an Android boot image member; no markup or memory-map suggestion (wishlist "Memory and import") | Med | S |
 | Crash dumps (Windows minidump/pagedump/userdump, Apport) loader | Missing | not found (grep for minidump/MDMP/Apport in `src`, `docs`); wishlist "crash dumps" open | Med | M |
-| Java `.class`/JAR loading, Decompile JAR, Export Eclipse project | Missing | not found; a JAR browses as a zip (`docs/filesystems.md`) but `.class` isn't loaded | Low | L |
+| Java `.class`/JAR loading, Decompile JAR, Export Eclipse project | Partial | Decompile JAR: Vineflower, CFR or jadx as external decompilers on a jar or `.class` (a program, or a file in the file system browser; the output's source tree; `docs/providers.md`, api_minor 92); no `.class` loader (a JAR browses as a zip and classes and jars are named with their Java version, `java-class:21`, `jar`: `docs/filesystems.md` "Content kinds"), no Eclipse project export; design and experiments in `docs/bytecode-lifting.md` | Low | L |
 | CaRT neutered malware files | Missing | not found (grep of `src/container`, `docs/filesystems.md`) | Low | S |
 | iOS crypto key template | Missing | not found (grep of `src/container`, `docs/filesystems.md`) | Low | S |
 | Batch import (many files, recursive folders, into containers) | Have | `ImportFromFileSystem` (preview, cap, into containers), the browser's Import programs below…, `rk-daemon project import-batch` (`docs/filesystems.md`) | - | - |
 | Third-party loaders as extensions | Have | WebAssembly loader plugins by magic (`docs/plugins.md` "Loaders", `sdk/plugins/examples/rkraw-loader`) | - | - |
+
+#### Go and Rust binaries (Golang analyzers, Go and Rust data in Base)
+
+| Feature | Status | revkit evidence (path) or what's missing | Value | Effort |
+| --- | --- | --- | --- | --- |
+| Go build info: Go version, main module, dependency modules, build settings (Ghidra's program information) | Have | `QueryService.GetBuildInfo` (api_minor 88, feature `build-info`): `.go.buildinfo`, a PE's `.data`, Mach-O `__go_buildinfo`; both layouts (Go 1.18+ inline, 1.13-1.17 pointers); modules with versions, sums and replacements, every `build` setting (`src/loader/buildinfo.cc`, [build-info.md](build-info.md)); the UI's Build info… and the Open dialog's Built with line ([ui.md](ui.md#build-info)), SDK `Program.build_info()`, MCP `build_info` | High | |
+| Go function names from pclntab (GolangSymbolAnalyzer; stripped binaries) | Have | `read_go_pclntab` (`src/loader/gopclntab.cc`): the 1.2, 1.16, 1.18 and 1.20 layouts, both byte orders and pointer sizes; `.gopclntab`, `__gopclntab`, `runtime.pcheader`, else its magic (a PE) checked by the moduledata, whose `text` 1.18+ entries count from; at import `analysis:go` function bounds, names, `Go source: file:line` plate comments (`src/backend/go_import.cc`); package namespaces in the symbol tree; `GetBuildInfo.go_pclntab` (api_minor 93, feature `go-pclntab`; [go.md](go.md)) | High | |
+| Go runtime types (rtype, structs, interfaces, itabs) and Ghidra's Go type archives | Missing | not found; Ghidra ships `typeinfo/golang/*.json` and `golang_*.gdt` | Med | L |
+| Go calling conventions (abi0, the register ABI) and Go's no-return functions | Partial | the golang compiler spec for Go programs (`guess_language`, `src/loader/language.cc`: amd64 from Go 1.17, arm64 from 1.18, i386 always; its data organization's 8-byte `int` reaches the decompiler's types), and Ghidra's `GolangFunctionsThatDoNotReturn` (plus Go 1.25's `panicBounds`) as `analysis:go` no-return marks ([go.md](go.md)); missing: Ghidra's per-function `abi0` for Go before the register ABI, `GoFunctionFixup`'s storage for DWARF prototypes, the duff and gcWriteBarrier fixups | Med | M |
+| Go strings (length and pointer, not NUL-terminated; GolangStringAnalyzer) | Missing | not found: data analysis finds NUL-terminated strings (`docs/data-analysis.md`) | Med | M |
+| Rust binaries: the toolchain and crates; Rust's no-return functions and types | Partial | the rustc version (ELF `.comment`) and commits (`/rustc/<hash>/` paths) and cargo-auditable's crate graph (`GetBuildInfo`, [build-info.md](build-info.md#rust)), beyond Ghidra; Rust names demangled ([demangle.md](demangle.md)); Ghidra's `RustFunctionsThatDoNotReturn`, `rust-common.gdt` and its x86 Rust calling-convention extension aren't used | Med | S |
 
 #### PDB
 
@@ -1587,7 +1601,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
   - a DEX/APK loader;
   - the injections Dalvik needs to decompile;
   - boot.img and vendor_boot.
-- **Med: Apple containers** (dyld cache, kernelcache, universal binaries), once Mach-O lands.
+- **Med: Apple containers** (dyld cache, kernelcache); universal binaries load a slice per program ([macho.md](macho.md)).
 - **Med: Device-tree (DTB) parsing.** Mark it up and use it to suggest the memory map for firmware.
 - **Med: Crash dumps.** Load Windows minidumps and ELF cores as programs (shares work with the debugger's core target).
 - ~~**Med: Batch import.** Recursive folders and `-recursive`-style headless import, plus multi-file import in the UI.~~ *Done ([filesystems.md](filesystems.md#importing), `rk-daemon project import-batch`).*
@@ -1615,7 +1629,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 |---|---|---|---|---|
 | Decompiler: window and actions | 23 | 10 | 9 | 0 |
 | Decompiler: options and annotations | 5 | 5 | 10 | 0 |
-| DecompilerDependent | 1 | 1 | 4 | 0 |
+| DecompilerDependent | 1 | 2 | 3 | 0 |
 | FunctionGraph and Graph | 8 | 2 | 10 | 0 |
 | GraphFunctionCalls | 2 | 2 | 1 | 0 |
 | GraphServices, ProgramGraph, DataGraph | 1 | 2 | 8 | 0 |
@@ -1639,7 +1653,8 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Debugger: time, traces, diff, p-code stepper | 3 | 5 | 3 | 0 |
 | Emulator | 14 | 1 | 8 | 0 |
 | Docking | 4 | 8 | 6 | 0 |
-| FileFormats | 4 | 4 | 7 | 0 |
+| FileFormats | 4 | 7 | 4 | 0 |
+| Go and Rust binaries | 2 | 2 | 2 | 0 |
 | PDB | 7 | 4 | 3 | 0 |
 | PyGhidra | 5 | 1 | 0 | 0 |
 | Sarif | 0 | 0 | 4 | 0 |
@@ -1653,7 +1668,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Recognizers | 0 | 1 | 0 | 0 |
 | Processor-module authoring | 1 | 0 | 3 | 0 |
 | Other modules without help pages | 0 | 0 | 3 | 0 |
-| **Total (40 modules, 461 features)** | **204** | **99** | **158** | **0** |
+| **Total (41 modules, 467 features)** | **206** | **105** | **156** | **0** |
 <!-- /survey-summary:part2 -->
 
 "In progress" rows are branches in flight and are not counted as Missing. Rows marked "Have (better)", "Have (beyond Ghidra)" or "Have (revkit only)" count as Have.

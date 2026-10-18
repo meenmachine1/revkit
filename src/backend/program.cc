@@ -56,6 +56,7 @@ std::shared_ptr<Program> Program::Load(std::shared_ptr<const loader::Bytes> byte
   loader::LoadOptions lo;
   lo.image_base = options.image_base;
   lo.ghidra_image_base = true;  // addresses line up with a default Ghidra import
+  lo.macho_slice = options.macho_slice;
   std::shared_ptr<const loader::Image> image_ptr = options.image;
   if (!image_ptr && options.raw) {
     if (options.language_id.empty()) throw loader::LoadError("a raw image needs ImportOptions.language_id");
@@ -75,10 +76,11 @@ std::shared_ptr<Program> Program::Load(std::shared_ptr<const loader::Bytes> byte
   }
   p->image_ = std::move(image_ptr);
   const loader::Image &image = *p->image_;
-  p->format_ = !options.format.empty()                ? options.format
-                : image.format == loader::Format::elf ? "elf"
-                : image.format == loader::Format::raw ? "raw"
-                                                      : "pe";
+  p->format_ = !options.format.empty()                  ? options.format
+                : image.format == loader::Format::elf   ? "elf"
+                : image.format == loader::Format::raw   ? "raw"
+                : image.format == loader::Format::macho ? "macho"
+                                                        : "pe";
   p->warnings_ = image.warnings;
   p->warnings_.insert(p->warnings_.end(), reloc_warnings.begin(), reloc_warnings.end());
 
@@ -225,6 +227,7 @@ std::shared_ptr<const loader::Image> Program::Reload(std::shared_ptr<const loade
   loader::LoadOptions lo;
   lo.image_base = options_.image_base;
   lo.ghidra_image_base = true;
+  lo.macho_slice = options_.macho_slice;
   if (options_.raw) {
     loader::RawOptions raw = *options_.raw;
     raw.language = options_.language_id;
@@ -270,10 +273,12 @@ LabelMap Program::LoaderLabels(const analysis::ProgramInfo &info) const {
   }
   std::map<std::uint64_t, std::string> names;
   for (const auto &[addr, s] : best) names.emplace(addr, s->name);
-  // PE import address table slots carry the imported names.
-  for (const loader::Import &imp : image.imports)
-    if (imp.iat_address && !imp.name.empty() && image.memory.is_mapped(imp.iat_address))
-      names.emplace(imp.iat_address, imp.name);
+  // PE import address table slots carry the imported names. (A Mach-O's
+  // bound slots don't: Ghidra's loader makes them pointers, PTR__name_*.)
+  if (image.format == loader::Format::pe)
+    for (const loader::Import &imp : image.imports)
+      if (imp.iat_address && !imp.name.empty() && image.memory.is_mapped(imp.iat_address))
+        names.emplace(imp.iat_address, imp.name);
 
   LabelMap out;
   for (auto &[addr, name] : names) {

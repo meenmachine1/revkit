@@ -1,0 +1,252 @@
+// External decompiler providers (api_minor 92, feature
+// "external-decompilers"; docs/providers.md): dedicated decompilers for
+// bytecode, each run by the daemon as a sandboxed child process on a
+// program's file or a file in an open file system session, its output (a
+// source tree, or one file) cached by the input's SHA-256, the provider
+// and the tool's version.
+syntax = "proto3";
+
+package revkit.v1;
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+service ProviderService {
+  // Every provider (whether its tool is there, its version, what it takes),
+  // the sandbox the daemon enforces, and, given an input, what the input is
+  // and which providers take it. Viewer (of the program's project, or the
+  // session's owner).
+  rpc ListProviders(ListProvidersRequest) returns (ListProvidersResponse);
+  // Runs a provider on the input, or answers from the cache. Viewer, as
+  // ListProviders: it reads what the caller can already read. At most two
+  // run at once and eight wait; more are RESOURCE_EXHAUSTED.
+  rpc DecompileExternal(DecompileExternalRequest) returns (DecompileExternalResponse);
+  // One file of a cached result (never runs anything; NOT_FOUND until
+  // DecompileExternal has run).
+  rpc ReadProviderOutput(ReadProviderOutputRequest) returns (ReadProviderOutputResponse);
+  // The daemon's provider settings: tools' paths, which are turned off,
+  // the limits (admin).
+  rpc GetProviderSettings(GetProviderSettingsRequest) returns (GetProviderSettingsResponse);
+  rpc SetProviderSettings(SetProviderSettingsRequest) returns (SetProviderSettingsResponse);
+}
+
+// What to decompile: a program's stored file, or a file in a file system
+// session the caller opened (FileSystemService).
+message ProviderInput {
+  oneof source {
+    string program_id = 1;
+    ProviderFileRef file = 2;
+  }
+}
+
+message ProviderFileRef {
+  string session_id = 1;
+  // A session path, as ListFileSystem gives it.
+  string path = 2;
+}
+
+// What an input is: "dotnet", "dex", "apk", "jar", "class", "pyc", "lua",
+// "luajit", "wasm", "js"; empty when none of these.
+message ProviderInputKind {
+  string kind = 1;
+  // "3.12" for a .pyc, "5.4" for a Lua chunk, "035" for a DEX, the class
+  // file's major version.
+  string version = 2;
+  // ".NET assembly", "Python 3.12 bytecode", ...
+  string description = 3;
+}
+
+message ProviderInfo {
+  // "ilspy", "jadx", "vineflower", "cfr", "unluac", "pycdc", "webcrack",
+  // "wasm-decompile".
+  string name = 1;
+  string title = 2;
+  // The program it runs: "ilspycmd".
+  string tool = 3;
+  string license = 4;
+  string homepage = 5;
+  // The input kinds it takes.
+  repeated string kinds = 6;
+  // "tree" (a directory of sources) or "file" (one file).
+  string output = 7;
+  // What it writes: "csharp", "java", "lua", "python", "javascript", "wasm".
+  string language = 8;
+  // Its tool was found (and answered its version check).
+  bool available = 9;
+  // Turned off in the settings.
+  bool disabled = 10;
+  string version = 11;
+  // Why it isn't available ("ilspycmd not found ...").
+  string reason = 12;
+  // Admins only: where the tool is, and how it was found ("configured",
+  // "PATH", "known location"), and what the sandbox lets it read.
+  string path = 13;
+  string found_by = 14;
+  repeated string read_paths = 15;
+}
+
+message ListProvidersRequest {
+  // Optional: describe this input and which providers take it.
+  ProviderInput input = 1;
+  // Look for the tools again (and ask their versions).
+  bool refresh = 2;
+}
+
+message ListProvidersResponse {
+  repeated ProviderInfo providers = 1;
+  // With an input: what it is (empty kind: nothing takes it), the providers
+  // that take it in order of preference, and the one DecompileExternal
+  // uses when none is named.
+  ProviderInputKind input_kind = 2;
+  repeated string applicable = 3;
+  string default_provider = 4;
+  // With an input: providers that already have a result for it, cached.
+  repeated string cached = 5;
+  // What the daemon enforces on every run: "Landlock ABI 8 (files, TCP,
+  // abstract sockets and signals), seccomp (no sockets), no network
+  // namespace (user namespaces restricted)".
+  string sandbox = 6;
+  ProviderLimits limits = 7;
+}
+
+message ProviderLimits {
+  uint32 timeout_seconds = 1;
+  uint64 memory_bytes = 2;
+  uint64 output_bytes = 3;
+  uint64 output_files = 4;
+  uint64 max_input_bytes = 5;
+}
+
+enum ProviderRunStatus {
+  PROVIDER_RUN_STATUS_UNSPECIFIED = 0;
+  // Exited 0 with output.
+  PROVIDER_RUN_STATUS_OK = 1;
+  // Exited non-zero (what it wrote, if anything, is still listed).
+  PROVIDER_RUN_STATUS_FAILED = 2;
+  // A signal: SIGSEGV, SIGABRT, ...
+  PROVIDER_RUN_STATUS_CRASHED = 3;
+  // Killed at the deadline, or over its CPU time.
+  PROVIDER_RUN_STATUS_TIMEOUT = 4;
+  PROVIDER_RUN_STATUS_OUT_OF_MEMORY = 5;
+  // Wrote more than the output cap (bytes or files).
+  PROVIDER_RUN_STATUS_OUTPUT_LIMIT = 6;
+  // The sandbox couldn't be set up (no Landlock, the helper missing).
+  PROVIDER_RUN_STATUS_SANDBOX_ERROR = 7;
+}
+
+message ProviderOutputFile {
+  // Relative, "/"-separated, valid UTF-8.
+  string path = 1;
+  uint64 size = 2;
+  // From the extension: "csharp", "java", "xml", "binary", "text", ...
+  string language = 3;
+}
+
+message DecompileExternalRequest {
+  ProviderInput input = 1;
+  // Empty: the default for the input's kind.
+  string provider = 2;
+  // Run again even when a result is cached.
+  bool refresh = 3;
+  // Inline the main file's text (up to this many bytes; 0: 1 MiB).
+  uint32 max_inline_bytes = 4;
+}
+
+message DecompileExternalResponse {
+  string provider = 1;
+  string provider_version = 2;
+  ProviderInputKind input_kind = 3;
+  string input_sha256 = 4;
+  ProviderRunStatus status = 5;
+  // "exit status 2", "SIGSEGV", "killed after 120 s", ...
+  string detail = 6;
+  // The end of what it wrote on stderr (4 KiB at most).
+  string stderr_tail = 7;
+  double seconds = 8;
+  // From the cache: no tool ran for this answer.
+  bool cached = 9;
+  // "tree" or "file".
+  string output = 10;
+  string language = 11;
+  // Every file it wrote, sorted (only regular files are kept).
+  repeated ProviderOutputFile files = 12;
+  uint64 total_bytes = 13;
+  // The file to show first, and its text (invalid UTF-8 replaced), up to
+  // max_inline_bytes; main_truncated when there is more.
+  string main_file = 14;
+  string main_text = 15;
+  bool main_truncated = 16;
+  // What was enforced on the run.
+  string sandbox = 17;
+}
+
+message ReadProviderOutputRequest {
+  ProviderInput input = 1;
+  // Empty: the default for the input's kind.
+  string provider = 2;
+  // One of the result's files.
+  string path = 3;
+  uint64 offset = 4;
+  // 0: 1 MiB; at most 16 MiB.
+  uint32 max_bytes = 5;
+}
+
+message ReadProviderOutputResponse {
+  string path = 1;
+  bytes data = 2;
+  uint64 size = 3;
+  string language = 4;
+  // More follows offset + data.
+  bool truncated = 5;
+}
+
+message ProviderSettings {
+  // Off: no provider runs (each shows "turned off").
+  bool enabled = 1;
+  repeated ProviderConfig providers = 2;
+  // The java executable for the JVM tools (jadx, Vineflower, CFR,
+  // unluac); empty: $JAVA_HOME, then PATH.
+  string java_path = 3;
+  // node for webcrack; empty: PATH.
+  string node_path = 4;
+  // The .NET runtime for ilspycmd; empty: $DOTNET_ROOT, beside dotnet on PATH.
+  string dotnet_root = 5;
+  // Per run; 0: the defaults (120 s, 4 GiB, 256 MiB, 50,000 files).
+  uint32 timeout_seconds = 6;
+  uint64 memory_bytes = 7;
+  uint64 output_bytes = 8;
+  uint64 output_files = 9;
+  // 0: 512 MiB.
+  uint64 max_input_bytes = 10;
+  // The result cache (<project dir>/.revkit/providers); 0: 4 GiB.
+  uint64 cache_max_bytes = 11;
+  // Run where the kernel has no Landlock (files not confined).
+  bool allow_weak_sandbox = 12;
+}
+
+message ProviderConfig {
+  string name = 1;
+  // The tool (or its jar), absolute; empty: PATH and the known locations.
+  string path = 2;
+  bool disabled = 3;
+}
+
+message GetProviderSettingsRequest {}
+
+message GetProviderSettingsResponse {
+  ProviderSettings settings = 1;
+  // Where results are cached.
+  string cache_dir = 2;
+}
+
+message SetProviderSettingsRequest {
+  ProviderSettings settings = 1;
+}
+
+message SetProviderSettingsResponse {
+  ProviderSettings settings = 1;
+  // The providers as the new settings find them.
+  repeated ProviderInfo providers = 2;
+}

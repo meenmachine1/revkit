@@ -16,6 +16,7 @@
 #include "revkit/v1/script.pb.h"
 #include "revkit/v1/types.grpc.pb.h"
 #include "revkit/v1/project.grpc.pb.h"
+#include "revkit/v1/provider.pb.h"
 #include "revkit/v1/query.grpc.pb.h"
 #include "revkit/v1/subscription.grpc.pb.h"
 #include "revkit/v1/sync.grpc.pb.h"
@@ -788,9 +789,10 @@ TEST(AuthPolicyUnit, EveryMethodHasAPolicy) {
   std::vector<std::string> missing;
   int methods = 0;
   (void)pb::IngestBSimRequest::descriptor();  // linked in, so the pool has bsim.proto
+  (void)pb::DecompileExternalRequest::descriptor();  // and provider.proto
   for (const char *file : {"revkit/v1/analysis.proto", "revkit/v1/assertion.proto", "revkit/v1/auth.proto",
                            "revkit/v1/bsim.proto", "revkit/v1/debugger.proto", "revkit/v1/diff.proto", "revkit/v1/emulator.proto", "revkit/v1/filesystem.proto", "revkit/v1/meta.proto", "revkit/v1/patch.proto", "revkit/v1/plugin.proto", "revkit/v1/presence.proto",
-                           "revkit/v1/project.proto", "revkit/v1/query.proto", "revkit/v1/script.proto", "revkit/v1/subscription.proto",
+                           "revkit/v1/project.proto", "revkit/v1/provider.proto", "revkit/v1/query.proto", "revkit/v1/script.proto", "revkit/v1/subscription.proto",
                            "revkit/v1/sync.proto", "revkit/v1/types.proto"}) {
     const gp::FileDescriptor *f = any->pool()->FindFileByName(file);
     ASSERT_TRUE(f) << file;
@@ -816,6 +818,11 @@ TEST(AuthPolicyUnit, MethodsNamingAProgramAreProjectScoped) {
       "revkit.v1.ScriptService/ListScripts",
       // A project's library or the caller's own (SCRIPT_LIBRARY_USER).
       "revkit.v1.ScriptService/SaveScript",
+      // A program or a file of a session the caller opened (the backend
+      // checks the owner); a program named is checked (Authorize).
+      "revkit.v1.ProviderService/ListProviders",
+      "revkit.v1.ProviderService/DecompileExternal",
+      "revkit.v1.ProviderService/ReadProviderOutput",
       // Peers replicate whole daemons.
       "revkit.v1.SyncService/FetchProgram",
       "revkit.v1.SyncService/GetSyncState",

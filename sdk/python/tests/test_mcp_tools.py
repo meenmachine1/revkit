@@ -73,7 +73,18 @@ def test_every_tool_group(image_daemon, binaries, tmp_path):
                 return r
 
             tools = {t.name for t in (await mcp.list_tools()).tools}
-            assert len(tools) == 168, sorted(tools)
+            assert len(tools) == 174, sorted(tools)
+
+            # The workflow guide: a resource, and the investigate prompt built on it.
+            resources = (await mcp.list_resources()).resources
+            assert [str(r.uri) for r in resources] == ["revkit://guide"], resources
+            guide = (await mcp.read_resource("revkit://guide")).contents[0].text
+            assert guide.startswith("# Investigating a binary with revkit") and "undo_changes" in guide
+            prompts = {p.name: p for p in (await mcp.list_prompts()).prompts}
+            assert set(prompts) == {"investigate"} and {a.name for a in prompts["investigate"].arguments} == {"goal", "program_id"}
+            msg = (await mcp.get_prompt("investigate", {"goal": "find the parser", "program_id": a})).messages[0].content.text
+            assert msg.startswith("# Investigating") and "find the parser" in msg and a in msg
+            assert "revkit://guide" in (await call("about"))["guide"]
 
             # Function ID: the databases and a program's matches (none here).
             dbs = await call("fid_databases", program_id=a)
@@ -107,6 +118,12 @@ def test_every_tool_group(image_daemon, binaries, tmp_path):
                 assert relocs["truncated"] and relocs["next_offset"] == 3, relocs
             slots = (await call("list_relocations", program_id=a, contains="R_X86_64_JUMP_SLOT"))["relocations"]
             assert slots and all(r["kind"] == "jump_slot" and r.get("symbol") for r in slots), slots
+            # External decompilers (feature external-decompilers): a C program isn't bytecode.
+            ext = await call("list_providers", program_id=a)
+            assert ext["input_kind"] is None and "ilspy" in {p["name"] for p in ext["providers"]}, ext
+            # Build info (feature build-info): a C program has none, and says so.
+            bi = await call("build_info", program_id=a)
+            assert "go" not in bi and "rust" not in bi and bi["note"], bi
             # Export C (feature export-c): one function's C and the header's prototype; into a directory.
             ex = await call("export_c", program_id=a, function_addresses=[fib])
             assert ex["functions"] == 1 and "/* fib @ " in ex["source"] and '#include "' in ex["source"], ex
@@ -143,6 +160,7 @@ def test_every_tool_group(image_daemon, binaries, tmp_path):
             same = await call("set_language", program_id=a, language_id="", reason="test")
             assert same["ok"] and "seq" not in same, same
             assert (await call("list_classes", program_id=a))["classes"] == []  # an ELF: no MSVC RTTI
+            assert (await call("list_objc_classes", program_id=a))["classes"] == []  # nor Objective-C
             # The calling conventions (feature calling-conventions): x86-64-gcc.cspec's models, the
             # default first, MSABI spelled as GCC's ms_abi attribute.
             cc = await call("list_calling_conventions", program_id=a)

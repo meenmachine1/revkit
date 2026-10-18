@@ -7,6 +7,7 @@
 
 #include "revkit/analysis/units.h"
 #include "revkit/demangle/demangle.h"
+#include "revkit/objc/objc.h"
 #include "revkit/types/describe.h"
 
 #include <algorithm>
@@ -350,6 +351,10 @@ AnalysisFacts Collect(const Program &program, msvc::Markup &m, const std::string
 
 }  // namespace
 
+std::map<std::uint64_t, std::string> FileAndDebugNames(const Program &program, const std::vector<DebugFacts> &debug) {
+  return KnownNames(program, debug);
+}
+
 std::vector<AnalysisFacts> CollectPeAnalysis(const Program &program, const std::vector<DebugFacts> &debug) {
   const loader::Image &image = program.image();
   if (image.format != loader::Format::pe) return {};
@@ -371,6 +376,54 @@ std::vector<AnalysisFacts> CollectPeAnalysis(const Program &program, const std::
       if (msvc::count_pass(what) == pass) a.counts[what] = n;
     if (std::string(pass) == "msvc") a.warnings = m.warnings;
     out.push_back(std::move(a));
+  }
+  return out;
+}
+
+std::vector<AnalysisFacts> CollectMachoAnalysis(const Program &program, const std::vector<DebugFacts> &debug) {
+  const loader::Image &image = program.image();
+  if (image.format != loader::Format::macho) return {};
+  const objc::Metadata md = objc::scan(image);
+  if (md.classes.empty() && md.categories.empty() && md.protocols.empty() && md.swift_types.empty()) return {};
+  const std::map<std::uint64_t, std::string> known = KnownNames(program, debug);
+  objc::MarkupOptions o;
+  o.named = [&](std::uint64_t a) {
+    auto it = known.find(a);
+    return it == known.end() ? std::string() : it->second;
+  };
+  msvc::Markup m = objc::markup(image, md, o);
+  // Typed data whose symbol already has the markup's name keeps it in an
+  // assertion too: the decompiler names marked data by assertions, not by
+  // the loader's labels (_OBJC_CLASS_$_Point, not DAT_).
+  std::map<std::uint64_t, std::string> keep = known;
+  for (const msvc::DataDef &d : m.data)
+    if (auto it = keep.find(d.address); it != keep.end() && it->second == d.name) keep.erase(it);
+  std::vector<AnalysisFacts> out;
+  for (const char *pass : {"objc", "swift"}) {
+    AnalysisFacts a = Collect(program, m, pass, keep);
+    for (const auto &[what, n] : m.counts)
+      if (objc::count_pass(what) == pass) a.counts[what] = n;
+    if (std::string(pass) == "objc") a.warnings = m.warnings;
+    // The prototypes (and the types they use) as import:<pass>; the rest
+    // stays analysis's.
+    AnalysisFacts proto;
+    proto.source = pass;
+    proto.import = true;
+    std::vector<AnalysisAssertion> rest;
+    for (AnalysisAssertion &x : a.assertions) {
+      if (x.kind == FactKind::TypeDef) proto.assertions.push_back(x);
+      if (x.kind == FactKind::Type) proto.assertions.push_back(std::move(x));
+      else rest.push_back(std::move(x));
+    }
+    a.assertions = std::move(rest);
+    const bool typed = std::any_of(proto.assertions.begin(), proto.assertions.end(),
+                                   [](const AnalysisAssertion &x) { return x.kind == FactKind::Type; });
+    if (!a.assertions.empty()) out.push_back(std::move(a));
+    if (typed) {
+      proto.counts["prototypes"] = static_cast<std::size_t>(std::count_if(
+          proto.assertions.begin(), proto.assertions.end(), [](const AnalysisAssertion &x) { return x.kind == FactKind::Type; }));
+      out.push_back(std::move(proto));
+    }
   }
   return out;
 }

@@ -114,6 +114,9 @@ struct Options {
   // daemon's --infer-prototypes: closer to the source than the decompiler's
   // unlocked guesses (docs/decomp-quality.md).
   bool infer_prototypes = true;
+  // With them, structures for the classes of passed-on pointer parameters
+  // (infer::InferredStructure).
+  bool infer_structures = true;
   // With --analyze --decompile: call-site prototypes from constant
   // printf/scanf formats (lift::DecompileConfig::format_strings).
   bool format_strings = true;
@@ -184,6 +187,7 @@ void usage(std::ostream &os) {
         "                   where Ghidra runs it by default (a PE below 2 MiB), always, or never (default auto)\n"
         "  --param-id-timeout <s>  its per-function decompiler timeout (default 60, as Ghidra)\n"
         "  --no-infer-prototypes  with --analyze --decompile: without revkit::infer's prototypes (docs/infer.md)\n"
+        "  --no-infer-structures  with them: without inference's structures for passed-on pointers\n"
         "  --no-format-strings    with --analyze --decompile: no call-site prototypes from constant printf/scanf\n"
         "                         formats (docs/types.md#format-strings)\n"
         "                   for functions with no library ones (default: with them, over Parameter ID's, in a\n"
@@ -226,11 +230,14 @@ void usage(std::ostream &os) {
 std::optional<std::uint64_t> parse_hex(std::string_view s);
 
 // revkit::infer over the image (its own discovery, the same as --analyze's):
-// every function's inferred prototype by entry.
-std::map<std::uint64_t, revkit::infer::Prototype> infer_prototypes(std::shared_ptr<const revkit::loader::Image> image,
-                                                                   const std::string &language_id,
-                                                                   const std::string &identity, unsigned threads,
-                                                                   bool in_process) {
+// every function's inferred prototype by entry, and the structures they
+// point to.
+struct Inferred {
+  std::map<std::uint64_t, revkit::infer::Prototype> prototypes;
+  std::vector<revkit::infer::InferredStructure> structures;
+};
+Inferred infer_prototypes(std::shared_ptr<const revkit::loader::Image> image, const std::string &language_id,
+                          const std::string &identity, unsigned threads, bool in_process, bool structures) {
   namespace an = revkit::analysis;
   namespace infer = revkit::infer;
   revkit::facts::FactDb db;
@@ -243,6 +250,7 @@ std::map<std::uint64_t, revkit::infer::Prototype> infer_prototypes(std::shared_p
     an::stage_image(tx, prog, *image, info);
     infer::Options options;
     options.keep_return_width = true;  // the decompiler's callers read the whole register
+    options.structures = structures;
     infer::stage_image(tx, prog, image, language_id, identity, options);
     tx.commit();
   }
@@ -258,7 +266,9 @@ std::map<std::uint64_t, revkit::infer::Prototype> infer_prototypes(std::shared_p
   snap.get<infer::CallGraphQuery>(prog);
   an::release_idle_decoders();
   infer::FixpointResult result = infer::run(snap, prog, &pool);
-  std::map<std::uint64_t, infer::Prototype> out(result.prototypes.begin(), result.prototypes.end());
+  Inferred out;
+  out.prototypes.insert(result.prototypes.begin(), result.prototypes.end());
+  out.structures = std::move(result.structures);
   infer::DecompilerPool::set_workers(nullptr);
   return out;
 }
@@ -266,9 +276,10 @@ std::map<std::uint64_t, revkit::infer::Prototype> infer_prototypes(std::shared_p
 // Inferred prototypes as the decompiler's signatures (an ANALYSIS source,
 // storage from the default model), for the functions in `eligible`, as the
 // image backend overlays them (QueryLookup::with_overlay).
-void apply_inferred(revkit::lift::DecompilerInputs &in, const std::map<std::uint64_t, revkit::infer::Prototype> &protos,
+void apply_inferred(revkit::lift::DecompilerInputs &in, const Inferred &inferred,
                     const std::set<std::uint64_t> &eligible, const revkit::loader::Image &image,
                     const std::string &language_id) {
+  const std::map<std::uint64_t, revkit::infer::Prototype> &protos = inferred.prototypes;
   namespace infer = revkit::infer;
   const infer::DataOrg org = infer::data_org(image);
   const revkit::inputs::DataOrg dorg = revkit::inputs::data_org(image, language_id);
@@ -276,12 +287,15 @@ void apply_inferred(revkit::lift::DecompilerInputs &in, const std::map<std::uint
   for (const revkit::lift::DecompElement &d : in.types)
     if (const auto *id = d.attr("id"))
       if (const auto *u = std::get_if<std::uint64_t>(id)) have.insert(*u);
+  // The inferred structures, interned once: every prototype pointing to
+  // one refers to the same type, defined once for the decompiler.
+  revkit::types::TypeStore store;
+  const infer::StructureIds structures = infer::to_types(inferred.structures, store, org);
   for (revkit::lift::FunctionFacts &f : in.functions) {
     if (!eligible.contains(f.entry)) continue;
     auto it = protos.find(f.entry);
     if (it == protos.end()) continue;
-    revkit::types::TypeStore store;
-    const revkit::types::TypeId id = infer::to_type(it->second, store, org);
+    const revkit::types::TypeId id = infer::to_type(it->second, store, org, &structures);
     const auto *fn = store.get(id).as<revkit::types::FunctionType>();
     if (fn == nullptr) continue;
     revkit::inputs::GhidraTypes enc(store, dorg, nullptr);
@@ -427,6 +441,7 @@ std::optional<Options> parse_args(int argc, char **argv) {
     else if (arg == "--no-debug-info") opt.own.debug_info = false;
     else if (arg == "--infer-prototypes") opt.infer_prototypes = true;
     else if (arg == "--no-infer-prototypes") opt.infer_prototypes = false;
+    else if (arg == "--no-infer-structures") opt.infer_structures = false;
     else if (arg == "--no-format-strings") opt.format_strings = false;
     else if (arg == "--param-id" && (v = value())) {
       std::optional<revkit::inputs::ParamIdMode> m = revkit::inputs::parse_param_id_mode(v);
@@ -1079,11 +1094,11 @@ int run(const Options &opt) {
                                            // deterministic for any number of threads; --in-order's
                                            // one decompiler thread needn't bound it
                                            std::max(2u, opt.threads.value_or(std::thread::hardware_concurrency())),
-                                           opt.in_process);
+                                           opt.in_process, opt.infer_structures);
       apply_inferred(*inputs, protos, infer_eligible, *image, lang.id());
       for (revkit::lift::FunctionFacts &f : inputs->functions)
         if (infer_this.contains(f.entry))
-          if (auto it = protos.find(f.entry); it != protos.end())
+          if (auto it = protos.prototypes.find(f.entry); it != protos.prototypes.end())
           {
             std::vector<bool> is_float;
             for (const revkit::infer::VType &t : it->second.params) is_float.push_back(t.meta == revkit::infer::Meta::float_);

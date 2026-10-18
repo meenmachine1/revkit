@@ -30,7 +30,9 @@ add_library(revkit_backend STATIC
   emulator.cc
   bsim_catalog.cc
   fid.cc
+  go_import.cc
   filesystems.cc
+  providers_api.cc
   machines.cc
   libraries.cc
   image_backend.cc
@@ -52,6 +54,7 @@ add_library(revkit_backend STATIC
   symbol_server.cc
   signatures.cc
   slice.cc
+  trace.cc
   sync_util.cc
   type_record.cc
   library_types.cc
@@ -59,7 +62,7 @@ add_library(revkit_backend STATIC
 add_library(revkit::backend ALIAS revkit_backend)
 target_include_directories(revkit_backend PUBLIC include PRIVATE .)
 target_link_libraries(revkit_backend PUBLIC revkit::api revkit::decompd revkit::bsim revkit::diff revkit::facts revkit::fid revkit::analysis revkit::infer revkit::inputs revkit::plugins
-  PRIVATE revkit::asm revkit::container revkit::cparse revkit::cparse_spec revkit::runtime revkit::debug revkit::demangle revkit::detect revkit::emu revkit::lift revkit::loader revkit::msvc revkit::patch revkit::debuginfo revkit::types revkit_httplib OpenSSL::Crypto ZLIB::ZLIB PkgConfig::RK_RE2)
+  PRIVATE revkit::asm revkit::container revkit::cparse revkit::cparse_spec revkit::runtime revkit::debug revkit::demangle revkit::detect revkit::emu revkit::lift revkit::loader revkit::msvc revkit::objc revkit::patch revkit::providers revkit::debuginfo revkit::types revkit_httplib OpenSSL::Crypto ZLIB::ZLIB PkgConfig::RK_RE2)
 target_compile_options(revkit_backend PRIVATE -Wall -Wextra)
 
 if(REVKIT_BUILD_TESTS)

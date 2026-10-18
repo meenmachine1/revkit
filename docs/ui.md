@@ -875,6 +875,34 @@ the architecture text, formats, dates, sizes, the sort and the search.
 and `e2e/run.ts` go through Import binary… to the import section, and
 the trash through `⋯` → Show deleted programs.
 
+**Universal Mach-O files** (feature `macho`, api_minor 90;
+[macho.md](macho.md#universal-files-and-slices)). Importing one loads
+its default slice (arm64, else x86_64); the toast says which and offers
+**Import x86_64** (the file's first other slice). A universal program's
+details have a **Slice** line, `arm64 (of x86_64, arm64)`, with an
+**Import** button per other slice: the program's stored file imported
+again with that slice (`ImportProgram.program_file`), into the same
+folder. Tests: `e2e/macho.ts` (the Slice line, Import x86_64, the new
+program's language and line).
+
+**.NET assemblies** (feature `dotnet`, api_minor 94;
+[api.md](api.md#net-assemblies)). Importing an IL-only assembly toasts
+that it was imported without code analysis (its code is IL, not machine
+code), and its details have a **.NET** line: `IL-only .NET assembly,
+metadata v4.0.30319, runtime 2.5; imported without code analysis (its code
+is IL)`. A mixed-mode assembly's line says so, and its native code is
+analysed.
+
+**Packed executables** (feature `packed-executables`, api_minor 96;
+[filesystems.md](filesystems.md#packed-executables)). Importing a program
+packed with its scripts (PyInstaller, pkg, nexe, a Node single executable,
+Bun) toasts what it carries with **Open as file system**, and its details
+have a **Packed** line with the same button: the file browser on the
+program's stored file, its scripts as `.pyc` or JavaScript files to
+browse, extract or hand to a decompiler. Importing a bytecode file
+itself (a `.pyc`, a class file) says what it is instead of offering raw
+options.
+
 ### Changing the language
 
 **Analyze → Change language (which processor variant fits the code)…**
@@ -951,6 +979,60 @@ call and open it there; under gdbserver, a stop in `lib_add` offering
 **Open libmylib.so at lib_add**, the tab it opens marking the pc there and
 following it to `lib_twice`, and the mark gone when the session closes.
 Screenshots `libraries-*.png` with `RK_SHOTS`.
+
+### Tracing a value across calls
+
+`api_minor` 89, feature `value-trace` ([api.md](api.md#tracing-a-value-across-calls);
+`src/ui/trace.ts`).
+
+Right-click a variable, constant or operator in the decompiler: **Trace
+value across calls ▸ Where it comes from…** or **Where it goes…** (the
+palette's "Trace value across calls: …"). The dialog lists:
+
+- **Calls crossed**: each argument passed to a parameter and each returned
+  value taken by a call (`combine → scale: x → v (argument)`); a click goes
+  to the call.
+- **Each function reached**, the start first, with how far it is (the
+  start, a callee n down, a caller n up) and the C lines the traced value
+  touches; a click opens the function there.
+- **Couldn't follow**: indirect calls, imports, memory, functions nothing
+  calls directly, limits, each with the value and the instruction.
+
+The start function's traced tokens are highlighted in the decompiler as a
+slice is (Esc clears).
+
+Tests: `ui_e2e` (`e2e/trace.ts`): a program built with `-g`; from
+combine's `x`, Where it goes… lists scale, pick and main and not other,
+the call into scale, the indirect call and main's missing callers,
+highlights `x`, and a line in scale opens scale.
+
+### Build info
+
+`api_minor` 88, feature `build-info` ([build-info.md](build-info.md);
+`src/ui/buildinfo.ts`).
+
+- **Analyze → Build info…** (the palette's "Build info (Go modules, Rust
+  crates, toolchain)…"): what the file says built it. For Go: the Go
+  version, the main module, the package, the target (`GOOS/GOARCH`), the
+  VCS revision and time (and "modified"), the layout and the header's
+  address, and (`api_minor` 93, feature `go-pclntab`; [go.md](go.md)) the
+  **Function table** its functions were named from (`2031 functions, 288
+  files · pclntab 1.20 layout at 0x4c6348 (section)`; a Go binary without
+  build info shows only this); **Build settings** (each `build` line: `-ldflags`, `-tags`,
+  `CGO_ENABLED`, ...) and **Dependencies** (module, version, what replaced
+  it, sum); **Copy** copies the module text as `go version -m` prints it.
+  For Rust: the root crate, the rustc version and commit, and **Crates**
+  (name, version, source, what it depends on; build dependencies marked).
+  The filter narrows both tables (any case). A file with none says so; a
+  blob that didn't decode shows why.
+- **The Open dialog's details** have a **Built with** line for a program
+  that has build metadata (`Go go1.22.3 · 14 modules`, `Rust · 52 crates
+  (rustc 1.79.0)`) with **Build info…**; nothing for one without.
+
+Tests: `ui_e2e` (`e2e/buildinfo.ts`, when Go is installed): a Go program
+built with a dependency replaced by a local directory; the dialog's
+version, main module, settings and the replaced dependency, the filter,
+and the Open dialog's Built with line and its button.
 
 ### Resizable dialogs
 
@@ -2241,7 +2323,13 @@ API 48, feature `filesystems` ([filesystems.md](filesystems.md)).
 - **The tree.** Name, size (a directory's entry count), type (`file ·
   gzip` for a file holding a container), permissions, and what each file
   is: `ELF 32-bit LE ARM executable · ARM:LE:32`, a nested container's
-  format, text, data. Programs are bold; unreadable members (encrypted, an
+  format, text, data, bytecode (`Python 3.12 bytecode (magic 3531)`).
+  Scripts and bytecode carry a small badge with their content kind
+  (`pyc:3.12`, `lua:5.4`, `js-source`; api_minor 95,
+  [filesystems.md](filesystems.md#content-kinds)). A packed executable is
+  a program (bold) that expands like a container: its PyInstaller
+  archive, pkg file system or SEA blob opens in place (api_minor 96).
+  Programs are bold; unreadable members (encrypted, an
   unsupported method) say why in red; a name that was normalized (a
   traversal) has a `renamed` badge. Directories and container files expand
   with a click on ▸, → or a double click: a container opens in place, its
@@ -2259,7 +2347,9 @@ API 48, feature `filesystems` ([filesystems.md](filesystems.md)).
   a firmware header names, SHA-256/SHA-1/MD5 for files up to 256 MiB (a
   button computes them for larger ones), and the first 32 bytes), and
   **Copy container path**. The head's buttons do the same for the
-  selection.
+  selection. On bytecode (a jar, an APK, a DEX, a `.class`, a `.pyc`, a
+  Lua chunk, a wasm module, a .NET assembly, a `.js`), **Decompile with
+  jadx…** and the other external decompilers that take it ([below](#external-decompilers)).
 - **Import programs below…** (batch): the selected folders and containers,
   or everything. Options: subfolders, look inside archives and images
   found, raw detection on other data (slow), recreate the folders in the
@@ -2280,6 +2370,40 @@ API 48, feature `filesystems` ([filesystems.md](filesystems.md)).
 - **Not yet.** A directory shows at most 2,000 entries; no text or hex
   preview pane (Info shows the first bytes); drag and drop from the tree
   into the project window.
+
+## External decompilers
+
+API 92, feature `external-decompilers` ([providers.md](providers.md)).
+`src/ui/external.ts` (the pane's bar, the dialog, the source view),
+`src/ui/sourcehl.ts` (the highlighting); checks in `e2e/providers.ts`.
+
+- **The decompiler pane, for bytecode.** When the program's file is
+  bytecode (a .NET assembly, a DEX, a jar, ...; `ListProviders` with the
+  program says so), a bar under the pane's title names what it is (".NET
+  assembly") and switches the pane between the external decompiler's
+  source (the default when one is installed: ILSpy's C# here, which Ghidra's
+  x86 view of the IL can't approach) and Ghidra's C. The source view has
+  the provider (any of those that take the input, with its version; those
+  not installed are disabled, the reason in their tooltip), the output's
+  files (a tree's: the main file first, which is the largest in the
+  provider's language), **Run again** (a fresh run instead of the cached
+  result) and a status line (the version, the file count, "cached" or the
+  seconds it took; on a failure what happened and the last line of the
+  tool's stderr; its tooltip has the input's SHA-256 and the sandbox). The
+  code is read-only with line numbers and selection, highlighted in the
+  theme's token colours: C#, Java, Kotlin, JavaScript, wasm-decompile's
+  pseudo-code (one C-like tokenizer with each language's keywords), Python,
+  Lua and XML (an ILSpy project's `.csproj`). The first view runs the
+  provider (seconds; the result is cached by the daemon after that). With
+  no provider installed, the bar says which would take it and why it isn't
+  available, and the pane stays on the C.
+- **The file system browser's Decompile with …** opens a dialog: the
+  provider and its status as above, the output's files on the left with a
+  filter, and the selected file on the right (binary files say so). Closing
+  it (Close, Escape, the backdrop) keeps the result in the daemon's cache.
+- **Not yet.** No settings dialog (the API, the SDK and `rk-daemon
+  --provider` set the tools' paths); no link from a line of the source to
+  the listing; no search across a tree's files.
 
 ## Daemon status
 

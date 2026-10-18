@@ -6,11 +6,15 @@ holds the program you want. revkit opens such containers as trees of
 files, nested to any depth, as Ghidra's File System Browser does: browse
 them, see what each file is, read and describe files, import the programs
 in them (one, or a whole tree at once), and extract files to the daemon's
-host. `api_minor` 48, feature `filesystems`.
+host. `api_minor` 48, feature `filesystems`; packed executables
+(PyInstaller, Electron asar, pkg, nexe, Node SEA, Bun) and Lua chunks in
+firmware from `api_minor` 96, feature `packed-executables`.
 
 - [Formats](#formats)
+- [Packed executables](#packed-executables)
 - [Nesting and paths](#nesting-and-paths)
 - [What each file is](#what-each-file-is)
+- [Content kinds](#content-kinds)
 - [Importing](#importing) (and batch import from the command line)
 - [Extracting](#extracting)
 - [Security](#security)
@@ -54,10 +58,57 @@ Every format is recognised by its magic, never by its name
 | Android boot image | `ANDROID!` | v0 to v4: kernel, ramdisk, second stage, recovery DTBO, DTB, the boot signature; v0-v2 load addresses on the members |
 | UF2 | `UF2\n` and the block magics | blocks for the main flash, grouped by family (or by file name in a file container), one flat image per contiguous range (gaps under 64 KiB read as erased flash, 0xff), named `<family>@<address>.bin`, with the family's language (RP2040, RP2350, SAMD, nRF52, STM32, ESP32, i.MX RT, LPC55, GD32V) and the load address |
 | partition tables | an MBR with sane entries, or `EFI PART` at 512 or 4096 | MBR primary and logical partitions (a loop in the chain refused), GPT entries with their names; each partition a file (`p1.img`, `p1-rootfs.img`), cut at the image's end |
+| Electron asar | the size pickle (4), sizes that agree, `{"files":` | the JSON header's files, directories, links (from the archive's root) and executable bits; `unpacked` files read from `<archive>.unpacked/` beside it when the archive is inside a container or a host directory (else listed, unreadable); `.js` members `js-source` |
+| PyInstaller | its cookie (`MEI\014\013\012\013\016`) at the end of the ELF section `pydata`, or in the file's last MiB (appended: Windows, macOS, older Linux builds) | the CArchive's table of contents: scripts and bootstrap modules as `.pyc` files with the header restored (the PYZ's magic number, else the release's of the cookie's Python version; modules that kept their own header, PyInstaller 5.2 and older, left as they are), binaries, data files, zips, splash resources, links; runtime options counted; the 24-byte cookie of 2.0 too |
+| PyInstaller PYZ | `PYZ\0` and a known pyc magic | the marshalled table of contents (a list, or 2.x's dict), each module as `a/b.pyc` and each package as `a/b/__init__.pyc` with its header restored, namespace packages as directories; entries encrypted with `--key` (before 6.0) listed, not read |
+| Node.js SEA | a `NODE_SEA_BLOB` ELF note, PE `RCDATA` resource or Mach-O `NODE_SEA,__NODE_SEA_BLOB` section, with the blob's magic `0x0143da20` | the main script (by its `code_path`'s name), or the startup snapshot; the V8 code cache (`useCodeCache`); the assets under `assets/`; `execArgv` in the description. Every layout from Node 20.0 to 26 (picked by which one parses to the blob's end) |
+| pkg | its prelude ending the file (or, on macOS, before the signature) | the virtual file system: files as source, compiled ones (`STORE_BLOB`) as `<name>.jsc` V8 code caches, directories, links; gzip and zstd stripes decompressed (Brotli ones listed, unreadable); keys through pkg's dictionary when compressed; the entry point in the description |
+| nexe | `<nexe~~sentinel>` and two doubles in the last 16000 bytes | the launcher with the bundled entry script (`nexe-launch.js`), the resources by `process.__nexe`'s index (3 and 4), or as a zip (5) |
+| Bun | `\n---- Bun! ----\n` ending the module graph: appended (with the file's size after it), or in the `.bun` section (ELF, by its virtual address; PE), or Mach-O's `__BUN,__bun` | each module by its `/$bunfs/root/` name, its JavaScriptCore bytecode beside it (`.jsc-bytecode`); the record layouts of 1.0 to 1.3 (the one whose names all parse) |
+| a zip appended to an executable | an end record in the last 64 KiB of an ELF, PE or Mach-O, its central directory in the file | as zip, the prefix skipped (py2exe's library, self-extracting archives) |
+| Lua chunks | a file no other format names, with a `\x1bLua` or `\x1bLJ` header that parses and functions that walk to their end in its first 256 MiB | each chunk as `<kind>@<offset>.luac` (`lua-5.4@0x1a2b0.luac`), cut to its exact length (Lua 5.5: to the next chunk, as its dump isn't walked); LuaJIT prototypes checked against their own sizes |
 
 Intel HEX and Motorola S-records are loaders already (`ImportOptions.raw_format`):
 the browser shows them as `Intel HEX` and `Motorola S-record` and imports
 them as raw images.
+
+## Packed executables
+
+A program packed with its scripts (PyInstaller, pkg, nexe, Node's SEA,
+Bun) is a program and a container at once. It stays a program: its
+listing entry is `elf` or `pe` (bold, imported by a batch import), and
+its `container_format` names the packer's archive, so the browser opens it
+in place and Info shows the archive (`api_minor` 96, feature
+`packed-executables`). A listing looks for these only in files whose bytes
+are stored plainly (a decompressed member's bytes would have to be
+decompressed in full); Info always looks. `ProgramInfo.payload_format`
+says the same of an imported program, and `OpenFileSystem` with its
+`program_id` opens the archive; the Open dialog's details have a **Packed**
+line with **Open as file system**, and the import toasts it.
+
+What they hold comes out as files a decompiler takes, by [content
+kind](#content-kinds): PyInstaller's scripts and modules as `.pyc` files
+whose header is restored (they run as extracted), JavaScript as source
+(`js-source`), pkg's compiled scripts and Node's code caches as
+`v8-cache`, Bun's bytecode as `jsc-bytecode`.
+
+Not read yet:
+
+- **Deno** (`deno compile`): Deno 1.x appends an eszip and its metadata
+  behind a `d3n0l4nd` trailer; Deno 2 puts a section `d3n0l4nd` (libsui:
+  an ELF note or trailer, a PE resource, a Mach-O `__SUI` section) holding
+  the metadata, an npm snapshot, the remote modules and a virtual file
+  system whose layout changed in 2.1, 2.2, 2.4, 2.6 and 2.9. Its files are
+  plain once found; the work is the six layouts.
+- **py2exe**'s `PYTHONSCRIPT` resource (a marshalled list of code objects,
+  the main scripts): its library (an appended zip, or `library.zip` beside
+  it) opens, the scripts don't yet.
+- **cx_Freeze** needs nothing more: `lib/library.zip` is a zip of `.pyc`
+  files, and an older build's appended zip opens as above.
+- Nuitka's onefile payload, AutoIt and AutoHotkey scripts in resources,
+  .NET single-file bundles and embedded assemblies.
+- Lua chunks embedded in an ELF or PE (only files no format names are
+  searched), Lua 5.0, modified Lua VMs (another format byte).
 
 ## Nesting and paths
 
@@ -112,12 +163,58 @@ compressed member is decompressed only that far) and says:
 - `container`: a nested container's format (`gzip compressed`, `zip
   archive`): Open as file system;
 - `raw`: Intel HEX, S-records, or data no header names;
-- `text` (a script's `#!` line shown), `data` (Mach-O, DEX, a device tree,
-  images and documents are named), `empty`.
+- `macho`: `Mach-O 64-bit arm64 executable` (with the processor), or
+  `Mach-O universal (x86_64, arm64)` (api_minor 90; [macho.md](macho.md));
+  a batch import's programs include them;
+- `bytecode` (`api_minor` 95): a `.pyc` (`Python 3.12 bytecode (magic
+  3531)`), a Lua or LuaJIT chunk (`Lua 5.4 chunk (64-bit integers, 64-bit
+  floats)`), a Java class (`Java class (Java 21, class file 65.0)`), DEX,
+  WebAssembly, Hermes, a V8 code cache, Ruby `YARB`, PHP opcache, Erlang
+  BEAM, a JerryScript snapshot, each with its [content kind](#content-kinds);
+- `text` (a script's `#!` line shown), `data` (a device tree, images and
+  documents are named), `empty`.
+
+A PE's description says when it is a .NET assembly (`PE x86 DLL, .NET
+assembly (IL-only, metadata v4.0.30319)`), and a zip's when its first
+members make it a Java archive or an Android package (`zip archive
+(Android package)`).
 
 Detection stops after about two seconds per listing
 (`detect_incomplete`); `GetFileSystemFileInfo` describes any one file, with
 its SHA-256, SHA-1, MD5 and first bytes.
+
+## Content kinds
+
+`api_minor` 95, feature `content-kinds`. Each file of a listing has a
+`content_kind` when it is a script or bytecode: what a decompiler for that
+language would take it as, `family:version` where the header says the
+version. The external decompiler providers
+([bytecode-lifting.md](bytecode-lifting.md#plan), step 2) dispatch on the
+family, the part before the colon. The file's own header decides when it
+has one (a listing with `detect`); otherwise the container says, by the
+member's name or role (an asar's `.js` files, a packer's main script).
+
+| Kind | What | From |
+| --- | --- | --- |
+| `pyc:<major>.<minor>` | a CPython `.pyc`, 2.0 to 3.16 (`pyc:2.7`, `pyc:3.12`) | the magic number (CPython's table; from 3.11, 3.n takes 2900 + 50n onwards) and a code object after the 8-, 12- or 16-byte header |
+| `lua:<major>.<minor>` | a Lua 5.1 to 5.5 chunk (`lua:5.4`) | `\x1bLua`, the version byte, format 0, and sizes that make sense (5.3 and later: `LUAC_INT` and `LUAC_NUM` read back) |
+| `luajit:2.0`, `luajit:2.1` | LuaJIT bytecode | `\x1bLJ`, version 1 or 2, known flags |
+| `java-class:<version>` | a JVM class file (`java-class:8`, `java-class:21`; `1.1` to `1.4` for the oldest) | `0xcafebabe` that isn't a universal Mach-O, the major version, a constant pool |
+| `jar`, `apk` | a zip that is a Java archive or an Android package | its first members (`META-INF/MANIFEST.MF` and classes; `AndroidManifest.xml`, `classes.dex`, `resources.arsc`) |
+| `dex:<version>`, `odex:<version>` | Dalvik bytecode (`dex:035` to `dex:041`) | `dex\n` and three digits |
+| `wasm`, `wasm-component` | a WebAssembly module, a component | `\0asm` and the version |
+| `hermes:<version>` | Hermes bytecode, React Native (`hermes:96`) | the 8-byte magic (the delta one too) and the version |
+| `v8-cache` | a V8 code cache: `vm.Script`'s cached data, bytenode's `.jsc` | the `0xC0DE....` magic and a payload length that fills the file |
+| `dotnet:il`, `dotnet:mixed` | a .NET assembly, IL-only or mixed-mode | the PE's CLR header |
+| `yarb:<major>.<minor>`, `php-opcache`, `beam`, `jerryscript:<version>` | Ruby instruction sequences, PHP opcache files, Erlang BEAM modules, JerryScript snapshots | their magics |
+| `js-source`, `python-source`, `lua-source` | a script, by its `#!` interpreter (node, deno, bun; python; lua, luajit) | the first line |
+| `js-source`, `ts-source` | a packer's script: an asar's, pkg's, nexe's, a SEA's or Bun's `.js` (`.mjs`, `.cjs`) and `.ts` members | the container |
+| `v8-snapshot` | a SEA's startup snapshot | the container |
+| `jsc-bytecode` | Bun's JavaScriptCore bytecode cache | the container |
+
+Not named, because their headers aren't reliable: QuickJS bytecode (its
+first byte is a version number), Lua 5.0 and modified Lua VMs (a format
+byte other than 0).
 
 ## Importing
 
@@ -303,6 +400,27 @@ promise. Their licenses are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.m
   archives and file system images (squashfs, ext4, cramfs, ISO, cpio:
   truncations and 200 flipped bytes each), a host directory whose symlinks
   point out.
+- `revkit_container_tests` `ContainerPackers.*` (`src/container/tests/packers_test.cc`):
+  every packer's container, on the formats as
+  `tests/data/bytecode/make_packed.py` writes them onto a copy of
+  `/bin/true` (a CArchive with a PYZ, pkg plain and gzip, nexe 4 and 5,
+  Bun, an appended zip, Lua in firmware with decoys), a real SEA blob from
+  `node --experimental-sea-config` put in an ELF note as postject does,
+  a real PyInstaller one-file build (its script runs as extracted) and
+  Lua chunks from lupa carved out of noise, all where the tools are here;
+  an asar with unpacked files, read through a host directory; truncations
+  and flipped bytes. Checked by hand against real tools (2026-10-18):
+  `@electron/asar`, `postject` on Node 24, `@yao-pkg/pkg` 6.23 (plain and
+  `--compress GZip`), PyInstaller 6.22.
+- `revkit_container_tests` `ContainerBytecode.*` (`src/container/tests/bytecode_test.cc`):
+  every content kind, on real files where the toolchain is here (a `.pyc`
+  from `py_compile`, a class and a jar from `javac`, a V8 code cache from
+  `node`, an assembly from the dotnet SDK, Lua 5.1 to 5.5 and LuaJIT 2.0
+  and 2.1 chunks from the interpreters lupa bundles,
+  `tests/data/bytecode/make_lua_chunks.py`: each walked to its exact
+  length, and truncations refused) and on headers written by the test
+  otherwise (the pyc magic table from 2.7 to 3.15, Lua's sizes, DEX, wasm,
+  Hermes, YARB, BEAM, opcache).
 - `python_sdk` (`sdk/python/tests/test_filesystems.py`): the service end to
   end, MCP, `revkit.script`, extraction, the roles, and a batch import
   descending into a squashfs inside a zip and taking a UF2 image as a raw
@@ -313,7 +431,12 @@ promise. Their licenses are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.m
   dialog; batch import with preview and cap.
 - **Fuzzing** (with `-DREVKIT_FUZZ=ON` and clang; the bug scrub,
   [roadmap.md](roadmap.md)): `container_<format>_fuzzer` for every format,
-  and `container_codecs_fuzzer` for the LZ4 and LZO1X block decoders.
+  `container_codecs_fuzzer` for the LZ4 and LZO1X block decoders, and
+  `container_bytecode_fuzzer` for the bytecode headers (guess, a PE's CLR
+  header, a Lua chunk's header and walk); the packers' formats each have
+  theirs (`container_asar_fuzzer`, `_pyinstaller_`, `_pyz_` (with the
+  marshal reader), `_lua_chunks_`, `_node_sea_`, `_pkg_` (with the JSON
+  reader), `_nexe_`, `_bun_`).
 
 ## Known gaps
 
@@ -324,4 +447,10 @@ promise. Their licenses are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.m
   payloads. cramfs is read with 4 KiB blocks (an image made with another
   `-b` fails to decompress).
 - ext: the journal is not replayed.
+- Packers not read yet: Deno executables, py2exe's `PYTHONSCRIPT`,
+  Nuitka onefile, AutoIt and AutoHotkey scripts, .NET bundles
+  ([Packed executables](#packed-executables)). pkg's Brotli-compressed
+  files are listed, not read (no Brotli decoder). PyInstaller's `--key`
+  encryption (before 6.0) isn't undone. An asar opened by itself can't
+  read its `unpacked` files: open the folder holding both.
 - A browser's listing shows up to 2,000 entries per directory.

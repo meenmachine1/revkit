@@ -259,9 +259,9 @@ bool named_no_return(facts::QueryContext &ctx, const ProgramKey &program, const 
     auto said = ctx.get<facts::AssertedFact>(facts::FactKey{facts::FactKind::NoReturn, {info.space, target}, {}});
     if (const auto *i = std::get_if<std::int64_t>(&*said)) return *i != 0;
     if (const Seed *s = info.seed_at(info.code_address(target)); s && s->named_by_symbol)
-      return is_known_no_return(s->name);
+      return is_known_no_return(s->name, info.macho);
     auto t = ctx.get<JumpStub>(Location{program, target});
-    if (t->kind == ThunkKind::import) return is_known_no_return(t->import);
+    if (t->kind == ThunkKind::import) return is_known_no_return(t->import, info.macho);
     if (t->kind != ThunkKind::direct) return false;
     target = t->target;
   }
@@ -851,7 +851,7 @@ static FlowGraph compute_flow(facts::QueryContext &ctx, const Location &entry) {
         eval.step(*insn);
         const auto &t = eval.indirect_target();
         if (t && t->kind == Sym::Kind::loaded)
-          if (const ImportSlot *s = info->import_at(t->value); s && is_known_no_return(s->name)) {
+          if (const ImportSlot *s = info->import_at(t->value); s && is_known_no_return(s->name, info->macho)) {
             fi.no_return = true;
             fi.falls_through = false;
           }

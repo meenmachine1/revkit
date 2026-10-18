@@ -73,12 +73,16 @@ struct LoadedValue {
 
 // Every access through `high` in `fd` (whose analysis is complete), in
 // p-code order. Offsets reach at most +-1 MiB; at most 4096 accesses.
-// `loads`, if given, gets each value a LOAD through it produced.
+// `loads`, if given, gets each value a LOAD through it produced; `self`,
+// the offsets of the loads whose value flows back into the variable
+// itself (`p = p->next`: a field that points to the same kind of thing).
 std::vector<PointerAccess> pointer_accesses(const ghidra::Funcdata &fd, const ghidra::HighVariable &high,
-                                            std::vector<LoadedValue> *loads = nullptr);
+                                            std::vector<LoadedValue> *loads = nullptr,
+                                            std::vector<std::int64_t> *self = nullptr);
 // The same from these varnodes (a loaded value).
 std::vector<PointerAccess> pointer_accesses(const ghidra::Funcdata &fd, const std::vector<const ghidra::Varnode *> &roots,
-                                            std::vector<LoadedValue> *loads = nullptr);
+                                            std::vector<LoadedValue> *loads = nullptr,
+                                            std::vector<std::int64_t> *self = nullptr);
 
 // A structure's field, as compose_structure() lays it out.
 struct PlannedField {
@@ -107,6 +111,12 @@ struct ComposeOptions {
   // that large (Ghidra's sanity limit).
   std::uint64_t max_offset = 0x1000;
   std::uint32_t pointer_size = 8;
+  // Keep a wide field whole where splitting it at the narrower accesses
+  // inside it costs more: its wide accesses would read pieces of several
+  // fields (the decompiler assembles those over lines, `x._0_2_ = ...`),
+  // twice as costly per access as a narrow access into the wide field.
+  // Off: every access start is a field (Ghidra's rule, Auto Structure's).
+  bool keep_wide = false;
 };
 
 // Fields from accesses (offsets already relative to the structure: a

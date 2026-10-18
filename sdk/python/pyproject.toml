@@ -19,7 +19,7 @@ dev = ["grpcio-tools==1.84.0", "pytest>=8"]
 mcp = ["mcp>=1.10"]
 
 [project.scripts]
-revkit-mcp = "revkit.mcp_server:main"
+revkit-mcp = "revkit.mcp_cli:main"
 revkit-ghidra-import = "revkit.ghidra.importer:main"
 revkit-ghidra-export = "revkit.ghidra.exporter:main"
 rk-script = "revkit.script.cli:main"
@@ -33,6 +33,9 @@ include = ["revkit*"]
 [tool.setuptools.package-data]
 # The starter scripts (rk-script list) ship as files in the package.
 "revkit.scripts" = ["*.py"]
+# The agent workflow guide the MCP server serves (prompt "investigate",
+# resource revkit://guide; docs/api.md MCP server).
+"revkit" = ["agent_guide.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -180,15 +180,17 @@ PointerAccess PointerAccess::decode(facts::Decoder &d) {
   return a;
 }
 
-std::vector<PointerAccess> pointer_accesses(const ghidra::Funcdata &fd, const ghidra::HighVariable &high, std::vector<LoadedValue> *loads) {
+std::vector<PointerAccess> pointer_accesses(const ghidra::Funcdata &fd, const ghidra::HighVariable &high, std::vector<LoadedValue> *loads,
+                                            std::vector<std::int64_t> *self) {
   std::vector<const ghidra::Varnode *> roots;
   for (int i = 0; i < high.numInstances(); ++i) roots.push_back(high.getInstance(i));
-  return pointer_accesses(fd, roots, loads);
+  return pointer_accesses(fd, roots, loads, self);
 }
 
 std::vector<PointerAccess> pointer_accesses(const ghidra::Funcdata &fd, const std::vector<const ghidra::Varnode *> &roots,
-                                            std::vector<LoadedValue> *loads) {
+                                            std::vector<LoadedValue> *loads, std::vector<std::int64_t> *self) {
   std::vector<PointerAccess> out;
+  std::vector<std::pair<std::int64_t, const ghidra::Varnode *>> loaded;  // for `self`
   std::vector<std::pair<const ghidra::Varnode *, std::int64_t>> todo;
   std::unordered_map<const ghidra::Varnode *, std::int64_t> done;
   for (const ghidra::Varnode *vn : roots)
@@ -237,6 +239,7 @@ std::vector<PointerAccess> pointer_accesses(const ghidra::Funcdata &fd, const st
             a.address = op->getAddr().getOffset();
             out.push_back(std::move(a));
             if (loads != nullptr && off >= 0 && loads->size() < kMaxAccesses) loads->push_back({off, result});
+            if (self != nullptr && off >= 0) loaded.emplace_back(off, result);
           }
           break;
         case ghidra::CPUI_STORE:
@@ -273,6 +276,28 @@ std::vector<PointerAccess> pointer_accesses(const ghidra::Funcdata &fd, const st
       }
     }
   }
+  if (self != nullptr)
+    for (const auto &[off, value] : loaded) {
+      // The loaded value is the variable itself (reached from it at offset
+      // 0), or is copied or joined into it.
+      bool back = false;
+      if (auto it = done.find(value); it != done.end() && it->second == 0) back = true;
+      for (auto it = value->beginDescend(); !back && it != value->endDescend(); ++it) {
+        const ghidra::PcodeOp *op = *it;
+        switch (op->code()) {
+          case ghidra::CPUI_COPY:
+          case ghidra::CPUI_CAST:
+          case ghidra::CPUI_MULTIEQUAL:
+          case ghidra::CPUI_INDIRECT:
+            if (op->getOut() != nullptr)
+              if (auto d = done.find(op->getOut()); d != done.end() && d->second == 0) back = true;
+            break;
+          default:
+            break;
+        }
+      }
+      if (back && std::find(self->begin(), self->end(), off) == self->end()) self->push_back(off);
+    }
   return out;
 }
 
@@ -346,6 +371,27 @@ StructurePlan compose_structure(const std::vector<PointerAccess> &accesses, cons
     }
     if (!valid(f.value, f.size)) f.value = ValueKind::unknown;
     fields.push_back(std::move(f));
+  }
+  if (options.keep_wide) {
+    std::vector<PlannedField> kept;
+    for (std::size_t i = 0; i < fields.size(); ++i) {
+      PlannedField f = fields[i];
+      std::size_t j = i + 1;
+      std::uint32_t inside = 0;
+      while (j < fields.size() && fields[j].offset < f.offset + f.size && fields[j].offset + fields[j].size <= f.offset + f.size)
+        inside += fields[j++].accesses;
+      const bool overlaps_next = j < fields.size() && fields[j].offset < f.offset + f.size;
+      const auto &sizes = at.at(f.offset).sizes;
+      const auto wide = sizes.find(f.size);
+      if (j > i + 1 && !overlaps_next && wide != sizes.end() && inside < 2 * wide->second) {
+        f.accesses += inside;
+        kept.push_back(std::move(f));
+        i = j - 1;
+        continue;
+      }
+      kept.push_back(std::move(f));
+    }
+    fields = std::move(kept);
   }
   // Never into the next field: an 8-byte store over two 4-byte fields is
   // two fields.

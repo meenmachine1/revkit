@@ -63,7 +63,7 @@ class Analyzers : public ::testing::Test {
     if (!revkit::testing::compile(REVKIT_TEST_CC, kFixture, flags, dir_ / "named") ||
         !revkit::testing::compile(REVKIT_TEST_CC, kFixture, flags + " -s", dir_ / "stripped"))
       GTEST_SKIP() << "can't build the fixture";
-    loader::Image named = loader::load_file(dir_ / "named", {.image_base = std::nullopt, .ghidra_image_base = true});
+    loader::Image named = loader::load_file(dir_ / "named", {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
     for (const loader::Symbol &s : named.symbols)
       if (s.defined) sym_[s.name] = s.value;
     host_ = std::make_unique<Host>();
@@ -79,7 +79,7 @@ class Analyzers : public ::testing::Test {
     auto db = std::make_unique<facts::FactDb>();
     analysis::register_queries(db->engine());
     register_queries(db->engine());
-    image_ = std::make_shared<loader::Image>(loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true}));
+    image_ = std::make_shared<loader::Image>(loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}}));
     info_ = analysis::describe(*image_, loader::guess_language(*image_)->id());
     auto tx = db->begin();
     analysis::stage_image(tx, kProgram, *image_, info_);

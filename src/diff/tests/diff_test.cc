@@ -130,7 +130,7 @@ class Diff : public ::testing::Test {
   }
 
   void load(const std::string &id, const std::filesystem::path &file, facts::SpaceId space) {
-    auto image = loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true});
+    auto image = loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
     auto lang = loader::guess_language(image);
     ASSERT_TRUE(lang);
     analysis::ProgramInfo info = analysis::describe(image, lang->id(), space);
@@ -141,7 +141,7 @@ class Diff : public ::testing::Test {
 
   // Entry -> name, from the unstripped twin's symbols.
   static std::map<std::uint64_t, std::string> names(const std::filesystem::path &file) {
-    loader::Image img = loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true});
+    loader::Image img = loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
     std::map<std::uint64_t, std::string> out;
     for (const loader::Symbol &s : img.symbols)
       if (s.defined && s.type == loader::SymbolType::func) out[s.value] = s.name;
@@ -271,7 +271,7 @@ TEST_F(Diff, DeterministicAcrossThreadCounts) {
     facts::ThreadPool pool(threads);
     other.engine().set_pool(&pool);
     for (auto [id, file, space] : {std::tuple{"a", built_[0].stripped, 16}, std::tuple{"b", built_[1].stripped, 18}}) {
-      auto image = loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true});
+      auto image = loader::load_file(file, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
       analysis::ProgramInfo info = analysis::describe(image, loader::guess_language(image)->id(),
                                                       static_cast<facts::SpaceId>(space));
       info.references = true;
@@ -392,7 +392,7 @@ TEST_F(Diff, DataTheCodeReadsDoesNotChangeTheCode) {
   if (std::system(cmd.c_str()) != 0) GTEST_SKIP() << "the ARM firmware didn't build";
   std::uint64_t table = 0;
   {
-    loader::Image elf = loader::load_file(dir / "fw.elf", {.image_base = std::nullopt, .ghidra_image_base = true});
+    loader::Image elf = loader::load_file(dir / "fw.elf", {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
     for (const loader::Symbol &sym : elf.symbols)
       if (sym.name == "handlers") table = sym.value;
   }
@@ -495,7 +495,7 @@ TEST_F(Diff, InPlacePatchFlagsOnlyThePatchedInstruction) {
   if (std::system(cmd.c_str()) != 0) GTEST_SKIP() << "the ARM firmware didn't build";
   std::uint64_t h2 = 0, h2_size = 0;
   {
-    loader::Image elf = loader::load_file(dir / "fw.elf", {.image_base = std::nullopt, .ghidra_image_base = true});
+    loader::Image elf = loader::load_file(dir / "fw.elf", {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
     for (const loader::Symbol &sym : elf.symbols)
       if (sym.name == "h2") h2 = sym.value, h2_size = sym.size;
   }

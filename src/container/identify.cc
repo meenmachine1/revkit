@@ -1,6 +1,12 @@
 // Recognition by magic (never by name), the cheap "what is this file"
 // guess for listings, and the format registry.
+#include "asar.hh"
+#include "bytecode.hh"
+#include "exe.hh"
 #include "formats.hh"
+#include "jsexe.hh"
+#include "luacarve.hh"
+#include "pyinstaller.hh"
 
 #include <zlib.h>
 
@@ -8,6 +14,7 @@
 #include <array>
 #include <cstdio>
 #include <map>
+#include <optional>
 
 namespace revkit::container {
 
@@ -128,7 +135,7 @@ constexpr Machine kElfMachines[] = {
     {50, "IA-64", ""},           {62, "x86-64", "x86"},      {83, "AVR", "avr8"},       {87, "V850", "V850"},
     {92, "OpenRISC", ""},        {94, "Xtensa", "Xtensa"},   {105, "MSP430", "TI_MSP430"}, {106, "Blackfin", ""},
     {164, "Hexagon", "Hexagon"}, {183, "AArch64", "AARCH64"}, {189, "MicroBlaze", "MicroBlaze"},
-    {243, "RISC-V", "RISCV"},    {258, "LoongArch", "Loongarch"},
+    {243, "RISC-V", "RISCV"},    {247, "eBPF", "eBPF"},      {258, "LoongArch", "Loongarch"},
 };
 
 struct PeMachine {
@@ -181,6 +188,10 @@ const std::map<std::string, std::string> &format_kinds() {
       {"fat", "FAT file system"},      {"uimage", "U-Boot image"},
       {"android-boot", "Android boot image"}, {"uf2", "UF2 firmware"},
       {"partitions", "partitioned disk image"},
+      {"asar", "Electron asar archive"},  {"pyinstaller", "PyInstaller archive"},
+      {"pyz", "PyInstaller PYZ archive"}, {"lua-chunks", "Lua chunks"},
+      {"node-sea", "Node.js single executable"}, {"pkg", "pkg executable"},
+      {"nexe", "nexe executable"},        {"bun", "Bun executable"},
   };
   return m;
 }
@@ -194,7 +205,53 @@ std::uint32_t detail::crc32_ieee(std::span<const std::byte> data, std::uint32_t 
 
 std::string identify(const Source &src) {
   const std::vector<std::byte> h = src.head(kIdentifyBytes);
-  return identify_head(h, src.size());
+  std::string f = identify_head(h, src.size());
+  if (f.empty()) f = identify_payload(src);
+  return f;
+}
+
+// A zip appended to the file (py2exe's library, cx_Freeze's and
+// self-extractors' archives): an end record in the last 64 KiB whose
+// central directory, shifted by the prefix, lies in the file.
+static bool appended_zip(const Source &src) {
+  const std::uint64_t size = src.size();
+  if (size < 22) return false;
+  const std::uint64_t tail = std::min<std::uint64_t>(size, 65557);
+  const auto t = src.read_exact(size - tail, tail, "the end of the file");
+  for (std::size_t i = t.size() - 22 + 1; i-- > 0;) {
+    if (le32(t.data() + i) != 0x06054b50) continue;
+    const std::uint16_t comment = le16(t.data() + i + 20);
+    if (i + 22 + comment != t.size()) continue;
+    const std::uint64_t eocd = size - tail + i;
+    const std::uint64_t entries = le16(t.data() + i + 10), cd_size = le32(t.data() + i + 12);
+    if (entries == 0 || cd_size == 0 || cd_size > eocd) return false;
+    // The first central directory record must be one.
+    const auto c = src.read_exact(eocd - cd_size, 4, "a zip central directory");
+    return le32(c.data()) == 0x02014b50;
+  }
+  return false;
+}
+
+std::string identify_payload(const Source &src, const std::function<bool()> &cancelled) {
+  try {
+    const ExeFormat exe = exe_format(src);
+    if (exe != ExeFormat::none) {
+      // Packed executables, most specific first.
+      if (pyinstaller_payload(src)) return "pyinstaller";
+      if (node_sea_payload(src)) return "node-sea";
+      if (pkg_payload(src)) return "pkg";
+      if (nexe_payload(src)) return "nexe";
+      if (bun_payload(src)) return "bun";
+      if (appended_zip(src)) return "zip";
+      return "";
+    }
+    // Data with Lua chunks in it; not a chunk (or other bytecode) itself.
+    const auto h = src.head(4096);
+    if (bytecode_guess(h, src.size())) return "";
+    if (lua_chunks_payload(src, cancelled)) return "lua-chunks";
+  } catch (const Error &) {
+  }
+  return "";
 }
 
 std::string identify_head(std::span<const std::byte> b, std::uint64_t size) {
@@ -228,7 +285,69 @@ std::string identify_head(std::span<const std::byte> b, std::uint64_t size) {
   if (b.size() >= 512 + 8 && at(b, 512, "EFI PART")) return "partitions";
   if (mbr(b, size)) return "partitions";
   if (lzma_alone(b, size)) return "lzma";
+  if (asar_header(b, size)) return "asar";
+  if (pyz_header(b)) return "pyz";
   return "";
+}
+
+// A Mach-O CPU's name as lipo spells it, and its processor as Ghidra's
+// language ids start ("AARCH64:LE:64").
+static std::pair<std::string, std::string> macho_cpu(std::uint32_t cpu, std::uint32_t sub) {
+  sub &= 0x00ffffff;
+  switch (cpu) {
+    case 7: return {"i386", "x86:LE:32"};
+    case 0x01000007: return {sub == 8 ? "x86_64h" : "x86_64", "x86:LE:64"};
+    case 0x0100000c: return {sub == 2 ? "arm64e" : "arm64", "AARCH64:LE:64"};
+    case 0x0200000c: return {"arm64_32", "AARCH64:LE:32"};
+    case 12: return {sub == 9 ? "armv7" : sub == 11 ? "armv7s" : sub == 12 ? "armv7k" : "arm", "ARM:LE:32"};
+    case 18: return {"ppc", "PowerPC:BE:32"};
+    case 0x01000012: return {"ppc64", "PowerPC:BE:64"};
+    default: return {"cpu " + std::to_string(cpu), ""};
+  }
+}
+
+static std::optional<Guess> macho_guess(std::span<const std::byte> b) {
+  if (b.size() < 28) return std::nullopt;
+  const std::uint32_t m = le32(b.data());
+  static const char *types[] = {"", "object", "executable", "fixed VM library", "core", "preload", "dylib",
+                                "dynamic linker", "bundle", "dylib stub", "dSYM", "kext", "fileset"};
+  if (m == 0xfeedface || m == 0xfeedfacf || m == 0xcefaedfe || m == 0xcffaedfe) {
+    const bool little = m == 0xfeedface || m == 0xfeedfacf, wide = m == 0xfeedfacf || m == 0xcffaedfe;
+    const std::uint32_t cpu = little ? le32(b.data() + 4) : be32(b.data() + 4);
+    const std::uint32_t sub = little ? le32(b.data() + 8) : be32(b.data() + 8);
+    const std::uint32_t type = little ? le32(b.data() + 12) : be32(b.data() + 12);
+    Guess g;
+    g.kind = "macho";
+    g.format = "macho";
+    auto [arch, processor] = macho_cpu(cpu, sub);
+    g.processor = processor;
+    g.description = std::string("Mach-O ") + (wide ? "64" : "32") + "-bit " + arch +
+                    (type >= 1 && type < std::size(types) ? std::string(" ") + types[type] : std::string());
+    return g;
+  }
+  if (be32(b.data()) == 0xcafebabe || be32(b.data()) == 0xcafebabf) {
+    const bool wide = be32(b.data()) == 0xcafebabf;
+    const std::uint32_t n = be32(b.data() + 4);
+    const std::size_t entry = wide ? 32 : 20;
+    if (n == 0 || n > 64 || b.size() < 8 + n * entry) return std::nullopt;
+    std::string archs;
+    for (std::uint32_t i = 0; i < n; ++i) {
+      const std::byte *e = b.data() + 8 + i * entry;
+      auto [arch, processor] = macho_cpu(be32(e), be32(e + 4));
+      // A slice of a known CPU at an aligned offset past the header.
+      const std::uint64_t off = wide ? (std::uint64_t{be32(e + 8)} << 32 | be32(e + 12)) : be32(e + 8);
+      const std::uint32_t align = be32(e + (wide ? 24 : 16));
+      if (processor.empty() || align > 16 || off < 8 + n * entry || off % (std::uint64_t{1} << align) != 0)
+        return std::nullopt;
+      archs += (i ? ", " : "") + arch;
+    }
+    Guess g;
+    g.kind = "macho";
+    g.format = "macho";
+    g.description = "Mach-O universal (" + archs + ")";
+    return g;
+  }
+  return std::nullopt;
 }
 
 Guess guess(std::span<const std::byte> b, std::uint64_t size, std::string_view container_format) {
@@ -243,6 +362,11 @@ Guess guess(std::span<const std::byte> b, std::uint64_t size, std::string_view c
     g.format = std::string(container_format);
     auto it = format_kinds().find(g.format);
     g.description = it == format_kinds().end() ? g.format : it->second;
+    if (g.format == "zip") {
+      g.content_kind = zip_content_kind(b);
+      if (g.content_kind == "apk") g.description += " (Android package)";
+      else if (g.content_kind == "jar") g.description += " (Java archive)";
+    }
     if (g.format == "uimage" && b.size() >= 64) {
       static const std::map<unsigned, const char *> arch = {
           {1, "Alpha"}, {2, "ARM"},  {3, "x86"},   {4, "IA-64"}, {5, "MIPS"},   {6, "MIPS64"},  {7, "PowerPC"},
@@ -289,6 +413,10 @@ Guess guess(std::span<const std::byte> b, std::uint64_t size, std::string_view c
           g.processor = m.processor;
         }
       g.description = "PE " + mname + ((chars & 0x2000) ? " DLL" : " executable");
+      if (auto d = dotnet_head(b, pe)) {
+        g.description += d->description;
+        g.content_kind = d->content_kind;
+      }
       return g;
     }
     g.kind = "data";
@@ -296,19 +424,19 @@ Guess guess(std::span<const std::byte> b, std::uint64_t size, std::string_view c
     g.description = "MS-DOS executable";
     return g;
   }
+  // Mach-O, thin or universal (the latter only when its header lists
+  // plausible slices: a Java class file shares 0xcafebabe).
+  if (auto m = macho_guess(b); m) return *m;
+  // Bytecode and compiled scripts (docs/bytecode-lifting.md): a .pyc, Lua
+  // and LuaJIT chunks, Java classes (0xcafebabe that isn't a universal
+  // Mach-O), DEX, WebAssembly, Hermes, V8 code caches, ...
+  if (auto bc = bytecode_guess(b, size); bc) return *bc;
   struct Simple {
     std::string_view magic;
     const char *format, *description, *kind;
   };
   static const Simple simple[] = {
-      {"\xfe\xed\xfa\xce", "macho", "Mach-O 32-bit BE", "data"},
-      {"\xce\xfa\xed\xfe", "macho", "Mach-O 32-bit LE", "data"},
-      {"\xfe\xed\xfa\xcf", "macho", "Mach-O 64-bit BE", "data"},
-      {"\xcf\xfa\xed\xfe", "macho", "Mach-O 64-bit LE", "data"},
       {"\xd0\x0d\xfe\xed", "dtb", "device tree blob", "data"},
-      {std::string_view("dex\n0", 5), "dex", "Android DEX", "data"},
-      {"\xca\xfe\xba\xbe", "class", "Java class or Mach-O universal", "data"},
-      {"\x00asm", "wasm", "WebAssembly module", "data"},
       {"\x89PNG", "png", "PNG image", "data"},
       {"\xff\xd8\xff", "jpeg", "JPEG image", "data"},
       {"%PDF", "pdf", "PDF document", "data"},
@@ -340,7 +468,23 @@ Guess guess(std::span<const std::byte> b, std::uint64_t size, std::string_view c
     if (at(b, 0, "#!")) {
       std::size_t e = 2;
       while (e < b.size() && e < 80 && static_cast<char>(b[e]) != '\n') ++e;
-      g.description = "script (" + display_name(std::string_view(reinterpret_cast<const char *>(b.data()), e)) + ")";
+      const std::string_view line(reinterpret_cast<const char *>(b.data()), e);
+      g.description = "script (" + display_name(line) + ")";
+      // The interpreter the #! line names: a script a decompiler provider
+      // would take as source.
+      auto runs = [&](std::string_view interp) {
+        for (std::size_t i = line.find(interp); i != std::string_view::npos; i = line.find(interp, i + 1)) {
+          const bool start = i > 0 && (line[i - 1] == '/' || line[i - 1] == ' ');
+          const std::size_t end = i + interp.size();
+          const bool stop = end == line.size() || line[end] == ' ' || line[end] == '\r' ||
+                            (line[end] >= '0' && line[end] <= '9') || line[end] == '.';
+          if (start && stop) return true;
+        }
+        return false;
+      };
+      if (runs("node") || runs("nodejs") || runs("deno") || runs("bun")) g.content_kind = "js-source";
+      else if (runs("python") || runs("python2") || runs("python3")) g.content_kind = "python-source";
+      else if (runs("lua") || runs("luajit")) g.content_kind = "lua-source";
     } else {
       g.description = "text";
     }
@@ -360,6 +504,9 @@ std::shared_ptr<FileSystem> open_format(const std::string &format, std::shared_p
       {"ext", open_ext},          {"cramfs", open_cramfs},   {"fat", open_fat},
       {"uimage", open_uimage},    {"android-boot", open_android_boot}, {"uf2", open_uf2},
       {"partitions", open_partitions},
+      {"asar", open_asar},        {"pyinstaller", open_pyinstaller}, {"pyz", open_pyz},
+      {"lua-chunks", open_lua_chunks}, {"node-sea", open_node_sea}, {"pkg", open_pkg},
+      {"nexe", open_nexe},        {"bun", open_bun},
   };
   static const std::map<std::string, Codec, std::less<>> codecs = {
       {"gzip", Codec::gzip}, {"bzip2", Codec::bzip2}, {"xz", Codec::xz},
@@ -379,7 +526,8 @@ std::shared_ptr<FileSystem> open_container(std::shared_ptr<const Source> src, st
 
 std::vector<std::string> formats() {
   return {"zip", "tar", "cpio", "ar", "iso9660", "gzip", "bzip2", "xz", "lzma", "zstd", "lz4", "squashfs",
-          "ext", "cramfs", "fat", "uimage", "android-boot", "uf2", "partitions"};
+          "ext", "cramfs", "fat", "uimage", "android-boot", "uf2", "partitions", "asar", "pyinstaller", "pyz",
+          "lua-chunks", "node-sea", "pkg", "nexe", "bun"};
 }
 
 }  // namespace revkit::container

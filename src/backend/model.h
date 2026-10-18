@@ -57,6 +57,9 @@ struct ProgramSource {
   // Where it came from inside a container (ImportFromFileSystem):
   // "zip://fw.zip!/rootfs.sqfs!/bin/busybox". Encoded only when set.
   std::string container_path;
+  // A universal Mach-O's slice, as ImportOptions.macho_slice named it
+  // ("arm64", "#1"); empty: the default. Encoded only when set.
+  std::string macho_slice;
 
   // The loaded program: a cache of parse(file, options), which the encoding
   // already covers through sha256 and the options. It is not encoded, so

@@ -254,7 +254,7 @@ Bundle Bundle::decode(facts::Decoder &d) {
   b.language_id = std::string(d.bytes());
   b.entry = d.varint();
   const std::uint8_t format = d.u8();
-  if (format > static_cast<std::uint8_t>(loader::Format::raw)) throw facts::DecodeError("bundle: unknown format");
+  if (format > static_cast<std::uint8_t>(loader::Format::macho)) throw facts::DecodeError("bundle: unknown format");
   b.format = static_cast<loader::Format>(format);
   b.bits = static_cast<unsigned>(d.varint());
   b.image_blocks = get_list(d, get_block);

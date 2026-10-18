@@ -303,9 +303,9 @@ class Discovery {
 };
 
 bool Discovery::named_no_return(std::uint64_t e) const {
-  if (const Seed *s = info_.seed_at(real(e)); s && s->named_by_symbol) return is_known_no_return(s->name);
+  if (const Seed *s = info_.seed_at(real(e)); s && s->named_by_symbol) return is_known_no_return(s->name, info_.macho);
   const ThunkInfo &t = thunk_of(e);
-  return t.kind == ThunkKind::import && is_known_no_return(t.import);
+  return t.kind == ThunkKind::import && is_known_no_return(t.import, info_.macho);
 }
 
 // Everything reachable from `e` within its function: through fallthrough,

@@ -21,6 +21,12 @@ if(REVKIT_BUILD_TESTS AND GHIDRA_ROOT)
     set_tests_properties(rk_lift_aarch64 PROPERTIES SKIP_RETURN_CODE 77)
   endif()
   find_program(REVKIT_CLANG clang)
+  if(REVKIT_CLANG)
+    add_test(NAME rk_lift_ebpf
+      COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} sh ${CMAKE_CURRENT_SOURCE_DIR}/ebpf_smoke.sh $<TARGET_FILE:rk-lift> ${GHIDRA_ROOT}
+              ${CMAKE_CURRENT_BINARY_DIR}/smoke-ebpf ${REVKIT_CLANG})
+    set_tests_properties(rk_lift_ebpf PROPERTIES SKIP_RETURN_CODE 77)
+  endif()
   find_program(REVKIT_LLD ld.lld)
   find_program(REVKIT_OBJCOPY NAMES llvm-objcopy llvm-objcopy-18)
   if(REVKIT_CLANG AND REVKIT_LLD AND REVKIT_OBJCOPY)

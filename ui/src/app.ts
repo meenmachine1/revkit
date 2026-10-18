@@ -98,6 +98,9 @@ import { FILESYSTEMS_FEATURE, openFileSystemDialog } from "./ui/filesystem";
 import { showPickerDiagnostics } from "./ui/pickdiag";
 import { Palette, type Command, type Item } from "./ui/palette";
 import { showAbout } from "./ui/about";
+import { BUILD_INFO_FEATURE, showBuildInfoDialog } from "./ui/buildinfo";
+import { EXTERNAL_FEATURE, ExternalPaneBar, applicable, providersFor } from "./ui/external";
+import { TRACE_FEATURE, showTraceDialog } from "./ui/trace";
 import { showPreferences, showShortcuts } from "./ui/preferences";
 import { ProvenancePopover, listingEditText, type FactRef, type HoverSubject } from "./ui/provenance";
 import { HoverPreviews, type Preview } from "./ui/hover";
@@ -134,7 +137,7 @@ type PaneName = "functions" | "listing" | "decomp" | "graph" | "calls" | "string
 // The toolbar's menus: palette commands by id ("-" starts a group; ids a daemon lacks are left out).
 const EDIT_MENU = ["undo", "redo", "-", "rename", "retype", "comment", "comment-plate", "comment-pre", "comment-post", "comment-eol", "note", "-", "fn-edit", "fn-create", "fn-remove", "flow", "-", "copy-special", "decomp-copy-all", "export-c", "-", "patch-insn", "patch-bytes", "patch-revert-here", "patch-export", "-", "preferences"];
 const NAV_MENU = ["goto", "back", "forward", "history", "-", "follow", "follow-import", "xrefs", "functions", "-", "nav-repeat-next", "nav-repeat-prev", "-", "toggle-decomp", "toggle-graph"];
-const ANALYZE_MENU = ["xrefs", "prov", "libraries", "-", "auto-struct", "auto-fill", "struct-from-selection", "type-new", "type-import", "-", "load-pdb", "symbol-settings", "load-debug-file", "debug-file-settings", "-", "memory-add", "memory-rebase", "language", "-", "emulate", "dbg-launch", "dbg-connect", "-", "compare", "fn-compare", "patch-compare", "-", "bsim-similar", "bsim-ingest"];
+const ANALYZE_MENU = ["xrefs", "prov", "libraries", "build-info", "-", "auto-struct", "auto-fill", "struct-from-selection", "type-new", "type-import", "-", "load-pdb", "symbol-settings", "load-debug-file", "debug-file-settings", "-", "memory-add", "memory-rebase", "language", "-", "emulate", "dbg-launch", "dbg-connect", "-", "compare", "fn-compare", "patch-compare", "-", "bsim-similar", "bsim-ingest"];
 /** A command's title in a menu: without the "File: " or "Tools: " prefix the palette uses. */
 function menuLabel(title: string): string {
   return title.replace(/^(File|Tools|Help): /, "");
@@ -515,6 +518,7 @@ export class App {
     $("decomp-retry").addEventListener("click", () => void this.retryDecompile());
     $("decomp-repro").addEventListener("click", () => void this.exportRepro());
     this.pane.showMessage("// Select an instruction to decompile its function.");
+    void this.setupExternal();
     this.functions = new FunctionsPanel($("fnpanel"), this.rk, this.programId, this.addrWidth, this.features);
     // Demangled names as the setting spells them (names.ts): every view
     // draws its names again.
@@ -1378,6 +1382,27 @@ export class App {
     this.pane.setFunction(fn);
     if (this.location !== null) this.pane.highlightAddress(this.location);
     this.decompiledShown(fn);
+  }
+
+  /** Bytecode (a .NET assembly, a DEX, ...): the decompiler pane shows an
+   * external decompiler's source, with a bar to switch to Ghidra's C
+   * (feature "external-decompilers"; ui/external.ts). */
+  private external: ExternalPaneBar | null = null;
+  private async setupExternal() {
+    if (!this.features.has(EXTERNAL_FEATURE)) return;
+    const list = await providersFor(this.rk, { programId: this.programId }).catch(() => null);
+    if (!list?.inputKind?.kind) return;
+    this.external = new ExternalPaneBar(this.rk, this.programId, list, {
+      cm: $("cm"),
+      title: $("decomp-title"),
+      hideNative: (on) => {
+        $("decomp-sig").hidden = on;
+        $("decomp-name").hidden = on;
+        if (on) $("decomp-failure").hidden = true;
+      },
+    });
+    $("decomp-title").after(this.external.bar);
+    this.external.setExternal(applicable(list).some((p) => p.available));
   }
 
   /** The banner over the decompiler pane for a failed decompilation. */
@@ -4608,7 +4633,34 @@ export class App {
       { id: "slice-next", title: "Highlight: next highlighted token", keys: this.k("slice-next"), enabled: has, run: () => void this.pane.sliceStep(1) },
       { id: "slice-prev", title: "Highlight: previous highlighted token", keys: this.k("slice-prev"), enabled: has, run: () => void this.pane.sliceStep(-1) },
       { id: "slice-clear", title: "Highlight: clear", keys: "Esc", enabled: has, run: () => this.pane.clearSlice() },
+      ...this.traceCommands(),
     ];
+  }
+
+  /** Trace value across calls (feature value-trace): from the decompiler's token, through direct calls. */
+  private traceCommands(): Command[] {
+    const on = () => this.features.has(TRACE_FEATURE) && this.active === "decomp" && this.pane.selected !== null;
+    return [
+      { id: "trace-back", title: "Trace value across calls: where it comes from (callers' arguments, callees' returns)…", keys: this.k("trace-back"), enabled: on, run: () => this.trace(true) },
+      { id: "trace-forward", title: "Trace value across calls: where it goes (callees' parameters, callers' uses)…", keys: this.k("trace-forward"), enabled: on, run: () => this.trace(false) },
+    ];
+  }
+
+  private trace(backward: boolean) {
+    const fn = this.pane.fn;
+    const sel = this.pane.selected;
+    const pos = sel ? this.pane.tokenPosition(sel) : null;
+    if (!fn?.entry || !pos) return void toast("Click a variable, constant or operator in the decompiler first");
+    void showTraceDialog(this.rk, {
+      programId: this.programId,
+      entry: fn.entry.offset,
+      token: pos,
+      backward,
+      navigate: (address) => void this.navigate(address, { focus: "decomp" }),
+      highlight: (tokens, label) => {
+        if (this.pane.fn === fn) this.pane.setSlice(tokens, label);
+      },
+    });
   }
 
   /** Asks the daemon for a slice from the selected token and highlights it here and in the listing. */
@@ -4740,7 +4792,11 @@ export class App {
       m("slice-backward-ops", "Backward operator slice"),
       m("slice-clear", "Clear"),
     ].filter((x): x is MenuItem => x !== null);
-    return items.length ? [{ label: "Highlight", testid: "ctx-highlight", submenu: items }] : [];
+    const trace = [m("trace-back", "Where it comes from…"), m("trace-forward", "Where it goes…")].filter((x): x is MenuItem => x !== null);
+    return [
+      ...(items.length ? [{ label: "Highlight", testid: "ctx-highlight", submenu: items }] : []),
+      ...(trace.length ? [{ label: "Trace value across calls", testid: "ctx-trace", submenu: trace }] : []),
+    ];
   }
 
   /** A command as a menu item (null when it doesn't apply now). */
@@ -4974,6 +5030,7 @@ export class App {
       ...this.programCommands(),
       ...this.keyedCommands(),
       { id: "libraries", title: "Libraries (shared libraries and the programs they are)…", enabled: () => this.features.has(LIBRARIES_FEATURE), run: () => this.showLibraries() },
+      { id: "build-info", title: "Build info (Go modules, Rust crates, toolchain)…", enabled: () => this.features.has(BUILD_INFO_FEATURE), run: () => showBuildInfoDialog(this.rk, { programId: this.programId, programName: $("program").textContent ?? this.programId }) },
       { id: "language", title: "Change language (which processor variant fits the code)…", enabled: () => this.features.has(LANGUAGE_FEATURE), run: () => this.showLanguage() },
       { id: "follow-import", title: "Go to library function (the import's program)", enabled: () => this.importHere()?.resolved === true, run: () => this.followImport() },
       { id: "compare", title: "Tools: Compare programs (version tracking)…", enabled: () => this.diff !== null, run: () => { this.showView("diff"); void this.diff!.compare(); } },

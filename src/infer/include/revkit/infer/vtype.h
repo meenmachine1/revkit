@@ -124,4 +124,38 @@ struct Prototype {
   static Prototype decode(facts::Decoder &d);
 };
 
+// A structure inferred from how a class of pointers is used: the pointer
+// parameters one value passes through unchanged (the last round's
+// Slot::from_param edges), joined with the values loaded at one offset
+// through the members of a class, and the parameters those are passed
+// to. Its fields are composed (compose_structure) from every access
+// through every member, in every function; a field holding a pointer to
+// the members of another class with a structure points to that one. Named
+// astruct_<n>, by the order of the classes' first members; the prototypes
+// of the class's parameters point to it (VType::structure(name)).
+struct InferredField {
+  std::uint64_t offset = 0;
+  std::uint32_t size = 0;
+  VType type;  // a pointer to another inferred structure is a pointer to VType::structure(its name)
+  std::uint32_t accesses = 0;
+
+  friend bool operator==(const InferredField &, const InferredField &) = default;
+  void encode(facts::Encoder &e) const;
+  static InferredField decode(facts::Decoder &d);
+};
+
+struct InferredStructure {
+  std::string name;
+  std::uint64_t size = 0;
+  std::vector<InferredField> fields;  // by offset, disjoint
+  std::uint32_t functions = 0;        // functions whose code reads or writes through a member
+  std::uint32_t accesses = 0;
+  std::uint32_t parameters = 0;       // parameters typed as pointers to it
+  std::uint32_t returns = 0;          // and functions returning one
+
+  friend bool operator==(const InferredStructure &, const InferredStructure &) = default;
+  void encode(facts::Encoder &e) const;
+  static InferredStructure decode(facts::Decoder &d);
+};
+
 }  // namespace revkit::infer

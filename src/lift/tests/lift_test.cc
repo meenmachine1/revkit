@@ -437,7 +437,7 @@ void check_real_function(const std::string &compiler, const std::string &flags, 
   if (!testing::compile(compiler, kProgram, flags, exe)) GTEST_SKIP() << "compiler unavailable: " << compiler;
 
   auto img = std::make_shared<const Image>(
-      loader::load_file(exe, {.image_base = std::nullopt, .ghidra_image_base = true}));
+      loader::load_file(exe, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}}));
   auto lang = loader::guess_language(*img);
   ASSERT_TRUE(lang);
   Lifter lifter(img, lang->language);

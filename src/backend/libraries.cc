@@ -34,9 +34,14 @@ bool SameLibrary(std::string_view a, std::string_view b, bool pe) {
   return pe ? Lower(a) == Lower(b) : a == b;
 }
 
+std::string LibraryLeaf(std::string_view name) {
+  const std::size_t slash = name.rfind('/');
+  return std::string(slash == std::string_view::npos ? name : name.substr(slash + 1));
+}
+
 std::map<std::string, std::uint64_t> Exports(const loader::Image &img) {
   std::map<std::string, std::uint64_t> out;
-  if (img.format == loader::Format::pe) {
+  if (img.format == loader::Format::pe || (img.format == loader::Format::macho && !img.exports.empty())) {
     for (const loader::Export &e : img.exports)
       if (!e.name.empty() && e.forwarder.empty() && e.address != 0) out.emplace(e.name, e.address);
     return out;
@@ -70,6 +75,34 @@ static std::optional<FileArch> PeekWith(Read &&read) {
     a.machine = a.endian == loader::Endian::little ? (h[18] | (h[19] << 8)) : ((h[18] << 8) | h[19]);
     return a;
   }
+  {
+    // Mach-O: thin, or universal (each slice's CPU from the fat header).
+    const std::uint32_t le = h[0] | (h[1] << 8) | (h[2] << 16) | (static_cast<std::uint32_t>(h[3]) << 24);
+    const std::uint32_t be = (static_cast<std::uint32_t>(h[0]) << 24) | (h[1] << 16) | (h[2] << 8) | h[3];
+    auto rd = [&](const std::vector<unsigned char> &b, std::size_t at, bool big) -> std::uint32_t {
+      return big ? (static_cast<std::uint32_t>(b[at]) << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3]
+                 : b[at] | (b[at + 1] << 8) | (b[at + 2] << 16) | (static_cast<std::uint32_t>(b[at + 3]) << 24);
+    };
+    if (le == 0xfeedface || le == 0xfeedfacf || le == 0xcefaedfe || le == 0xcffaedfe) {
+      a.format = loader::Format::macho;
+      a.bits = le == 0xfeedfacf || le == 0xcffaedfe ? 64 : 32;
+      a.endian = le == 0xfeedface || le == 0xfeedfacf ? loader::Endian::little : loader::Endian::big;
+      a.machine = rd(h, 4, a.endian == loader::Endian::big);
+      return a;
+    }
+    if (be == 0xcafebabe || be == 0xcafebabf) {
+      const std::uint32_t n = rd(h, 4, true);
+      if (n == 0 || n > 64) return std::nullopt;  // a Java class file
+      const std::size_t entry = be == 0xcafebabf ? 32 : 20;
+      const std::vector<unsigned char> f = read(0, 8 + n * entry);
+      if (f.size() < 8 + n * entry) return std::nullopt;
+      a.format = loader::Format::macho;
+      for (std::uint32_t i = 0; i < n; ++i) a.slices.emplace_back(rd(f, 8 + i * entry, true), rd(f, 12 + i * entry, true));
+      a.machine = a.slices[0].first;
+      a.bits = (a.machine & 0x01000000) != 0 ? 64 : 32;
+      return a;
+    }
+  }
   if (h[0] == 'M' && h[1] == 'Z' && h.size() >= 0x40) {
     const std::uint32_t pe = h[0x3c] | (h[0x3d] << 8) | (h[0x3e] << 16) | (static_cast<std::uint32_t>(h[0x3f]) << 24);
     if (pe > (1u << 20)) return std::nullopt;
@@ -102,8 +135,20 @@ std::optional<FileArch> PeekArchIn(LibraryRoot &root, const std::string &key) {
 }
 
 bool Compatible(const FileArch &a, const loader::Image &img) {
+  if (a.format == loader::Format::macho && !a.slices.empty() && img.format == loader::Format::macho)
+    return std::any_of(a.slices.begin(), a.slices.end(), [&](const auto &s) { return s.first == img.machine; });
   return a.format == img.format && a.bits == img.bits && a.machine == img.machine &&
          (a.format == loader::Format::pe || a.endian == img.endian);
+}
+
+std::string MachoSliceFor(const FileArch &a, const loader::Image &img) {
+  if (a.slices.empty() || !img.macho) return {};
+  for (bool exact : {true, false})
+    for (std::size_t i = 0; i < a.slices.size(); ++i)
+      if (a.slices[i].first == img.machine &&
+          (!exact || (a.slices[i].second & 0x00ffffff) == (img.macho->cpusubtype & 0x00ffffff)))
+        return "#" + std::to_string(i);
+  return {};
 }
 
 // The Debian/Ubuntu multiarch directory name for an ELF machine.
@@ -147,10 +192,19 @@ std::vector<fs::path> SearchDirs(const std::vector<std::string> &user, const std
   if (!source_path.empty()) {
     const fs::path origin = fs::path(source_path).parent_path();
     add(origin);
+    if (img.format == loader::Format::macho) {
+      // LC_RPATH: @loader_path and @executable_path are the file's directory.
+      for (std::string r : img.runpath) {
+        for (std::string_view o : {"@loader_path", "@executable_path"})
+          if (r.starts_with(o)) r = origin.string() + r.substr(o.size());
+        if (!r.empty() && r.front() == '/') add(fs::path(r));
+      }
+    } else {
     for (std::string r : img.runpath) {
       for (std::string_view o : {"${ORIGIN}", "$ORIGIN"})
         for (std::size_t at; (at = r.find(o)) != std::string::npos;) r.replace(at, o.size(), origin.string());
       add(fs::path(r));
+    }
     }
   }
   if (host && img.format == loader::Format::elf)
@@ -158,7 +212,8 @@ std::vector<fs::path> SearchDirs(const std::vector<std::string> &user, const std
   return out;
 }
 
-std::optional<fs::path> FindLibrary(const std::string &name, const std::vector<fs::path> &dirs, const loader::Image &img) {
+std::optional<fs::path> FindLibrary(const std::string &needed, const std::vector<fs::path> &dirs, const loader::Image &img) {
+  const std::string name = img.format == loader::Format::macho ? LibraryLeaf(needed) : needed;
   if (name.empty() || name.find('/') != std::string::npos || name == "." || name == "..") return std::nullopt;
   const bool pe = img.format == loader::Format::pe;
   auto fits = [&](const fs::path &f) {
@@ -385,6 +440,17 @@ std::vector<std::string> RootSearchDirs(LibraryRoot &root, const std::vector<std
   };
   for (const std::string &u : user) add(u);
   add(origin);
+  if (img.format == loader::Format::macho) {
+    for (std::string r : img.runpath) {
+      for (std::string_view o : {"@loader_path", "@executable_path"})
+        if (r.starts_with(o)) {
+          if (origin.empty()) r.clear();
+          else r = origin + r.substr(o.size());
+        }
+      add(r);
+    }
+    return out;
+  }
   if (img.format != loader::Format::elf) return out;
   for (std::string r : img.runpath) {
     if (origin.empty() && r.find("ORIGIN") != std::string::npos) continue;
@@ -399,8 +465,14 @@ std::vector<std::string> RootSearchDirs(LibraryRoot &root, const std::vector<std
   return out;
 }
 
-std::optional<std::string> FindLibraryIn(LibraryRoot &root, const std::string &name, const std::vector<std::string> &dirs,
+std::optional<std::string> FindLibraryIn(LibraryRoot &root, const std::string &needed, const std::vector<std::string> &dirs,
                                          const loader::Image &img) {
+  if (img.format == loader::Format::macho && needed.starts_with("/"))
+    if (auto key = root.file(needed)) {
+      auto a = PeekArchIn(root, *key);
+      if (a && Compatible(*a, img)) return key;
+    }
+  const std::string name = img.format == loader::Format::macho ? LibraryLeaf(needed) : needed;
   if (name.empty() || name.find('/') != std::string::npos || name == "." || name == "..") return std::nullopt;
   const bool pe = img.format == loader::Format::pe;
   auto fits = [&](const std::string &key) {

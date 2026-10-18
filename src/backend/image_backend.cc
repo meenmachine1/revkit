@@ -1,4 +1,5 @@
 #include "revkit/infer/infer.h"
+#include "revkit/infer/types_bridge.h"
 #include "revkit/backend/image_backend.h"
 #include "revkit/lift/abi.hh"
 
@@ -9,7 +10,9 @@
 #include "api_util.h"
 #include "debug_files.h"
 #include "debug_import.h"
+#include "go_import.h"
 #include "msvc_import.h"
+#include "revkit/objc/objc.h"
 #include "symbol_server.h"
 #include "define_type.h"
 #include "parse_c.h"
@@ -42,6 +45,7 @@
 #include "search.h"
 #include "signatures.h"
 #include "slice.h"
+#include "trace.h"
 #include "sync_util.h"
 #include "type_record.h"
 
@@ -53,11 +57,15 @@
 #include "revkit/facts/storage.h"
 #include "revkit/facts/thread_pool.h"
 #include "revkit/lift/lifter.hh"
+#include "revkit/container/container.hh"
+#include "revkit/loader/buildinfo.hh"
+#include "revkit/loader/gopclntab.hh"
 #include "revkit/loader/load.hh"
 #include "revkit/plugins/host.h"
 #include "revkit/plugins/load.h"
 #include "revkit/plugins/peripheral.h"
 #include "revkit/plugins/queries.h"
+#include "providers_api.h"
 #include "revkit/types/print.h"
 
 #include <google/protobuf/util/message_differencer.h>
@@ -102,6 +110,8 @@ namespace fs = std::filesystem;
 // the whole register don't see a truncated value.
 // The analysis job and provenance id of the background inference.
 constexpr std::string_view kInferAnalyzer = "infer.prototypes";
+// Where inference's structures are filed among the program's types.
+constexpr std::string_view kInferredCategory = "/inferred";
 
 infer::Options DecompilerInferOptions() {
   infer::Options o;
@@ -119,7 +129,7 @@ using facts::FactValue;
 using facts::Seq;
 using google::protobuf::util::TimeUtil;
 
-constexpr std::uint32_t kApiMinor = 87;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language"); 74: SetProgramLanguageRequest.progress_id, followed with GetImportProgress (feature "language-progress"); 76: BSimService.ApplyBSimMatches, PortedFrom.bsim_database and bsim_executable (feature "bsim-apply"); 77: QueryService.ListComments (feature "comment-table"); 78: QueryService.ListRelocations (feature "relocation-table"); 79: libraries from the program's own root file system (ImportOptions.library_root, ImportProgramResponse.library_root, ImportFromFileSystem with import_libraries: FileSystemImport.library_of, libraries_not_found, library_warnings; feature "library-roots"); 80: QueryService.ExportC (feature "export-c"); 81: QueryService.ListLibraryImporters (references back from a library; feature "library-importers"); 82: QueryService.ListSymbolTree (feature "symbol-tree"); 83: QueryService.PlanClearFlow (feature "clear-flow"); 84: SetDataSettings assertions, ListingRow.data_settings (feature "data-settings"); 85: SetFallthrough assertions (FACT_KIND_FALLTHROUGH, ListingRow and InstructionDetail fallthrough_override, XREF_KIND_FALLTHROUGH; feature "fallthrough-override"); 86: ProjectService.LoadDebugFile, SymbolSettings debug_dirs and debuginfod, ProgramSummary build_id, debuglink, debug_file (feature "debug-files"); 87: SetRegisterValue assertions (FACT_KIND_REGISTER_VALUE), QueryService.ListRegisterValues, ListingRow.register_values, analysis's MIPS gp and PowerPC TOC (feature "register-values")
+constexpr std::uint32_t kApiMinor = 96;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language"); 74: SetProgramLanguageRequest.progress_id, followed with GetImportProgress (feature "language-progress"); 76: BSimService.ApplyBSimMatches, PortedFrom.bsim_database and bsim_executable (feature "bsim-apply"); 77: QueryService.ListComments (feature "comment-table"); 78: QueryService.ListRelocations (feature "relocation-table"); 79: libraries from the program's own root file system (ImportOptions.library_root, ImportProgramResponse.library_root, ImportFromFileSystem with import_libraries: FileSystemImport.library_of, libraries_not_found, library_warnings; feature "library-roots"); 80: QueryService.ExportC (feature "export-c"); 81: QueryService.ListLibraryImporters (references back from a library; feature "library-importers"); 82: QueryService.ListSymbolTree (feature "symbol-tree"); 83: QueryService.PlanClearFlow (feature "clear-flow"); 84: SetDataSettings assertions, ListingRow.data_settings (feature "data-settings"); 85: SetFallthrough assertions (FACT_KIND_FALLTHROUGH, ListingRow and InstructionDetail fallthrough_override, XREF_KIND_FALLTHROUGH; feature "fallthrough-override"); 86: ProjectService.LoadDebugFile, SymbolSettings debug_dirs and debuginfod, ProgramSummary build_id, debuglink, debug_file (feature "debug-files"); 87: SetRegisterValue assertions (FACT_KIND_REGISTER_VALUE), QueryService.ListRegisterValues, ListingRow.register_values, analysis's MIPS gp and PowerPC TOC (feature "register-values"); 88: QueryService.GetBuildInfo (feature "build-info"); 89: QueryService.TraceValue (feature "value-trace"); 90: Mach-O (format "macho": ImportOptions.macho_slice, ImportProgramRequest.program_file, ProgramInfo.macho_slice and macho_slices, ProgramSummary.macho; feature "macho"); 91: Objective-C and Swift metadata at import (analysis:objc, analysis:swift, import:objc assertions), QueryService.ListObjcClasses (feature "objc"); 92: ProviderService (external decompilers: ListProviders, DecompileExternal, ReadProviderOutput, GetProviderSettings, SetProviderSettings; feature "external-decompilers"); 93: Go function names, files and lines from the pclntab at import (analysis:go assertions), the golang compiler spec for Go programs, GetBuildInfoResponse.go_pclntab (feature "go-pclntab"); 94: .NET assemblies recognised by their CLR header, IL-only ones imported without code analysis (ProgramInfo.dotnet; feature "dotnet"); 95: bytecode and script formats named in file system listings (FileSystemEntry.content_kind, detected_kind "bytecode"; feature "content-kinds"); 96: packed executables and Lua in firmware as file systems (formats asar, pyinstaller, pyz, node-sea, pkg, nexe, bun, lua-chunks, an appended zip; FileSystemEntry.container_format on programs that carry one, ProgramInfo.payload_format; feature "packed-executables")
 
 // The type names Ghidra's decompiler prints that C lacks, for ExportC's
 // files (Ghidra's C exporter writes the same).
@@ -2816,7 +2826,16 @@ class ImageBackend final : public api::Backend {
     resp.add_features("data-settings");
     resp.add_features("fallthrough-override");
     resp.add_features("debug-files");
+    resp.add_features("macho");
+    resp.add_features("objc");
+    resp.add_features("dotnet");
+    resp.add_features("content-kinds");
+    resp.add_features("packed-executables");
     resp.add_features("register-values");
+    resp.add_features("build-info");
+    resp.add_features("external-decompilers");
+    resp.add_features("value-trace");
+    resp.add_features("go-pclntab");
     if (core_->options.plugins) resp.add_features("plugins");
     if (core_->options.plugins) resp.add_features("plugin-facts-invalidation");
     if (core_->options.plugins && plugins::Host::available()) resp.add_features("peripheral-plugins");
@@ -3059,8 +3078,27 @@ class ImageBackend final : public api::Backend {
     facts.raw = req.options().format() == "raw";
     facts.persistent = !core_->options.project_dir.empty();
     facts.prototypes = false;  // inference runs after the import, in the background
+    // ImportProgramRequest.program_file: a program's stored file (its image
+    // holds the file's bytes) in the same project.
+    std::shared_ptr<const loader::Bytes> stored;
+    std::string stored_name;
+    if (!pre && req.has_program_file()) {
+      std::lock_guard lock(core_->mu);
+      auto pit = core_->program_project.find(req.program_file());
+      auto it = pit == core_->program_project.end() ? core_->projects.end() : core_->projects.find(pit->second);
+      if (it == core_->projects.end() || pit->second != req.project_id() || !it->second->programs.contains(req.program_file()))
+        return Error(StatusCode::kNotFound, "no program " + req.program_file() + " in project " + req.project_id());
+      const ProgramEntry &e = *it->second->programs.at(req.program_file());
+      stored = e.program().image().file;
+      if (!stored) return Error(StatusCode::kFailedPrecondition, "program " + req.program_file() + " keeps no file");
+      stored_name = StateOf(*it->second, e, it->second->log().size()).name;
+      if (!req.options().macho_slice().empty() && req.options().macho_slice()[0] != '#')
+        stored_name += "-" + req.options().macho_slice();
+    }
     if (pre) {
       facts.file_bytes = pre->bytes->size();
+    } else if (stored) {
+      facts.file_bytes = stored->size();
     } else if (req.has_content()) {
       facts.file_bytes = req.content().size();
     } else if (req.has_path()) {
@@ -3076,6 +3114,9 @@ class ImageBackend final : public api::Backend {
     if (pre) {
       bytes = pre->bytes;
       default_name = "file";
+    } else if (stored) {
+      bytes = std::make_shared<loader::Bytes>(*stored);
+      default_name = stored_name;
     } else if (req.has_content()) {
       bytes->resize(req.content().size());
       std::memcpy(bytes->data(), req.content().data(), req.content().size());
@@ -3087,9 +3128,11 @@ class ImageBackend final : public api::Backend {
       std::memcpy(bytes->data(), data.data(), data.size());
       default_name = req.path().substr(req.path().find_last_of('/') + 1);
     } else {
-      return Error(StatusCode::kInvalidArgument, "path or content is required");
+      return Error(StatusCode::kInvalidArgument, "path, content or program_file is required");
     }
     const auto &o = req.options();
+    if (o.format() == "raw" && !o.macho_slice().empty())
+      return Error(StatusCode::kInvalidArgument, "macho_slice is for Mach-O files, not format \"raw\"");
     // A format other than the built-in ones names a loader plugin.
     std::shared_ptr<const plugins::Plugin> loader_plugin;
     const bool raw = o.format() == "raw";
@@ -3098,11 +3141,11 @@ class ImageBackend final : public api::Backend {
     if (!raw && (o.raw_offset() || o.raw_length() || !o.raw_permissions().empty() || o.has_entry_point() ||
                  o.regions_size()))
       return Error(StatusCode::kInvalidArgument, "raw_* options, entry_point and regions are for format \"raw\"");
-    if (!o.format().empty() && o.format() != "elf" && o.format() != "pe" && !raw) {
+    if (!o.format().empty() && o.format() != "elf" && o.format() != "pe" && o.format() != "macho" && !raw) {
       loader_plugin = FindLoader(o.format());
       if (!loader_plugin)
         return Error(StatusCode::kInvalidArgument,
-                     "format \"" + o.format() + "\" is not supported (elf, pe, or a loader plugin's name)");
+                     "format \"" + o.format() + "\" is not supported (elf, pe, macho, or a loader plugin's name)");
     }
 
     // Reserve the id and the program's spaces, then load without holding
@@ -3137,6 +3180,7 @@ class ImageBackend final : public api::Backend {
     src.language_id = o.language_id();
     src.compiler_spec_id = o.compiler_spec_id();
     if (o.has_image_base()) src.image_base = o.image_base();
+    src.macho_slice = o.macho_slice();
     if (raw) {
       if (auto st = RawOptionsOf(o, src.raw.emplace()); !st.ok()) {
         Unreserve(src.id, *p, src.ordinal);
@@ -3201,8 +3245,27 @@ class ImageBackend final : public api::Backend {
       if (core_->options.import_pe_analysis && src.program->image().format == loader::Format::pe)
         for (AnalysisFacts &a : CollectPeAnalysis(*src.program, debug))
           if (!a.assertions.empty()) pe_analysis.push_back(std::move(a));
+      // A Mach-O's Objective-C and Swift metadata (docs/macho.md).
+      if (core_->options.import_pe_analysis && src.program->image().format == loader::Format::macho)
+        for (AnalysisFacts &a : CollectMachoAnalysis(*src.program, debug))
+          if (!a.assertions.empty()) pe_analysis.push_back(std::move(a));
+      // A Go program's function table (docs/go.md).
+      if (core_->options.import_pe_analysis)
+        if (auto g = CollectGoAnalysis(*src.program, debug)) pe_analysis.push_back(std::move(*g));
     } catch (const loader::LoadError &e) {
       Unreserve(src.id, *p, src.ordinal);
+      // Bytecode or a compiled script (api_minor 95): say what it is
+      // rather than offering raw options for it.
+      if (!raw && bytes && !bytes->empty()) {
+        const std::span<const std::byte> head(bytes->data(), std::min<std::size_t>(bytes->size(), container::kIdentifyBytes));
+        const container::Guess g = container::guess(head, bytes->size());
+        if (g.kind == "bytecode")
+          return Error(StatusCode::kFailedPrecondition,
+                       name + " is " + g.description + " (content kind " + g.content_kind +
+                           "), not a native program: revkit doesn't analyse bytecode as code. Open it in the file "
+                           "system browser and decompile it there with an external decompiler "
+                           "(docs/providers.md)");
+      }
       return Error(StatusCode::kInvalidArgument, std::string("cannot load: ") + e.what());
     } catch (const lift::LiftError &e) {
       Unreserve(src.id, *p, src.ordinal);
@@ -3284,6 +3347,15 @@ class ImageBackend final : public api::Backend {
     SetSnapshot(r, resp.mutable_snapshot());
     FillProgramInfo(*p, *r.program, r.log_size, TreeOf(*p, r.log_size), resp.mutable_program());
     for (const auto &w : src.program->warnings()) resp.add_warnings(w);
+    if (const auto &d = src.program->image().dotnet) {
+      if (!d->has_native_code())
+        resp.add_warnings(DotNetDescription(*d) +
+                          ": imported without code analysis, as its code is CIL (bytecode), not machine code. "
+                          "Its headers, sections, resources and strings can be browsed; its C# comes from the ILSpy "
+                          "external decompiler (docs/providers.md)");
+      else
+        resp.add_warnings(DotNetDescription(*d) + ": its native code is analysed; the IL beside it is not");
+    }
     for (const DebugFacts &d : debug)
       resp.add_warnings("imported " + d.source + (d.file.empty() ? "" : " (" + d.file + ")") + ": " +
                         std::to_string(d.functions) + " functions, " + std::to_string(d.variables) + " variables, " +
@@ -5489,6 +5561,64 @@ class ImageBackend final : public api::Backend {
     return Status::Ok();
   }
 
+  // A Mach-O's header and load commands as the API spells them
+  // (ProgramSummary.macho; docs/macho.md).
+  static void FillMachoSummary(const loader::MachoInfo &m, pb::MachoSummary *out) {
+    out->set_arch(m.arch);
+    out->set_cpu_type(m.cputype);
+    out->set_cpu_subtype(m.cpusubtype);
+    static constexpr const char *kTypes[] = {"",        "object",  "execute",    "fvmlib", "core",   "preload",
+                                             "dylib",   "dylinker", "bundle",    "dylib_stub", "dsym", "kext",
+                                             "fileset", "gpu_execute", "gpu_dylib"};
+    out->set_file_type(m.filetype >= 1 && m.filetype < std::size(kTypes) ? kTypes[m.filetype]
+                                                                          : "type " + std::to_string(m.filetype));
+    out->set_uuid(m.uuid);
+    out->set_platform(m.platform);
+    out->set_min_os(m.min_os);
+    out->set_sdk(m.sdk);
+    out->set_source_version(m.source_version);
+    out->set_install_name(m.install_name);
+    out->set_dylinker(m.dylinker);
+    auto version = [](std::uint32_t v) {
+      return v == 0 ? std::string() : std::to_string(v >> 16) + "." + std::to_string((v >> 8) & 0xff) + "." +
+                                          std::to_string(v & 0xff);
+    };
+    for (const loader::MachoDylib &d : m.dylibs) {
+      pb::MachoDylib *o = out->add_dylibs();
+      o->set_name(d.name);
+      o->set_kind(d.kind);
+      o->set_current_version(version(d.current_version));
+      o->set_compatibility_version(version(d.compatibility_version));
+    }
+    for (const std::string &r : m.rpaths) out->add_rpaths(r);
+    for (const loader::MachoSlice &sl : m.slices) {
+      pb::MachoSlice *o = out->add_slices();
+      o->set_arch(sl.arch);
+      o->set_cpu_type(sl.cputype);
+      o->set_cpu_subtype(sl.cpusubtype);
+      o->set_offset(sl.offset);
+      o->set_size(sl.size);
+    }
+    out->set_slice_index(static_cast<std::uint32_t>(m.slice));
+    out->set_code_signed(m.code_signature);
+    out->set_encrypted(m.encrypted);
+    out->set_crypt_offset(m.crypt_offset);
+    out->set_crypt_size(m.crypt_size);
+    out->set_fixups(m.chained_fixups ? "chained" : m.dyld_info ? "opcodes" : "");
+    static constexpr std::pair<std::uint32_t, const char *> kFlags[] = {
+        {0x1, "NOUNDEFS"}, {0x2, "INCRLINK"}, {0x4, "DYLDLINK"}, {0x8, "BINDATLOAD"}, {0x10, "PREBOUND"},
+        {0x20, "SPLIT_SEGS"}, {0x80, "TWOLEVEL"}, {0x100, "FORCE_FLAT"}, {0x200, "NOMULTIDEFS"},
+        {0x400, "NOFIXPREBINDING"}, {0x800, "PREBINDABLE"}, {0x1000, "ALLMODSBOUND"},
+        {0x2000, "SUBSECTIONS_VIA_SYMBOLS"}, {0x4000, "CANONICAL"}, {0x8000, "WEAK_DEFINES"},
+        {0x10000, "BINDS_TO_WEAK"}, {0x20000, "ALLOW_STACK_EXECUTION"}, {0x40000, "ROOT_SAFE"},
+        {0x80000, "SETUID_SAFE"}, {0x100000, "NO_REEXPORTED_DYLIBS"}, {0x200000, "PIE"},
+        {0x400000, "DEAD_STRIPPABLE_DYLIB"}, {0x800000, "HAS_TLV_DESCRIPTORS"}, {0x1000000, "NO_HEAP_EXECUTION"},
+        {0x2000000, "APP_EXTENSION_SAFE"}, {0x4000000, "NLIST_OUTOFSYNC_WITH_DYLDINFO"},
+        {0x8000000, "SIM_SUPPORT"}, {0x80000000, "DYLIB_IN_CACHE"}};
+    for (const auto &[bit, name] : kFlags)
+      if (m.header_flags & bit) out->add_flags(name);
+  }
+
   Status GetProgramSummary(const CallContext &ctx, const pb::GetProgramSummaryRequest &req,
                            pb::GetProgramSummaryResponse &resp) override {
     Read r;
@@ -5513,6 +5643,7 @@ class ImageBackend final : public api::Backend {
     s->set_build_id(image.build_id);
     if (auto link = ReadDebugLink(image)) s->set_debuglink(link->name);
     s->set_debug_file(p.debug_file().string());
+    if (image.macho) FillMachoSummary(*image.macho, s->mutable_macho());
     if (image.entry) {
       auto *e = s->add_entry_points();
       *e->mutable_address() = A(*image.entry);
@@ -6572,6 +6703,33 @@ class ImageBackend final : public api::Backend {
     return out;
   }
 
+  // A Go name's package path and the rest (docs/go.md), as Ghidra puts Go
+  // symbols in their package's namespace: "example.com/dep.Greeting" is
+  // example.com/dep, Greeting; "main.(*T).Method" is main, (*T).Method.
+  // The package ends at the first '.' after the last '/' before any
+  // receiver or generic arguments. "go:" and "type:" names stay whole, as
+  // do C names (cgo) with "::" or no package.
+  static std::vector<std::string> SplitGo(std::string_view name) {
+    if (name.find("::") != std::string_view::npos) return SplitQualified(name);
+    if (name.starts_with("go:") || name.starts_with("type:") || name.starts_with("go.")) return {std::string(name)};
+    const std::size_t limit = std::min(name.find('('), name.find('['));
+    const std::size_t slash = name.substr(0, limit == std::string_view::npos ? name.size() : limit).rfind('/');
+    const std::size_t dot = name.find('.', slash == std::string_view::npos ? 0 : slash + 1);
+    if (dot == std::string_view::npos || dot == 0 || dot + 1 >= name.size() || dot > limit) return {std::string(name)};
+    return {std::string(name.substr(0, dot)), std::string(name.substr(dot + 1))};
+  }
+
+  // Whether the program is Go's: its pclntab section, its build info, or
+  // the golang compiler spec.
+  static bool IsGoProgram(const Program &p) {
+    if (p.language().compiler == "golang") return true;
+    const loader::Image &image = p.image();
+    for (const loader::Section &s : image.sections)
+      if (s.name == ".gopclntab" || s.name == ".data.rel.ro.gopclntab" || s.name == "__gopclntab") return true;
+    std::string error;
+    return image.format != loader::Format::raw && loader::read_go_buildinfo(image, &error).has_value();
+  }
+
   // QueryService.ListSymbolTree (api_minor 82, feature "symbol-tree";
   // docs/ui.md "Symbol tree"): Ghidra's symbol tree, one level at a time.
   // The root has the folders Imports (by library), Exports, Functions,
@@ -6601,6 +6759,7 @@ class ImageBackend final : public api::Backend {
       bool function;
       std::vector<std::string> parts;
     };
+    const bool go = IsGoProgram(v.program());
     auto symbols = [&] {
       std::map<std::uint64_t, bool> addrs;
       for (const Func &f : v.functions().funcs) addrs.emplace(f.entry, true);
@@ -6612,7 +6771,7 @@ class ImageBackend final : public api::Backend {
       for (const auto &[a, fn] : addrs) {
         std::string name = v.Symbol(a);
         if (name.empty()) continue;
-        std::vector<std::string> parts = SplitQualified(name);
+        std::vector<std::string> parts = go ? SplitGo(name) : SplitQualified(name);
         out.push_back({a, std::move(name), fn, std::move(parts)});
       }
       return out;
@@ -7266,7 +7425,10 @@ class ImageBackend final : public api::Backend {
     View v(r);
     SetSnapshot(r, resp.mutable_snapshot());
     const loader::Image &image = v.program().image();
-    resp.set_format(image.format == loader::Format::elf ? "elf" : image.format == loader::Format::pe ? "pe" : "raw");
+    resp.set_format(image.format == loader::Format::elf     ? "elf"
+                    : image.format == loader::Format::pe    ? "pe"
+                    : image.format == loader::Format::macho ? "macho"
+                                                            : "raw");
     std::vector<loader::Relocation> pe;
     if (image.format == loader::Format::pe) pe = loader::pe_base_relocations(image);
     const std::vector<loader::Relocation> &all = image.format == loader::Format::pe ? pe : image.relocations;
@@ -7300,6 +7462,184 @@ class ImageBackend final : public api::Backend {
                if (n == bytes.size()) out->set_original(std::move(bytes));
              });
     resp.set_total(matches.size());
+    return Status::Ok();
+  }
+
+  // QueryService.ListObjcClasses (api_minor 91, feature "objc";
+  // docs/macho.md): revkit::objc's scan of the image, each method with the
+  // name its function has now.
+  Status ListObjcClasses(const CallContext &ctx, const pb::ListObjcClassesRequest &req,
+                         pb::ListObjcClassesResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const objc::Metadata md = objc::scan(v.program().image());
+    const std::string needle = Lower(req.name_contains());
+    auto wanted = [&](const std::string &name) { return needle.empty() || Lower(name).find(needle) != std::string::npos; };
+    auto method = [&](const objc::Method &m, const std::string &category, bool optional, pb::ObjcMethod *o) {
+      o->set_selector(m.selector);
+      o->set_types(m.types);
+      o->set_class_method(m.class_method);
+      o->set_category(category);
+      o->set_optional(optional);
+      if (m.imp != 0) {
+        *o->mutable_implementation() = A(m.imp);
+        o->set_function_name(v.Symbol(m.imp));
+      }
+    };
+    auto property = [](const objc::Property &p, pb::ObjcProperty *o) {
+      o->set_name(p.name);
+      o->set_attributes(p.attributes);
+    };
+    std::map<std::string, pb::ObjcClass> classes;
+    for (const objc::Class &c : md.classes) {
+      if (!wanted(c.name)) continue;
+      pb::ObjcClass &o = classes[c.name];
+      o.set_name(c.name);
+      *o.mutable_address() = A(c.address);
+      if (c.metaclass) *o.mutable_metaclass() = A(c.metaclass);
+      o.set_superclass(c.superclass);
+      o.set_instance_size(c.instance_size);
+      o.set_root((c.flags & 2) != 0);
+      o.set_swift(c.swift);
+      for (const auto *l : {&c.instance_methods, &c.class_methods})
+        if (*l)
+          for (const objc::Method &m : (*l)->methods) method(m, {}, false, o.add_methods());
+      for (const objc::Ivar &iv : c.ivars) {
+        pb::ObjcIvar *x = o.add_ivars();
+        x->set_name(iv.name);
+        x->set_type(iv.type);
+        x->set_offset(iv.offset);
+        x->set_size(iv.size);
+        if (iv.offset_address) *x->mutable_offset_variable() = A(iv.offset_address);
+      }
+      for (const objc::Property &p : c.properties) property(p, o.add_properties());
+      for (const std::string &p : c.protocols) o.add_protocols(p);
+    }
+    for (const objc::Category &k : md.categories) {
+      if (k.class_name.empty() || !wanted(k.class_name)) continue;
+      auto [it, fresh] = classes.try_emplace(k.class_name);
+      pb::ObjcClass &o = it->second;
+      if (fresh) {
+        o.set_name(k.class_name);
+        o.set_external(true);
+      }
+      o.add_categories(k.name);
+      for (const auto *l : {&k.instance_methods, &k.class_methods})
+        if (*l)
+          for (const objc::Method &m : (*l)->methods) method(m, k.name, false, o.add_methods());
+      for (const objc::Property &p : k.properties) property(p, o.add_properties());
+      for (const std::string &p : k.protocols) o.add_protocols(p);
+    }
+    for (auto &[name, c] : classes) *resp.add_classes() = std::move(c);
+    for (const objc::Protocol &x : md.protocols) {
+      if (!wanted(x.name)) continue;
+      pb::ObjcProtocol *o = resp.add_protocols();
+      o->set_name(x.name);
+      *o->mutable_address() = A(x.address);
+      for (const auto &[l, optional] : {std::pair{&x.instance_methods, false}, std::pair{&x.class_methods, false},
+                                         std::pair{&x.optional_instance_methods, true},
+                                         std::pair{&x.optional_class_methods, true}})
+        if (*l)
+          for (const objc::Method &m : (*l)->methods) method(m, {}, optional, o->add_methods());
+      for (const objc::Property &p : x.properties) property(p, o->add_properties());
+      for (const std::string &p : x.protocols) o->add_protocols(p);
+    }
+    for (const objc::SwiftType &t : md.swift_types) {
+      if (!wanted(t.name)) continue;
+      pb::SwiftType *o = resp.add_swift_types();
+      o->set_name(t.name);
+      o->set_parent(t.parent);
+      o->set_kind(t.kind);
+      *o->mutable_type_descriptor() = A(t.descriptor);
+      if (t.accessor) *o->mutable_accessor() = A(t.accessor);
+      for (const std::string &f : t.fields) o->add_fields(f);
+      for (std::uint64_t e : t.vtable) *o->add_vtable() = e ? A(e) : pb::Address();
+    }
+    return Status::Ok();
+  }
+
+  // QueryService.GetBuildInfo (api_minor 88, feature "build-info";
+  // docs/build-info.md): Go's build info and cargo-auditable's dependency
+  // list, read from the image each time (bounded: a few MiB at most).
+  Status GetBuildInfo(const CallContext &ctx, const pb::GetBuildInfoRequest &req, pb::GetBuildInfoResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const loader::BuildMetadata m = loader::read_build_metadata(v.program().image());
+    auto module = [](const loader::GoModule &from, pb::GoModule *to) {
+      to->set_path(from.path);
+      to->set_version(from.version);
+      to->set_sum(from.sum);
+      if (from.replacement) {
+        auto *rep = to->mutable_replacement();
+        rep->set_path(from.replacement->path);
+        rep->set_version(from.replacement->version);
+        rep->set_sum(from.replacement->sum);
+      }
+    };
+    if (m.go) {
+      auto *g = resp.mutable_go();
+      g->set_go_version(m.go->go_version);
+      g->set_path(m.go->path);
+      if (m.go->main) module(*m.go->main, g->mutable_main());
+      for (const auto &d : m.go->deps) module(d, g->add_deps());
+      for (const auto &s : m.go->settings) {
+        auto *out = g->add_settings();
+        out->set_key(s.key);
+        out->set_value(s.value);
+      }
+      g->set_format(m.go->inline_strings ? "inline" : "pointer");
+      g->set_pointer_size(m.go->pointer_size);
+      *g->mutable_address() = A(m.go->address);
+      g->set_module_text(m.go->module_text);
+      for (const auto &u : m.go->unparsed) g->add_unparsed(u);
+    }
+    if (m.rust) {
+      auto *rd = resp.mutable_rust();
+      rd->set_format(m.rust->format);
+      for (const auto &p : m.rust->packages) {
+        auto *out = rd->add_packages();
+        out->set_name(p.name);
+        out->set_version(p.version);
+        out->set_source(p.source);
+        out->set_kind(p.kind);
+        for (std::uint32_t d : p.dependencies) out->add_dependencies(d);
+        out->set_root(p.root);
+      }
+      if (m.rust->root) rd->set_root(*m.rust->root);
+      rd->set_compressed_size(m.rust->compressed_size);
+      rd->set_uncompressed_size(m.rust->uncompressed_size);
+    }
+    // The pclntab's summary (docs/go.md): its functions are what
+    // analysis:go named at import.
+    {
+      std::string error;
+      loader::GoPclntabOptions o;
+      o.lines = false;
+      if (auto t = loader::read_go_pclntab(v.program().image(), &error, o)) {
+        auto *g = resp.mutable_go_pclntab();
+        g->set_layout(std::string(loader::to_string(t->version)));
+        *g->mutable_address() = A(t->address);
+        g->set_pointer_size(t->pointer_size);
+        g->set_quantum(t->quantum);
+        g->set_big_endian(t->endian == loader::Endian::big);
+        if (t->version >= loader::GoPclntabVersion::go118) *g->mutable_text_start() = A(t->text_start);
+        g->set_function_count(t->function_count);
+        g->set_functions_read(t->functions.size());
+        g->set_file_count(t->file_count);
+        if (t->moduledata) *g->mutable_moduledata() = A(*t->moduledata);
+        g->set_found_by(t->found_by);
+        for (const std::string &w : t->warnings) g->add_warnings(w);
+      } else if (!error.empty()) {
+        resp.add_warnings(error);
+      }
+    }
+    resp.set_rustc_version(m.rustc_version);
+    for (const auto &c : m.rustc_commits) resp.add_rustc_commits(c);
+    for (const auto &w : m.warnings) resp.add_warnings(w);
     return Status::Ok();
   }
 
@@ -7651,6 +7991,96 @@ class ImageBackend final : public api::Backend {
     pb::DecompiledFunction fn;
     Overlay(v, *f, use, false, &fn, true);
     if (auto st = SliceFunction(fn, req, resp); !st.ok()) return st;
+    SetSnapshot(r, resp.mutable_snapshot());
+    return Status::Ok();
+  }
+
+  // QueryService.TraceValue (api_minor 89, feature "value-trace"; trace.h):
+  // the slices' walk carried through direct calls, each function decompiled
+  // as Decompile serves it (with its data-flow graph) at the revision read.
+  Status TraceValue(const CallContext &ctx, const pb::TraceValueRequest &req, pb::TraceValueResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    const Func *f = IsDefaultSpace(req.function()) ? v.functions().at(req.function().offset()) : nullptr;
+    if (!f) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(req.function().offset()));
+    std::map<std::uint64_t, std::unique_ptr<pb::DecompiledFunction>> decompiled;
+    std::map<std::uint64_t, std::vector<std::uint64_t>> thunks_of;  // target -> thunks forwarding to it
+    for (const Func &g : v.functions().funcs)
+      if (g.thunk_target) thunks_of[g.thunk_target].push_back(g.entry);
+    bool cancelled = false;
+    TraceHooks hooks;
+    hooks.decompile = [&](std::uint64_t entry, std::string *error) -> const pb::DecompiledFunction * {
+      const Func *g = v.functions().at(entry);
+      if (!g) {
+        *error = "no function at 0x" + Hex(entry);
+        return nullptr;
+      }
+      facts::Ref<DecompileOutput> out;
+      try {
+        DecompileLimitsScope scope(LimitsFor(ctx, 0));
+        out = r.snapshot->get<q::Decompile>({v.id(), entry});
+      } catch (const DecompileStoppedError &e) {
+        cancelled = true;
+        *error = e.what();
+        return nullptr;
+      }
+      std::shared_ptr<const DecompileOutput> escalated = out->failure ? v.program().Escalated(out->failure->bundle_hash) : nullptr;
+      const DecompileOutput &use = escalated ? *escalated : *out;
+      if (use.failure) {
+        *error = "the decompiler failed" + (use.failure->detail.empty() ? std::string() : ": " + use.failure->detail);
+        return nullptr;
+      }
+      auto fn = std::make_unique<pb::DecompiledFunction>();
+      Overlay(v, *g, use, false, fn.get(), true);
+      return (decompiled[entry] = std::move(fn)).get();
+    };
+    hooks.callee = [&](std::uint64_t call, std::string *what) -> std::optional<std::uint64_t> {
+      std::optional<std::uint64_t> target;
+      for (const StaticXref *x : v.xrefs().from(call, call))
+        if (x->kind == pb::XREF_KIND_CALL) target = x->to;
+      if (!target) {
+        *what = "a call with no known target";
+        return std::nullopt;
+      }
+      std::uint64_t t = *target;
+      for (int hop = 0; hop < 8; ++hop) {
+        const Func *g = v.functions().at(t);
+        if (!g) {
+          *what = v.Symbol(t).empty() ? "0x" + Hex(t) + " (no function there)" : v.Symbol(t);
+          return std::nullopt;
+        }
+        if (!(g->flags & analysis::kFunctionThunk)) return t;
+        if (!g->thunk_target || !v.functions().at(g->thunk_target)) {
+          *what = g->name + " (import)";
+          return std::nullopt;
+        }
+        t = g->thunk_target;
+      }
+      *what = "a chain of thunks";
+      return std::nullopt;
+    };
+    hooks.callers = [&](std::uint64_t entry) {
+      std::vector<std::pair<std::uint64_t, std::uint64_t>> out;
+      std::vector<std::uint64_t> targets{entry};
+      for (std::size_t i = 0; i < targets.size() && targets.size() < 64; ++i)
+        if (auto it = thunks_of.find(targets[i]); it != thunks_of.end())
+          targets.insert(targets.end(), it->second.begin(), it->second.end());
+      for (std::uint64_t t : targets)
+        for (const StaticXref *x : v.xrefs().to(t, t))
+          if (x->kind == pb::XREF_KIND_CALL)
+            if (const Func *g = v.functions().containing(x->from); g && !(g->flags & analysis::kFunctionThunk))
+              out.emplace_back(x->from, g->entry);
+      std::sort(out.begin(), out.end());
+      out.erase(std::unique(out.begin(), out.end()), out.end());
+      return out;
+    };
+    hooks.name = [&](std::uint64_t entry) {
+      std::string n = v.Symbol(entry);
+      return n.empty() ? "FUN_" + Hex(entry) : n;
+    };
+    if (auto st = backend::TraceValue(hooks, f->entry, req, resp); !st.ok()) return st;
+    if (cancelled) return Error(StatusCode::kCancelled, "the trace was stopped");
     SetSnapshot(r, resp.mutable_snapshot());
     return Status::Ok();
   }
@@ -10747,6 +11177,7 @@ class ImageBackend final : public api::Backend {
     po.language_id = src.language_id;
     po.compiler_spec_id = src.compiler_spec_id;
     po.image_base = src.image_base;
+    po.macho_slice = src.macho_slice;
     if (src.raw) {
       po.raw = src.raw;
       po.raw->base = src.image_base.value_or(0);
@@ -10795,7 +11226,7 @@ class ImageBackend final : public api::Backend {
   static void StageAnalysisFacts(facts::FactDb::Transaction &tx, const ProgramSource &src, const AnalysisFacts &a,
                                  const pb::Provenance &request, std::uint64_t revision) {
     pb::Provenance prov;
-    prov.set_kind(pb::PROVENANCE_KIND_ANALYSIS);
+    prov.set_kind(a.import ? pb::PROVENANCE_KIND_IMPORT : pb::PROVENANCE_KIND_ANALYSIS);
     prov.set_id(a.source);
     prov.set_session(request.session());
     prov.set_tool(request.tool());
@@ -10810,7 +11241,7 @@ class ImageBackend final : public api::Backend {
 
   // "analysis:msvc: 12 RTTI classes, 9 vftables, 20 virtual functions"
   static std::string AnalysisSummary(const AnalysisFacts &a) {
-    std::string out = "analysis:" + a.source + ":";
+    std::string out = (a.import ? "import:" : "analysis:") + a.source + ":";
     bool first = true;
     for (const auto &[what, n] : a.counts) {
       if (n == 0) continue;
@@ -11045,6 +11476,7 @@ class ImageBackend final : public api::Backend {
   static constexpr std::size_t kMaxLibraries = 512;
 
   static bool IsPeProgram(const ProgramEntry &e) { return e.program().image().format == loader::Format::pe; }
+  static bool IsMachoProgram(const ProgramEntry &e) { return e.program().image().format == loader::Format::macho; }
   static std::string LibrarySub(const std::string &library) { return std::string(kProgramLibrarySubPrefix) + library; }
 
   // Which project program `name`, a library `e` needs, is. Under core_->mu.
@@ -11062,6 +11494,10 @@ class ImageBackend final : public api::Backend {
       }
     }
     const bool pe = IsPeProgram(e);
+    // A Mach-O names a library by its install path ("@rpath/libfoo.dylib"):
+    // a program of its file name is it, as is one with that install name.
+    const bool macho = IsMachoProgram(e);
+    const std::string leaf = macho ? libs::LibraryLeaf(name) : name;
     const std::string here = StateOf(p, e, upto).folder;
     int best = 0;
     for (const auto &[id, c] : p.programs) {
@@ -11069,8 +11505,10 @@ class ImageBackend final : public api::Backend {
       const ProgramState st = StateOf(p, *c, upto);
       if (st.deleted) continue;
       int rank = 0;
-      if (libs::SameLibrary(st.name, name, pe) || libs::SameLibrary(c->source.name, name, pe)) rank = 3;
-      else if (const std::string &so = c->program().image().soname; !so.empty() && libs::SameLibrary(so, name, pe)) rank = 1;
+      const std::string &so = c->program().image().soname;
+      if (libs::SameLibrary(st.name, leaf, pe) || libs::SameLibrary(c->source.name, leaf, pe)) rank = 3;
+      else if (!so.empty() && libs::SameLibrary(so, name, pe)) rank = 1;
+      else if (macho && !so.empty() && libs::LibraryLeaf(so) == leaf) rank = 1;
       if (!rank) continue;
       if (st.folder == here) ++rank;
       if (rank > best || (rank == best && c->source.ordinal < out.target->source.ordinal)) {
@@ -11120,8 +11558,8 @@ class ImageBackend final : public api::Backend {
     if (l.op) *out->mutable_origin() = OriginOf(*l.op);
   }
 
-  // A program's imports: each slot (GOT, IAT) with its name, the PE's DLL,
-  // and the thunk that jumps through it; sorted by slot.
+  // A program's imports: each slot (GOT, IAT) with its name, the PE's DLL
+  // (a Mach-O's dylib), and the thunk that jumps through it; sorted by slot.
   struct ImportItem {
     std::string name, library;
     std::uint64_t thunk = 0, slot = 0;
@@ -11161,7 +11599,7 @@ class ImageBackend final : public api::Backend {
 
   // Where each of `items` goes among `links`' programs.
   std::vector<pb::ResolvedImport> ResolveImports(const CallContext &ctx, const std::vector<LibraryLink> &links,
-                                                 const std::vector<ImportItem> &items, bool pe) {
+                                                 const std::vector<ImportItem> &items, bool pe, bool macho = false) {
     struct Lib {
       std::optional<Read> read;
       std::unique_ptr<View> view;
@@ -11190,9 +11628,13 @@ class ImageBackend final : public api::Backend {
       r.set_library(it.library);
       if (it.thunk) *r.mutable_thunk() = A(it.thunk);
       if (it.slot) *r.mutable_slot() = A(it.slot);
+      // A Mach-O import names its dylib (two-level namespace); one the dylib
+      // only re-exports (libSystem's umbrella) is then looked up in the rest.
+      for (int pass = 0; pass < (macho ? 2 : 1) && !r.resolved(); ++pass)
       for (std::size_t i = 0; i < links.size(); ++i) {
         // A PE import names its DLL; an ELF one is looked up in load order.
         if (pe && !it.library.empty() && !libs::SameLibrary(links[i].name, it.library, true)) continue;
+        if (macho && pass == 0 && !it.library.empty() && links[i].name != it.library) continue;
         Lib *l = load(i);
         if (!l) continue;
         auto e = l->exports.find(it.name);
@@ -11224,7 +11666,7 @@ class ImageBackend final : public api::Backend {
       tree = TreeLocked(*r.project, r.log_size);
     }
     const bool pe = IsPeProgram(*r.program);
-    const std::vector<pb::ResolvedImport> resolved = ResolveImports(ctx, links, ImportsOf(v), pe);
+    const std::vector<pb::ResolvedImport> resolved = ResolveImports(ctx, links, ImportsOf(v), pe, IsMachoProgram(*r.program));
     std::map<std::string, std::uint32_t> counts;
     for (const pb::ResolvedImport &x : resolved)
       if (x.resolved()) ++counts[pe ? Lower(x.library()) : x.library()];
@@ -11296,7 +11738,7 @@ class ImageBackend final : public api::Backend {
       std::lock_guard lock(core_->mu);
       links = LibrariesOfLocked(*r.project, *r.program, r.log_size);
     }
-    *resp.mutable_resolved() = ResolveImports(ctx, links, {*hit}, IsPeProgram(*r.program)).front();
+    *resp.mutable_resolved() = ResolveImports(ctx, links, {*hit}, IsPeProgram(*r.program), IsMachoProgram(*r.program)).front();
     return Status::Ok();
   }
 
@@ -11356,7 +11798,7 @@ class ImageBackend final : public api::Backend {
       if (!want_name.empty())
         std::erase_if(items, [&](const ImportItem &i) { return i.name != want_name; });
       if (items.empty()) continue;
-      for (pb::ResolvedImport &x : ResolveImports(ctx, imp.links, items, IsPeProgram(*imp.entry))) {
+      for (pb::ResolvedImport &x : ResolveImports(ctx, imp.links, items, IsPeProgram(*imp.entry), IsMachoProgram(*imp.entry))) {
         if (!x.resolved() || x.program_id() != library_id) continue;
         if (want_address && x.address().offset() != *want_address) continue;
         pb::LibraryImporter *o = resp.add_importers();
@@ -11524,9 +11966,17 @@ class ImageBackend final : public api::Backend {
           }
           pb::ImportProgramRequest lr;
           lr.set_project_id(job.project_id);
-          lr.set_name(n);
+          // (A Mach-O's library is named by its file: libfoo.dylib, not
+          // @rpath/libfoo.dylib; a universal one loads the program's slice.)
+          lr.set_name(img.format == loader::Format::macho ? libs::LibraryLeaf(n) : n);
           *lr.mutable_provenance() = job.provenance;
           lr.mutable_options()->set_analyze(job.analyze);
+          if (img.format == loader::Format::macho) {
+            std::optional<libs::FileArch> arch;
+            if (host_file) arch = libs::PeekArch(*host_file);
+            else if (root_key) arch = libs::PeekArchIn(*cur.at.root, *root_key);
+            if (arch) lr.mutable_options()->set_macho_slice(libs::MachoSliceFor(*arch, img));
+          }
           std::optional<PreloadedImport> pre;
           std::string from;
           Status st;
@@ -11788,6 +12238,69 @@ class ImageBackend final : public api::Backend {
     return o;
   }
 
+  // A packer's archive the program's file carries (api_minor 96; docs/
+  // filesystems.md, "Packed executables"): looked for once per file, by its
+  // hash.
+  static std::string PayloadOf(const ProgramEntry &e) {
+    static std::mutex mu;
+    static std::map<std::string, std::string> known;
+    {
+      std::lock_guard lock(mu);
+      if (auto it = known.find(e.source.sha256); it != known.end()) return it->second;
+    }
+    std::string format;
+    if (const auto &file = e.program().image().file) {
+      struct View final : container::Source {
+        const loader::Bytes &b;
+        explicit View(const loader::Bytes &bytes) : b(bytes) {}
+        std::uint64_t size() const override { return b.size(); }
+        std::size_t read(std::uint64_t off, std::span<std::byte> out) const override {
+          if (off >= b.size()) return 0;
+          const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(out.size(), b.size() - off));
+          std::memcpy(out.data(), b.data() + off, n);
+          return n;
+        }
+        std::span<const std::byte> view() const override { return b; }
+      };
+      // A packer's archive in an executable; Lua chunks in a raw image.
+      try {
+        format = container::identify_payload(View(*file));
+      } catch (const std::exception &) {
+      }
+    }
+    std::lock_guard lock(mu);
+    if (known.size() > 65536) known.clear();
+    known[e.source.sha256] = format;
+    return format;
+  }
+
+  // A .NET assembly's CLR header (api_minor 94, feature "dotnet").
+  static std::string DotNetDescription(const loader::DotNetInfo &d) {
+    std::string s = d.ready_to_run ? "ReadyToRun .NET assembly" : d.il_only ? "IL-only .NET assembly" : "mixed-mode .NET assembly";
+    if (!d.metadata_version.empty()) s += ", metadata " + d.metadata_version;
+    s += ", runtime " + std::to_string(d.runtime_major) + "." + std::to_string(d.runtime_minor);
+    if (d.strong_name_signed) s += ", strong-name signed";
+    if (d.requires_32bit) s += ", 32-bit required";
+    else if (d.prefers_32bit) s += ", 32-bit preferred";
+    return s;
+  }
+  static void FillDotNet(const loader::DotNetInfo &d, pb::DotNetAssembly *out) {
+    out->set_metadata_version(d.metadata_version);
+    out->set_runtime_version(std::to_string(d.runtime_major) + "." + std::to_string(d.runtime_minor));
+    out->set_flags(d.flags);
+    out->set_il_only(d.il_only);
+    out->set_mixed_mode(!d.il_only);
+    out->set_ready_to_run(d.ready_to_run);
+    out->set_strong_name_signed(d.strong_name_signed);
+    out->set_requires_32bit(d.requires_32bit);
+    out->set_prefers_32bit(d.prefers_32bit);
+    out->set_entry_point(d.entry_point);
+    out->set_native_entry_point(d.native_entry_point);
+    for (const std::string &st : d.streams) out->add_streams(st);
+    out->set_code_analysis_skipped(!d.has_native_code());
+    out->set_description(DotNetDescription(d));
+  }
+
   // `upto`: the log position read (Read::log_size; p.log().size() for head).
   static void FillProgramInfo(const Project &p, const ProgramEntry &e, Seq upto, const FolderTree &tree,
                               pb::ProgramInfo *out) {
@@ -11805,6 +12318,12 @@ class ImageBackend final : public api::Backend {
     out->set_file_size(e.source.file_size);
     out->set_sha256(e.source.sha256);
     if (!e.source.container_path.empty()) out->set_container_path(e.source.container_path);
+    if (const auto &m = e.program().image().macho; m && !m->slices.empty()) {
+      out->set_macho_slice(m->arch);
+      for (const loader::MachoSlice &sl : m->slices) out->add_macho_slices(sl.arch);
+    }
+    if (const auto &d = e.program().image().dotnet) FillDotNet(*d, out->mutable_dotnet());
+    if (std::string pf = PayloadOf(e); !pf.empty()) out->set_payload_format(pf);
     *out->mutable_imported_at() = TimeUtil::SecondsToTimestamp(e.source.imported_at);
     out->set_deleted(st.deleted);
     if (st.deleted_op) *out->mutable_deleted_origin() = OriginOf(*st.deleted_op);
@@ -12700,12 +13219,12 @@ class ImageBackend final : public api::Backend {
     return id;
   }
 
-  // Function ID runs on PE and ELF programs (Ghidra's analyzer is for
-  // programs a library could be linked into, not raw firmware).
+  // Function ID runs on PE, ELF and Mach-O programs (Ghidra's analyzer is
+  // for programs a library could be linked into, not raw firmware).
   bool FidFor(const ProgramSource &src) const {
     if (!core_->options.function_id) return false;
     const auto f = src.program->image().format;
-    return f == loader::Format::pe || f == loader::Format::elf;
+    return f == loader::Format::pe || f == loader::Format::elf || f == loader::Format::macho;
   }
 
   void ScheduleFid(Project &p, const std::string &program, const std::string &caller) {
@@ -14326,15 +14845,23 @@ class ImageBackend final : public api::Backend {
 
   // Sets infer.published to the fixpoint's prototypes where they differ
   // (unsetting the ones it no longer has), in one revision of cause
-  // ANALYSIS. Returns the revision, 0 if nothing changed.
-  std::uint64_t PublishInfer(Project &p, const std::string &program, const infer::FixpointResult &result) {
+  // ANALYSIS, with the structures they point to (StageInferredStructures).
+  // Returns the revision, 0 if nothing changed.
+  std::uint64_t PublishInfer(Project &p, const std::string &program, const infer::FixpointResult &fixpoint) {
     std::lock_guard write(p.write_mu);
+    std::shared_ptr<const ProgramEntry> entry;
     {
       std::lock_guard lock(core_->mu);
       if (!p.open || !p.programs.contains(program)) return 0;
+      entry = p.programs.at(program);
     }
     facts::Snapshot head = p.db->snapshot();
     auto tx = p.db->begin();
+    pb::Provenance prov;
+    prov.set_kind(pb::PROVENANCE_KIND_ANALYSIS);
+    prov.set_id(std::string(kInferAnalyzer));
+    infer::FixpointResult result = fixpoint;
+    const std::size_t asserted = StageInferredStructures(p, head, *entry, result, tx, prov);
     std::vector<std::pair<std::string, std::uint64_t>> changed;
     auto put = [&](std::uint64_t entry, const std::optional<infer::Prototype> &v) {
       auto cur = head.get<q::InferPublished>({program, entry});
@@ -14351,11 +14878,114 @@ class ImageBackend final : public api::Backend {
     for (std::uint64_t entry : published)
       if (!want.contains(entry)) put(entry, std::nullopt);
     published = std::move(want);
-    if (changed.empty()) return 0;
-    pb::Provenance prov;
-    prov.set_kind(pb::PROVENANCE_KIND_ANALYSIS);
-    prov.set_id(std::string(kInferAnalyzer));
+    if (changed.empty() && asserted == 0) return 0;
     return Commit(p, tx, prov, pb::CHANGE_CAUSE_ANALYSIS, nullptr, nullptr, &changed);
+  }
+
+  // Inference's structures (infer::InferredStructure) as the program's own
+  // types, asserted with its provenance (analysis:infer.prototypes) in the
+  // publishing revision: their TYPE_DEF records, `struct astruct_<n>` bound
+  // to each and filed under /inferred, so they show among the program's
+  // types and the user renames, edits or retracts them as any other (the
+  // user's word outranks analysis). A name someone else binds (Auto
+  // Structure's astruct_<n>, the user's) moves the structure to the next
+  // free number; one whose binding of ours was retracted (undone) isn't
+  // asserted again, and the parameters that pointed to it point to
+  // undefined bytes. Renames `r`'s names to the published ones; returns
+  // the assertions staged.
+  std::size_t StageInferredStructures(Project &p, const facts::Snapshot &head, const ProgramEntry &e,
+                                      infer::FixpointResult &r, facts::FactDb::Transaction &tx,
+                                      const pb::Provenance &prov) {
+    if (r.structures.empty()) return 0;
+    const facts::SpaceId space = e.source.ram_space;
+    const facts::AssertionLog &log = p.log();
+    auto ours = [](const facts::Op &op) {
+      return op.prov.kind == facts::ProvenanceKind::Analysis && op.prov.id == kInferAnalyzer;
+    };
+    std::map<std::string, std::string> rename;  // inference's name -> the published one
+    std::set<std::string> dropped, used;
+    for (const infer::InferredStructure &s : r.structures) {
+      unsigned n = static_cast<unsigned>(std::stoul(s.name.substr(std::string_view("astruct_").size())));
+      for (;; ++n) {
+        const std::string name = "astruct_" + std::to_string(n);
+        if (used.contains(name)) continue;
+        const facts::FactKey k = TypeDefKey(space, TypeNameSub("struct " + name));
+        if (auto w = log.winner(k); w && !ours(*w)) continue;
+        used.insert(name);
+        if (!log.winner(k)) {
+          const std::vector<facts::Op> past = log.history(k);
+          if (std::any_of(past.begin(), past.end(), [&](const facts::Op &op) { return op.kind == facts::OpKind::Assert && ours(op); })) {
+            dropped.insert(s.name);
+            break;
+          }
+        }
+        rename.emplace(s.name, name);
+        break;
+      }
+    }
+    // The names as published, everywhere they appear.
+    std::function<void(infer::VType &)> fix = [&](infer::VType &t) {
+      if (t.is_pointer() && t.target().meta == infer::Meta::struct_ && dropped.contains(t.target().name)) {
+        t = infer::VType::pointer_to(infer::VType::unknown(1), t.size);
+        return;
+      }
+      if (t.meta == infer::Meta::struct_)
+        if (auto it = rename.find(t.name); it != rename.end()) t.name = it->second;
+      for (infer::VType &x : t.pointee) fix(x);
+    };
+    for (auto &[at, proto] : r.prototypes) {
+      fix(proto.ret);
+      for (infer::VType &t : proto.params) fix(t);
+    }
+    std::erase_if(r.structures, [&](const infer::InferredStructure &s) { return dropped.contains(s.name); });
+    for (infer::InferredStructure &s : r.structures) {
+      s.name = rename.at(s.name);
+      for (infer::InferredField &f : s.fields) fix(f.type);
+    }
+    if (r.structures.empty()) return 0;
+    types::TypeStore store;
+    const infer::StructureIds ids = infer::to_types(r.structures, store, infer::data_org(e.program().image()));
+    auto lib = head.get<q::Library>(e.id());
+    const facts::Provenance who = ToFacts(prov);
+    const std::uint64_t rev = tx.next_revision();
+    std::size_t n = 0;
+    // Every record the structures reach that the program and the library
+    // archives don't have.
+    std::set<std::uint32_t> seen;
+    std::vector<types::TypeId> stack;
+    for (const auto &[name, id] : ids) stack.push_back(id);
+    while (!stack.empty()) {
+      const types::TypeId id = stack.back();
+      stack.pop_back();
+      if (!seen.insert(id.raw()).second) continue;
+      types::Type t = store.get(id);
+      types::for_each_ref(t, [&](types::TypeId &x, types::EdgeKind) { stack.push_back(x); });
+      const std::string h = store.hash(id).hex();
+      const facts::FactKey k = TypeDefKey(space, h);
+      if (lib->record(h) != nullptr || !std::holds_alternative<std::monostate>(log.effective(k))) continue;
+      tx.assert_fact(who, k, EncodeTypeRecord(store, id), 0, Meta(prov, nullptr, rev));
+      ++n;
+    }
+    for (const auto &[name, id] : ids) {
+      const std::string key = "struct " + name, h = store.hash(id).hex();
+      const facts::FactKey bind = TypeDefKey(space, TypeNameSub(key));
+      const facts::FactValue bound = log.effective(bind);
+      if (const auto *v = std::get_if<std::string>(&bound); v == nullptr || *v != "h:" + h) {
+        pb::AssertionBody body;
+        body.mutable_bind_type_name()->mutable_type()->set_hash(h);
+        tx.assert_fact(who, bind, "h:" + h, 0, Meta(prov, &body, rev));
+        ++n;
+      }
+      const facts::FactKey cat = TypeDefKey(space, TypeCategorySub(key));
+      if (std::holds_alternative<std::monostate>(log.effective(cat))) {
+        pb::AssertionBody body;
+        body.mutable_type_category()->set_named_key(key);
+        body.mutable_type_category()->set_path(std::string(kInferredCategory));
+        tx.assert_fact(who, cat, std::string(kInferredCategory), 0, Meta(prov, &body, rev));
+        ++n;
+      }
+    }
+    return n;
   }
 
   // Analysis runs at import; a job reports that, with the progress events a
@@ -18553,6 +19183,93 @@ class ImageBackend final : public api::Backend {
     return Status::Ok();
   }
 
+  // --- External decompilers (api_minor 92; docs/providers.md) ------------------
+
+  ProviderApi &Providers() {
+    std::call_once(providers_once_, [this] {
+      const ImageBackendOptions &o = core_->options;
+      ProviderOptions p;
+      p.enabled = o.providers;
+      p.paths = o.provider_paths;
+      p.disabled = o.providers_disabled;
+      p.timeout_seconds = o.provider_timeout_seconds;
+      p.memory_bytes = o.provider_memory_bytes;
+      p.allow_weak_sandbox = o.provider_allow_weak_sandbox;
+      p.from_command_line = o.provider_options_given;
+      providers_ = std::make_unique<ProviderApi>(std::move(p), o.project_dir);
+    });
+    return *providers_;
+  }
+
+  // The bytes an input names: a program's stored file (the caller may read
+  // the program: ResolveProgram), or a file of a session the caller opened.
+  Status ProviderInputOf(const CallContext &ctx, const pb::ProviderInput &in, ProviderApi::Input &out) {
+    switch (in.source_case()) {
+      case pb::ProviderInput::kProgramId: {
+        Read r;
+        if (auto st = ResolveProgram(ctx, in.program_id(), {}, {}, r); !st.ok()) return st;
+        std::shared_ptr<const loader::Bytes> file = r.program->program().file();
+        if (!file) return Error(StatusCode::kFailedPrecondition, "the program's file bytes aren't loaded");
+        out.bytes = std::span<const std::byte>(file->data(), file->size());
+        out.name = r.program->source.name;
+        out.memo_key = "program:" + in.program_id();
+        out.keep = file;
+        return Status::Ok();
+      }
+      case pb::ProviderInput::kFile: {
+        std::shared_ptr<FsSession> fss;
+        if (auto st = filesystems_.Get(ctx, in.file().session_id(), fss); !st.ok()) return st;
+        const std::uint64_t max = Providers().service().settings().max_input_bytes;
+        return FsGuard([&]() -> Status {
+          auto src = fss->session->open_file(in.file().path(), ctx.cancelled);
+          const std::uint64_t size = src->size();
+          if (size > max)
+            return Error(StatusCode::kInvalidArgument, "the file is larger than " + std::to_string(max >> 20) +
+                                                           " MiB (the providers' max_input_bytes)");
+          if (std::span<const std::byte> v = src->view(); v.size() == size) {
+            out.bytes = v;
+            out.keep = src;
+          } else {
+            auto buf = std::make_shared<std::vector<std::byte>>(static_cast<std::size_t>(size));
+            buf->resize(src->read(0, *buf));
+            out.bytes = *buf;
+            out.keep = buf;
+          }
+          const std::string &path = in.file().path();
+          const auto cut = path.find_last_of("/!");
+          out.name = container::decode_component(cut == std::string::npos ? path : path.substr(cut + 1));
+          out.memo_key = "fs:" + fss->id + ":" + path;
+          return Status::Ok();
+        });
+      }
+      default: return Error(StatusCode::kInvalidArgument, "input.program_id or input.file is required");
+    }
+  }
+  ProviderApi::Resolve ProviderResolver() {
+    return [this](const CallContext &c, const pb::ProviderInput &i, ProviderApi::Input &o) { return ProviderInputOf(c, i, o); };
+  }
+
+  Status ListProviders(const CallContext &ctx, const pb::ListProvidersRequest &req,
+                       pb::ListProvidersResponse &resp) override {
+    return Providers().ListProviders(ctx, req, resp, ProviderResolver());
+  }
+  Status DecompileExternal(const CallContext &ctx, const pb::DecompileExternalRequest &req,
+                           pb::DecompileExternalResponse &resp) override {
+    return Providers().DecompileExternal(ctx, req, resp, ProviderResolver());
+  }
+  Status ReadProviderOutput(const CallContext &ctx, const pb::ReadProviderOutputRequest &req,
+                            pb::ReadProviderOutputResponse &resp) override {
+    return Providers().ReadProviderOutput(ctx, req, resp, ProviderResolver());
+  }
+  Status GetProviderSettings(const CallContext &ctx, const pb::GetProviderSettingsRequest &req,
+                             pb::GetProviderSettingsResponse &resp) override {
+    return Providers().GetProviderSettings(ctx, req, resp);
+  }
+  Status SetProviderSettings(const CallContext &ctx, const pb::SetProviderSettingsRequest &req,
+                             pb::SetProviderSettingsResponse &resp) override {
+    return Providers().SetProviderSettings(ctx, req, resp);
+  }
+
   // What raw detection says of a member, as import options; FAILED_PRECONDITION
   // with the reason when it isn't sure.
   Status DetectMember(const CallContext &ctx, const std::string &project, std::span<const std::byte> bytes,
@@ -18699,7 +19416,8 @@ class ImageBackend final : public api::Backend {
         }
         detected.set_analyze(req.options().analyze());
         *in.mutable_options() = detected;
-      } else if (!item.language.empty() && item.kind != "elf" && item.kind != "pe" && in.options().format().empty()) {
+      } else if (!item.language.empty() && item.kind != "elf" && item.kind != "pe" && item.kind != "macho" &&
+                 in.options().format().empty()) {
         in.mutable_options()->set_format("raw");
         in.mutable_options()->set_language_id(item.language);
         if (item.load_address) {
@@ -18795,6 +19513,9 @@ class ImageBackend final : public api::Backend {
   MachineStore machines_;
   Uploads uploads_;
   FileSystemRegistry filesystems_;
+  // External decompilers (ProviderService), made on first use.
+  std::once_flag providers_once_;
+  std::unique_ptr<ProviderApi> providers_;
   // Parks idle SLEIGH engines (ParkIdleEngines); last, so it stops first.
   std::jthread sweeper_;
 

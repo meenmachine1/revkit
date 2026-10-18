@@ -3,7 +3,7 @@
 A reverse-engineering workbench built around Ghidra's decompiler and SLEIGH
 engine, compiled into a native C++ server.
 
-One server, `rk-daemon`, loads ELF, PE and raw firmware images, analyzes
+One server, `rk-daemon`, loads ELF, PE, Mach-O and raw firmware images, analyzes
 them, and serves the results to a web UI, a desktop app, Python and
 TypeScript SDKs, an MCP server for AI agents, and command-line tools. People
 and agents can work on the same project at once: every rename, type and
@@ -82,15 +82,20 @@ with Client("127.0.0.1:50051", actor="user:me") as rk:
     prog.rename(biggest.entry.offset, "biggest_function", reason="most instructions")
 ```
 
-**4. Connect an AI agent** (optional). With the `[mcp]` extra installed, for
-Claude Code:
+**4. Connect an AI agent** (optional). With the `[mcp]` extra installed,
+register revkit's MCP server with the coding agents on your computer
+(Claude Code, Codex, Cursor, Gemini CLI); it shows each change and asks
+first:
 
 ```sh
-claude mcp add revkit -- ~/rk-venv/bin/revkit-mcp --daemon 127.0.0.1:50051 --agent claude
+revkit mcp setup            # or: ~/rk-venv/bin/revkit-mcp setup  (--dry-run to look first)
 ```
 
-Any MCP client works the same way. The agent's edits show up live in the UI,
-marked `agent:claude`, and can be reviewed or undone.
+By hand, for Claude Code: `claude mcp add revkit -- ~/rk-venv/bin/revkit-mcp
+--daemon 127.0.0.1:50051 --agent claude`; any MCP client works the same
+way. The server ships a workflow guide for the agent (the `investigate`
+prompt). The agent's edits show up live in the UI, marked `agent:claude`,
+and can be reviewed or undone.
 
 ## Slow start
 
@@ -114,8 +119,8 @@ them:
 
 ```sh
 arch=$(uname -m)
-base=https://github.com/meenmachine1/revkit/releases/download/v0.1.2
-curl -fLO $base/revkit-0.1.2-linux-$arch.tar.gz
+base=https://github.com/meenmachine1/revkit/releases/download/v0.1.3
+curl -fLO $base/revkit-0.1.3-linux-$arch.tar.gz
 curl -fLO $base/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS     # must say OK
 ```
@@ -124,17 +129,17 @@ sha256sum --check --ignore-missing SHA256SUMS     # must say OK
 
 ```sh
 mkdir -p ~/opt
-tar -xzf revkit-0.1.2-linux-$arch.tar.gz -C ~/opt
-export PATH=~/opt/revkit-0.1.2-linux-$arch/bin:$PATH
+tar -xzf revkit-0.1.3-linux-$arch.tar.gz -C ~/opt
+export PATH=~/opt/revkit-0.1.3-linux-$arch/bin:$PATH
 rk-daemon --version
 # to keep it on your PATH in new shells:
-echo "export PATH=\"$HOME/opt/revkit-0.1.2-linux-$arch/bin:\$PATH\"" >> ~/.profile
+echo "export PATH=\"$HOME/opt/revkit-0.1.3-linux-$arch/bin:\$PATH\"" >> ~/.profile
 ```
 
-Or install the `.deb` instead (`revkit_0.1.2_amd64.deb` or
-`revkit_0.1.2_arm64.deb`): `sudo apt install ./revkit_0.1.2_amd64.deb`
+Or install the `.deb` instead (`revkit_0.1.3_amd64.deb` or
+`revkit_0.1.3_arm64.deb`): `sudo apt install ./revkit_0.1.3_amd64.deb`
 puts everything under `/usr`. On x86-64 there is also the desktop app,
-`revkit-desktop_0.1.2_amd64.AppImage`: make it executable and run it; it
+`revkit-desktop_0.1.3_amd64.AppImage`: make it executable and run it; it
 starts its own server, so you can stop here.
 
 **4. Start the server:**

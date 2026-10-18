@@ -191,7 +191,7 @@ TEST(LibraryStubs, DynamicProgramMatchesTheMachine) {
   if (!fs::exists(bin)) GTEST_SKIP() << "no x86-64 compiler";
   int status = 0;
   const std::string native = testing::run_command(bin.string() + " </dev/null", status);
-  auto image = std::make_shared<const loader::Image>(loader::load_file(bin, {std::nullopt, true}));
+  auto image = std::make_shared<const loader::Image>(loader::load_file(bin, {std::nullopt, true, {}}));
   Options o;
   o.argv = {bin.string()};
   Emulator e(image, o);
@@ -235,7 +235,7 @@ TEST(LibraryStubs, SkippedImportsReturnTheConfiguredValue) {
   if (!testing::ghidra_ready()) GTEST_SKIP() << "GHIDRA_ROOT not configured";
   const fs::path bin = fs::path(REVKIT_EMU_PROGRAM_DIR) / "dynamic-x86_64";
   if (!fs::exists(bin)) GTEST_SKIP() << "no x86-64 compiler";
-  auto image = std::make_shared<const loader::Image>(loader::load_file(bin, {std::nullopt, true}));
+  auto image = std::make_shared<const loader::Image>(loader::load_file(bin, {std::nullopt, true, {}}));
   Options o;
   o.import_return = 0x1234;
   o.library_stubs = false;  // strlen, malloc, ... are all skipped now

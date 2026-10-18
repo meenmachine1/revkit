@@ -183,6 +183,15 @@ if ((lVar5 != 0) && (plVar2 <= *(long **)(param_1 + 0x40))) {
 if ((lVar5 != 0) && (plVar2 <= param_1->field_0x40)) {
 ```
 
+**Inferred structures.** Inference composes structures of its own the
+same way, from every function's accesses to one class of passed-on
+pointers ([infer.md](infer.md#structures)): `astruct_<n>`, the program's
+types since inference published them (provenance
+`analysis:infer.prototypes`, category `/inferred`). Its composition keeps
+a wide field whole where splitting it at narrower accesses costs more
+(`ComposeOptions::keep_wide`); Auto Structure keeps Ghidra's rule (a field
+at every access start).
+
 ### Editing the preview and chaining (api_minor 56)
 
 With feature `auto-struct-edit` the request carries **edits** to the

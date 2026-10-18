@@ -235,5 +235,8 @@ export function looksLikeContainer(head: Uint8Array): string {
   if (head.length > 1081 && head[1080] === 0x53 && head[1081] === 0xef) return "ext";
   if (ascii(32769, "CD001")) return "iso9660";
   if (head.length >= 512 && head[510] === 0x55 && head[511] === 0xaa) return "fat";
+  // An Electron asar (api_minor 96): the size pickle, then the JSON header.
+  if (at(0, 4, 0, 0, 0) && ascii(16, '{"files":')) return "asar";
+  if (ascii(0, "PYZ") && head[3] === 0 && head[6] === 0x0d && head[7] === 0x0a) return "pyz";
   return "";
 }

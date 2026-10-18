@@ -32,6 +32,8 @@ void Slot::encode(facts::Encoder &e) const {
   facts::encode(e, constants);
   facts::encode(e, data_address);
   facts::encode(e, code_address);
+  e.svarint(from_param);
+  facts::encode(e, passed_only);
 }
 
 Slot Slot::decode(facts::Decoder &d) {
@@ -45,6 +47,8 @@ Slot Slot::decode(facts::Decoder &d) {
   s.constants = facts::decode<std::vector<std::uint64_t>>(d);
   s.data_address = facts::decode<bool>(d);
   s.code_address = facts::decode<bool>(d);
+  s.from_param = static_cast<std::int32_t>(d.svarint());
+  s.passed_only = facts::decode<bool>(d);
   return s;
 }
 
@@ -68,6 +72,42 @@ CallSite CallSite::decode(facts::Decoder &d) {
   return c;
 }
 
+void PointerUse::Field::encode(facts::Encoder &e) const {
+  e.svarint(offset);
+  facts::encode(e, accesses);
+  facts::encode(e, self);
+  facts::encode(e, returned);
+}
+
+PointerUse::Field PointerUse::Field::decode(facts::Decoder &d) {
+  Field f;
+  f.offset = d.svarint();
+  f.accesses = facts::decode<std::vector<PointerAccess>>(d);
+  f.self = facts::decode<std::vector<std::int64_t>>(d);
+  f.returned = facts::decode<bool>(d);
+  return f;
+}
+
+void PointerUse::encode(facts::Encoder &e) const {
+  e.svarint(param);
+  e.varint(call);
+  facts::encode(e, accesses);
+  facts::encode(e, self);
+  facts::encode(e, returned);
+  facts::encode(e, fields);
+}
+
+PointerUse PointerUse::decode(facts::Decoder &d) {
+  PointerUse u;
+  u.param = static_cast<std::int32_t>(d.svarint());
+  u.call = d.varint();
+  u.accesses = facts::decode<std::vector<PointerAccess>>(d);
+  u.self = facts::decode<std::vector<std::int64_t>>(d);
+  u.returned = facts::decode<bool>(d);
+  u.fields = facts::decode<std::vector<Field>>(d);
+  return u;
+}
+
 void Observation::encode(facts::Encoder &e) const {
   facts::encode(e, ok);
   e.bytes(error);
@@ -82,6 +122,8 @@ void Observation::encode(facts::Encoder &e) const {
   facts::encode(e, spills);
   facts::encode(e, reads_al);
   facts::encode(e, calls);
+  facts::encode(e, pointer_uses);
+  facts::encode(e, results);
   facts::encode(e, consulted);
   e.bytes(c);
   facts::encode(e, same_as);
@@ -103,6 +145,8 @@ Observation Observation::decode(facts::Decoder &d) {
   o.spills = facts::decode<std::vector<std::string>>(d);
   o.reads_al = facts::decode<bool>(d);
   o.calls = facts::decode<std::vector<CallSite>>(d);
+  o.pointer_uses = facts::decode<std::vector<PointerUse>>(d);
+  o.results = facts::decode<std::vector<PointerUse>>(d);
   o.consulted = facts::decode<std::vector<std::uint64_t>>(d);
   o.c = std::string(d.bytes());
   o.same_as = facts::decode<std::optional<std::uint32_t>>(d);
@@ -456,6 +500,41 @@ struct Decompiler::Impl {
     s.narrowest = static_cast<std::uint8_t>(narrowest);
   }
 
+  // Whether every read of a parameter (through copies, casts and joins)
+  // passes it to a call as an argument.
+  static bool passed_only(ghidra::Funcdata *fd, const ghidra::Address &addr, int size) {
+    ghidra::Varnode *start = fd->findVarnodeInput(size, addr);
+    if (start == nullptr) return false;
+    std::vector<const ghidra::Varnode *> work{start}, seen;
+    bool passed = false;
+    while (!work.empty()) {
+      const ghidra::Varnode *vn = work.back();
+      work.pop_back();
+      if (std::find(seen.begin(), seen.end(), vn) != seen.end()) continue;
+      seen.push_back(vn);
+      if (seen.size() > 256) return false;
+      for (auto it = vn->beginDescend(); it != vn->endDescend(); ++it) {
+        const ghidra::PcodeOp *op = *it;
+        switch (op->code()) {
+          case ghidra::CPUI_CALL:
+          case ghidra::CPUI_CALLIND:
+            if (op->getSlot(vn) == 0) return false;
+            passed = true;
+            break;
+          case ghidra::CPUI_COPY:
+          case ghidra::CPUI_CAST:
+          case ghidra::CPUI_MULTIEQUAL:
+          case ghidra::CPUI_INDIRECT:
+            if (op->getOut() != nullptr) work.push_back(op->getOut());
+            break;
+          default:
+            return false;
+        }
+      }
+    }
+    return passed;
+  }
+
   // The constants the j-th argument of a call can be: through copies,
   // casts and joins of control flow (a conditional choice of two
   // callbacks), and as the decompiler shows `&FUN_x` (PTRSUB of 0).
@@ -569,12 +648,116 @@ struct Decompiler::Impl {
     }
   }
 
+  // Whether a value reaches a RETURN unchanged (through copies, casts and
+  // joins of control flow).
+  static bool returned(const std::vector<const ghidra::Varnode *> &roots) {
+    std::vector<const ghidra::Varnode *> work(roots.begin(), roots.end()), seen;
+    while (!work.empty() && seen.size() < 64) {
+      const ghidra::Varnode *vn = work.back();
+      work.pop_back();
+      if (vn == nullptr || std::find(seen.begin(), seen.end(), vn) != seen.end()) continue;
+      seen.push_back(vn);
+      for (auto it = vn->beginDescend(); it != vn->endDescend(); ++it) {
+        const ghidra::PcodeOp *op = *it;
+        if (op->isDead()) continue;
+        switch (op->code()) {
+          case ghidra::CPUI_RETURN:
+            if (op->getSlot(vn) == 1) return true;
+            break;
+          case ghidra::CPUI_COPY:
+          case ghidra::CPUI_CAST:
+          case ghidra::CPUI_MULTIEQUAL:
+            if (op->getOut() != nullptr) work.push_back(op->getOut());
+            break;
+          case ghidra::CPUI_INDIRECT:
+            if (op->getSlot(vn) == 0 && op->getOut() != nullptr) work.push_back(op->getOut());
+            break;
+          default:
+            break;
+        }
+      }
+    }
+    return false;
+  }
+
+  // How a pointer is used, for structure inference (PointerUse): the
+  // accesses through it and through the values loaded through it, trimmed
+  // to what it composes from. Empty when nothing uses it as a pointer.
+  PointerUse use_of(const ghidra::Funcdata &fd, const std::vector<const ghidra::Varnode *> &roots) const {
+    constexpr std::size_t kMaxPerRoot = 512, kMaxPerField = 128, kMaxFields = 64;
+    constexpr std::int64_t kMinOffset = -0x1000, kMaxOffset = 0x10000;
+    auto trim = [&](std::vector<PointerAccess> in, std::size_t cap) {
+      std::vector<PointerAccess> out;
+      for (PointerAccess &a : in) {
+        if (out.size() >= cap) break;
+        if (a.offset < kMinOffset || a.offset > kMaxOffset) continue;
+        a.storage.clear();
+        if (a.kind != AccessKind::passed) a.address = 0;
+        out.push_back(std::move(a));
+      }
+      return out;
+    };
+    const int ptr = arch->types->getSizeOfPointer();
+    PointerUse u;
+    std::vector<LoadedValue> loads;
+    u.accesses = trim(pointer_accesses(fd, roots, &loads, &u.self), kMaxPerRoot);
+    u.returned = returned(roots);
+    std::map<std::int64_t, std::vector<const ghidra::Varnode *>> by_offset;
+    for (const LoadedValue &l : loads)
+      if (l.value != nullptr && l.value->getSize() == ptr && l.offset <= kMaxOffset &&
+          (by_offset.contains(l.offset) || by_offset.size() < kMaxFields))
+        by_offset[l.offset].push_back(l.value);
+    for (const auto &[off, values] : by_offset) {
+      PointerUse::Field f;
+      f.offset = off;
+      f.accesses = trim(pointer_accesses(fd, values, nullptr, &f.self), kMaxPerField);
+      f.returned = returned(values);
+      if (!f.accesses.empty() || f.returned || !f.self.empty()) u.fields.push_back(std::move(f));
+    }
+    if (u.accesses.empty() && !u.returned) return {};
+    return u;
+  }
+
+  // What structure inference reads (Observation::pointer_uses, results):
+  // the uses of each pointer-sized parameter and of each pointer-sized
+  // result of a call.
+  void pointer_uses(const ghidra::Funcdata &fd, const std::vector<const ghidra::HighVariable *> &highs,
+                    Observation &o) const {
+    const int ptr = arch->types->getSizeOfPointer();
+    for (std::size_t i = 0; i < highs.size(); ++i) {
+      const ghidra::HighVariable *h = highs[i];
+      if (h == nullptr || i >= o.params.size() || o.params[i].size != ptr) continue;
+      try {
+        std::vector<const ghidra::Varnode *> roots;
+        for (int k = 0; k < h->numInstances(); ++k) roots.push_back(h->getInstance(k));
+        PointerUse u = use_of(fd, roots);
+        u.param = static_cast<std::int32_t>(i);
+        if (!u.accesses.empty() || u.returned) o.pointer_uses.push_back(std::move(u));
+      } catch (const ghidra::LowlevelError &) {
+      }
+    }
+    for (int i = 0; i < fd.numCalls(); ++i) {
+      const ghidra::FuncCallSpecs *fc = fd.getCallSpecs(i);
+      const ghidra::PcodeOp *op = fc->getOp();
+      if (op == nullptr || op->isDead()) continue;
+      const ghidra::Varnode *out = op->getOut();
+      if (out == nullptr || out->getSize() != ptr || out->hasNoDescend()) continue;
+      try {
+        PointerUse u = use_of(fd, {out});
+        u.call = op->getAddr().getOffset();
+        if (!u.accesses.empty() || u.returned) o.results.push_back(std::move(u));
+      } catch (const ghidra::LowlevelError &) {
+      }
+    }
+  }
+
   void observe(ghidra::Funcdata *fd, Observation &o) {
     ghidra::FuncProto &proto = fd->getFuncProto();
     for (int i = 0; i < proto.numParams(); ++i) {
       ghidra::ProtoParameter *p = proto.getParam(i);
       Slot s = slot(p->getAddress(), p->getSize(), p->getType());
       used_bytes(fd, p->getAddress(), p->getSize(), s);
+      s.passed_only = passed_only(fd, p->getAddress(), p->getSize());
       o.params.push_back(std::move(s));
     }
     ghidra::ProtoParameter *out = proto.getOutput();
@@ -631,10 +814,37 @@ struct Decompiler::Impl {
       s.type = VType::unknown(s.size);
       o.extra_inputs.push_back(std::move(s));
     }
+    // The parameters' variables, to tell a call argument that is one of
+    // them passed on unchanged (Slot::from_param).
+    std::vector<const ghidra::HighVariable *> param_highs;
+    for (int i = 0; i < proto.numParams(); ++i) {
+      const ghidra::HighVariable *h = nullptr;
+      try {
+        ghidra::ProtoParameter *p = proto.getParam(i);
+        if (ghidra::Varnode *in = fd->findVarnodeInput(p->getSize(), p->getAddress()); in != nullptr)
+          h = in->getHigh();
+      } catch (const ghidra::LowlevelError &) {
+      }
+      param_highs.push_back(h);
+    }
+    pointer_uses(*fd, param_highs, o);
     for (int i = 0; i < fd->numCalls(); ++i) {
       ghidra::FuncCallSpecs *fc = fd->getCallSpecs(i);
       ghidra::PcodeOp *op = fc->getOp();
       if (op == nullptr || op->isDead()) continue;
+      auto from_param = [&](int j) -> std::int32_t {
+        if (j + 1 >= op->numInput()) return -1;
+        const ghidra::Varnode *vn = op->getIn(j + 1);
+        while (vn != nullptr && vn->isWritten() && vn->getDef()->code() == ghidra::CPUI_CAST) vn = vn->getDef()->getIn(0);
+        if (vn == nullptr) return -1;
+        try {
+          const ghidra::HighVariable *h = vn->getHigh();
+          for (std::size_t k = 0; k < param_highs.size(); ++k)
+            if (h != nullptr && param_highs[k] == h) return static_cast<std::int32_t>(k);
+        } catch (const ghidra::LowlevelError &) {
+        }
+        return -1;
+      };
       CallSite c;
       c.address = op->getAddr().getOffset();
       if (!fc->getEntryAddress().isInvalid()) c.target = fc->getEntryAddress().getOffset();
@@ -643,7 +853,22 @@ struct Decompiler::Impl {
         if (j + 1 < op->numInput()) {
           ghidra::Varnode *vn = op->getIn(j + 1);
           try {
-            if (vn != nullptr && vn->getHigh() != nullptr) return vn->getHigh()->getType();
+            if (vn != nullptr && vn->getHigh() != nullptr) {
+              ghidra::Datatype *t = vn->getHigh()->getType();
+              // A locked callee's integer parameter makes the decompiler
+              // cast a pointer the caller passes ((ulong)param_1): that the
+              // caller has a pointer there is evidence the cast hides. (A
+              // pointer cast to another pointer type stays the parameter's:
+              // what the caller's pointer points to is its own guess.)
+              if (vn->isWritten() && vn->getDef()->code() == ghidra::CPUI_CAST && t != nullptr &&
+                  t->getMetatype() != ghidra::TYPE_PTR) {
+                ghidra::Varnode *in = vn->getDef()->getIn(0);
+                ghidra::Datatype *from = in->getHigh() != nullptr ? in->getHigh()->getType() : nullptr;
+                if (from != nullptr && from->getMetatype() == ghidra::TYPE_PTR && from->getSize() == t->getSize())
+                  return from;
+              }
+              return t;
+            }
           } catch (const ghidra::LowlevelError &) {
           }
         }
@@ -655,6 +880,7 @@ struct Decompiler::Impl {
         for (int j = 0; j < active->getNumTrials(); ++j) {
           const ghidra::ParamTrial &t = active->getTrial(j);
           c.args.push_back(slot(t.getAddress(), t.getSize(), value_type(j, nullptr)));
+          c.args.back().from_param = from_param(j);
           c.args.back().constants = constants_of(op, j);
           classify_constants(c.args.back());
         }
@@ -662,6 +888,7 @@ struct Decompiler::Impl {
         for (int j = 0; j < fc->numParams(); ++j) {
           ghidra::ProtoParameter *p = fc->getParam(j);
           c.args.push_back(slot(p->getAddress(), p->getSize(), value_type(j, p->getType())));
+          c.args.back().from_param = from_param(j);
           c.args.back().constants = constants_of(op, j);
           classify_constants(c.args.back());
         }
@@ -702,6 +929,8 @@ struct Decompiler::Impl {
         fd = sym != nullptr ? sym->getFunction() : nullptr;
       }
       if (fd == nullptr) throw ghidra::LowlevelError("no function at the entry");
+      for (std::uint64_t a : options.call_returns)
+        fd->getOverride().insertFlowOverride(ghidra::Address(code, a), ghidra::Override::CALL_RETURN);
       lift::DecompileLimits limits;
       limits.max_varnodes = options.max_varnodes;
       limits.timeout_seconds = options.timeout_seconds;

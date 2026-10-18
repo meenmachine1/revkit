@@ -268,6 +268,7 @@ Image parse(std::shared_ptr<const Bytes> file, const LoadOptions &options) {
     return parse_elf(std::move(file), options);
   if (b.size() >= 2 && b[0] == std::byte{'M'} && b[1] == std::byte{'Z'})
     return parse_pe(std::move(file), options);
+  if (is_macho(b)) return parse_macho(std::move(file), options);
   detail::fail("unrecognised file format");
 }
 

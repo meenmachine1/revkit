@@ -1646,7 +1646,7 @@ TEST_F(ImageBackendTest, StrippedFunctionsAreWhatDiscoveryFinds) {
   }
 
   // What rk-lift --analyze computes.
-  loader::Image image = loader::load_file(stripped, {.image_base = std::nullopt, .ghidra_image_base = true});
+  loader::Image image = loader::load_file(stripped, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
   facts::FactDb db;
   analysis::register_queries(db.engine());
   analysis::import_image(db, {}, image, analysis::describe(image, loader::guess_language(image)->id()));

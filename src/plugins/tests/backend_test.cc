@@ -93,7 +93,7 @@ class PluginBackend : public ::testing::Test {
     if (std::string(REVKIT_EXAMPLE_PLUGINS).empty()) GTEST_SKIP() << "example plugins not built (no wasm32 clang)";
     if (std::string(REVKIT_GHIDRA_ROOT).empty()) GTEST_SKIP() << "GHIDRA_ROOT not configured";
     if (!compiled_) GTEST_SKIP() << "can't build the fixture";
-    named_ = loader::load_file(dir_ / "named", {.image_base = std::nullopt, .ghidra_image_base = true});
+    named_ = loader::load_file(dir_ / "named", {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
     for (const loader::Symbol &s : named_.symbols)
       if (s.defined) sym_[s.name] = s.value;
     backend_ = Make();

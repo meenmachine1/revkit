@@ -34,6 +34,31 @@ class TestFs : public FileSystem {
   FileSystem &self() { return *this; }
 };
 
+// Mach-O files are programs (kind "macho"), thin or universal; a Java class
+// file with the same magic is bytecode.
+TEST(ContainerIdentify, MachO) {
+  auto bytes = [](std::vector<std::uint8_t> v) {
+    v.resize(std::max<std::size_t>(v.size(), 64));
+    std::vector<std::byte> out(v.size());
+    for (std::size_t i = 0; i < v.size(); ++i) out[i] = std::byte{v[i]};
+    return out;
+  };
+  const auto thin = bytes({0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0});
+  Guess g = guess(thin, thin.size());
+  EXPECT_EQ(g.kind, "macho");
+  EXPECT_EQ(g.description, "Mach-O 64-bit arm64 executable");
+  EXPECT_EQ(g.processor, "AARCH64:LE:64");
+  const auto fat = bytes({0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 2,     //
+                          1, 0, 0, 7, 0, 0, 0, 3, 0, 0, 0x40, 0, 0, 0, 0x10, 0, 0, 0, 0, 14,  //
+                          1, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0x80, 0, 0, 0, 0x10, 0, 0, 0, 0, 14});
+  g = guess(fat, fat.size());
+  EXPECT_EQ(g.kind, "macho");
+  EXPECT_EQ(g.description, "Mach-O universal (x86_64, arm64)");
+  const auto java = bytes({0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 0x34, 0, 12});
+  EXPECT_EQ(guess(java, java.size()).kind, "bytecode");
+  EXPECT_EQ(guess(java, java.size()).content_kind, "java-class:8");
+}
+
 TEST(ContainerTree, NormalizesNamesAndClashes) {
   TestFs fs;
   Limits limits;

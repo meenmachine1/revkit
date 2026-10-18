@@ -176,8 +176,10 @@ void ProgramInfo::encode(Encoder &e) const {
   facts::encode(e, link_register);
   // `search` with flags for the byte sources and call-preserved registers
   // that follow `patterns`, so a program without memory-map edits or a
-  // known <unaffected> list encodes (and fingerprints) as before.
-  e.u8(static_cast<std::uint8_t>((search ? 1 : 0) | (sources.empty() ? 0 : 2) | (call_preserved.empty() ? 0 : 4)));
+  // known <unaffected> list encodes (and fingerprints) as before; and
+  // `macho`.
+  e.u8(static_cast<std::uint8_t>((search ? 1 : 0) | (sources.empty() ? 0 : 2) | (call_preserved.empty() ? 0 : 4) |
+                                 (macho ? 8 : 0)));
   facts::encode(e, patterns);
   if (!sources.empty()) {
     e.varint(sources.size());
@@ -221,6 +223,7 @@ ProgramInfo ProgramInfo::decode(Decoder &d) {
   const std::uint8_t flags = d.u8();
   if (flags > 7) throw facts::DecodeError("bad ProgramInfo flags");
   p.search = (flags & 1) != 0;
+  p.macho = (flags & 8) != 0;
   p.patterns = facts::decode<std::vector<StartPattern>>(d);
   if (flags & 2) {
     const std::uint64_t n = d.varint();
@@ -341,7 +344,7 @@ std::string address_name(const ProgramInfo &info, std::string_view prefix, std::
   return out + buf;
 }
 
-bool is_known_no_return(std::string_view name) {
+bool is_known_no_return(std::string_view name, bool macho) {
   // Ghidra's ElfFunctionsThatDoNotReturn and PEFunctionsThatDoNotReturn
   // (compared without leading underscores, as Ghidra does), plus the
   // err()/errx() family, quick_exit, __cxa_rethrow and the fortify
@@ -363,8 +366,23 @@ bool is_known_no_return(std::string_view name) {
       "KeBugCheckEx", "RpcRaiseException", "terminate", "raise_securityfailure",
       "report_rangecheckfailure", "report_gsfailure", "?terminate@@YAXXZ",
   };
+  // MachOFunctionsThatDoNotReturn's names the ELF and PE lists lack.
+  static const std::set<std::string_view> kMacho = {
+      "cexit", "c_exit", "objc_exception_throw", "yy_fatal_error", "Unwind_SjLj_Resume", "abort_message",
+      "clang_call_terminate", "ZL11unreachablePKc", "ZN5swift10fatalErrorEjPKcz",
+      "ZN5swift24swift_abortRetainUnownedEPKv", "ZN5swift25swift_abortRetainOverflowEv",
+      "ZN5swift32swift_abortUnownedRetainOverflowEv",
+      "ZN5swift24swift_dynamicCastFailureEPKNS_14TargetMetadataINS_9InProcessEEES4_PKc",
+      "T0s18_fatalErrorMessages5NeverOs12StaticStringV_A2E4fileSu4lines6UInt32V5flagstFTf4nnddn_n",
+      "T0s17_assertionFailures5NeverOs12StaticStringV_SSAE4fileSu4lines6UInt32V5flagstFTf4nxnnn_n",
+      "T0s18_fatalErrorMessages5NeverOs12StaticStringV_A2E4fileSu4lines6UInt32V5flagstF",
+      "T0s17_assertionFailures5NeverOs12StaticStringV_SSAE4fileSu4lines6UInt32V5flagstF",
+      "T0s17_assertionFailures5NeverOs12StaticStringV_SSAE4fileSu4lines6UInt32V5flagstFTfq4nxnnn_n",
+      "ZNKSt3__120__vector_base_commonILb1EE20__throw_length_errorEv",
+      "ZNKSt3__121__basic_string_commonILb1EE20__throw_length_errorEv", "T0s9_abstracts5NeverOs12StaticStringV4file_Su4linetF",
+      "ZN5swift24swift_dynamicCastFailureEPKvPKcS1_S3_S3_", "ZSt11__terminatePFvvE", "ZSt12__unexpectedPFvvE"};
   while (!name.empty() && name.front() == '_') name.remove_prefix(1);
-  return kNames.contains(name);
+  return kNames.contains(name) || (macho && kMacho.contains(name));
 }
 
 // ---- describe ----
@@ -713,6 +731,7 @@ ProgramInfo describe(const loader::Image &image, const std::string &language, fa
   }
   info.big_endian = image.endian == loader::Endian::big;
   info.pointer_size = static_cast<std::uint8_t>(image.bits / 8);
+  info.macho = image.format == loader::Format::macho;
 
   std::vector<Range> code;
   for (const loader::Block &b : image.blocks)
@@ -803,10 +822,18 @@ ProgramInfo describe(const loader::Image &image, const std::string &language, fa
     if (!s.defined || (s.type != loader::SymbolType::func && s.type != loader::SymbolType::ifunc)) continue;
     seeds.symbol(lift::function_address(image, s), kSeedSymbol, s.name, bind_rank(s.bind));
   }
-  for (const loader::Export &e : image.exports)
-    if (e.forwarder.empty()) seeds.symbol(e.address, kSeedExport, e.name, 3);
+  // (A Mach-O exports data too, and its header: its exports in code are
+  // function symbols already, the loader's, and the rest aren't functions.)
+  if (image.format != loader::Format::macho)
+    for (const loader::Export &e : image.exports)
+      if (e.forwarder.empty()) seeds.symbol(e.address, kSeedExport, e.name, 3);
   for (const loader::FunctionRange &r : image.function_ranges)
     if (r.end > r.start) seeds.add(r.start, kSeedUnwind);
+  // Ghidra's Mach-O Function Starts analyzer: LC_FUNCTION_STARTS (Thumb
+  // ones odd).
+  if (image.macho)
+    for (std::uint64_t f : image.macho->function_starts)
+      if (find_range(info.code, f & ~std::uint64_t{1}) != nullptr) seeds.add(f & ~std::uint64_t{1}, kSeedFunctionStarts);
 
   const loader::InitFini &init = image.init_fini;
   if (init.init) seeds.conventional(*init.init, kSeedInit, "_DT_INIT", 2);
@@ -895,6 +922,17 @@ ProgramInfo describe(const loader::Image &image, const std::string &language, fa
     info.patterns = load_start_patterns(info.language, info.compiler);
   }
   if (named != nullptr) info.register_defaults = register_defaults(image, info, *named);
+  // An IL-only .NET assembly: its code is CIL and metadata, not machine
+  // code, so nothing in it is decoded or discovered as such (the entry
+  // stub "jmp [_CorExeMain]" included). Mixed-mode and ReadyToRun images
+  // have native code beside the IL and are analysed as usual
+  // (docs/bytecode-lifting.md).
+  if (image.dotnet && !image.dotnet->has_native_code()) {
+    info.code.clear();
+    info.data_in_code.clear();
+    info.seeds.clear();
+    info.search = false;
+  }
   return info;
 }
 

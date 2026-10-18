@@ -21,6 +21,7 @@
 #include "revkit/v1/plugin.pb.h"
 #include "revkit/v1/presence.pb.h"
 #include "revkit/v1/project.pb.h"
+#include "revkit/v1/provider.pb.h"
 #include "revkit/v1/query.pb.h"
 #include "revkit/v1/subscription.pb.h"
 #include "revkit/v1/sync.pb.h"
@@ -300,6 +301,12 @@ class Backend {
   virtual Status ListRelocations(const CallContext &, const pb::ListRelocationsRequest &, pb::ListRelocationsResponse &) {
     return Error(StatusCode::kUnimplemented, "ListRelocations is not implemented by this backend");
   }
+  virtual Status GetBuildInfo(const CallContext &, const pb::GetBuildInfoRequest &, pb::GetBuildInfoResponse &) {
+    return Error(StatusCode::kUnimplemented, "GetBuildInfo is not implemented by this backend");
+  }
+  virtual Status TraceValue(const CallContext &, const pb::TraceValueRequest &, pb::TraceValueResponse &) {
+    return Error(StatusCode::kUnimplemented, "TraceValue is not implemented by this backend");
+  }
   virtual Status ListLibraryImporters(const CallContext &, const pb::ListLibraryImportersRequest &,
                                       pb::ListLibraryImportersResponse &) {
     return Error(StatusCode::kUnimplemented, "ListLibraryImporters is not implemented by this backend");
@@ -320,6 +327,9 @@ class Backend {
     return Error(StatusCode::kUnimplemented, "SetSymbolSettings is not implemented by this backend");
   }
   // MSVC RTTI classes (api_minor 45, feature "msvc-rtti").
+  virtual Status ListObjcClasses(const CallContext &, const pb::ListObjcClassesRequest &, pb::ListObjcClassesResponse &) {
+    return Error(StatusCode::kUnimplemented, "ListObjcClasses is not implemented by this backend");
+  }
   virtual Status GetClassHierarchy(const CallContext &, const pb::GetClassHierarchyRequest &,
                                    pb::GetClassHierarchyResponse &) {
     return Error(StatusCode::kUnimplemented, "GetClassHierarchy is not implemented by this backend");
@@ -598,6 +608,19 @@ class Backend {
   RK_BSIM_RPC(SearchBSim)  // api_minor 72
   RK_BSIM_RPC(ApplyBSimMatches)  // api_minor 76
 #undef RK_BSIM_RPC
+
+  // ProviderService (api_minor 92, docs/providers.md): external
+  // decompilers. Not pure: UNIMPLEMENTED elsewhere.
+#define RK_PROVIDER_RPC(Method)                                                                  \
+  virtual Status Method(const CallContext &, const pb::Method##Request &, pb::Method##Response &) { \
+    return Error(StatusCode::kUnimplemented, "external decompilers are not implemented by this backend"); \
+  }
+  RK_PROVIDER_RPC(ListProviders)
+  RK_PROVIDER_RPC(DecompileExternal)
+  RK_PROVIDER_RPC(ReadProviderOutput)
+  RK_PROVIDER_RPC(GetProviderSettings)
+  RK_PROVIDER_RPC(SetProviderSettings)
+#undef RK_PROVIDER_RPC
 
   // SubscriptionService. On success, `sink` has already received the Hello
   // and any replayed revisions when this returns, and `out` keeps the

@@ -46,6 +46,30 @@ class SliceKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SLICE_KIND_FORWARD_OPS: _ClassVar[SliceKind]
     SLICE_KIND_BACKWARD_OPS: _ClassVar[SliceKind]
 
+class TraceDirection(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    TRACE_DIRECTION_UNSPECIFIED: _ClassVar[TraceDirection]
+    TRACE_DIRECTION_BACKWARD: _ClassVar[TraceDirection]
+    TRACE_DIRECTION_FORWARD: _ClassVar[TraceDirection]
+
+class TraceEdgeKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    TRACE_EDGE_KIND_UNSPECIFIED: _ClassVar[TraceEdgeKind]
+    TRACE_EDGE_KIND_DATAFLOW: _ClassVar[TraceEdgeKind]
+    TRACE_EDGE_KIND_ARGUMENT: _ClassVar[TraceEdgeKind]
+    TRACE_EDGE_KIND_RETURN: _ClassVar[TraceEdgeKind]
+
+class TraceUnknownKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    TRACE_UNKNOWN_KIND_UNSPECIFIED: _ClassVar[TraceUnknownKind]
+    TRACE_UNKNOWN_KIND_INDIRECT_CALL: _ClassVar[TraceUnknownKind]
+    TRACE_UNKNOWN_KIND_EXTERNAL_CALL: _ClassVar[TraceUnknownKind]
+    TRACE_UNKNOWN_KIND_MEMORY: _ClassVar[TraceUnknownKind]
+    TRACE_UNKNOWN_KIND_NO_CALLERS: _ClassVar[TraceUnknownKind]
+    TRACE_UNKNOWN_KIND_DECOMPILE_FAILED: _ClassVar[TraceUnknownKind]
+    TRACE_UNKNOWN_KIND_BUDGET: _ClassVar[TraceUnknownKind]
+    TRACE_UNKNOWN_KIND_UNMATCHED: _ClassVar[TraceUnknownKind]
+
 class TypeSource(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     TYPE_SOURCE_UNSPECIFIED: _ClassVar[TypeSource]
@@ -164,6 +188,21 @@ SLICE_KIND_FORWARD: SliceKind
 SLICE_KIND_BACKWARD: SliceKind
 SLICE_KIND_FORWARD_OPS: SliceKind
 SLICE_KIND_BACKWARD_OPS: SliceKind
+TRACE_DIRECTION_UNSPECIFIED: TraceDirection
+TRACE_DIRECTION_BACKWARD: TraceDirection
+TRACE_DIRECTION_FORWARD: TraceDirection
+TRACE_EDGE_KIND_UNSPECIFIED: TraceEdgeKind
+TRACE_EDGE_KIND_DATAFLOW: TraceEdgeKind
+TRACE_EDGE_KIND_ARGUMENT: TraceEdgeKind
+TRACE_EDGE_KIND_RETURN: TraceEdgeKind
+TRACE_UNKNOWN_KIND_UNSPECIFIED: TraceUnknownKind
+TRACE_UNKNOWN_KIND_INDIRECT_CALL: TraceUnknownKind
+TRACE_UNKNOWN_KIND_EXTERNAL_CALL: TraceUnknownKind
+TRACE_UNKNOWN_KIND_MEMORY: TraceUnknownKind
+TRACE_UNKNOWN_KIND_NO_CALLERS: TraceUnknownKind
+TRACE_UNKNOWN_KIND_DECOMPILE_FAILED: TraceUnknownKind
+TRACE_UNKNOWN_KIND_BUDGET: TraceUnknownKind
+TRACE_UNKNOWN_KIND_UNMATCHED: TraceUnknownKind
 TYPE_SOURCE_UNSPECIFIED: TypeSource
 TYPE_SOURCE_PROGRAM: TypeSource
 TYPE_SOURCE_LIBRARY: TypeSource
@@ -608,6 +647,121 @@ class SliceDecompiledResponse(_message.Message):
     start: str
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., tokens: _Optional[_Iterable[_Union[TokenPosition, _Mapping]]] = ..., addresses: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., varnode_indices: _Optional[_Iterable[int]] = ..., start: _Optional[str] = ...) -> None: ...
 
+class TraceValueRequest(_message.Message):
+    __slots__ = ("program_id", "read", "function", "direction", "token", "varnode_index", "variable_index", "max_depth", "max_functions", "max_nodes", "max_edges")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
+    DIRECTION_FIELD_NUMBER: _ClassVar[int]
+    TOKEN_FIELD_NUMBER: _ClassVar[int]
+    VARNODE_INDEX_FIELD_NUMBER: _ClassVar[int]
+    VARIABLE_INDEX_FIELD_NUMBER: _ClassVar[int]
+    MAX_DEPTH_FIELD_NUMBER: _ClassVar[int]
+    MAX_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    MAX_NODES_FIELD_NUMBER: _ClassVar[int]
+    MAX_EDGES_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    read: _common_pb2.ReadOptions
+    function: _common_pb2.Address
+    direction: TraceDirection
+    token: TokenPosition
+    varnode_index: int
+    variable_index: int
+    max_depth: int
+    max_functions: int
+    max_nodes: int
+    max_edges: int
+    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., direction: _Optional[_Union[TraceDirection, str]] = ..., token: _Optional[_Union[TokenPosition, _Mapping]] = ..., varnode_index: _Optional[int] = ..., variable_index: _Optional[int] = ..., max_depth: _Optional[int] = ..., max_functions: _Optional[int] = ..., max_nodes: _Optional[int] = ..., max_edges: _Optional[int] = ...) -> None: ...
+
+class TraceNode(_message.Message):
+    __slots__ = ("function", "node", "varnode_index", "varnode", "constant", "text", "address", "depth")
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
+    NODE_FIELD_NUMBER: _ClassVar[int]
+    VARNODE_INDEX_FIELD_NUMBER: _ClassVar[int]
+    VARNODE_FIELD_NUMBER: _ClassVar[int]
+    CONSTANT_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    DEPTH_FIELD_NUMBER: _ClassVar[int]
+    function: int
+    node: int
+    varnode_index: int
+    varnode: _common_pb2.Varnode
+    constant: bool
+    text: str
+    address: _common_pb2.Address
+    depth: int
+    def __init__(self, function: _Optional[int] = ..., node: _Optional[int] = ..., varnode_index: _Optional[int] = ..., varnode: _Optional[_Union[_common_pb2.Varnode, _Mapping]] = ..., constant: _Optional[bool] = ..., text: _Optional[str] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., depth: _Optional[int] = ...) -> None: ...
+
+class TraceEdge(_message.Message):
+    __slots__ = ("to", "kind", "address", "opcode")
+    FROM_FIELD_NUMBER: _ClassVar[int]
+    TO_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    OPCODE_FIELD_NUMBER: _ClassVar[int]
+    to: int
+    kind: TraceEdgeKind
+    address: _common_pb2.Address
+    opcode: str
+    def __init__(self, to: _Optional[int] = ..., kind: _Optional[_Union[TraceEdgeKind, str]] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., opcode: _Optional[str] = ..., **kwargs) -> None: ...
+
+class TraceUnknown(_message.Message):
+    __slots__ = ("kind", "node", "address", "detail")
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    NODE_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_FIELD_NUMBER: _ClassVar[int]
+    kind: TraceUnknownKind
+    node: int
+    address: _common_pb2.Address
+    detail: str
+    def __init__(self, kind: _Optional[_Union[TraceUnknownKind, str]] = ..., node: _Optional[int] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., detail: _Optional[str] = ...) -> None: ...
+
+class TraceLine(_message.Message):
+    __slots__ = ("line", "text", "tokens")
+    LINE_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    TOKENS_FIELD_NUMBER: _ClassVar[int]
+    line: int
+    text: str
+    tokens: _containers.RepeatedScalarFieldContainer[int]
+    def __init__(self, line: _Optional[int] = ..., text: _Optional[str] = ..., tokens: _Optional[_Iterable[int]] = ...) -> None: ...
+
+class TraceFunction(_message.Message):
+    __slots__ = ("entry", "name", "depth", "lines", "addresses")
+    ENTRY_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    DEPTH_FIELD_NUMBER: _ClassVar[int]
+    LINES_FIELD_NUMBER: _ClassVar[int]
+    ADDRESSES_FIELD_NUMBER: _ClassVar[int]
+    entry: _common_pb2.Address
+    name: str
+    depth: int
+    lines: _containers.RepeatedCompositeFieldContainer[TraceLine]
+    addresses: _containers.RepeatedCompositeFieldContainer[_common_pb2.Address]
+    def __init__(self, entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., name: _Optional[str] = ..., depth: _Optional[int] = ..., lines: _Optional[_Iterable[_Union[TraceLine, _Mapping]]] = ..., addresses: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ...) -> None: ...
+
+class TraceValueResponse(_message.Message):
+    __slots__ = ("snapshot", "start", "functions", "nodes", "start_nodes", "edges", "unknowns", "truncated")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    START_FIELD_NUMBER: _ClassVar[int]
+    FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    NODES_FIELD_NUMBER: _ClassVar[int]
+    START_NODES_FIELD_NUMBER: _ClassVar[int]
+    EDGES_FIELD_NUMBER: _ClassVar[int]
+    UNKNOWNS_FIELD_NUMBER: _ClassVar[int]
+    TRUNCATED_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    start: str
+    functions: _containers.RepeatedCompositeFieldContainer[TraceFunction]
+    nodes: _containers.RepeatedCompositeFieldContainer[TraceNode]
+    start_nodes: _containers.RepeatedScalarFieldContainer[int]
+    edges: _containers.RepeatedCompositeFieldContainer[TraceEdge]
+    unknowns: _containers.RepeatedCompositeFieldContainer[TraceUnknown]
+    truncated: bool
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., start: _Optional[str] = ..., functions: _Optional[_Iterable[_Union[TraceFunction, _Mapping]]] = ..., nodes: _Optional[_Iterable[_Union[TraceNode, _Mapping]]] = ..., start_nodes: _Optional[_Iterable[int]] = ..., edges: _Optional[_Iterable[_Union[TraceEdge, _Mapping]]] = ..., unknowns: _Optional[_Iterable[_Union[TraceUnknown, _Mapping]]] = ..., truncated: _Optional[bool] = ...) -> None: ...
+
 class GetTypesRequest(_message.Message):
     __slots__ = ("program_id", "hashes", "include_dependencies")
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
@@ -873,6 +1027,144 @@ class ListRelocationsResponse(_message.Message):
     total: int
     format: str
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., relocations: _Optional[_Iterable[_Union[ProgramRelocation, _Mapping]]] = ..., page: _Optional[_Union[_common_pb2.PageInfo, _Mapping]] = ..., total: _Optional[int] = ..., format: _Optional[str] = ...) -> None: ...
+
+class GetBuildInfoRequest(_message.Message):
+    __slots__ = ("program_id", "read")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    read: _common_pb2.ReadOptions
+    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+
+class GoModule(_message.Message):
+    __slots__ = ("path", "version", "sum", "replacement")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    SUM_FIELD_NUMBER: _ClassVar[int]
+    REPLACEMENT_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    version: str
+    sum: str
+    replacement: GoModuleReplacement
+    def __init__(self, path: _Optional[str] = ..., version: _Optional[str] = ..., sum: _Optional[str] = ..., replacement: _Optional[_Union[GoModuleReplacement, _Mapping]] = ...) -> None: ...
+
+class GoModuleReplacement(_message.Message):
+    __slots__ = ("path", "version", "sum")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    SUM_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    version: str
+    sum: str
+    def __init__(self, path: _Optional[str] = ..., version: _Optional[str] = ..., sum: _Optional[str] = ...) -> None: ...
+
+class GoBuildSetting(_message.Message):
+    __slots__ = ("key", "value")
+    KEY_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    key: str
+    value: str
+    def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+
+class GoBuildInfo(_message.Message):
+    __slots__ = ("go_version", "path", "main", "deps", "settings", "format", "pointer_size", "address", "module_text", "unparsed")
+    GO_VERSION_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    MAIN_FIELD_NUMBER: _ClassVar[int]
+    DEPS_FIELD_NUMBER: _ClassVar[int]
+    SETTINGS_FIELD_NUMBER: _ClassVar[int]
+    FORMAT_FIELD_NUMBER: _ClassVar[int]
+    POINTER_SIZE_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    MODULE_TEXT_FIELD_NUMBER: _ClassVar[int]
+    UNPARSED_FIELD_NUMBER: _ClassVar[int]
+    go_version: str
+    path: str
+    main: GoModule
+    deps: _containers.RepeatedCompositeFieldContainer[GoModule]
+    settings: _containers.RepeatedCompositeFieldContainer[GoBuildSetting]
+    format: str
+    pointer_size: int
+    address: _common_pb2.Address
+    module_text: str
+    unparsed: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, go_version: _Optional[str] = ..., path: _Optional[str] = ..., main: _Optional[_Union[GoModule, _Mapping]] = ..., deps: _Optional[_Iterable[_Union[GoModule, _Mapping]]] = ..., settings: _Optional[_Iterable[_Union[GoBuildSetting, _Mapping]]] = ..., format: _Optional[str] = ..., pointer_size: _Optional[int] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., module_text: _Optional[str] = ..., unparsed: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class RustPackage(_message.Message):
+    __slots__ = ("name", "version", "source", "kind", "dependencies", "root")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    DEPENDENCIES_FIELD_NUMBER: _ClassVar[int]
+    ROOT_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    version: str
+    source: str
+    kind: str
+    dependencies: _containers.RepeatedScalarFieldContainer[int]
+    root: bool
+    def __init__(self, name: _Optional[str] = ..., version: _Optional[str] = ..., source: _Optional[str] = ..., kind: _Optional[str] = ..., dependencies: _Optional[_Iterable[int]] = ..., root: _Optional[bool] = ...) -> None: ...
+
+class RustDependencies(_message.Message):
+    __slots__ = ("format", "packages", "root", "compressed_size", "uncompressed_size")
+    FORMAT_FIELD_NUMBER: _ClassVar[int]
+    PACKAGES_FIELD_NUMBER: _ClassVar[int]
+    ROOT_FIELD_NUMBER: _ClassVar[int]
+    COMPRESSED_SIZE_FIELD_NUMBER: _ClassVar[int]
+    UNCOMPRESSED_SIZE_FIELD_NUMBER: _ClassVar[int]
+    format: int
+    packages: _containers.RepeatedCompositeFieldContainer[RustPackage]
+    root: int
+    compressed_size: int
+    uncompressed_size: int
+    def __init__(self, format: _Optional[int] = ..., packages: _Optional[_Iterable[_Union[RustPackage, _Mapping]]] = ..., root: _Optional[int] = ..., compressed_size: _Optional[int] = ..., uncompressed_size: _Optional[int] = ...) -> None: ...
+
+class GetBuildInfoResponse(_message.Message):
+    __slots__ = ("snapshot", "go", "rust", "rustc_version", "rustc_commits", "warnings", "go_pclntab")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    GO_FIELD_NUMBER: _ClassVar[int]
+    RUST_FIELD_NUMBER: _ClassVar[int]
+    RUSTC_VERSION_FIELD_NUMBER: _ClassVar[int]
+    RUSTC_COMMITS_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    GO_PCLNTAB_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    go: GoBuildInfo
+    rust: RustDependencies
+    rustc_version: str
+    rustc_commits: _containers.RepeatedScalarFieldContainer[str]
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    go_pclntab: GoPclntab
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., go: _Optional[_Union[GoBuildInfo, _Mapping]] = ..., rust: _Optional[_Union[RustDependencies, _Mapping]] = ..., rustc_version: _Optional[str] = ..., rustc_commits: _Optional[_Iterable[str]] = ..., warnings: _Optional[_Iterable[str]] = ..., go_pclntab: _Optional[_Union[GoPclntab, _Mapping]] = ...) -> None: ...
+
+class GoPclntab(_message.Message):
+    __slots__ = ("layout", "address", "pointer_size", "quantum", "big_endian", "text_start", "function_count", "functions_read", "file_count", "moduledata", "found_by", "warnings")
+    LAYOUT_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    POINTER_SIZE_FIELD_NUMBER: _ClassVar[int]
+    QUANTUM_FIELD_NUMBER: _ClassVar[int]
+    BIG_ENDIAN_FIELD_NUMBER: _ClassVar[int]
+    TEXT_START_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_COUNT_FIELD_NUMBER: _ClassVar[int]
+    FUNCTIONS_READ_FIELD_NUMBER: _ClassVar[int]
+    FILE_COUNT_FIELD_NUMBER: _ClassVar[int]
+    MODULEDATA_FIELD_NUMBER: _ClassVar[int]
+    FOUND_BY_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    layout: str
+    address: _common_pb2.Address
+    pointer_size: int
+    quantum: int
+    big_endian: bool
+    text_start: _common_pb2.Address
+    function_count: int
+    functions_read: int
+    file_count: int
+    moduledata: _common_pb2.Address
+    found_by: str
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, layout: _Optional[str] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., pointer_size: _Optional[int] = ..., quantum: _Optional[int] = ..., big_endian: _Optional[bool] = ..., text_start: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., function_count: _Optional[int] = ..., functions_read: _Optional[int] = ..., file_count: _Optional[int] = ..., moduledata: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., found_by: _Optional[str] = ..., warnings: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class ListRegisterValuesRequest(_message.Message):
     __slots__ = ("program_id", "read", "page", "register_name", "range")
@@ -1659,3 +1951,127 @@ class ListCallingConventionsResponse(_message.Message):
     conventions: _containers.RepeatedCompositeFieldContainer[CallingConvention]
     default_name: str
     def __init__(self, conventions: _Optional[_Iterable[_Union[CallingConvention, _Mapping]]] = ..., default_name: _Optional[str] = ...) -> None: ...
+
+class ListObjcClassesRequest(_message.Message):
+    __slots__ = ("program_id", "read", "name_contains")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    NAME_CONTAINS_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    read: _common_pb2.ReadOptions
+    name_contains: str
+    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., name_contains: _Optional[str] = ...) -> None: ...
+
+class ObjcMethod(_message.Message):
+    __slots__ = ("selector", "types", "implementation", "class_method", "category", "optional", "function_name")
+    SELECTOR_FIELD_NUMBER: _ClassVar[int]
+    TYPES_FIELD_NUMBER: _ClassVar[int]
+    IMPLEMENTATION_FIELD_NUMBER: _ClassVar[int]
+    CLASS_METHOD_FIELD_NUMBER: _ClassVar[int]
+    CATEGORY_FIELD_NUMBER: _ClassVar[int]
+    OPTIONAL_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
+    selector: str
+    types: str
+    implementation: _common_pb2.Address
+    class_method: bool
+    category: str
+    optional: bool
+    function_name: str
+    def __init__(self, selector: _Optional[str] = ..., types: _Optional[str] = ..., implementation: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., class_method: _Optional[bool] = ..., category: _Optional[str] = ..., optional: _Optional[bool] = ..., function_name: _Optional[str] = ...) -> None: ...
+
+class ObjcIvar(_message.Message):
+    __slots__ = ("name", "type", "offset", "size", "offset_variable")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_VARIABLE_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    type: str
+    offset: int
+    size: int
+    offset_variable: _common_pb2.Address
+    def __init__(self, name: _Optional[str] = ..., type: _Optional[str] = ..., offset: _Optional[int] = ..., size: _Optional[int] = ..., offset_variable: _Optional[_Union[_common_pb2.Address, _Mapping]] = ...) -> None: ...
+
+class ObjcProperty(_message.Message):
+    __slots__ = ("name", "attributes")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    attributes: str
+    def __init__(self, name: _Optional[str] = ..., attributes: _Optional[str] = ...) -> None: ...
+
+class ObjcClass(_message.Message):
+    __slots__ = ("name", "address", "metaclass", "superclass", "instance_size", "root", "swift", "external", "methods", "ivars", "properties", "protocols", "categories")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    METACLASS_FIELD_NUMBER: _ClassVar[int]
+    SUPERCLASS_FIELD_NUMBER: _ClassVar[int]
+    INSTANCE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    ROOT_FIELD_NUMBER: _ClassVar[int]
+    SWIFT_FIELD_NUMBER: _ClassVar[int]
+    EXTERNAL_FIELD_NUMBER: _ClassVar[int]
+    METHODS_FIELD_NUMBER: _ClassVar[int]
+    IVARS_FIELD_NUMBER: _ClassVar[int]
+    PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    PROTOCOLS_FIELD_NUMBER: _ClassVar[int]
+    CATEGORIES_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    address: _common_pb2.Address
+    metaclass: _common_pb2.Address
+    superclass: str
+    instance_size: int
+    root: bool
+    swift: bool
+    external: bool
+    methods: _containers.RepeatedCompositeFieldContainer[ObjcMethod]
+    ivars: _containers.RepeatedCompositeFieldContainer[ObjcIvar]
+    properties: _containers.RepeatedCompositeFieldContainer[ObjcProperty]
+    protocols: _containers.RepeatedScalarFieldContainer[str]
+    categories: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, name: _Optional[str] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., metaclass: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., superclass: _Optional[str] = ..., instance_size: _Optional[int] = ..., root: _Optional[bool] = ..., swift: _Optional[bool] = ..., external: _Optional[bool] = ..., methods: _Optional[_Iterable[_Union[ObjcMethod, _Mapping]]] = ..., ivars: _Optional[_Iterable[_Union[ObjcIvar, _Mapping]]] = ..., properties: _Optional[_Iterable[_Union[ObjcProperty, _Mapping]]] = ..., protocols: _Optional[_Iterable[str]] = ..., categories: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class ObjcProtocol(_message.Message):
+    __slots__ = ("name", "address", "methods", "properties", "protocols")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    METHODS_FIELD_NUMBER: _ClassVar[int]
+    PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    PROTOCOLS_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    address: _common_pb2.Address
+    methods: _containers.RepeatedCompositeFieldContainer[ObjcMethod]
+    properties: _containers.RepeatedCompositeFieldContainer[ObjcProperty]
+    protocols: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, name: _Optional[str] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., methods: _Optional[_Iterable[_Union[ObjcMethod, _Mapping]]] = ..., properties: _Optional[_Iterable[_Union[ObjcProperty, _Mapping]]] = ..., protocols: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class SwiftType(_message.Message):
+    __slots__ = ("name", "parent", "kind", "type_descriptor", "accessor", "fields", "vtable")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    PARENT_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    TYPE_DESCRIPTOR_FIELD_NUMBER: _ClassVar[int]
+    ACCESSOR_FIELD_NUMBER: _ClassVar[int]
+    FIELDS_FIELD_NUMBER: _ClassVar[int]
+    VTABLE_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    parent: str
+    kind: str
+    type_descriptor: _common_pb2.Address
+    accessor: _common_pb2.Address
+    fields: _containers.RepeatedScalarFieldContainer[str]
+    vtable: _containers.RepeatedCompositeFieldContainer[_common_pb2.Address]
+    def __init__(self, name: _Optional[str] = ..., parent: _Optional[str] = ..., kind: _Optional[str] = ..., type_descriptor: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., accessor: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., fields: _Optional[_Iterable[str]] = ..., vtable: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ...) -> None: ...
+
+class ListObjcClassesResponse(_message.Message):
+    __slots__ = ("snapshot", "classes", "protocols", "swift_types")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    CLASSES_FIELD_NUMBER: _ClassVar[int]
+    PROTOCOLS_FIELD_NUMBER: _ClassVar[int]
+    SWIFT_TYPES_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    classes: _containers.RepeatedCompositeFieldContainer[ObjcClass]
+    protocols: _containers.RepeatedCompositeFieldContainer[ObjcProtocol]
+    swift_types: _containers.RepeatedCompositeFieldContainer[SwiftType]
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., classes: _Optional[_Iterable[_Union[ObjcClass, _Mapping]]] = ..., protocols: _Optional[_Iterable[_Union[ObjcProtocol, _Mapping]]] = ..., swift_types: _Optional[_Iterable[_Union[SwiftType, _Mapping]]] = ...) -> None: ...

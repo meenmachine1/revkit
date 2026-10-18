@@ -62,6 +62,10 @@ struct Options {
   // fits (int in RAX): what a decompiler is told, so callers reading the
   // whole register don't see a truncated value (CONCAT44(extraout_var, x)).
   bool keep_return_width = false;
+  // Structures for the classes of pointer parameters a value passes
+  // through unchanged, composed from their accesses (InferredStructure):
+  // the parameters point to them instead of to their first word.
+  bool structures = true;
   // Functions whose decompilation grows past this many varnodes (about
   // 1 KB each) aren't observed, only seen from their callers: the corpus's
   // largest has 29K; cmake has a handful of 100K-500K that each took 15 to
@@ -127,6 +131,10 @@ struct CallNode {
   std::uint64_t thunk_target = 0;  // a thunk's internal target
   bool no_return = false;
   bool from_data = false;  // not discovered: found in a table of function pointers
+  // Unconditional jumps in its body to another function's entry, which the
+  // decompiler takes as tail calls (Ghidra's CALL_RETURN overrides from
+  // SharedReturnAnalysisCmd, as inputs::assemble_function gives them).
+  std::vector<std::uint64_t> call_returns;
   std::vector<std::uint64_t> callees;  // direct calls and tail calls, sorted, unique
   std::vector<std::uint64_t> callers;  // sorted, unique
 
@@ -146,7 +154,9 @@ struct CallGraph {
 
 struct CallGraphQuery {
   static constexpr std::string_view name = "infer.callgraph";
-  static constexpr std::uint32_t version = 1;
+  // 2: no-return evidence (analysis.no_return_evidence); 3: jumps to
+  // other functions' entries are tail calls (CallNode::call_returns)
+  static constexpr std::uint32_t version = 3;
   using Key = ProgramKey;
   using Value = CallGraph;
   static Value compute(facts::QueryContext &ctx, const Key &program);
@@ -192,7 +202,12 @@ struct RoundKey {
 // ranks below the function (Order), else as of round k-1.
 struct Observe {
   static constexpr std::string_view name = "infer.observe";
-  static constexpr std::uint32_t version = 2;  // 2: rounds in call-graph order
+  // 2: rounds in call-graph order; 3: a pointer a locked call casts to an
+  // integer parameter is seen as the caller's pointer; 4: arguments that
+  // are the caller's parameters passed on (Slot::from_param); 5: jumps to
+  // other functions are tail calls (RunOptions::call_returns); 6: pointer
+  // parameters' accesses (Observation::pointer_uses)
+  static constexpr std::uint32_t version = 6;
   using Key = RoundKey;
   using Value = Observation;
   static Value compute(facts::QueryContext &ctx, const Key &key);
@@ -262,7 +277,9 @@ struct Inferred {
 // observations and what its callers' observations say about it.
 struct Own {
   static constexpr std::string_view name = "infer.own";
-  static constexpr std::uint32_t version = 2;
+  // 3: parameters it only passes on to callees that read them; 4: what a
+  // tail call returns, and imports' parameters passed on
+  static constexpr std::uint32_t version = 4;
   using Key = RoundKey;
   using Value = Inferred;
   static Value compute(facts::QueryContext &ctx, const Key &key);
@@ -286,15 +303,19 @@ struct FixpointResult {
   std::vector<std::uint32_t> changed;  // prototypes changed per round (round 0: inferred)
   std::uint32_t widened = 0;
   std::vector<std::pair<std::uint64_t, Prototype>> prototypes;  // by entry
+  std::vector<InferredStructure> structures;  // what the prototypes' astruct_<n> are
 
   const Prototype *find(std::uint64_t entry) const;
+  const InferredStructure *structure(std::string_view name) const;
   void encode(facts::Encoder &e) const;
   static FixpointResult decode(facts::Decoder &d);
 };
 
 struct Fixpoint {
   static constexpr std::string_view name = "infer.fixpoint";
-  static constexpr std::uint32_t version = 2;
+  // 3: pointers passed on unchanged take one target (unify_passed_pointers);
+  // 4: structures for classes of passed-on pointers (InferredStructure)
+  static constexpr std::uint32_t version = 4;
   using Key = ProgramKey;
   using Value = FixpointResult;
   static Value compute(facts::QueryContext &ctx, const Key &program);

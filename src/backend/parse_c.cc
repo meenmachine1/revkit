@@ -27,6 +27,7 @@ const char *FormatName(loader::Format f) {
     case loader::Format::elf: return "elf";
     case loader::Format::pe: return "pe";
     case loader::Format::raw: return "raw";
+    case loader::Format::macho: return "macho";
   }
   return "raw";
 }

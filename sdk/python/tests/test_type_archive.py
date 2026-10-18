@@ -54,7 +54,9 @@ def binaries(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def image_daemon(binaries):
-    with Daemon(None, "--backend", "image", startup_timeout=60) as d:
+    # Without inference: its structures (astruct_<n>) would be the stripped
+    # program's types too, and the round trip compares every type.
+    with Daemon(None, "--backend", "image", "--infer-prototypes", "off", startup_timeout=60) as d:
         yield d
 
 

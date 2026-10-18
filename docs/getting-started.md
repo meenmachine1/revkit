@@ -93,6 +93,7 @@ described next.
 | `revkit status` | whether it runs, where, and its version (exit 3 when it doesn't) |
 | `revkit logs` | follows the server's log (`~/.local/state/revkit/daemon.log`) |
 | `revkit update` | runs the installer again |
+| `revkit mcp setup` | registers revkit's MCP server with Claude Code, Codex, Cursor and Gemini CLI (`revkit-mcp setup`; [MCP for AI agents](#mcp-for-ai-agents)) |
 | `revkit version` | the installed version |
 
 The server listens on `127.0.0.1:50052` (the web UI, at
@@ -393,15 +394,39 @@ can review or revert a whole run.
 
 ```sh
 ~/rk-venv/bin/pip install "$HOME/opt/revkit-0.1.0-linux-x86_64/share/revkit/sdk/revkit-0.1.0-py3-none-any.whl[mcp]"
-rk-daemon token create --name claude --role editor --project-dir ~/revkit-projects     # prints rkt_...
-claude mcp add revkit -- ~/rk-venv/bin/revkit-mcp --daemon 127.0.0.1:50051 --token rkt_...
+~/rk-venv/bin/revkit-mcp setup        # or `revkit mcp setup`
 ```
 
+`revkit-mcp setup` registers the server with the coding agents it finds:
+Claude Code (through `claude mcp add-json --scope user`), Codex
+(`~/.codex/config.toml`), Cursor (`~/.cursor/mcp.json`) and Gemini CLI
+(`~/.gemini/settings.json`). For each it shows the change and asks; it
+backs up a file before changing it, keeps what else is in it, and does
+nothing when revkit is already there. `--dry-run` only shows,
+`--client codex` picks one agent (repeatable), `--scope project` writes the
+current directory's project configs (`.mcp.json`, `.codex/config.toml`,
+`.cursor/mcp.json`, `.gemini/settings.json`), `--daemon host:port` points
+at another daemon. Each agent's edits are recorded as `agent:claude`,
+`agent:codex` and so on.
+
+Against a daemon with accounts, give the agent a token in a file (setup
+never writes a token into a config, only the file's path):
+
+```sh
+mkdir -p ~/.config/revkit && (umask 077; rk-daemon token create --name claude --role editor --project-dir ~/revkit-projects > ~/.config/revkit/claude.token)
+~/rk-venv/bin/revkit-mcp setup --client claude --token-file ~/.config/revkit/claude.token
+```
+
+By hand it is one command per agent, for example
+`claude mcp add revkit -- ~/rk-venv/bin/revkit-mcp --daemon 127.0.0.1:50051 --agent claude`.
 Any MCP client works the same way: `revkit-mcp` speaks stdio (or
 `--transport streamable-http`). Against a `--no-auth` daemon, use
 `--agent NAME` instead of a token.
 
-The agent's first call is `about`: the workflow (`list_programs`, pick a
+The server carries a workflow guide for the agent
+(`revkit/agent_guide.md`): the resource `revkit://guide` and the prompt
+`investigate` (in Claude Code, `/mcp__revkit__investigate find the config
+parser`). The agent's first call is `about`: the workflow (`list_programs`, pick a
 program, `list_functions` or the searches, `decompile`, then `rename`,
 `retype`, `rename_field`, `set_comment` with a reason, and search again),
 how to give addresses (hex, a name, or a Go To expression such as

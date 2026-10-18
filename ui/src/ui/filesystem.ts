@@ -7,10 +7,11 @@
 // The tree's columns: name, size, type, permissions and what each file is
 // (ELF/PE with its processor, a nested container's format, text, data).
 // Right-click (or the context-menu key, Shift+F10): Import, Import programs
-// below… (batch, with a preview and a cap), Open as file system, Extract to
-// the daemon's host… (admin, under --browse-root), Info… (hashes, magic,
-// container path), Copy container path. Several rows: Ctrl/Shift-click or
-// Space.
+// below… (batch, with a preview and a cap), Open as file system, Decompile
+// with jadx… (bytecode: the external decompilers that take it; external.ts),
+// Extract to the daemon's host… (admin, under --browse-root), Info…
+// (hashes, magic, container path), Copy container path. Several rows:
+// Ctrl/Shift-click or Space.
 
 import {
   FILESYSTEMS_FEATURE, FileSystemEntryKind, displayPath, isBrowsable, isProgram, openFileSystem, parentPath,
@@ -23,6 +24,7 @@ import { choose, toast } from "./dialogs";
 import { h, overlayRoot } from "./dom";
 import { pickFile } from "./filepick";
 import { browseHost } from "./hostfiles";
+import { EXTERNAL_FEATURE, applicable, providersFor, showExternalDialog } from "./external";
 import { showMenu, showMenuAt, type MenuItem } from "./menu";
 
 export { FILESYSTEMS_FEATURE };
@@ -219,7 +221,15 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
           h("span", { class: "fs-size dim" }, e.kind === FileSystemEntryKind.DIRECTORY ? `${e.childCount}` : e.sizeUnknown ? "?" : bytes(e.size)),
           h("span", { class: "dim" }, typeText(n)),
           h("span", { class: "mono dim" }, e.permissions),
-          h("span", { class: "fs-what" + (e.unreadable ? " error" : "") }, e.unreadable ? e.note : what || (e.detectedKind ? "" : "…")),
+          h(
+            "span",
+            { class: "fs-what" + (e.unreadable ? " error" : "") },
+            e.unreadable ? e.note : what || (e.detectedKind ? "" : "…"),
+            // What a script or bytecode decompiler would take it as (api_minor 95): "pyc:3.12", "lua:5.4", "js-source".
+            e.contentKind && !e.unreadable
+              ? h("span", { class: "badge mono fs-content-kind", "data-testid": "fs-content-kind", title: "Content kind: what a script or bytecode decompiler takes this file as" }, e.contentKind)
+              : null,
+          ),
         );
         const out: HTMLElement[] = [row];
         if (n.expanded && n.error) out.push(h("div", { class: "fs-row fs-note error", style: `padding-left:${(n.depth + 1) * 16 + 14}px` }, n.error));
@@ -349,7 +359,7 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
     await showInfo(fs, n.entry);
   };
 
-  const menu = (x?: number, y?: number) => {
+  const menu = async (x?: number, y?: number) => {
     const t = targets();
     if (!t.length) return;
     const one = t.length === 1 ? t[0] : null;
@@ -360,6 +370,19 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
       { label: "Import programs below…", testid: "fs-menu-batch", disabled: !t.some((n) => isBrowsable(n.entry)), run: () => void batchImport() },
     ];
     if (e?.containerFormat) items.push({ label: `Open as file system (${e.containerFormat})`, testid: "fs-menu-open", run: () => void expand(one!, true) });
+    // Bytecode: the external decompilers that take it (a jar, an APK, a .pyc, ...).
+    if (e && e.kind === FileSystemEntryKind.FILE && o.features.has(EXTERNAL_FEATURE)) {
+      const list = await providersFor(rk, { sessionId: fs.id, path: e.path }).catch(() => null);
+      if (list?.inputKind?.kind)
+        for (const p of applicable(list))
+          items.push({
+            label: `Decompile with ${p.title}…`,
+            testid: `fs-menu-decompile-${p.name}`,
+            disabled: !p.available,
+            title: p.available ? `${list.inputKind.description} → ${p.title} ${p.version} (in the daemon's sandbox)` : p.reason,
+            run: () => showExternalDialog(rk, { sessionId: fs.id, path: e.path }, list, p.name, `${p.title}: ${e.name}`),
+          });
+    }
     items.push(
       { label: "Extract to daemon host…", testid: "fs-menu-extract", separator: true, disabled: !o.features.has("host-files"), run: () => void extract() },
       { label: "Info…", testid: "fs-menu-info", disabled: !one, run: () => void info() },
@@ -406,7 +429,7 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
   });
   list.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
-    menu(ev.clientX, ev.clientY);
+    void menu(ev.clientX, ev.clientY);
   });
   box.addEventListener("keydown", (ev) => {
     if ((ev.target as HTMLElement).tagName === "INPUT") return;
@@ -427,7 +450,7 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
     else if (ev.key === "Enter" && n) {
       if (isBrowsable(n.entry)) void expand(n, !n.expanded);
       else void info();
-    } else if (ev.key === "ContextMenu" || (ev.key === "F10" && ev.shiftKey)) menu();
+    } else if (ev.key === "ContextMenu" || (ev.key === "F10" && ev.shiftKey)) void menu();
     else return;
     ev.preventDefault();
   });

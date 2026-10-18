@@ -25,6 +25,17 @@ scripts/package.sh            # the packages, into build/dist (docs/packaging.md
 `VERSION` holds the version (`scripts/version.sh`); every tool prints it
 with `--version`.
 
+Some tests build their fixtures with tools that may be missing and skip
+themselves without them: clang (eBPF, Mach-O), javac, node, the dotnet SDK,
+and for the bytecode and packer tests ([filesystems.md](filesystems.md#tests-and-fuzzing))
+a Python with lupa (real Lua 5.1 to 5.5 and LuaJIT interpreters) and
+PyInstaller, in a venv of its own (`$RK_BYTECODE_PYTHON`, else
+`~/.cache/revkit/bytecode-venv/bin/python`):
+
+```sh
+python3 -m venv ~/.cache/revkit/bytecode-venv && ~/.cache/revkit/bytecode-venv/bin/pip install lupa pyinstaller
+```
+
 The web UI is built separately; `rk-daemon` serves `ui/dist`:
 
 ```sh
@@ -130,4 +141,6 @@ See `corpus/README.md`, `tools/ghidra-export/README.md`, `tools/refdiff/README.m
 
 Fuzzing (clang only): `cmake -B build-fuzz -G Ninja -DCMAKE_CXX_COMPILER=clang++
 -DCMAKE_C_COMPILER=clang -DREVKIT_FUZZ=ON -DREVKIT_BUILD_TESTS=OFF`, then run
-`build-fuzz/src/loader/fuzz/fuzz_elf` or `fuzz_pe` (see `src/loader/fuzz`).
+`build-fuzz/src/loader/fuzz/fuzz_elf`, `fuzz_pe` or `fuzz_macho` (see
+`src/loader/fuzz`; seed `fuzz_macho` with `tests/data/macho/build.sh`'s
+output).

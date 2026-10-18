@@ -906,7 +906,7 @@ class CloseProjectResponse(_message.Message):
     def __init__(self) -> None: ...
 
 class ProgramInfo(_message.Message):
-    __slots__ = ("program_id", "project_id", "name", "format", "language_id", "sha256", "imported_at", "deleted", "deleted_origin", "name_origin", "folder_id", "folder_path", "folder_origin", "container_path", "compiler_spec_id", "file_size")
+    __slots__ = ("program_id", "project_id", "name", "format", "language_id", "sha256", "imported_at", "deleted", "deleted_origin", "name_origin", "folder_id", "folder_path", "folder_origin", "container_path", "compiler_spec_id", "file_size", "macho_slice", "macho_slices", "dotnet", "payload_format")
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
     PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
@@ -923,6 +923,10 @@ class ProgramInfo(_message.Message):
     CONTAINER_PATH_FIELD_NUMBER: _ClassVar[int]
     COMPILER_SPEC_ID_FIELD_NUMBER: _ClassVar[int]
     FILE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    MACHO_SLICE_FIELD_NUMBER: _ClassVar[int]
+    MACHO_SLICES_FIELD_NUMBER: _ClassVar[int]
+    DOTNET_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FORMAT_FIELD_NUMBER: _ClassVar[int]
     program_id: str
     project_id: str
     name: str
@@ -939,7 +943,43 @@ class ProgramInfo(_message.Message):
     container_path: str
     compiler_spec_id: str
     file_size: int
-    def __init__(self, program_id: _Optional[str] = ..., project_id: _Optional[str] = ..., name: _Optional[str] = ..., format: _Optional[str] = ..., language_id: _Optional[str] = ..., sha256: _Optional[str] = ..., imported_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., deleted: _Optional[bool] = ..., deleted_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., name_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., folder_id: _Optional[str] = ..., folder_path: _Optional[str] = ..., folder_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., container_path: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., file_size: _Optional[int] = ...) -> None: ...
+    macho_slice: str
+    macho_slices: _containers.RepeatedScalarFieldContainer[str]
+    dotnet: DotNetAssembly
+    payload_format: str
+    def __init__(self, program_id: _Optional[str] = ..., project_id: _Optional[str] = ..., name: _Optional[str] = ..., format: _Optional[str] = ..., language_id: _Optional[str] = ..., sha256: _Optional[str] = ..., imported_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., deleted: _Optional[bool] = ..., deleted_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., name_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., folder_id: _Optional[str] = ..., folder_path: _Optional[str] = ..., folder_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., container_path: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., file_size: _Optional[int] = ..., macho_slice: _Optional[str] = ..., macho_slices: _Optional[_Iterable[str]] = ..., dotnet: _Optional[_Union[DotNetAssembly, _Mapping]] = ..., payload_format: _Optional[str] = ...) -> None: ...
+
+class DotNetAssembly(_message.Message):
+    __slots__ = ("metadata_version", "runtime_version", "flags", "il_only", "mixed_mode", "ready_to_run", "strong_name_signed", "requires_32bit", "prefers_32bit", "entry_point", "native_entry_point", "streams", "code_analysis_skipped", "description")
+    METADATA_VERSION_FIELD_NUMBER: _ClassVar[int]
+    RUNTIME_VERSION_FIELD_NUMBER: _ClassVar[int]
+    FLAGS_FIELD_NUMBER: _ClassVar[int]
+    IL_ONLY_FIELD_NUMBER: _ClassVar[int]
+    MIXED_MODE_FIELD_NUMBER: _ClassVar[int]
+    READY_TO_RUN_FIELD_NUMBER: _ClassVar[int]
+    STRONG_NAME_SIGNED_FIELD_NUMBER: _ClassVar[int]
+    REQUIRES_32BIT_FIELD_NUMBER: _ClassVar[int]
+    PREFERS_32BIT_FIELD_NUMBER: _ClassVar[int]
+    ENTRY_POINT_FIELD_NUMBER: _ClassVar[int]
+    NATIVE_ENTRY_POINT_FIELD_NUMBER: _ClassVar[int]
+    STREAMS_FIELD_NUMBER: _ClassVar[int]
+    CODE_ANALYSIS_SKIPPED_FIELD_NUMBER: _ClassVar[int]
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    metadata_version: str
+    runtime_version: str
+    flags: int
+    il_only: bool
+    mixed_mode: bool
+    ready_to_run: bool
+    strong_name_signed: bool
+    requires_32bit: bool
+    prefers_32bit: bool
+    entry_point: int
+    native_entry_point: bool
+    streams: _containers.RepeatedScalarFieldContainer[str]
+    code_analysis_skipped: bool
+    description: str
+    def __init__(self, metadata_version: _Optional[str] = ..., runtime_version: _Optional[str] = ..., flags: _Optional[int] = ..., il_only: _Optional[bool] = ..., mixed_mode: _Optional[bool] = ..., ready_to_run: _Optional[bool] = ..., strong_name_signed: _Optional[bool] = ..., requires_32bit: _Optional[bool] = ..., prefers_32bit: _Optional[bool] = ..., entry_point: _Optional[int] = ..., native_entry_point: _Optional[bool] = ..., streams: _Optional[_Iterable[str]] = ..., code_analysis_skipped: _Optional[bool] = ..., description: _Optional[str] = ...) -> None: ...
 
 class ListProgramsRequest(_message.Message):
     __slots__ = ("project_id", "read", "include_deleted")
@@ -962,10 +1002,11 @@ class ListProgramsResponse(_message.Message):
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., programs: _Optional[_Iterable[_Union[ProgramInfo, _Mapping]]] = ..., folders: _Optional[_Iterable[_Union[ProjectFolder, _Mapping]]] = ...) -> None: ...
 
 class ImportProgramRequest(_message.Message):
-    __slots__ = ("project_id", "path", "content", "name", "options", "provenance", "import_id", "folder_id")
+    __slots__ = ("project_id", "path", "content", "program_file", "name", "options", "provenance", "import_id", "folder_id")
     PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
     PATH_FIELD_NUMBER: _ClassVar[int]
     CONTENT_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_FILE_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
     OPTIONS_FIELD_NUMBER: _ClassVar[int]
     PROVENANCE_FIELD_NUMBER: _ClassVar[int]
@@ -974,12 +1015,13 @@ class ImportProgramRequest(_message.Message):
     project_id: str
     path: str
     content: bytes
+    program_file: str
     name: str
     options: ImportOptions
     provenance: _common_pb2.Provenance
     import_id: str
     folder_id: str
-    def __init__(self, project_id: _Optional[str] = ..., path: _Optional[str] = ..., content: _Optional[bytes] = ..., name: _Optional[str] = ..., options: _Optional[_Union[ImportOptions, _Mapping]] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., import_id: _Optional[str] = ..., folder_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, project_id: _Optional[str] = ..., path: _Optional[str] = ..., content: _Optional[bytes] = ..., program_file: _Optional[str] = ..., name: _Optional[str] = ..., options: _Optional[_Union[ImportOptions, _Mapping]] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., import_id: _Optional[str] = ..., folder_id: _Optional[str] = ...) -> None: ...
 
 class GetImportProgressRequest(_message.Message):
     __slots__ = ("project_id", "import_id")
@@ -1152,7 +1194,7 @@ class CancelRawDetectResponse(_message.Message):
     def __init__(self) -> None: ...
 
 class ImportOptions(_message.Message):
-    __slots__ = ("format", "language_id", "compiler_spec_id", "has_image_base", "image_base", "analyze", "raw_offset", "raw_length", "raw_permissions", "has_entry_point", "entry_point", "regions", "raw_space", "raw_format", "import_libraries", "library_search_paths", "library_depth", "library_root")
+    __slots__ = ("format", "language_id", "compiler_spec_id", "has_image_base", "image_base", "analyze", "raw_offset", "raw_length", "raw_permissions", "has_entry_point", "entry_point", "regions", "raw_space", "raw_format", "import_libraries", "library_search_paths", "library_depth", "library_root", "macho_slice")
     FORMAT_FIELD_NUMBER: _ClassVar[int]
     LANGUAGE_ID_FIELD_NUMBER: _ClassVar[int]
     COMPILER_SPEC_ID_FIELD_NUMBER: _ClassVar[int]
@@ -1171,6 +1213,7 @@ class ImportOptions(_message.Message):
     LIBRARY_SEARCH_PATHS_FIELD_NUMBER: _ClassVar[int]
     LIBRARY_DEPTH_FIELD_NUMBER: _ClassVar[int]
     LIBRARY_ROOT_FIELD_NUMBER: _ClassVar[int]
+    MACHO_SLICE_FIELD_NUMBER: _ClassVar[int]
     format: str
     language_id: str
     compiler_spec_id: str
@@ -1189,7 +1232,8 @@ class ImportOptions(_message.Message):
     library_search_paths: _containers.RepeatedScalarFieldContainer[str]
     library_depth: int
     library_root: str
-    def __init__(self, format: _Optional[str] = ..., language_id: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., has_image_base: _Optional[bool] = ..., image_base: _Optional[int] = ..., analyze: _Optional[bool] = ..., raw_offset: _Optional[int] = ..., raw_length: _Optional[int] = ..., raw_permissions: _Optional[str] = ..., has_entry_point: _Optional[bool] = ..., entry_point: _Optional[int] = ..., regions: _Optional[_Iterable[_Union[MemoryRegion, _Mapping]]] = ..., raw_space: _Optional[str] = ..., raw_format: _Optional[str] = ..., import_libraries: _Optional[bool] = ..., library_search_paths: _Optional[_Iterable[str]] = ..., library_depth: _Optional[int] = ..., library_root: _Optional[str] = ...) -> None: ...
+    macho_slice: str
+    def __init__(self, format: _Optional[str] = ..., language_id: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., has_image_base: _Optional[bool] = ..., image_base: _Optional[int] = ..., analyze: _Optional[bool] = ..., raw_offset: _Optional[int] = ..., raw_length: _Optional[int] = ..., raw_permissions: _Optional[str] = ..., has_entry_point: _Optional[bool] = ..., entry_point: _Optional[int] = ..., regions: _Optional[_Iterable[_Union[MemoryRegion, _Mapping]]] = ..., raw_space: _Optional[str] = ..., raw_format: _Optional[str] = ..., import_libraries: _Optional[bool] = ..., library_search_paths: _Optional[_Iterable[str]] = ..., library_depth: _Optional[int] = ..., library_root: _Optional[str] = ..., macho_slice: _Optional[str] = ...) -> None: ...
 
 class MemoryRegion(_message.Message):
     __slots__ = ("name", "start", "size", "read", "write", "execute", "initialized", "is_volatile", "space")
@@ -1364,7 +1408,7 @@ class GetProgramSummaryResponse(_message.Message):
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., summary: _Optional[_Union[ProgramSummary, _Mapping]] = ...) -> None: ...
 
 class ProgramSummary(_message.Message):
-    __slots__ = ("info", "language", "image_base", "entry_points", "memory", "function_count", "instruction_count", "file_size", "spaces", "import_image_base", "build_id", "debuglink", "debug_file")
+    __slots__ = ("info", "language", "image_base", "entry_points", "memory", "function_count", "instruction_count", "file_size", "spaces", "import_image_base", "build_id", "debuglink", "debug_file", "macho")
     INFO_FIELD_NUMBER: _ClassVar[int]
     LANGUAGE_FIELD_NUMBER: _ClassVar[int]
     IMAGE_BASE_FIELD_NUMBER: _ClassVar[int]
@@ -1378,6 +1422,7 @@ class ProgramSummary(_message.Message):
     BUILD_ID_FIELD_NUMBER: _ClassVar[int]
     DEBUGLINK_FIELD_NUMBER: _ClassVar[int]
     DEBUG_FILE_FIELD_NUMBER: _ClassVar[int]
+    MACHO_FIELD_NUMBER: _ClassVar[int]
     info: ProgramInfo
     language: LanguageInfo
     image_base: _common_pb2.Address
@@ -1391,7 +1436,80 @@ class ProgramSummary(_message.Message):
     build_id: str
     debuglink: str
     debug_file: str
-    def __init__(self, info: _Optional[_Union[ProgramInfo, _Mapping]] = ..., language: _Optional[_Union[LanguageInfo, _Mapping]] = ..., image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., entry_points: _Optional[_Iterable[_Union[EntryPoint, _Mapping]]] = ..., memory: _Optional[_Iterable[_Union[MemoryBlock, _Mapping]]] = ..., function_count: _Optional[int] = ..., instruction_count: _Optional[int] = ..., file_size: _Optional[int] = ..., spaces: _Optional[_Iterable[_Union[AddressSpaceInfo, _Mapping]]] = ..., import_image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., build_id: _Optional[str] = ..., debuglink: _Optional[str] = ..., debug_file: _Optional[str] = ...) -> None: ...
+    macho: MachoSummary
+    def __init__(self, info: _Optional[_Union[ProgramInfo, _Mapping]] = ..., language: _Optional[_Union[LanguageInfo, _Mapping]] = ..., image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., entry_points: _Optional[_Iterable[_Union[EntryPoint, _Mapping]]] = ..., memory: _Optional[_Iterable[_Union[MemoryBlock, _Mapping]]] = ..., function_count: _Optional[int] = ..., instruction_count: _Optional[int] = ..., file_size: _Optional[int] = ..., spaces: _Optional[_Iterable[_Union[AddressSpaceInfo, _Mapping]]] = ..., import_image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., build_id: _Optional[str] = ..., debuglink: _Optional[str] = ..., debug_file: _Optional[str] = ..., macho: _Optional[_Union[MachoSummary, _Mapping]] = ...) -> None: ...
+
+class MachoSummary(_message.Message):
+    __slots__ = ("arch", "cpu_type", "cpu_subtype", "file_type", "uuid", "platform", "min_os", "sdk", "source_version", "install_name", "dylinker", "dylibs", "rpaths", "slices", "slice_index", "code_signed", "encrypted", "crypt_offset", "crypt_size", "fixups", "flags")
+    ARCH_FIELD_NUMBER: _ClassVar[int]
+    CPU_TYPE_FIELD_NUMBER: _ClassVar[int]
+    CPU_SUBTYPE_FIELD_NUMBER: _ClassVar[int]
+    FILE_TYPE_FIELD_NUMBER: _ClassVar[int]
+    UUID_FIELD_NUMBER: _ClassVar[int]
+    PLATFORM_FIELD_NUMBER: _ClassVar[int]
+    MIN_OS_FIELD_NUMBER: _ClassVar[int]
+    SDK_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    INSTALL_NAME_FIELD_NUMBER: _ClassVar[int]
+    DYLINKER_FIELD_NUMBER: _ClassVar[int]
+    DYLIBS_FIELD_NUMBER: _ClassVar[int]
+    RPATHS_FIELD_NUMBER: _ClassVar[int]
+    SLICES_FIELD_NUMBER: _ClassVar[int]
+    SLICE_INDEX_FIELD_NUMBER: _ClassVar[int]
+    CODE_SIGNED_FIELD_NUMBER: _ClassVar[int]
+    ENCRYPTED_FIELD_NUMBER: _ClassVar[int]
+    CRYPT_OFFSET_FIELD_NUMBER: _ClassVar[int]
+    CRYPT_SIZE_FIELD_NUMBER: _ClassVar[int]
+    FIXUPS_FIELD_NUMBER: _ClassVar[int]
+    FLAGS_FIELD_NUMBER: _ClassVar[int]
+    arch: str
+    cpu_type: int
+    cpu_subtype: int
+    file_type: str
+    uuid: str
+    platform: str
+    min_os: str
+    sdk: str
+    source_version: str
+    install_name: str
+    dylinker: str
+    dylibs: _containers.RepeatedCompositeFieldContainer[MachoDylib]
+    rpaths: _containers.RepeatedScalarFieldContainer[str]
+    slices: _containers.RepeatedCompositeFieldContainer[MachoSlice]
+    slice_index: int
+    code_signed: bool
+    encrypted: bool
+    crypt_offset: int
+    crypt_size: int
+    fixups: str
+    flags: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, arch: _Optional[str] = ..., cpu_type: _Optional[int] = ..., cpu_subtype: _Optional[int] = ..., file_type: _Optional[str] = ..., uuid: _Optional[str] = ..., platform: _Optional[str] = ..., min_os: _Optional[str] = ..., sdk: _Optional[str] = ..., source_version: _Optional[str] = ..., install_name: _Optional[str] = ..., dylinker: _Optional[str] = ..., dylibs: _Optional[_Iterable[_Union[MachoDylib, _Mapping]]] = ..., rpaths: _Optional[_Iterable[str]] = ..., slices: _Optional[_Iterable[_Union[MachoSlice, _Mapping]]] = ..., slice_index: _Optional[int] = ..., code_signed: _Optional[bool] = ..., encrypted: _Optional[bool] = ..., crypt_offset: _Optional[int] = ..., crypt_size: _Optional[int] = ..., fixups: _Optional[str] = ..., flags: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class MachoDylib(_message.Message):
+    __slots__ = ("name", "kind", "current_version", "compatibility_version")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    CURRENT_VERSION_FIELD_NUMBER: _ClassVar[int]
+    COMPATIBILITY_VERSION_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    kind: str
+    current_version: str
+    compatibility_version: str
+    def __init__(self, name: _Optional[str] = ..., kind: _Optional[str] = ..., current_version: _Optional[str] = ..., compatibility_version: _Optional[str] = ...) -> None: ...
+
+class MachoSlice(_message.Message):
+    __slots__ = ("arch", "cpu_type", "cpu_subtype", "offset", "size")
+    ARCH_FIELD_NUMBER: _ClassVar[int]
+    CPU_TYPE_FIELD_NUMBER: _ClassVar[int]
+    CPU_SUBTYPE_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    arch: str
+    cpu_type: int
+    cpu_subtype: int
+    offset: int
+    size: int
+    def __init__(self, arch: _Optional[str] = ..., cpu_type: _Optional[int] = ..., cpu_subtype: _Optional[int] = ..., offset: _Optional[int] = ..., size: _Optional[int] = ...) -> None: ...
 
 class LanguageInfo(_message.Message):
     __slots__ = ("language_id", "compiler_spec_id", "processor", "endianness", "pointer_size", "default_space")

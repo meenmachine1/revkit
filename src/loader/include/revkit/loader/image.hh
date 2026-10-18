@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -23,8 +24,9 @@ class LoadError : public std::runtime_error {
 };
 
 // raw: a flat image (firmware, a ROM dump) loaded at a chosen base, with
-// optional extra regions; see RawOptions.
-enum class Format : std::uint8_t { elf, pe, raw };
+// optional extra regions; see RawOptions. macho: a Mach-O file, or one
+// slice of a universal (fat) one (docs/macho.md).
+enum class Format : std::uint8_t { elf, pe, raw, macho };
 enum class Endian : std::uint8_t { little, big };
 
 struct Perms {
@@ -114,9 +116,14 @@ struct Segment {
 };
 
 // ELF section header or PE section header, normalised. For PE, `type` is 0,
-// `flags` holds the characteristics and `addr` is a virtual address.
+// `flags` holds the characteristics and `addr` is a virtual address. For
+// Mach-O, `type` is the section type (flags & 0xff, S_*), `flags` the
+// whole flags word, `segment` the segment it is in, `info` reserved1 (the
+// first indirect symbol of a pointer or stub section) and `entsize`
+// reserved2 (a stub's size).
 struct Section {
   std::string name;
+  std::string segment;  // Mach-O: "__TEXT"; empty otherwise
   std::uint32_t type = 0;
   std::uint64_t flags = 0;
   std::uint64_t addr = 0;
@@ -136,7 +143,8 @@ struct Section {
 
 enum class SymbolType : std::uint8_t { notype, object, func, section, file, common, tls, ifunc, other };
 enum class SymbolBind : std::uint8_t { local, global, weak, other };
-enum class SymbolSource : std::uint8_t { symtab, dynsym, pe_export };
+// macho_export: a Mach-O export trie entry no symbol table entry names.
+enum class SymbolSource : std::uint8_t { symtab, dynsym, pe_export, macho_export };
 
 struct Symbol {
   std::string name;
@@ -146,7 +154,7 @@ struct Symbol {
   SymbolBind bind = SymbolBind::local;
   SymbolSource source = SymbolSource::symtab;
   bool defined = false;  // false for undefined (imported) ELF symbols
-  std::uint32_t section_index = 0;
+  std::uint32_t section_index = 0;  // ELF: st_shndx; Mach-O: n_sect (sections from 1)
 };
 
 struct Import {
@@ -257,15 +265,129 @@ struct AddressSpace {
   friend bool operator==(const AddressSpace &, const AddressSpace &) = default;
 };
 
+// Mach-O (docs/macho.md). A universal file's slice: the CPU it is for
+// and where it is in the file.
+struct MachoSlice {
+  std::uint32_t cputype = 0;
+  std::uint32_t cpusubtype = 0;
+  std::uint64_t offset = 0;
+  std::uint64_t size = 0;
+  std::uint32_t align = 0;  // a power of two's exponent
+  std::string arch;         // "arm64", "arm64e", "x86_64", "armv7", "i386", ...
+
+  friend bool operator==(const MachoSlice &, const MachoSlice &) = default;
+};
+
+// A segment load command (LC_SEGMENT, LC_SEGMENT_64), at the image's
+// load address. Protections are VM_PROT_* bits (1 read, 2 write, 4 execute).
+struct MachoSegment {
+  std::string name;
+  std::uint64_t vmaddr = 0;
+  std::uint64_t vmsize = 0;
+  std::uint64_t fileoff = 0;  // in the slice
+  std::uint64_t filesize = 0;
+  std::uint32_t maxprot = 0;
+  std::uint32_t initprot = 0;
+  std::uint32_t flags = 0;  // SG_PROTECTED_VERSION_1 (8): encrypted
+};
+
+// A library the file links against: LC_LOAD_DYLIB ("load"),
+// LC_LOAD_WEAK_DYLIB ("weak"), LC_REEXPORT_DYLIB ("reexport"),
+// LC_LAZY_LOAD_DYLIB ("lazy"), LC_LOAD_UPWARD_DYLIB ("upward"). A bind's
+// library ordinal N is the Nth of these (from 1), in load command order.
+struct MachoDylib {
+  std::string name;  // the install name: "/usr/lib/libSystem.B.dylib", "@rpath/libfoo.dylib"
+  std::string kind;
+  std::uint32_t current_version = 0;  // X.Y.Z as xxxx.yy.zz
+  std::uint32_t compatibility_version = 0;
+};
+
+// A .NET assembly's CLR header (PE data directory 14, IMAGE_COR20_HEADER,
+// ECMA-335 II.25.3.3) and its metadata root (II.24.2.1).
+struct DotNetInfo {
+  std::uint16_t runtime_major = 0, runtime_minor = 0;  // the header's (2.5 since .NET 2.0)
+  std::uint32_t flags = 0;                             // COMIMAGE_FLAGS_*
+  std::string metadata_version;                        // the root's version string: "v4.0.30319"
+  std::uint32_t metadata_rva = 0, metadata_size = 0;
+  std::uint32_t resources_rva = 0, resources_size = 0;
+  // The managed entry point's method token (0x06xxxxxx), or with
+  // native_entry_point the RVA of a native one.
+  std::uint32_t entry_point = 0;
+  bool il_only = false;             // COMIMAGE_FLAGS_ILONLY (0x1)
+  bool requires_32bit = false;      // 32BITREQUIRED (0x2)
+  bool strong_name_signed = false;  // STRONGNAMESIGNED (0x8)
+  bool native_entry_point = false;  // NATIVE_ENTRYPOINT (0x10)
+  bool prefers_32bit = false;       // 32BITPREFERRED (0x20000)
+  // ReadyToRun: the ManagedNativeHeader points at a READYTORUN_HEADER
+  // ("RTR"), precompiled native code beside the IL.
+  bool ready_to_run = false;
+  std::vector<std::string> streams;  // "#~", "#Strings", "#US", "#GUID", "#Blob"
+  // Native code to analyse: a mixed-mode (C++/CLI) image, or ReadyToRun.
+  // An IL-only image has none but its entry stub.
+  bool has_native_code() const { return !il_only || ready_to_run; }
+};
+
+struct MachoInfo {
+  std::uint32_t cputype = 0;
+  std::uint32_t cpusubtype = 0;  // capability bits included (arm64e's 0x80000002)
+  std::uint32_t filetype = 0;    // MH_EXECUTE 2, MH_DYLIB 6, MH_BUNDLE 8, MH_OBJECT 1, ...
+  std::uint32_t header_flags = 0;
+  std::string arch;
+  // A universal file's slices, in file order, and which one this image is;
+  // empty for a thin file.
+  std::vector<MachoSlice> slices;
+  std::size_t slice = 0;
+  std::uint64_t slice_offset = 0;  // where the slice starts in the file
+  // LC_UUID, as dyld and dwarfdump print it: upper-case hex with dashes.
+  std::string uuid;
+  // LC_BUILD_VERSION, else LC_VERSION_MIN_*: "macos", "ios", "tvos",
+  // "watchos", "bridgeos", "maccatalyst", "iossimulator", "tvossimulator",
+  // "watchossimulator", "driverkit", "visionos", "visionossimulator" (or
+  // "platform N"); versions as "11.0" or "13.2.1". Empty when neither.
+  std::string platform;
+  std::string min_os;
+  std::string sdk;
+  std::string source_version;  // LC_SOURCE_VERSION "A.B.C.D.E", empty when absent
+  std::string install_name;    // LC_ID_DYLIB (also Image::soname)
+  std::string dylinker;        // LC_LOAD_DYLINKER: "/usr/lib/dyld"
+  std::vector<MachoDylib> dylibs;
+  std::vector<std::string> rpaths;  // LC_RPATH, as written (also Image::runpath)
+  std::vector<MachoSegment> segments;  // __PAGEZERO included
+  // LC_CODE_SIGNATURE: where the signature blob is (in the slice).
+  bool code_signature = false;
+  std::uint32_t code_signature_offset = 0;
+  std::uint32_t code_signature_size = 0;
+  // LC_ENCRYPTION_INFO(_64): encrypted when cryptid is nonzero (FairPlay);
+  // the range is in the slice. Nothing is decrypted.
+  bool has_encryption_info = false;
+  bool encrypted = false;
+  std::uint32_t crypt_offset = 0;
+  std::uint32_t crypt_size = 0;
+  std::uint32_t cryptid = 0;
+  // How dyld fixes it up: LC_DYLD_INFO(_ONLY) opcodes, LC_DYLD_CHAINED_FIXUPS.
+  bool dyld_info = false;
+  bool chained_fixups = false;
+  std::uint32_t chained_pointer_format = 0;  // the first segment's DYLD_CHAINED_PTR_*
+  // LC_FUNCTION_STARTS, at the image's load address, sorted (Thumb ones
+  // with bit 0 set, as the table has them).
+  std::vector<std::uint64_t> function_starts;
+  // LC_DATA_IN_CODE: [start, end) ranges of data in code sections (jump
+  // tables, literal pools), at the image's load address, sorted.
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> data_in_code;
+  // Each stub's (S_SYMBOL_STUBS) symbol from the indirect symbol table, by
+  // the stub's address: what Ghidra names the stub's thunk.
+  std::map<std::uint64_t, std::string> stub_names;
+};
+
 struct Image {
   Format format = Format::elf;
   Endian endian = Endian::little;
   unsigned bits = 64;              // pointer size in bits
-  std::uint32_t machine = 0;       // e_machine or IMAGE_FILE_HEADER.Machine
+  std::uint32_t machine = 0;       // e_machine, IMAGE_FILE_HEADER.Machine or Mach-O cputype
   std::uint32_t flags = 0;         // e_flags (ELF) or file characteristics (PE)
-  std::uint16_t elf_type = 0;      // e_type; 0 for PE
+  std::uint16_t elf_type = 0;      // e_type; 0 for PE and Mach-O
   std::optional<std::uint64_t> entry;
-  std::uint64_t image_base = 0;    // lowest PT_LOAD vaddr (ELF) or ImageBase (PE)
+  std::uint64_t image_base = 0;    // lowest PT_LOAD vaddr (ELF), ImageBase (PE), the Mach-O header's (__TEXT's) vmaddr
   std::uint64_t file_base = 0;     // the same as the file has it, before LoadOptions rebased it
 
   std::vector<Segment> segments;
@@ -283,12 +405,18 @@ struct Image {
   // directory's DLL name). `runpath`: where it says to look (ELF DT_RUNPATH,
   // else DT_RPATH, split on ':'; "$ORIGIN" left as it is). `build_id`: the
   // GNU build ID note (NT_GNU_BUILD_ID) in lower-case hex; empty for PE.
+  // Mach-O: `needed` is every dylib load command's install name, `soname`
+  // LC_ID_DYLIB's, `runpath` the LC_RPATHs ("@loader_path" left as it is),
+  // `build_id` the LC_UUID in lower-case hex without dashes.
   std::vector<std::string> needed;
   std::string soname;
   std::vector<std::string> runpath;
   std::string build_id;
 
-  // ELF only.
+  // ELF; and Mach-O (docs/macho.md): binds, lazy binds, weak binds and
+  // chained-fixup binds as jump_slot (lazy) or glob_dat with their symbol,
+  // rebases as relative with their target, and the stub sections
+  // (S_SYMBOL_STUBS) as PLT sections of their stub size.
   std::vector<Relocation> relocations;  // sorted by address (stable)
   std::vector<PltSection> plt_sections;  // sorted by start
   InitFini init_fini;
@@ -298,6 +426,11 @@ struct Image {
   std::vector<std::string> warnings;  // recoverable oddities, in discovery order
 
   std::shared_ptr<const Bytes> file;
+
+  // Mach-O only: the header and load commands' facts.
+  std::optional<MachoInfo> macho;
+  // PE only: a .NET assembly's CLR header, when it has one.
+  std::optional<DotNetInfo> dotnet;
 
   // The memory spaces other than the default one that blocks live in, in
   // the order they were added (see AddressSpace and the keys above).
@@ -385,6 +518,11 @@ struct LoadOptions {
   // segment is at 0 load at 0x100000 (64-bit) or 0x10000 (32-bit), so our
   // addresses match a default Ghidra import. Ignored if image_base is set.
   bool ghidra_image_base = false;
+
+  // A universal Mach-O's slice to load, by its arch name ("arm64",
+  // "x86_64", "arm64e", "armv7", "i386", or "#N" for the Nth from 0).
+  // Empty: the default slice (macho_default_slice). Ignored for other files.
+  std::string macho_slice;
 };
 
 // A memory region a raw image declares beside the file's bytes: RAM the

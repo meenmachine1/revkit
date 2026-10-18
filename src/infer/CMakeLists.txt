@@ -21,6 +21,7 @@ add_library(revkit_infer STATIC
   queries.cc
   remote.cc
   sigdb.cc
+  structures.cc
   types_bridge.cc
   vtype.cc
   ${CMAKE_CURRENT_BINARY_DIR}/sigdb_data.cc)

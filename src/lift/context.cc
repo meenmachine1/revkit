@@ -7,9 +7,38 @@ namespace revkit::lift {
 namespace {
 
 constexpr std::uint32_t kElfMachineArm = 40;
+constexpr std::uint32_t kMachoCpuArm = 12;
 
 bool is_arm(const loader::Image &image) {
-  return image.format == loader::Format::elf && image.machine == kElfMachineArm;
+  return (image.format == loader::Format::elf && image.machine == kElfMachineArm) ||
+         (image.format == loader::Format::macho && image.machine == kMachoCpuArm);
+}
+
+// A Mach-O's Thumb functions: symbols with N_ARM_THUMB_DEF (the loader
+// sets bit 0) and odd LC_FUNCTION_STARTS entries, each to the next
+// function start or its section's end (nlist has no sizes).
+void macho_thumb(const loader::Image &image, std::vector<ContextRegion> &out) {
+  std::vector<std::pair<std::uint64_t, bool>> starts;  // address, thumb
+  for (const loader::Symbol &s : image.symbols)
+    if (s.defined && s.type == loader::SymbolType::func) starts.emplace_back(s.value & ~std::uint64_t{1}, (s.value & 1) != 0);
+  if (image.macho)
+    for (std::uint64_t f : image.macho->function_starts) starts.emplace_back(f & ~std::uint64_t{1}, (f & 1) != 0);
+  std::sort(starts.begin(), starts.end(), [](const auto &a, const auto &b) {
+    return a.first != b.first ? a.first < b.first : a.second > b.second;  // Thumb first at an address
+  });
+  for (std::size_t i = 0; i < starts.size(); ++i) {
+    if (!starts[i].second || (i > 0 && starts[i - 1].first == starts[i].first)) continue;
+    const std::uint64_t start = starts[i].first;
+    std::uint64_t end = start;
+    for (const loader::Section &sec : image.sections)
+      if (sec.perms.exec && start >= sec.addr && start - sec.addr < sec.size) end = sec.addr + sec.size;
+    for (std::size_t j = i + 1; j < starts.size(); ++j)
+      if (starts[j].first > start) {
+        end = std::min(end, starts[j].first);
+        break;
+      }
+    if (end > start) out.push_back({"TMode", 1, start, end});
+  }
 }
 
 // Mapping symbol kind ('a', 't', 'x', 'd'), or 0. Names are "$a" or
@@ -62,6 +91,7 @@ std::vector<Mapping> mappings(const loader::Image &image) {
 }  // namespace
 
 bool is_thumb_function(const loader::Image &image, const loader::Symbol &symbol) {
+  // (Mach-O Thumb symbols have bit 0 set by the loader, as ELF's do.)
   return is_arm(image) && symbol.type == loader::SymbolType::func && (symbol.value & 1) != 0;
 }
 
@@ -72,6 +102,10 @@ std::uint64_t function_address(const loader::Image &image, const loader::Symbol 
 std::vector<ContextRegion> image_context(const loader::Image &image) {
   std::vector<ContextRegion> out;
   if (!is_arm(image)) return out;
+  if (image.format == loader::Format::macho) {
+    macho_thumb(image, out);
+    return out;
+  }
   for (const Mapping &m : mappings(image))
     if (m.kind == 't') out.push_back({"TMode", 1, m.start, m.end});
   // Function symbols cover stripped-of-mapping-symbol binaries (.dynsym only).
@@ -88,6 +122,13 @@ std::vector<ContextRegion> image_context(const loader::Image &image) {
 
 std::vector<AddressRange> embedded_data(const loader::Image &image) {
   std::vector<AddressRange> out;
+  // A Mach-O says where data is in code itself (LC_DATA_IN_CODE).
+  if (image.format == loader::Format::macho) {
+    if (image.macho)
+      for (const auto &[start, end] : image.macho->data_in_code)
+        if (end > start) out.emplace_back(start, end - 1);
+    return out;
+  }
   // ARM and AArch64 toolchains mark literal pools and inline tables with $d.
   // Elsewhere (RISC-V libgcc) $d can sit inside straight-line code, and
   // Ghidra disassembles through it, so we don't honour it.

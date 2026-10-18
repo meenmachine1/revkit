@@ -7,7 +7,7 @@ every row with its evidence. When an item starts, move it to the roadmap;
 when it lands, strike it here.
 
 <!-- survey-summary:wishlist -->
-Of 732 Ghidra features: revkit has 334, has part of 179, lacks 219, and 0 are being built (counted by `scripts/survey_summary.py` from the survey's rows).
+Of 741 Ghidra features: revkit has 340, has part of 185, lacks 216, and 0 are being built (counted by `scripts/survey_summary.py` from the survey's rows).
 <!-- /survey-summary:wishlist -->
 
 Value is to a reverse engineer doing real work; effort is S (a day or
@@ -40,6 +40,7 @@ What is left, ranked by value to someone doing real work, then by effort.
 | --- | --- | --- |
 | Edit Function dialog | ~~Return, parameters, a calling-convention dropdown~~ *done* (`api_minor` 58, feature `calling-conventions`); ~~the user no-return flag~~ *done* (`api_minor` 66, feature `no-return`). Left: the inline flag and custom parameter storage, which no assertion kind carries yet | M |
 | ~~Slices and def-use~~ | *Done* (`api_minor` 57, feature `decompile-slices`; [ui.md](ui.md#slices), [api.md](api.md#slices)): ~~Def-use and slice data in Decompile (or a Slice RPC), shown as forward and backward slice and operator highlights, and a def-use highlight~~ | M |
+| Value tracing across calls (beyond Ghidra) | ~~Through direct calls, matched, with budgets and the unknowns listed~~ *done* (`api_minor` 89, feature `value-trace`; [api.md](api.md#tracing-a-value-across-calls)). Left: values through memory (stores to loads, stack slots and globals first), indirect calls with known targets, struct fields across functions, listing marks | M |
 | BSim database | ~~A persistent signature store with an LSH index (reuse `src/diff/lsh.cc`), program ingest from the CLI and the API, metadata, categories~~ *done* (`api_minor` 69, feature `bsim`; [bsim.md](bsim.md)). Left: function tags | S |
 | Similar-function search | ~~From the cursor or a selection against the BSim store: thresholds, a results table~~ *done* (`api_minor` 72, feature `bsim-search`; [bsim.md](bsim.md#searching)). ~~Left: Apply name, signature or signature and types from a hit~~ *done* (`api_minor` 76, feature `bsim-apply`; [bsim.md](bsim.md#applying-matches)) | S |
 | Debugger: dynamic listing | ~~Disassemble runtime memory (libraries, unpacked or JIT code), auto-disassembled at the pc~~ *done* (`api_minor` 62, feature `debugger-disassembly`; [debugger.md](debugger.md#runtime-disassembly)); ~~copy runtime memory into the current or a new program to capture unpacked code~~ *done* (`api_minor` 63, feature `debugger-copy`; [debugger.md](debugger.md#copying-runtime-memory)) | L |
@@ -48,14 +49,15 @@ What is left, ranked by value to someone doing real work, then by effort.
 | ~~Emulator callbacks~~ | *Done* (`api_minor` 68, feature `debugger-hooks`; [debugger.md](debugger.md#hooks)): ~~Python or plugin handlers for stubs, syscalls, MMIO and userops~~ | M |
 | ~~Conditional breakpoints~~ | *Done* (`api_minor` 64, feature `debugger-conditions`; [debugger.md](debugger.md#breakpoints)): ~~an expression on hit (emulator and live) and an ignore count; a breakpoint table~~ | M |
 | Map libraries to project programs | ~~At runtime~~ *done* (`api_minor` 70, feature `program-libraries`; [debugger.md](debugger.md#libraries)); an offer to import a missing module from the debugger is left (the Open dialog's "Also import the libraries it needs" and Analyze → Libraries… do it from the program) | M |
-| Mach-O | The loader, then Apple containers (dyld cache, kernelcache, universal) | L |
+| Mach-O | ~~The loader~~ *done* (`api_minor` 90, feature `macho`; [macho.md](macho.md)), universal files' slices too; ~~Objective-C and Swift metadata~~ *done* (`api_minor` 91, feature `objc`). Left: DWARF and dSYM, Swift demangling, message sends resolved to methods, then Apple containers (dyld cache, kernelcache) | L |
+| Go binaries | ~~Build info: Go version, modules, settings~~ *done* (`api_minor` 88, feature `build-info`; [build-info.md](build-info.md)). ~~Function names and source lines from pclntab, Go's calling conventions (Ghidra's golang cspecs) and no-return list~~ *done* (`api_minor` 93, feature `go-pclntab`; [go.md](go.md)). Next: strings (pointer and length), runtime types from `typelinks`, signatures (Ghidra's `GoFunctionFixup`), Duff's device entries | M |
 | Windows debugging | A dbgeng/WinDbg target or a bridge | L |
 
 ## Tier 2: high or medium value, specific workflows
 
 | Item | What to build | Effort |
 | --- | --- | --- |
-| Compare: apply the rest | Global names and callee signatures from a matched pair (locals, parameters, types and comments are done) | M |
+| ~~Compare: apply the rest~~ | ~~Global names and callee signatures from a matched pair~~ *done* (`api_minor` 71, feature `port-globals-callees`; [diff.md](diff.md#comparing-two-functions)) | M |
 | Analysis options | Per-analyzer enable and options, and one-shot analyzers on a selection | M |
 | Register values over ranges | ~~MIPS gp, PPC TOC~~ (done: api_minor 87, feature `register-values`; [api.md](api.md#register-values)); mode registers (MIPS16, VLE) as context, MIPS `gp` recovered from the code that writes it | M |
 | Namespaces and labels | User namespaces and classes, several labels at one address, function-local labels, external locations | M |
@@ -127,7 +129,7 @@ Memory and import:
 - ~~external debug files (build-id, debuglink, debuginfod)~~ (done: api_minor 86, feature `debug-files`, [backend.md](backend.md#external-debug-files)); source lines;
 - crash dumps (minidump, ELF core);
 - device trees suggesting the memory map;
-- Android DEX/APK and boot images.
+- Android DEX/APK and boot images (DEX/APK and other bytecode: [bytecode-lifting.md](bytecode-lifting.md); ~~decompiling them~~ through jadx and the other external decompilers: [providers.md](providers.md); loaders still to come; ~~bytecode named and packers' scripts extracted~~ done: [filesystems.md](filesystems.md#packed-executables); Deno executables, py2exe's `PYTHONSCRIPT` and Nuitka next).
 
 Types:
 - ~~data settings (format, endianness, charset)~~ (done: api_minor 84, feature `data-settings`, [listing-edit.md](listing-edit.md#data-settings));
@@ -187,5 +189,5 @@ Framework:
 - charsets beyond UTF-8/16/32;
 - OIDC/SSO and client-certificate auth;
 - version history in the UI (browse, diff, revert);
-- a SLEIGH compiler in C++ (`rk-sleigh`), for custom processors without Java;
+- a SLEIGH compiler in C++ (`rk-sleigh`), for custom processors without Java (the fork's compiler builds Ghidra's specs byte for byte: [bytecode-lifting.md](bytecode-lifting.md#e6-the-vendored-sleigh-compiler));
 - a wildcard assembler, and "find instructions like this".

@@ -73,6 +73,8 @@ from revkit.v1 import (
     presence_pb2_grpc,
     project_pb2,
     project_pb2_grpc,
+    provider_pb2,
+    provider_pb2_grpc,
     query_pb2,
     query_pb2_grpc,
     script_pb2,
@@ -1198,6 +1200,7 @@ class _Stubs:
     scripts: script_pb2_grpc.ScriptServiceStub
     filesystems: filesystem_pb2_grpc.FileSystemServiceStub
     bsim: bsim_pb2_grpc.BSimServiceStub
+    providers: provider_pb2_grpc.ProviderServiceStub
 
 
 class Client:
@@ -1257,6 +1260,7 @@ class Client:
             scripts=script_pb2_grpc.ScriptServiceStub(self._channel),
             filesystems=filesystem_pb2_grpc.FileSystemServiceStub(self._channel),
             bsim=bsim_pb2_grpc.BSimServiceStub(self._channel),
+            providers=provider_pb2_grpc.ProviderServiceStub(self._channel),
         )
         if actor is None:
             # With credentials the server knows who we are; without, keep the
@@ -1458,6 +1462,61 @@ class Client:
             variant=variant, common_symbols=list(common_symbols), attach=self._FID_SCOPES.get(attach or "", 0),
             provenance=self._prov(actor, reason))
         return self._call(self._stubs.analysis.CreateFidDatabase, req)
+
+    # -- External decompilers (api_minor 92, feature "external-decompilers"; docs/providers.md) --
+
+    # A run waits for the tool (120 s by default, the daemon's timeout).
+    _EXTERNAL_TIMEOUT = 900.0
+
+    @staticmethod
+    def _provider_input(program_id: Optional[str] = None, filesystem: Optional["FileSystem"] = None,
+                        path: Optional[str] = None) -> provider_pb2.ProviderInput:
+        if program_id:
+            return provider_pb2.ProviderInput(program_id=program_id)
+        if filesystem is not None and path:
+            return provider_pb2.ProviderInput(file=provider_pb2.ProviderFileRef(
+                session_id=filesystem.session_id, path=path))
+        raise ValueError("a program_id, or a filesystem and a path")
+
+    def providers(self, *, program_id: Optional[str] = None, filesystem: Optional["FileSystem"] = None,
+                  path: Optional[str] = None, refresh: bool = False) -> provider_pb2.ListProvidersResponse:
+        """The external decompilers (``ListProviders``): ``.providers`` (``.name``,
+        ``.available``, ``.version``, ``.kinds``, ``.reason``; ``.path`` for admins),
+        ``.sandbox`` (what the daemon enforces) and ``.limits``. With a program or a
+        file of an open file system: ``.input_kind`` (``.kind`` "dotnet", "dex",
+        "apk", "jar", "class", "pyc", "lua", "wasm", "js"), ``.applicable``,
+        ``.default_provider`` and ``.cached``. ``refresh`` looks for the tools again."""
+        req = provider_pb2.ListProvidersRequest(refresh=refresh)
+        if program_id or filesystem is not None:
+            req.input.CopyFrom(self._provider_input(program_id, filesystem, path))
+        return self._call(self._stubs.providers.ListProviders, req, timeout=self._EXTERNAL_TIMEOUT)
+
+    def decompile_external(self, *, program_id: Optional[str] = None, filesystem: Optional["FileSystem"] = None,
+                           path: Optional[str] = None, provider: str = "", refresh: bool = False,
+                           max_inline_bytes: int = 0) -> "ExternalDecompilation":
+        """Runs an external decompiler (ILSpy, jadx, Vineflower, CFR, unluac, pycdc,
+        webcrack, wasm-decompile) on a program's file or a file of an open file system
+        (``DecompileExternal``), in the daemon's sandbox, or answers from its cache.
+        ``provider`` empty: the default for the input's kind. Returns an
+        :class:`ExternalDecompilation` (``.ok``, ``.files``, ``.text()``)."""
+        inp = self._provider_input(program_id, filesystem, path)
+        resp = self._call(self._stubs.providers.DecompileExternal, provider_pb2.DecompileExternalRequest(
+            input=inp, provider=provider, refresh=refresh, max_inline_bytes=max_inline_bytes),
+            timeout=self._EXTERNAL_TIMEOUT)
+        return ExternalDecompilation(self, inp, resp)
+
+    def provider_settings(self) -> provider_pb2.GetProviderSettingsResponse:
+        """The external decompilers' settings (admin): ``.settings`` (``.enabled``,
+        ``.providers`` with ``.name``, ``.path``, ``.disabled``; ``.java_path``,
+        ``.node_path``, ``.dotnet_root``; the limits) and ``.cache_dir``."""
+        return self._call(self._stubs.providers.GetProviderSettings, provider_pb2.GetProviderSettingsRequest())
+
+    def set_provider_settings(self, settings: provider_pb2.ProviderSettings) -> provider_pb2.SetProviderSettingsResponse:
+        """Replaces the settings (admin; start from :meth:`provider_settings`), keeps them
+        beside the projects, and answers the providers as they now resolve."""
+        return self._call(self._stubs.providers.SetProviderSettings,
+                          provider_pb2.SetProviderSettingsRequest(settings=settings),
+                          timeout=self._EXTERNAL_TIMEOUT)
 
     # -- BSim databases (api_minor 69, feature "bsim"; docs/bsim.md) -----------------------
 
@@ -1982,9 +2041,17 @@ class Client:
         library_depth: int = 0,
         library_root: str = "",
         folder_id: str = "",
+        macho_slice: str = "",
+        program_file: str = "",
     ) -> project_pb2.ImportProgramResponse:
-        """Imports a file. ``format`` forces "elf", "pe" or a loader plugin by name;
-        by default the built-in loaders are tried, then loader plugins by magic.
+        """Imports a file. ``format`` forces "elf", "pe", "macho" or a loader plugin by
+        name; by default the built-in loaders are tried, then loader plugins by magic.
+
+        A universal (fat) Mach-O loads its arm64 slice by default, else its
+        x86-64 one; ``macho_slice`` (api_minor 90, feature "macho") names
+        another ("x86_64", "arm64e", "#1": the second). ``program_file`` imports
+        the file of a program already in the project again, instead of
+        ``path`` or ``content`` (another slice of it).
 
         A raw image (``format="raw"``) needs ``language_id`` and takes
         ``image_base``, ``raw_offset`` (a header to skip) and ``regions``
@@ -2039,10 +2106,14 @@ class Client:
             opts.library_depth = library_depth
         if library_root:
             opts.library_root = library_root
+        if macho_slice:
+            opts.macho_slice = macho_slice
         req = project_pb2.ImportProgramRequest(project_id=project_id, name=name, options=opts, provenance=self.provenance)
         if folder_id:
             req.folder_id = folder_id
-        if path:
+        if program_file:
+            req.program_file = program_file
+        elif path:
             req.path = path
         else:
             req.content = content
@@ -2527,6 +2598,16 @@ class FileSystem:
             session_id=self.session_id, paths=[paths] if isinstance(paths, str) else list(paths),
             host_dir=host_dir, overwrite=overwrite))
 
+    def providers(self, path: str, *, refresh: bool = False) -> provider_pb2.ListProvidersResponse:
+        """What a file is to the external decompilers, and which take it
+        (:meth:`Client.providers`)."""
+        return self._client.providers(filesystem=self, path=path, refresh=refresh)
+
+    def decompile_external(self, path: str, *, provider: str = "", refresh: bool = False) -> "ExternalDecompilation":
+        """An external decompiler on one file of this file system (:meth:`Client.decompile_external`):
+        a jar, an APK, a .pyc, a Lua chunk, a .NET assembly, a wasm module."""
+        return self._client.decompile_external(filesystem=self, path=path, provider=provider, refresh=refresh)
+
     def close(self) -> None:
         if self.session_id:
             try:
@@ -2534,6 +2615,75 @@ class FileSystem:
             except NotFound:
                 pass
             self.session_id = ""
+
+
+class ExternalDecompilation:
+    """An external decompiler's result (:meth:`Client.decompile_external`).
+
+    ``.response`` is the ``DecompileExternalResponse``. ``.ok`` (status OK),
+    ``.status`` ("OK", "FAILED", "CRASHED", "TIMEOUT", "OUT_OF_MEMORY",
+    "OUTPUT_LIMIT", "SANDBOX_ERROR"), ``.provider``, ``.version``, ``.cached``,
+    ``.files`` (paths), ``.main_file``; ``.read(path)`` a file's bytes and
+    ``.text(path)`` its text (the main file by default); ``.sources()`` every
+    file in the output's language, as (path, text)."""
+
+    def __init__(self, client: "Client", inp: provider_pb2.ProviderInput, resp: provider_pb2.DecompileExternalResponse):
+        self._client = client
+        self._input = inp
+        self.response = resp
+
+    @property
+    def status(self) -> str:
+        return provider_pb2.ProviderRunStatus.Name(self.response.status).replace("PROVIDER_RUN_STATUS_", "")
+
+    @property
+    def ok(self) -> bool:
+        return self.response.status == provider_pb2.PROVIDER_RUN_STATUS_OK
+
+    @property
+    def provider(self) -> str:
+        return self.response.provider
+
+    @property
+    def version(self) -> str:
+        return self.response.provider_version
+
+    @property
+    def cached(self) -> bool:
+        return self.response.cached
+
+    @property
+    def files(self) -> List[str]:
+        return [f.path for f in self.response.files]
+
+    @property
+    def main_file(self) -> str:
+        return self.response.main_file
+
+    def read(self, path: str) -> bytes:
+        out, offset = bytearray(), 0
+        while True:
+            r = self._client._call(self._client.stubs.providers.ReadProviderOutput, provider_pb2.ReadProviderOutputRequest(
+                input=self._input, provider=self.response.provider, path=path, offset=offset, max_bytes=8 << 20))
+            out += r.data
+            offset += len(r.data)
+            if not r.truncated or not r.data:
+                return bytes(out)
+
+    def text(self, path: Optional[str] = None) -> str:
+        path = path or self.response.main_file
+        if path == self.response.main_file and not self.response.main_truncated and self.response.main_text:
+            return self.response.main_text
+        return self.read(path).decode("utf-8", errors="replace")
+
+    def sources(self) -> Iterator[tuple]:
+        for f in self.response.files:
+            if f.language == self.response.language:
+                yield f.path, self.text(f.path)
+
+    def __repr__(self) -> str:
+        return (f"<ExternalDecompilation {self.provider} {self.version} {self.status} "
+                f"{len(self.response.files)} files{' cached' if self.cached else ''}>")
 
 
 class ScriptRun:
@@ -2672,6 +2822,20 @@ class Program:
     def summary(self) -> project_pb2.ProgramSummary:
         req = project_pb2.GetProgramSummaryRequest(program_id=self.id, read=self._read())
         return self.client._call(self.client.stubs.projects.GetProgramSummary, req).summary
+
+    def macho(self) -> Optional[project_pb2.MachoSummary]:
+        """A Mach-O's header and load commands (api_minor 90, feature "macho"): its arch,
+        file type, UUID, platform and minimum OS, dylibs and rpaths, a universal file's
+        slices, whether it is code-signed or encrypted; None for any other format."""
+        s = self.summary()
+        return s.macho if s.HasField("macho") else None
+
+    def dotnet(self) -> Optional[project_pb2.DotNetAssembly]:
+        """A .NET assembly's CLR header (api_minor 94, feature "dotnet"): metadata and
+        runtime versions, flags, IL-only or mixed-mode, ReadyToRun, whether code analysis
+        was skipped (IL-only), the metadata streams; None for any other program."""
+        s = self.summary()
+        return s.info.dotnet if s.info.HasField("dotnet") else None
 
     def memory_map(self, *, rejected: bool = False) -> Sequence[project_pb2.MemoryBlock]:
         """The memory map in address order: the image's blocks (as edited) and the
@@ -3174,12 +3338,62 @@ class Program:
         elif isinstance(variable, int):
             req.variable_index = variable
         else:
-            fn = self.decompile(function, text=False)
-            found = [v.index for v in fn.variables if v.name == variable]
-            if not found:
-                raise ValueError(f"no variable {variable!r} in {fn.name}: {', '.join(v.name for v in fn.variables)}")
-            req.variable_index = found[0]
+            req.variable_index = self._variable_index(function, variable)
         return self._q("SliceDecompiled", req)
+
+    def _variable_index(self, function: AddressLike, name: str) -> int:
+        """A decompiled variable's index by the name the decompilation shows."""
+        fn = self.decompile(function, text=False)
+        found = [v.index for v in fn.variables if v.name == name]
+        if not found:
+            raise ValueError(f"no variable {name!r} in {fn.name}: {', '.join(v.name for v in fn.variables)}")
+        return found[0]
+
+    _TRACE_DIRECTIONS = {"backward": query_pb2.TRACE_DIRECTION_BACKWARD, "forward": query_pb2.TRACE_DIRECTION_FORWARD}
+
+    def trace(
+        self,
+        function: AddressLike,
+        direction: str = "backward",
+        *,
+        variable: Union[str, int, None] = None,
+        token: Optional[tuple] = None,
+        varnode: Optional[int] = None,
+        max_depth: int = 0,
+        max_functions: int = 0,
+        max_nodes: int = 0,
+        max_edges: int = 0,
+    ) -> "query_pb2.TraceValueResponse":
+        """A value traced across calls (``TraceValue``, api_minor 89, feature
+        "value-trace"): ``slice()``'s backward or forward walk carried through
+        direct calls, a call's output to the callee's returned values and a
+        parameter to the callers' arguments (backward), an argument to the
+        callee's parameter and a returned value to the calls' outputs
+        (forward); calls are matched, so a walk that entered a callee from one
+        call leaves through that call. Start from ``variable``, ``token`` or
+        ``varnode`` as for ``slice()``. Budgets (0: the daemon's defaults:
+        3 calls deep, 12 functions, 2000 values, 4000 edges). Returns a
+        TraceValueResponse: ``functions`` (each with ``name``, ``depth`` and
+        the C ``lines`` it touches), ``nodes`` and ``edges`` (kind DATAFLOW,
+        ARGUMENT or RETURN), ``unknowns`` (where it couldn't follow: indirect
+        calls, imports, memory, functions nothing calls, budgets) and
+        ``truncated``."""
+        if direction not in self._TRACE_DIRECTIONS:
+            raise ValueError("direction: 'backward' or 'forward'")
+        req = query_pb2.TraceValueRequest(program_id=self.id, function=address(function), read=self._read(),
+                                          direction=self._TRACE_DIRECTIONS[direction], max_depth=max_depth,
+                                          max_functions=max_functions, max_nodes=max_nodes, max_edges=max_edges)
+        if [variable is not None, token is not None, varnode is not None].count(True) != 1:
+            raise ValueError("give one of variable, token or varnode")
+        if token is not None:
+            req.token.line, req.token.token = token
+        elif varnode is not None:
+            req.varnode_index = varnode
+        elif isinstance(variable, int):
+            req.variable_index = variable
+        else:
+            req.variable_index = self._variable_index(function, variable)
+        return self._q("TraceValue", req)
 
     def decompile_many(
         self,
@@ -3654,6 +3868,36 @@ class Program:
                                               name_contains=name_contains)
         return self._paged("ListSymbolTree", req, "nodes", page_size)
 
+    def providers(self, *, refresh: bool = False) -> provider_pb2.ListProvidersResponse:
+        """What this program's file is to the external decompilers (a .NET
+        assembly, a DEX, ...), and which take it (:meth:`Client.providers`)."""
+        return self.client.providers(program_id=self.id, refresh=refresh)
+
+    def decompile_external(self, *, provider: str = "", refresh: bool = False) -> "ExternalDecompilation":
+        """The program's file through an external decompiler: ILSpy's C# for a .NET
+        assembly, jadx's Java for a DEX, ... (:meth:`Client.decompile_external`)."""
+        return self.client.decompile_external(program_id=self.id, provider=provider, refresh=refresh)
+
+    def build_info(self) -> query_pb2.GetBuildInfoResponse:
+        """Build metadata the toolchain left in the file (``GetBuildInfo``,
+        api_minor 88, feature "build-info"; docs/build-info.md). ``.go`` (when
+        ``HasField("go")``): ``.go_version``, ``.path``, ``.main`` and ``.deps``
+        (``GoModule``: ``.path``, ``.version``, ``.sum``, ``.replacement``),
+        ``.settings`` (key/value: ``-ldflags``, ``GOOS``, ``GOARCH``,
+        ``CGO_ENABLED``, ``vcs.revision``, ``vcs.time``, ...) and ``.format``
+        ("inline" for Go 1.18 and later, "pointer" before). ``.rust`` (when
+        ``HasField("rust")``): cargo-auditable's ``.packages`` (``.name``,
+        ``.version``, ``.source``, ``.kind``, ``.dependencies`` as indexes,
+        ``.root``). ``.rustc_version`` and ``.rustc_commits`` for Rust binaries,
+        ``.warnings`` for metadata that didn't decode. ``.go_pclntab`` (when
+        ``HasField("go_pclntab")``; api_minor 93, feature "go-pclntab";
+        docs/go.md): a Go program's function table, which stripped binaries
+        keep: ``.layout`` ("1.2", "1.16", "1.18", "1.20"), ``.address``,
+        ``.function_count``, ``.functions_read``, ``.file_count``,
+        ``.text_start``, ``.moduledata``, ``.found_by`` ("section", "symbol",
+        "scan"). Its functions are named at import (provenance analysis:go)."""
+        return self._q("GetBuildInfo", query_pb2.GetBuildInfoRequest(program_id=self.id, read=self._read()))
+
     def relocations(self, text_contains: str = "", *, first: Optional[AddressLike] = None,
                     last: Optional[AddressLike] = None, page_size: int = 1000) -> Iterator[query_pb2.ProgramRelocation]:
         """The relocations the file carries, in address order (``ListRelocations``,
@@ -3702,6 +3946,16 @@ class Program:
         ``.name``) and ``.type_hash``, the struct ``this`` points to."""
         req = query_pb2.GetClassHierarchyRequest(program_id=self.id, read=self._read(), name_contains=name_contains)
         return list(self._q("GetClassHierarchy", req).classes)
+
+    def objc_classes(self, name_contains: str = "") -> query_pb2.ListObjcClassesResponse:
+        """A Mach-O's Objective-C classes, protocols and Swift types (``ListObjcClasses``,
+        api_minor 91, feature ``objc``; docs/macho.md), from the runtime's metadata in the
+        file: ``.classes`` (``.name``, ``.superclass``, ``.methods`` with ``.selector``,
+        ``.types``, ``.implementation``, ``.category`` and ``.function_name``, ``.ivars``,
+        ``.properties``, ``.protocols``, ``.categories``), ``.protocols`` and
+        ``.swift_types``. ``name_contains`` filters by name, in any case."""
+        req = query_pb2.ListObjcClassesRequest(program_id=self.id, read=self._read(), name_contains=name_contains)
+        return self._q("ListObjcClasses", req)
 
     def calling_conventions(self) -> List[query_pb2.CallingConvention]:
         """The calling conventions a function of the program can have

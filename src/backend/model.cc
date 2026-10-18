@@ -64,7 +64,8 @@ void ProgramSource::encode(Encoder &e) const {
   e.varint(ordinal);
   // Optional trailers, so records without them (and their fingerprints)
   // are unchanged: the loader plugin, then the import path.
-  const bool more = !container_path.empty();
+  // (Then the container path, then a Mach-O slice.)
+  const bool more = !container_path.empty() || !macho_slice.empty();
   if (!loader.empty() || !path.empty() || raw || more) e.bytes(loader);
   if (!path.empty() || raw || more) e.bytes(path);
   // No raw trailer but a container path: raw version 0 says "none".
@@ -97,6 +98,7 @@ void ProgramSource::encode(Encoder &e) const {
     }
   }
   if (more) e.bytes(container_path);
+  if (!macho_slice.empty()) e.bytes(macho_slice);
 }
 
 ProgramSource ProgramSource::decode(Decoder &d) {
@@ -119,6 +121,7 @@ ProgramSource ProgramSource::decode(Decoder &d) {
     if (version > 2) throw DecodeError("unknown raw image record");
     if (version == 0) {
       if (!d.done()) s.container_path = d.bytes();
+      if (!d.done()) s.macho_slice = d.bytes();
       return s;
     }
     loader::RawOptions raw;
@@ -151,6 +154,7 @@ ProgramSource ProgramSource::decode(Decoder &d) {
     }
     s.raw = std::move(raw);
     if (!d.done()) s.container_path = d.bytes();
+    if (!d.done()) s.macho_slice = d.bytes();
   }
   return s;
 }

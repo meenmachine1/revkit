@@ -3,9 +3,12 @@
 # revkit::loader_ghidra adds the ghidra::LoadImage adapter.
 
 add_library(revkit_loader STATIC
+  buildinfo.cc
+  gopclntab.cc
   elf.cc
   image.cc
   language.cc
+  macho.cc
   pe.cc
   raw.cc
   relocations.cc

@@ -1,0 +1,107 @@
+# Experiment: a SLEIGH sketch of a handful of CPython 3.12 opcodes.
+# Values are 8-byte object references; the value stack lives in ram below SP
+# (as Ghidra's JVM models its operand stack); fast locals in their own space.
+# Constants and names are tables the loader lays out at KBASE and NBASE.
+define endian=little;
+define alignment=2;
+define space ram      type=ram_space      size=4 default;
+define space fast     type=ram_space      size=4;
+define space register type=register_space size=4;
+
+define register offset=0x0  size=4 [ SP PC RA ];
+define register offset=0x10 size=8 [ ret ];
+define register offset=0x100 size=8 [ a0 a1 a2 a3 ];
+
+define token unit(16) op=(0,7) arg=(8,15) cmpk=(12,15) nullbit=(8,8) namei=(9,15);
+define token cache(16) cval=(0,15);
+define token cache3(48) c3v=(0,47);
+define token cache4(64) c4v=(0,63);
+
+define pcodeop py_binop;
+define pcodeop py_compare;
+define pcodeop py_getiter;
+define pcodeop py_next;
+define pcodeop py_global;
+define pcodeop py_truth;
+
+macro push(v) { SP = SP - 8; *:8 SP = v; }
+macro pop(v)  { v = *:8 SP; SP = SP + 8; }
+
+@define KBASE "0x400"
+@define NBASE "0x500"
+
+local8: loc is arg [ loc = arg * 8; ] { export *[fast]:8 loc; }
+konst:  k   is arg [ k = $(KBASE) + arg * 8; ] { export *:8 k; }
+c1: is cval { }
+c3: is c3v { }
+c4: is c4v { }
+
+:RESUME arg           is op=151 & arg { }
+:LOAD_FAST local8     is op=124 & local8 { push(local8); }
+:STORE_FAST local8    is op=125 & local8 { local v:8 = 0; pop(v); local8 = v; }
+:LOAD_CONST konst     is op=100 & konst { push(konst); }
+:RETURN_VALUE         is op=83 & arg { pop(ret); return [RA]; }
+:POP_TOP              is op=1 & arg { SP = SP + 8; }
+
+binop: "+"  is arg=0  { export 0:1; }
+binop: "+=" is arg=13 { export 0:1; }
+binop: "-"  is arg=10 { export 1:1; }
+binop: "-=" is arg=23 { export 1:1; }
+binop: "*"  is arg=5  { export 2:1; }
+binop: "*=" is arg=18 { export 2:1; }
+
+:BINARY_OP binop      is op=122 & binop & arg=0 ; c1  { local b:8 = 0; local a:8 = 0; pop(b); pop(a); push(a + b); }
+:BINARY_OP binop      is op=122 & binop & arg=13 ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); push(a + b); }
+:BINARY_OP binop      is op=122 & binop & arg=10 ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); push(a - b); }
+:BINARY_OP binop      is op=122 & binop & arg=23 ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); push(a - b); }
+:BINARY_OP binop      is op=122 & binop & arg=5 ; c1  { local b:8 = 0; local a:8 = 0; pop(b); pop(a); push(a * b); }
+:BINARY_OP binop      is op=122 & binop & arg=18 ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); push(a * b); }
+:BINARY_OP arg        is op=122 & arg ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); local r:8 = py_binop(arg:1, a, b); push(r); }
+
+:COMPARE_OP "<"  is op=107 & cmpk=0 ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); local r:8 = zext(a s< b); push(r); }
+:COMPARE_OP "<=" is op=107 & cmpk=1 ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); local r:8 = zext(a s<= b); push(r); }
+:COMPARE_OP "==" is op=107 & cmpk=2 ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); local r:8 = zext(a == b); push(r); }
+:COMPARE_OP "!=" is op=107 & cmpk=3 ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); local r:8 = zext(a != b); push(r); }
+:COMPARE_OP ">"  is op=107 & cmpk=4 ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); local r:8 = zext(a s> b); push(r); }
+:COMPARE_OP ">=" is op=107 & cmpk=5 ; c1 { local b:8 = 0; local a:8 = 0; pop(b); pop(a); local r:8 = zext(a s>= b); push(r); }
+
+fwd: dest  is arg [ dest = inst_next + arg * 2; ] { export *:4 dest; }
+back: dest is arg [ dest = inst_next - arg * 2; ] { export *:4 dest; }
+
+:POP_JUMP_IF_FALSE fwd is op=114 & fwd { local v:8 = 0; pop(v); if (v == 0) goto fwd; }
+:POP_JUMP_IF_TRUE fwd  is op=115 & fwd { local v:8 = 0; pop(v); if (v != 0) goto fwd; }
+:JUMP_BACKWARD back    is op=140 & back { goto back; }
+:JUMP_FORWARD fwd      is op=110 & fwd { goto fwd; }
+
+:GET_ITER     is op=68 & arg { local v:8 = 0; pop(v); local it:8 = py_getiter(v); push(it); }
+# FOR_ITER: the iterator stays on the stack; at its end, pop it and jump
+# past the END_FOR that the target names (3.12 skips it).
+fdest: dest is arg [ dest = inst_next + arg * 2 + 2; ] { export *:4 dest; }
+:FOR_ITER fdest is (op=93 & fdest) ; c1 {
+  local it:8 = *:8 SP; local nx:8 = py_next(it);
+  if (nx != 0) goto <more>;
+  SP = SP + 8; goto fdest;
+  <more>
+  push(nx);
+}
+:END_FOR is op=4 & arg { SP = SP + 16; }
+
+nm: n is namei [ n = $(NBASE) + namei * 4; ] { export *:4 n; }
+:LOAD_GLOBAL nm is op=116 & nm & nullbit=1 ; c4 { push(0:8); local g:8 = py_global(nm); push(g); }
+:LOAD_GLOBAL nm is op=116 & nm & nullbit=0 ; c4 { local g:8 = py_global(nm); push(g); }
+
+# CALL argc: [NULL, callable, args...]; the arguments go to a0.. (the
+# prototype's inputs) and the call drops arguments, callable and NULL.
+callargs: is arg=0 { }
+callargs: is arg=1 { a0 = *:8 SP; }
+callargs: is arg=2 { a1 = *:8 SP; a0 = *:8 (SP + 8); }
+callargs: is arg=3 { a2 = *:8 SP; a1 = *:8 (SP + 8); a0 = *:8 (SP + 16); }
+argadj: adj is arg [ adj = (arg + 2) * 8; ] { export *[const]:4 adj; }
+:CALL arg is op=171 & arg & argadj & callargs ; c3 {
+  local target:8 = *:8 (SP + arg * 8);
+  build callargs;
+  local t4:4 = target:4;
+  call [t4];
+  SP = SP + argadj;
+  push(ret);
+}

@@ -17,6 +17,22 @@ Image parse_elf(std::shared_ptr<const Bytes> file, const LoadOptions &options = 
 // Parse a PE32/PE32+ image. Throws LoadError.
 Image parse_pe(std::shared_ptr<const Bytes> file, const LoadOptions &options = {});
 
+// Parse a Mach-O file, or a slice of a universal (fat) one (the default
+// slice unless LoadOptions::macho_slice names one). Throws LoadError.
+Image parse_macho(std::shared_ptr<const Bytes> file, const LoadOptions &options = {});
+
+// A universal Mach-O's slices, in file order; empty when the file isn't a
+// well-formed universal file (a thin Mach-O has none).
+std::vector<MachoSlice> macho_slices(std::span<const std::byte> file);
+// Whether the file is a Mach-O, thin or universal, by its magic.
+bool is_macho(std::span<const std::byte> file);
+// The slice a universal file loads by default: the first arm64 or arm64e
+// one, else the first x86-64 one, else the first.
+std::size_t macho_default_slice(const std::vector<MachoSlice> &slices);
+// The arch name of a CPU type and subtype, as lipo spells it: "arm64",
+// "arm64e", "x86_64", "i386", "armv7", "armv7s", "ppc", ...
+std::string macho_arch_name(std::uint32_t cputype, std::uint32_t cpusubtype);
+
 // Load a flat binary (firmware) as RawOptions say. Throws LoadError when the
 // language isn't proc:endian:size:variant, the slice is outside the file, a
 // region is empty, wraps or overlaps another, or the image is empty.

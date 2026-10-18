@@ -1,4 +1,4 @@
-add_executable(revkit_infer_tests infer_test.cc accesses_test.cc)
+add_executable(revkit_infer_tests infer_test.cc accesses_test.cc structures_test.cc)
 target_include_directories(revkit_infer_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/.. ${PROJECT_SOURCE_DIR}/src/loader/tests)
 target_link_libraries(revkit_infer_tests PRIVATE revkit::infer GTest::gtest_main)
 target_compile_options(revkit_infer_tests PRIVATE -Wall -Wextra)

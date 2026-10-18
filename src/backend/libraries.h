@@ -23,11 +23,16 @@ std::string StripVersion(std::string_view name);
 // Whether two library names are the same library: exactly for ELF, without
 // case for PE (Windows file names).
 bool SameLibrary(std::string_view a, std::string_view b, bool pe);
+// A Mach-O library name's file name: "@rpath/libfoo.dylib" and
+// "/usr/lib/libfoo.dylib" are "libfoo.dylib" (a framework's
+// "Foo.framework/Versions/A/Foo" is "Foo").
+std::string LibraryLeaf(std::string_view name);
 
 // A library image's exports: name (version dropped) -> address. ELF: its
 // defined global and weak dynamic symbols (functions, indirect functions
 // and objects; the symbol table's when there is no dynamic one); PE: its
-// export directory's named exports, forwarders left out.
+// export directory's named exports, forwarders left out; Mach-O: its
+// export trie's, re-exports left out (its global symbols without one).
 std::map<std::string, std::uint64_t> Exports(const loader::Image &img);
 
 // What a file's header says it runs on, read without loading it.
@@ -36,10 +41,18 @@ struct FileArch {
   unsigned bits = 0;
   loader::Endian endian = loader::Endian::little;
   std::uint32_t machine = 0;
+  // A universal Mach-O: each slice's (cputype, cpusubtype); `machine` and
+  // `bits` are then the first's.
+  std::vector<std::pair<std::uint32_t, std::uint32_t>> slices;
 };
 std::optional<FileArch> PeekArch(const std::filesystem::path &file);
-// Whether a library of that arch can be `img`'s.
+// Whether a library of that arch can be `img`'s (a universal Mach-O: one
+// of its slices can).
 bool Compatible(const FileArch &a, const loader::Image &img);
+// The slice of a universal Mach-O library to load for `img`
+// (ImportOptions.macho_slice): its slice of img's CPU type and subtype,
+// else of its CPU type ("#N"); "" for a thin file or none.
+std::string MachoSliceFor(const FileArch &a, const loader::Image &img);
 
 // Where to look for `img`'s libraries, in order: `user` (absolute paths),
 // the file's own directory and its runpath ($ORIGIN expanded) when it came
@@ -50,7 +63,8 @@ std::vector<std::filesystem::path> SearchDirs(const std::vector<std::string> &us
                                               const loader::Image &img, bool host);
 
 // The first regular file named `name` (any case for PE) in `dirs` whose
-// header is compatible with `img`.
+// header is compatible with `img`. A Mach-O's names are paths: the file
+// is looked for by its LibraryLeaf (SearchDirs has put the rpaths in).
 std::optional<std::filesystem::path> FindLibrary(const std::string &name, const std::vector<std::filesystem::path> &dirs,
                                                  const loader::Image &img);
 
@@ -105,6 +119,9 @@ std::optional<FileArch> PeekArchIn(LibraryRoot &root, const std::string &key);
 // then for ELF the directories /etc/ld.so.conf names (one level of
 // include) and the standard ones (/lib and /usr/lib, their multiarch and
 // 64-bit forms, /usr/local/lib). PE: user and origin (beside the exe).
+// Mach-O: user, origin, its LC_RPATHs (@loader_path and @executable_path
+// as origin); its absolute install names are tried as they are first
+// (FindLibraryIn).
 std::vector<std::string> RootSearchDirs(LibraryRoot &root, const std::vector<std::string> &user,
                                         const std::string &origin, const loader::Image &img);
 

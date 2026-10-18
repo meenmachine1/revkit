@@ -10,6 +10,9 @@
 #   revkit logs           follow the server's log
 #   revkit update         install the latest release (the installer again)
 #   revkit version        the installed version
+#   revkit mcp setup      register revkit's MCP server with Claude Code, Codex,
+#                         Cursor and Gemini CLI (revkit-mcp setup; shows each
+#                         change and asks first; --dry-run, --client NAME)
 #
 # Defaults: projects in ~/.local/share/revkit/projects, the web UI at
 # http://revkit.localhost:50052, the Open dialog browsing your home
@@ -182,7 +185,22 @@ case ${1:-} in
     elif [ -n "$daemon" ]; then "$daemon" --version
     else die "rk-daemon not found"
     fi ;;
-  -h|--help|help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' ;;
+  mcp)
+    # The SDK's revkit-mcp (docs/getting-started.md "MCP for AI agents"):
+    # $REVKIT_MCP, the getting-started venv, PATH, then rk-script's
+    # environment (rk-script setup --with mcp makes it there).
+    mcp=${REVKIT_MCP:-}
+    for c in "$HOME/rk-venv/bin/revkit-mcp" "$(command -v revkit-mcp 2>/dev/null || true)" \
+             "$data_home/revkit/pyenv/bin/revkit-mcp"; do
+      [ -z "$mcp" ] && [ -n "$c" ] && [ -x "$c" ] && mcp=$c
+    done
+    [ -n "$mcp" ] || die "revkit-mcp not found: install the Python SDK with its [mcp] extra (docs/getting-started.md, step 3), or run: rk-script setup --with mcp"
+    shift
+    case ${1:-} in
+      setup) shift; exec "$mcp" setup --daemon "127.0.0.1:$grpc" "$@" ;;
+      *) die "usage: revkit mcp setup [--dry-run] [--client claude|codex|cursor|gemini|all] [--scope user|project] [--yes]" ;;
+    esac ;;
+  -h|--help|help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//' ;;
   *)
     start
     [ $# -gt 0 ] && import_files "$@"

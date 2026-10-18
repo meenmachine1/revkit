@@ -407,6 +407,8 @@ Totals (189 languages, 15 on a firmware-corpus sample):
 - **Spaces need 64-bit room.** Keys put a space's base above bit 40, so
   images of 64-bit languages keep one space.
 - **Dalvik and JVM don't decompile, TriCore doesn't emulate** (above).
+  What Dalvik and the JVM need (their injections and constant pools, and
+  loaders) is in [bytecode-lifting.md](bytecode-lifting.md#jvm-and-dalvik).
 - Paged and banked memory (8051 code banking, PIC's page select as an
   address space of its own) is loaded as the language lays it out; there
   is no overlay or bank-switching model.

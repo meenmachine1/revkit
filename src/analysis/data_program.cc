@@ -114,7 +114,8 @@ DataProgramInfo describe_data(const loader::Image &image, const ByteSource &byte
     for (const loader::Import &imp : image.imports)
       if (imp.iat_address != 0) add_defined(out.defined, imp.iat_address, word);
   } else if (!raw) {
-    out.relocatable = image.elf_type == 3 || image.elf_type == 1;  // ET_DYN, ET_REL
+    // ET_DYN, ET_REL; a Mach-O but an MH_EXECUTE (MachoProgramBuilder.setRelocatableProperty).
+    out.relocatable = image.macho ? image.macho->filetype != 2 : image.elf_type == 3 || image.elf_type == 1;
     for (const loader::Relocation &r : image.relocations) {
       out.relocations.push_back(r.address);
       switch (r.kind) {
@@ -139,8 +140,14 @@ DataProgramInfo describe_data(const loader::Image &image, const ByteSource &byte
     std::vector<std::uint64_t> relocated;
     for (const loader::Relocation &r : image.relocations) relocated.push_back(r.address);
     std::sort(relocated.begin(), relocated.end());
+    // A Mach-O's pointer sections likewise (MachoProgramBuilder.markupSections:
+    // S_LITERAL_POINTERS, S_NON_LAZY_SYMBOL_POINTERS, S_LAZY_SYMBOL_POINTERS).
+    auto pointer_section = [&](const loader::Section &sec) {
+      if (image.format == loader::Format::macho) return sec.type == 5 || sec.type == 6 || sec.type == 7;
+      return sec.name.starts_with(".got");
+    };
     for (const loader::Section &sec : image.sections) {
-      if (!sec.name.starts_with(".got") || !sec.alloc || sec.file_size == 0 || sec.size < word) continue;
+      if (!pointer_section(sec) || !sec.alloc || sec.file_size == 0 || sec.size < word) continue;
       for (std::uint64_t at = sec.addr; at + word <= sec.addr + sec.size; at += word) {
         bool ok = false;
         std::uint64_t v = word == 8 ? read_le(image, at, 8, &ok) : read_le(image, at, 4, &ok);
@@ -150,8 +157,10 @@ DataProgramInfo describe_data(const loader::Image &image, const ByteSource &byte
         out.loader_pointers.emplace_back(at, v);
       }
     }
+    // (Ghidra's Mach-O loader makes its symbols labels: they have no size.)
     for (const loader::Symbol &s : image.symbols)
-      if (s.defined && s.type == loader::SymbolType::object && image.memory.is_mapped(s.value))
+      if (image.format != loader::Format::macho && s.defined && s.type == loader::SymbolType::object &&
+          image.memory.is_mapped(s.value))
         out.symbols.emplace_back(s.value, s.size == 0 || s.size > 8 ? 1u : static_cast<std::uint32_t>(s.size));
   }
   std::sort(out.relocations.begin(), out.relocations.end());

@@ -110,7 +110,7 @@ for image in $images; do
   step "unpack $name.tar.gz"
   x tar -xzf /work/revkit.tar.gz -C /opt
   bin=/opt/$name/bin
-  for t in rk-daemon rk-decompd rk-lift rk-decomp rk-emu rk-dbg rk-diff rk-infer rk-debuginfo rk-cparse rk-bsim; do
+  for t in rk-daemon rk-decompd rk-sandbox rk-lift rk-decomp rk-emu rk-dbg rk-diff rk-infer rk-debuginfo rk-cparse rk-bsim; do
     out=$(x "$bin/$t" --version) || fail "$t --version"
     case $out in "$t $version "*) ;; *) fail "$t --version printed: $out" ;; esac
     if x ldd "$bin/$t" | grep -q "not found"; then x ldd "$bin/$t"; fail "$t: missing libraries"; fi

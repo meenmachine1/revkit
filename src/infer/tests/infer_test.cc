@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <map>
 
 namespace revkit::infer {
@@ -256,10 +257,124 @@ __attribute__((noinline)) unsigned long length_of(const char *s) { return strlen
 
 __attribute__((noinline)) void report(FILE *f, const char *what, int n) { fprintf(f, "%s %d\n", what, n); }
 
+struct state { long a; int b; };
+// The decompiler's own view of s is an integer (pointer arithmetic,
+// *(int *)(param_1 + 8)); its caller's is a pointer (*param_1 = ...).
+__attribute__((noinline)) int field_b(struct state *s) { return s->b * 3; }
+__attribute__((noinline)) int with_state(struct state *s, int v) {
+  s->a = v;
+  return field_b(s) + 1;
+}
+
+// fatal never returns, but only its callers say so: nothing after their
+// calls to it (no-return evidence), as discovery's own inference can't
+// tell through the indirect call. Each caller's call ends it, and the next
+// function's code, which reads four argument registers, follows.
+typedef void (*fatal_fn)(int);
+static void fatal_default(int c) { exit(c); }
+fatal_fn volatile on_fatal = fatal_default;
+__attribute__((noinline, noreturn)) void fatal(int c) {
+  on_fatal(c);
+  __builtin_unreachable();
+}
+__attribute__((noinline)) int checked1(int *p, int n) {
+  if (!p) fatal(n);
+  return *p + n;
+}
+__attribute__((noinline)) long sum4a(long a, long b, long c, long d) { return a * b + c * d; }
+__attribute__((noinline)) int checked2(int *p, int n) {
+  if (!p) fatal(n + 1);
+  return *p - n;
+}
+__attribute__((noinline)) long sum4b(long a, long b, long c, long d) { return a - b + c * d; }
+__attribute__((noinline)) int checked3(int *p, int n) {
+  if (!p) fatal(n + 2);
+  return *p * n;
+}
+__attribute__((noinline)) long sum4c(long a, long b, long c, long d) { return a ^ b ^ (c * d); }
+
+// A tail call (jmp) into a variadic function, whose register save area
+// stores every argument register: warn_if's decompilation must stop at the
+// jump, not take in log_line's code.
+__attribute__((noinline)) void log_line(const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+}
+__attribute__((noinline, optimize("O2", "optimize-sibling-calls"))) void warn_if(int c) {
+  if (c > 3) log_line("big %d\n", c);
+}
+
+// `found` is only passed on: check never writes RDX before calling lookup,
+// which reads it.
+__attribute__((noinline)) long lookup(long *tab, int i, int *found) {
+  long v = tab[i];
+  if (found) *found = v != 0;
+  return v;
+}
+__attribute__((noinline)) long check(long *tab, int i, int *found) {
+  long v = lookup(tab, i, found);
+  if (v == 0) return tab[0] + i;
+  return v;
+}
+// And on through check, which only passes it on too.
+__attribute__((noinline)) long check_twice(long *tab, int i, int *found) {
+  long v = check(tab, i, found);
+  return v + tab[1] + i;
+}
+
+// One pointer passed on unchanged: its callers see what it points to
+// differently (a byte at its start here, a long there), but it is one
+// value, one type.
+struct rec { long a; long b; };
+__attribute__((noinline)) long rec_sum(struct rec *p) { return p->a + p->b * 2; }
+__attribute__((noinline)) long rec_low(struct rec *p) { return *(unsigned char *)p + rec_sum(p); }
+__attribute__((noinline)) long rec_all(struct rec *p) { return p->a * 5 + rec_sum(p); }
+__attribute__((noinline)) long rec_all2(struct rec *p) { return p->a - rec_sum(p); }
+
+// Structures for pointers passed on: a list of nodes (an int, a double, a
+// next pointer, a flag byte) walked and filled through several functions,
+// and a holder whose field points to the first node.
+struct node { int val; double w; struct node *next; unsigned char flag; };
+struct holder { long n; int count; struct node *head; };
+__attribute__((noinline)) double node_sum(struct node *p) {
+  double s = 0;
+  for (; p; p = p->next) s += p->val * p->w + p->flag;
+  return s;
+}
+__attribute__((noinline)) void node_mark(struct node *p, int v) {
+  p->val = v;
+  p->flag = 1;
+  p->w = node_sum(p);
+}
+__attribute__((noinline)) double holder_sum(struct holder *h) {
+  h->count++;
+  return node_sum(h->head) + h->n;
+}
+__attribute__((noinline)) double holder_mark(struct holder *h, int v) {
+  node_mark(h->head, v + h->count);
+  return holder_sum(h);
+}
+
 int main(int argc, char **argv) {
   int v[4] = {argc, 3, 1, 2};
   qsort(v, 4, sizeof(int), cmp);
   int r = table[argc % 3](v[0], v[1]);
+  struct state st = {0, argc};
+  r += with_state(&st, v[2]);
+  long tab[3] = {argc, 2, 0};
+  int found = 0;
+  r += (int)check(tab, argc % 3, &found) + found;
+  r += (int)check_twice(tab, argc % 2, &found) + found;
+  r += checked1(&v[0], argc) + checked2(&v[1], argc) + checked3(&v[2], argc);
+  r += (int)(sum4a(argc, 2, 3, 4) + sum4b(argc, 5, 6, 7) + sum4c(argc, 8, 9, 10));
+  warn_if(argc);
+  struct rec rc = {argc, 2};
+  r += (int)(rec_low(&rc) + rec_all(&rc) + rec_all2(&rc));
+  struct node n2 = {argc, 1.5, 0, 0}, n1 = {2, 0.5, &n2, 1};
+  struct holder h = {argc, 0, &n1};
+  r += (int)holder_mark(&h, argc);
   report(stdout, argv[0], r + (int)sum(3, 1, 2, 3) + (int)length_of(argv[0]));
   return 0;
 }
@@ -327,6 +442,74 @@ TEST_F(EndToEnd, InfersPrototypesOfAStrippedProgram) {
   ASSERT_TRUE(length_of);
   ASSERT_EQ(length_of->params.size(), 1u);
   EXPECT_EQ(print(length_of->params[0], org), "char *");
+  // A pointer the caller has, passed to a callee whose own view is an
+  // integer: the caller's type, not the cast to the callee's previous
+  // view that the locked call shows.
+  auto field_b = prototype_for(snap, {prog, at.at("field_b")});
+  ASSERT_TRUE(field_b);
+  ASSERT_EQ(field_b->params.size(), 1u);
+  EXPECT_TRUE(field_b->params[0].is_pointer()) << field_b->print("field_b", org);
+  // Callers of a function only call sites say never returns: their
+  // decompilations stop at the call, not in the next function's code.
+  for (const char *name : {"checked1", "checked2", "checked3"}) {
+    auto p = prototype_for(snap, {prog, at.at(name)});
+    ASSERT_TRUE(p) << name;
+    EXPECT_EQ(p->params.size(), 2u) << p->print(name, org);
+  }
+  // A parameter only passed on to a callee that reads it.
+  auto check = prototype_for(snap, {prog, at.at("check")});
+  ASSERT_TRUE(check);
+  EXPECT_EQ(check->params.size(), 3u) << check->print("check", org);
+  auto check_twice = prototype_for(snap, {prog, at.at("check_twice")});
+  ASSERT_TRUE(check_twice);
+  EXPECT_EQ(check_twice->params.size(), 3u) << check_twice->print("check_twice", org);
+  // A pointer passed on unchanged has one type all the way down.
+  {
+    std::vector<std::string> types;
+    for (const char *name : {"rec_sum", "rec_low", "rec_all", "rec_all2"}) {
+      auto p = prototype_for(snap, {prog, at.at(name)});
+      ASSERT_TRUE(p && !p->params.empty()) << name;
+      types.push_back(print(p->params[0], org));
+    }
+    for (const std::string &t : types) EXPECT_EQ(t, types[0]) << ::testing::PrintToString(types);
+  }
+  // Structures for the classes of passed-on pointers: node_sum's,
+  // node_mark's and the holder's head field are one (inferred) structure,
+  // whose next field points to itself; the holder's is another.
+  {
+    auto param_struct = [&](const char *name) -> const InferredStructure * {
+      auto p = prototype_for(snap, {prog, at.at(name)});
+      if (!p || p->params.empty() || !p->params[0].is_pointer() || p->params[0].target().meta != Meta::struct_) return nullptr;
+      return r.structure(p->params[0].target().name);
+    };
+    auto field_at = [](const InferredStructure &s, std::uint64_t off) -> const InferredField * {
+      for (const InferredField &f : s.fields)
+        if (f.offset == off) return &f;
+      return nullptr;
+    };
+    const InferredStructure *node = param_struct("node_sum"), *holder = param_struct("holder_sum");
+    ASSERT_TRUE(node && holder) << proto("node_sum") << " / " << proto("holder_sum");
+    EXPECT_TRUE(node->name.starts_with("astruct_")) << node->name;
+    EXPECT_EQ(param_struct("node_mark"), node) << proto("node_mark");
+    EXPECT_EQ(param_struct("holder_mark"), holder) << proto("holder_mark");
+    EXPECT_NE(node, holder);
+    const InferredField *next = field_at(*node, 0x10);  // struct node: val 0, w 8, next 0x10, flag 0x18
+    ASSERT_TRUE(next);
+    EXPECT_EQ(print(next->type, org), node->name + " *");
+    const InferredField *val = field_at(*node, 0), *w = field_at(*node, 8);
+    ASSERT_TRUE(val && w);
+    EXPECT_EQ(print(val->type, org), "int");
+    EXPECT_EQ(print(w->type, org), "double");
+    const InferredField *head = field_at(*holder, 0x10);
+    ASSERT_TRUE(head);
+    EXPECT_EQ(print(head->type, org), node->name + " *");
+    EXPECT_EQ(holder->size, 0x18u);
+  }
+  // A function that ends in a jump to another's entry calls it.
+  auto warn_if = prototype_for(snap, {prog, at.at("warn_if")});
+  ASSERT_TRUE(warn_if);
+  EXPECT_EQ(warn_if->params.size(), 1u) << warn_if->print("warn_if", org);
+  EXPECT_FALSE(warn_if->varargs) << warn_if->print("warn_if", org);
   // main, through __libc_start_main.
   EXPECT_EQ(proto("main"), "int main(int param_1, char * * param_2)");
 

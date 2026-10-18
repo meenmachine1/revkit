@@ -658,9 +658,11 @@ void ImageArchitecture::buildCoreTypes(ghidra::DocumentStorage &store) {
     const char *name;
     std::uint64_t id;
   };
-  Named signed_of[8] = {{"sbyte", 0xa9}, {"short", 0xa8}, {"int3", 0x91}, {"int", 0x95},
+  // A size no C type has keeps its fixed-size type (Ghidra's
+  // SignedDWordDataType): 4 bytes in Go's specs, whose int and long are 8.
+  Named signed_of[8] = {{"sbyte", 0xa9}, {"short", 0xa8}, {"int3", 0x91}, {"sdword", 0xab},
                         {"int5", 0x92},  {"int6", 0x93},  {"int7", 0x94}, {"longlong", 0x9a}};
-  Named unsigned_of[8] = {{"byte", 0x7a},  {"ushort", 0xc8}, {"uint3", 0xc0}, {"uint", 0xc4},
+  Named unsigned_of[8] = {{"byte", 0x7a},  {"ushort", 0xc8}, {"uint3", 0xc0}, {"dword", 0x7f},
                           {"uint5", 0xc1}, {"uint6", 0xc2},  {"uint7", 0xc3}, {"ulonglong", 0xc7}};
   const auto c_type = [&](long size, Named s, Named u) {
     if (size < 1 || size > 8) return;

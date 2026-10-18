@@ -11,6 +11,8 @@ find_package(BZip2 REQUIRED)
 
 add_library(revkit_container STATIC
   ar.cc
+  asar.cc
+  bytecode.cc
   common.cc
   compressed.cc
   core.cc
@@ -18,11 +20,17 @@ add_library(revkit_container STATIC
   cramfs.cc
   decompress.cc
   dir.cc
+  exe.cc
   ext.cc
   fat.cc
   firmware.cc
   identify.cc
   iso9660.cc
+  jsexe.cc
+  json.cc
+  luacarve.cc
+  marshal.cc
+  pyinstaller.cc
   session.cc
   squashfs.cc
   tar.cc

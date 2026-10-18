@@ -1,0 +1,9 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-macos, arm64-macos, arm64_32-watchos ]
+install-name:    '/usr/lib/libSystem.B.dylib'
+current-version: 1319
+exports:
+  - targets:     [ x86_64-macos, arm64-macos, arm64_32-watchos ]
+    symbols:     [ _printf, _puts, dyld_stub_binder ]
+...

@@ -128,7 +128,7 @@ cp "$pkg/py/revkit-$pyversion-py3-none-any.whl" "$pkg/py/revkit-$pyversion.tar.g
 if [ "$native" = 1 ]; then
   say "native build (Docker, $image, -j $jobs)"
   docker build -q --platform "$platform" -t "$image" -f packaging/linux/build.Dockerfile packaging/linux >/dev/null
-  targets="rk-daemon rk-decompd rk-lift rk-decomp rk-emu rk-dbg rk-diff rk-infer rk-debuginfo rk-cparse rk-bsim revkit_example_plugins"
+  targets="rk-daemon rk-decompd rk-sandbox rk-lift rk-decomp rk-emu rk-dbg rk-diff rk-infer rk-debuginfo rk-cparse rk-bsim revkit_example_plugins"
   rm -rf "$pkg/stage" "$pkg/deb"
   log=$pkg/native-build.log
   echo "   (output in $log)"

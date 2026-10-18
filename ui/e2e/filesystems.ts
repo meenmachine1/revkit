@@ -30,9 +30,10 @@ interface Snap {
 type Prog = { programId: string; name: string; containerPath?: string };
 
 // fw.zip beside the test program (the daemon's --browse-root): bin/prog (the
-// test program), etc/motd, and pkg/data.tar.gz holding usr/bin/tool.
+// test program), etc/motd, etc/mod.pyc (a content kind's badge) and
+// pkg/data.tar.gz holding usr/bin/tool.
 const MAKE = String.raw`
-import io, sys, tarfile, zipfile
+import importlib.util, io, marshal, sys, tarfile, zipfile
 exe = open(sys.argv[1], 'rb').read()
 tgz = io.BytesIO()
 with tarfile.open(fileobj=tgz, mode='w:gz') as t:
@@ -41,6 +42,7 @@ with tarfile.open(fileobj=tgz, mode='w:gz') as t:
 with zipfile.ZipFile(sys.argv[2], 'w', zipfile.ZIP_DEFLATED) as z:
     z.writestr('bin/prog', exe)
     z.writestr('etc/motd', 'welcome\n')
+    z.writestr('etc/mod.pyc', importlib.util.MAGIC_NUMBER + bytes(12) + marshal.dumps(compile('x = 1', 'mod', 'exec')))
     z.writestr('pkg/data.tar.gz', tgz.getvalue())
 `;
 
@@ -70,6 +72,12 @@ export async function fileSystemChecks(c: FileSystemContext) {
     assert((await p.textContent("[data-testid=fs-desc]"))?.includes("zip archive"), "a zip");
     await row(p, "pkg").waitFor();
     assert((await p.locator("[data-testid=fs-row][aria-level='1']").count()) === 3, "bin, etc, pkg");
+    // A .pyc's content kind (api_minor 95, docs/filesystems.md "Content kinds").
+    await expand(p, "/etc");
+    await row(p, "mod.pyc").waitFor();
+    const badge = row(p, "mod.pyc").locator("[data-testid=fs-content-kind]");
+    await badge.waitFor();
+    assert((await badge.textContent())?.startsWith("pyc:3."), `mod.pyc's content kind: ${await badge.textContent()}`);
     await expand(p, "/pkg");
     await row(p, "data.tar.gz").waitFor();
     assert((await row(p, "data.tar.gz").textContent())?.includes("gzip"), "the gzip recognised by its magic");

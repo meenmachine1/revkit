@@ -14,6 +14,7 @@
 #include "revkit/v1/plugin.grpc.pb.h"
 #include "revkit/v1/presence.grpc.pb.h"
 #include "revkit/v1/project.grpc.pb.h"
+#include "revkit/v1/provider.grpc.pb.h"
 #include "revkit/v1/query.grpc.pb.h"
 #include "revkit/v1/subscription.grpc.pb.h"
 #include "revkit/v1/sync.grpc.pb.h"
@@ -351,8 +352,11 @@ class Queries final : public pb::QueryService::Service {
   RK_UNARY(ListSymbolTree)
   RK_UNARY(PlanClearFlow)
   RK_UNARY(ListRelocations)
+  RK_UNARY(GetBuildInfo)
+  RK_UNARY(TraceValue)
   RK_UNARY(ListLibraryImporters)
   RK_UNARY(GetClassHierarchy)
+  RK_UNARY(ListObjcClasses)
   RK_UNARY(ListCallingConventions)
   RK_UNARY(FindBytes)
   RK_UNARY(GetByteView)
@@ -511,6 +515,23 @@ class Patch final : public pb::PatchService::Service {
   RK_UNARY(GetExportSettings)
   RK_STAMPED(SetExportSettings, StampRequest)
   RK_STAMPED(OpenOriginal, StampRequest)
+
+ private:
+  std::shared_ptr<Backend> backend_;
+  std::shared_ptr<AuthGate> auth_;
+};
+
+// External decompilers (docs/providers.md): a program's input needs a
+// viewer of its project (Authorize), a session's its owner (the backend).
+class Providers final : public pb::ProviderService::Service {
+ public:
+  static constexpr const char *kService = "revkit.v1.ProviderService/";
+  Providers(std::shared_ptr<Backend> b, std::shared_ptr<AuthGate> a) : backend_(std::move(b)), auth_(std::move(a)) {}
+  RK_UNARY(ListProviders)
+  RK_UNARY(DecompileExternal)
+  RK_UNARY(ReadProviderOutput)
+  RK_UNARY(GetProviderSettings)
+  RK_UNARY(SetProviderSettings)
 
  private:
   std::shared_ptr<Backend> backend_;
@@ -829,6 +850,7 @@ GrpcServices::GrpcServices(std::shared_ptr<Backend> backend, std::shared_ptr<std
   services_.push_back(std::make_unique<Patch>(backend, auth));
   services_.push_back(std::make_unique<FileSystems>(backend, auth));
   services_.push_back(std::make_unique<BSim>(backend, auth));
+  services_.push_back(std::make_unique<Providers>(backend, auth));
   services_.push_back(std::make_unique<Sync>(backend, stopping, auth));
   services_.push_back(std::make_unique<Subscriptions>(backend, std::move(stopping), auth, std::move(open_streams)));
   services_.push_back(MakeAuthService(std::move(auth)));

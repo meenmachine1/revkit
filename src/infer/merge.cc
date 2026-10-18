@@ -108,6 +108,50 @@ Prototype merge(const Abi *abi, const Evidence &ev, const DataOrg &org) {
     }
   }
 
+  // Parameters it only passes on. Round 0, whose callees weren't locked,
+  // doesn't see a register the function never writes go to a call (the
+  // decompiler takes only written registers as an unknown callee's
+  // arguments): luaL_checklstring's `len`, passed straight to
+  // lua_tolstring, isn't there. A later round, with the callee locked,
+  // sees it, and it is the function's parameter when the callee reads it
+  // itself, not when it is a parameter too many the callee asks for.
+  if (self != nullptr && self0 != nullptr && self != self0 && ev.callee_reads) {
+    std::vector<std::pair<ArgPos, std::size_t>> passed;
+    for (std::size_t i = 0; i < self->params.size(); ++i) {
+      const Slot &s = self->params[i];
+      auto pos = arg_position(*abi, s);
+      // Integer registers only: a float register a callee reads at round 0
+      // is as often its own vector code's.
+      if (s.reg.empty() || !pos || pos->cls != 0 || params.contains(*pos)) continue;
+      bool read = false;
+      for (const CallSite &c : self->calls) {
+        if (c.target == 0 || !c.locked) continue;
+        for (std::size_t j = 0; j < c.args.size() && !read; ++j)
+          read = c.args[j].from_param == static_cast<std::int32_t>(i) && ev.callee_reads(c.target, j, c.args[j]);
+        if (read) break;
+      }
+      if (read) passed.emplace_back(*pos, i);
+    }
+    std::sort(passed.begin(), passed.end());
+    // Every integer argument register read is a register save area's
+    // pattern (a tail call into a variadic function, whose own code the
+    // flow then takes in), not parameters passed on: none of them then.
+    const int last = static_cast<int>(abi->int_regs.size()) - 1;
+    auto reaches_last = [&](const Observation *o) {
+      for (const Slot &s : o->params)
+        if (auto pos = arg_position(*abi, s); pos && pos->cls == 0 && pos->index >= last) return true;
+      return false;
+    };
+    if (reaches_last(self0) || reaches_last(self)) passed.clear();
+    for (const auto &[pos, i] : passed) {
+      // No holes: the convention assigns parameters in order.
+      const bool follows = pos.index == 0 || params.contains(ArgPos{pos.cls, pos.index - 1}) ||
+                           (abi->positional && (params.contains(ArgPos{0, pos.index - 1}) ||
+                                                params.contains(ArgPos{1, pos.index - 1})));
+      if (follows) params[pos] = {param_type(self->params[i], *abi), self->params[i].size};
+    }
+  }
+
   // ---- varargs ----
   // A variadic function saves the argument registers its named
   // parameters don't use (the register save area, or Windows' home
@@ -234,6 +278,9 @@ Prototype merge(const Abi *abi, const Evidence &ev, const DataOrg &org) {
   } else if (used > 0 && used * 2 > static_cast<int>(ev.unlocked.size())) {
     // The function leaves a value most callers read (a tail call's result).
     p.ret = used_type.meta == Meta::unknown && used_size == 0 ? VType::unknown(org.pointer_size) : used_type;
+  } else if (ev.tail_ret) {
+    // It returns what it tail-calls returns.
+    p.ret = *ev.tail_ret;
   }
   // A function's address.
   if (self0 != nullptr && !self0->ret_code.empty() && !p.ret.is_void() && self0->ret->size == org.pointer_size) {

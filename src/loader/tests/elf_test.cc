@@ -114,7 +114,7 @@ TEST(ElfReal, HostX86_64Pie) {
   EXPECT_EQ(lang->id(), "x86:LE:64:default:gcc");
 
   // Ghidra's default base moves a PIE to 0x100000, and everything with it.
-  Image rebased = load_file(exe, {.image_base = std::nullopt, .ghidra_image_base = true});
+  Image rebased = load_file(exe, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
   EXPECT_EQ(rebased.image_base, 0x100000u);
   EXPECT_EQ(*rebased.entry, *img.entry + 0x100000);
   EXPECT_EQ(find_symbol(rebased, "main")->value, find_symbol(img, "main")->value + 0x100000);
@@ -125,7 +125,7 @@ TEST(ElfReal, HostX86_64Pie) {
   EXPECT_EQ(rebased.blocks.front().name.rfind("segment_", 0), 0u);
 
   // An explicit base wins.
-  Image at = load_file(exe, {.image_base = 0x7000000, .ghidra_image_base = true});
+  Image at = load_file(exe, {.image_base = 0x7000000, .ghidra_image_base = true, .macho_slice = {}});
   EXPECT_EQ(at.image_base, 0x7000000u);
 }
 
@@ -133,7 +133,7 @@ TEST(ElfReal, HostX86_64NonPieKeepsBase) {
   auto dir = scratch_dir("elf-x86-64-nopie");
   auto exe = dir / "prog";
   if (!compile(REVKIT_TEST_CC, kProgram, "-O1 -no-pie", exe)) GTEST_SKIP() << "no host C compiler";
-  Image img = load_file(exe, {.image_base = std::nullopt, .ghidra_image_base = true});
+  Image img = load_file(exe, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
   expect_linux_executable(img);
   EXPECT_EQ(img.elf_type, 2);  // ET_EXEC
   EXPECT_EQ(img.image_base, 0x400000u);
@@ -179,6 +179,25 @@ TEST(ElfReal, CrossAArch64) {
   EXPECT_EQ(lang->id(), "AARCH64:LE:64:v8A:default");
   // AArch64 instructions are 4 bytes; function sizes reflect that.
   EXPECT_EQ(find_symbol(img, "add")->size % 4, 0u);
+}
+
+// An eBPF object (EM_BPF) as clang builds it, in both byte orders: Ghidra's
+// eBPF language, as eBPF.opinion maps machine 247.
+TEST(ElfReal, EbpfObject) {
+  auto dir = scratch_dir("elf-ebpf");
+  const std::string src = "__attribute__((section(\"socket\"), used)) int filt(int *p) { return p[1] == 6; }\n";
+  for (const char *order : {"bpfel", "bpfeb"}) {
+    auto obj = dir / (std::string(order) + ".o");
+    if (!compile(REVKIT_TEST_CLANG, src, std::string("-O2 -c -target ") + order, obj))
+      GTEST_SKIP() << "no clang with the BPF target";
+    Image img = load_file(obj);
+    EXPECT_EQ(img.machine, 247u);
+    EXPECT_EQ(img.bits, 64u);
+    auto lang = guess_language(img);
+    ASSERT_TRUE(lang) << order;
+    EXPECT_EQ(lang->id(), std::string(order) == "bpfel" ? "eBPF:LE:64:default:default" : "eBPF:BE:64:default:default");
+    ASSERT_NE(find_symbol(img, "filt"), nullptr);
+  }
 }
 
 // Imports through the PLT, a pointer table in .data.rel.ro, and a
@@ -269,7 +288,7 @@ TEST(ElfReal, HostX86_64RelocationsPltAndInitArrays) {
   auto dir = scratch_dir("elf-x86-64-dyn");
   auto exe = dir / "prog";
   if (!compile(REVKIT_TEST_CC, kDynamicProgram, "-O1 -pie -fPIE", exe)) GTEST_SKIP() << "no host C compiler";
-  Image img = load_file(exe, {.image_base = std::nullopt, .ghidra_image_base = true});
+  Image img = load_file(exe, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
   EXPECT_EQ(img.image_base, 0x100000u);
   expect_dynamic_metadata(img, 16);
   // Rebasing moves relocation addresses and relative targets together.
@@ -288,7 +307,7 @@ TEST(ElfReal, CrossAArch64RelocationsPltAndInitArrays) {
   auto exe = dir / "prog";
   if (!compile(REVKIT_TEST_AARCH64_CC, kDynamicProgram, "-O1 -pie -fPIE", exe))
     GTEST_SKIP() << "no aarch64 cross compiler";
-  Image img = load_file(exe, {.image_base = std::nullopt, .ghidra_image_base = true});
+  Image img = load_file(exe, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
   expect_dynamic_metadata(img, 32);
   EXPECT_NE(find_relocation(img, "puts", RelocationKind::jump_slot)->type, 0u);
 }
@@ -315,7 +334,7 @@ TEST(ElfReal, X86ObjectFileSectionsArePacked) {
   auto dir = scratch_dir("elf-i386-obj");
   auto obj = dir / "prog.o";
   if (!compile(REVKIT_TEST_CC, kProgram, "-m32 -O1 -c", obj)) GTEST_SKIP() << "no -m32 support";
-  Image img = load_file(obj, {.image_base = std::nullopt, .ghidra_image_base = true});
+  Image img = load_file(obj, {.image_base = std::nullopt, .ghidra_image_base = true, .macho_slice = {}});
   EXPECT_EQ(img.bits, 32u);
   EXPECT_EQ(img.elf_type, 1);  // ET_REL
   EXPECT_FALSE(img.entry.has_value());

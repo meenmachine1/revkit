@@ -62,12 +62,14 @@ struct ObserveFacts {
   bool want_c = false;
   Answers functions;  // SymbolEnv::function
   Answers imports;    // SymbolEnv::import_slot
+  std::vector<std::uint64_t> call_returns;  // RunOptions::call_returns
 
   std::string encode() const {
     facts::Encoder e;
     facts::encode(e, want_c);
     encode_answers(e, functions);
     encode_answers(e, imports);
+    facts::encode(e, call_returns);
     return std::move(e).str();
   }
   static ObserveFacts decode(std::string_view bytes) {
@@ -76,6 +78,7 @@ struct ObserveFacts {
     f.want_c = facts::decode<bool>(d);
     f.functions = decode_answers(d);
     f.imports = decode_answers(d);
+    f.call_returns = facts::decode<std::vector<std::uint64_t>>(d);
     d.expect_done();
     return f;
   }
@@ -118,6 +121,7 @@ class ObserveSession final : public decompd::Session {
     memory_->set(&b);
     RunOptions o;
     o.want_c = facts.want_c;
+    o.call_returns = facts.call_returns;
     o.max_varnodes = limits.max_varnodes;
     o.timeout_seconds = limits.timeout_seconds;
     o.prologue = false;
@@ -141,9 +145,11 @@ class ObserveSession final : public decompd::Session {
 // decompiler would ask them (an import slot first, then a function).
 class ObserveSource final : public decompd::BundleSource {
  public:
-  ObserveSource(const decompd::ProgramImage &program, std::uint64_t entry, SymbolEnv &env, bool want_c)
+  ObserveSource(const decompd::ProgramImage &program, std::uint64_t entry, SymbolEnv &env, bool want_c,
+                std::vector<std::uint64_t> call_returns)
       : program_(program), entry_(entry), env_(env) {
     facts_.want_c = want_c;
+    facts_.call_returns = std::move(call_returns);
   }
 
   void add(const decompd::Prediction &p) {
@@ -315,7 +321,7 @@ Observation DecompilerPool::run(std::uint64_t entry, SymbolEnv &env, const RunOp
     std::lock_guard lock(mu_);
     lifters_.push_back(std::move(lifter));
   }
-  ObserveSource source(*program, entry, env, options.want_c);
+  ObserveSource source(*program, entry, env, options.want_c, options.call_returns);
   source.add(p);
   const decompd::Limits limits{options.timeout_seconds, options.max_varnodes};
   decompd::BundledRun run = decompd::run_bundled(*workers(), source, limits, entry);

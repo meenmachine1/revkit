@@ -96,7 +96,7 @@ class OpenFileSystemResponse(_message.Message):
     def __init__(self, session_id: _Optional[str] = ..., name: _Optional[str] = ..., root: _Optional[_Union[FileSystemLayer, _Mapping]] = ..., limits: _Optional[_Union[FileSystemLimits, _Mapping]] = ...) -> None: ...
 
 class FileSystemEntry(_message.Message):
-    __slots__ = ("name", "path", "kind", "size", "size_unknown", "stored_size", "permissions", "mode", "has_owner", "uid", "gid", "modified", "link_target", "link_path", "note", "unreadable", "renamed", "detected", "detected_kind", "container_format", "processor", "child_count", "language_id", "load_address", "has_load_address")
+    __slots__ = ("name", "path", "kind", "size", "size_unknown", "stored_size", "permissions", "mode", "has_owner", "uid", "gid", "modified", "link_target", "link_path", "note", "unreadable", "renamed", "detected", "detected_kind", "container_format", "processor", "child_count", "language_id", "load_address", "has_load_address", "content_kind")
     NAME_FIELD_NUMBER: _ClassVar[int]
     PATH_FIELD_NUMBER: _ClassVar[int]
     KIND_FIELD_NUMBER: _ClassVar[int]
@@ -122,6 +122,7 @@ class FileSystemEntry(_message.Message):
     LANGUAGE_ID_FIELD_NUMBER: _ClassVar[int]
     LOAD_ADDRESS_FIELD_NUMBER: _ClassVar[int]
     HAS_LOAD_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_KIND_FIELD_NUMBER: _ClassVar[int]
     name: str
     path: str
     kind: FileSystemEntryKind
@@ -147,7 +148,8 @@ class FileSystemEntry(_message.Message):
     language_id: str
     load_address: int
     has_load_address: bool
-    def __init__(self, name: _Optional[str] = ..., path: _Optional[str] = ..., kind: _Optional[_Union[FileSystemEntryKind, str]] = ..., size: _Optional[int] = ..., size_unknown: _Optional[bool] = ..., stored_size: _Optional[int] = ..., permissions: _Optional[str] = ..., mode: _Optional[int] = ..., has_owner: _Optional[bool] = ..., uid: _Optional[int] = ..., gid: _Optional[int] = ..., modified: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., link_target: _Optional[str] = ..., link_path: _Optional[str] = ..., note: _Optional[str] = ..., unreadable: _Optional[bool] = ..., renamed: _Optional[bool] = ..., detected: _Optional[str] = ..., detected_kind: _Optional[str] = ..., container_format: _Optional[str] = ..., processor: _Optional[str] = ..., child_count: _Optional[int] = ..., language_id: _Optional[str] = ..., load_address: _Optional[int] = ..., has_load_address: _Optional[bool] = ...) -> None: ...
+    content_kind: str
+    def __init__(self, name: _Optional[str] = ..., path: _Optional[str] = ..., kind: _Optional[_Union[FileSystemEntryKind, str]] = ..., size: _Optional[int] = ..., size_unknown: _Optional[bool] = ..., stored_size: _Optional[int] = ..., permissions: _Optional[str] = ..., mode: _Optional[int] = ..., has_owner: _Optional[bool] = ..., uid: _Optional[int] = ..., gid: _Optional[int] = ..., modified: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., link_target: _Optional[str] = ..., link_path: _Optional[str] = ..., note: _Optional[str] = ..., unreadable: _Optional[bool] = ..., renamed: _Optional[bool] = ..., detected: _Optional[str] = ..., detected_kind: _Optional[str] = ..., container_format: _Optional[str] = ..., processor: _Optional[str] = ..., child_count: _Optional[int] = ..., language_id: _Optional[str] = ..., load_address: _Optional[int] = ..., has_load_address: _Optional[bool] = ..., content_kind: _Optional[str] = ...) -> None: ...
 
 class ListFileSystemRequest(_message.Message):
     __slots__ = ("session_id", "path", "detect", "recursive", "offset", "limit")

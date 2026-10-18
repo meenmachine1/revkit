@@ -34,6 +34,15 @@ struct Evidence {
   // The prototype shared by the functions of the function-pointer table
   // holding a data address, if known.
   std::function<std::optional<Prototype>(std::uint64_t)> table_proto;
+  // Whether the function at an address reads argument `index` itself
+  // (in a register, `arg`): its round-0 decompilation, where its callees
+  // weren't locked, has a parameter there that its own code reads (not
+  // only passes on, nor a register save area's), and its current
+  // prototype has the position among its named parameters.
+  std::function<bool(std::uint64_t, std::size_t, const Slot &)> callee_reads;
+  // The return type of a function it tail-calls (a jump to another
+  // function's entry), when that one returns a value.
+  std::optional<VType> tail_ret;
 };
 
 // The prototype the evidence supports. `abi` may be null (unknown

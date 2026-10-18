@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<compiler_spec>
+  <data_organization>
+    <pointer_size value="4"/>
+    <integer_size value="4"/>
+    <long_size value="8"/>
+  </data_organization>
+  <global><range space="ram"/></global>
+  <stackpointer register="SP" space="ram" growth="negative"/>
+  <default_proto>
+    <prototype name="__pycall" extrapop="0" stackshift="0">
+      <input>
+        <pentry minsize="1" maxsize="8"><register name="a0"/></pentry>
+        <pentry minsize="1" maxsize="8"><register name="a1"/></pentry>
+        <pentry minsize="1" maxsize="8"><register name="a2"/></pentry>
+        <pentry minsize="1" maxsize="8"><register name="a3"/></pentry>
+      </input>
+      <output>
+        <pentry minsize="1" maxsize="8"><register name="ret"/></pentry>
+      </output>
+      <pcode inject="uponentry"><body><![CDATA[
+        *[fast]:8 0:4 = a0; *[fast]:8 8:4 = a1; *[fast]:8 16:4 = a2; *[fast]:8 24:4 = a3;
+      ]]></body></pcode>
+      <unaffected><register name="SP"/><register name="RA"/><varnode space="fast" offset="0" size="0x400"/></unaffected>
+    </prototype>
+  </default_proto>
+</compiler_spec>

@@ -68,6 +68,12 @@
 //
 // Project archives (feature "project-archive"): Export project… and
 // Import project… in the toolbar's ⋯ menu (archive.ts).
+//
+// Universal Mach-O files (feature "macho", api_minor 90): the import loads
+// the default slice (arm64, else x86_64) and its toast offers the file's
+// other slices; a slice's details say which it is of the file's slices,
+// with an Import button for each other one (ImportProgram.program_file:
+// the stored file again, ImportOptions.macho_slice).
 
 import { create } from "@bufbuild/protobuf";
 import {
@@ -84,6 +90,7 @@ import { errText, provText } from "../data/format";
 import { archText, compareFolders, comparePrograms, dateText, dateTimeText, formatText, matchesQuery, sizeText, type Sort, type SortKey } from "../data/programs";
 import { icon } from "./icons";
 import { LIBRARIES_FEATURE, librariesSummary, showLibrariesDialog } from "./libraries";
+import { BUILD_INFO_FEATURE, buildInfoSummary, showBuildInfoDialog } from "./buildinfo";
 import { ask, choose, toast } from "./dialogs";
 import { h, overlayRoot, prefs, typing } from "./dom";
 import { showMenu, showMenuAt, type MenuItem } from "./menu";
@@ -255,6 +262,10 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
   const detects = new Set(o.features ?? []).has(RAW_DETECT_FEATURE);
   const fsOn = new Set(o.features ?? []).has(FILESYSTEMS_FEATURE);
   const libsOn = new Set(o.features ?? []).has(LIBRARIES_FEATURE);
+  const buildInfoOn = new Set(o.features ?? []).has(BUILD_INFO_FEATURE);
+  // A universal Mach-O's slices (feature "macho", api_minor 90): the one
+  // imported, the others a click away (ImportProgram.program_file).
+  const machoOn = new Set(o.features ?? []).has("macho");
   const progress = new ImportProgressView();
   let stopFollowing: (() => void) | undefined;
   let importing = false;
@@ -648,6 +659,23 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
       }
     }
   };
+  // Another slice of a universal Mach-O already imported: its stored file
+  // again, with the slice named (ImportProgram.program_file).
+  const importSlice = async (into: string, p: ProgramInfo, arch: string) => {
+    try {
+      const r = await rk.projects.importProgram({
+        projectId: into,
+        source: { case: "programFile", value: p.programId },
+        provenance: userProvenance(`import the ${arch} slice of ${p.name}`),
+        options: create(ImportOptionsSchema, { machoSlice: arch, analyze: true }),
+        ...(foldersOn && p.folderId ? { folderId: p.folderId } : {}),
+      });
+      toast(`Imported ${r.program?.name ?? arch}`);
+      if (!closed && into === project) void loadPrograms(r.program ? `p:${r.program.programId}` : undefined);
+    } catch (e) {
+      toast(`The ${arch} slice wasn't imported: ${errText(e)}`, { kind: "error" });
+    }
+  };
   const rawOptions = (raw: boolean) => {
     if (!raw) return undefined;
     const language = rawLang.value.trim();
@@ -765,6 +793,20 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
     fsBtn.focus();
     return true;
   };
+  // A program's file carrying a packer's archive (api_minor 96, ProgramInfo.payload_format): browse it.
+  const payloadNames: Record<string, string> = {
+    pyinstaller: "PyInstaller archive", "node-sea": "Node.js single executable blob", pkg: "pkg file system", nexe: "nexe resources",
+    bun: "Bun module graph", zip: "appended zip", "lua-chunks": "Lua chunks",
+  };
+  const payloadText = (f: string) => payloadNames[f] ?? f;
+  const openPayload = async (projectId: string, programId: string) => {
+    try {
+      const s = await openFileSystem(rk, projectId, { programId });
+      showFileSystemBrowser({ rk, projectId, features: new Set(o.features ?? []), pauseStreams: o.pauseStreams, onOpenProgram: (id) => open(id) }, s);
+    } catch (e) {
+      toast(`Could not open it as a file system: ${errText(e)}`, { kind: "error" });
+    }
+  };
   fsBtn.addEventListener("click", () => {
     const s = fsSession;
     if (!s) return;
@@ -836,6 +878,24 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
       });
       const id = r.program?.programId;
       if (!id) throw new Error("import returned no program");
+      if (machoOn && r.program && r.program.machoSlices.length > 1) {
+        const others = r.program.machoSlices.filter((a) => a !== r.program!.machoSlice);
+        toast(`Universal binary: imported its ${r.program.machoSlice} slice; it also has ${others.join(", ")}`, {
+          ms: 12000,
+          action: { label: `Import ${others[0]}`, run: () => void importSlice(into, r.program!, others[0]) },
+        });
+      }
+      // A packed executable: its scripts are a file system away (api_minor 96).
+      if (fsOn && r.program?.payloadFormat) {
+        const pid = r.program.programId;
+        toast(`${r.program.name} carries a ${payloadText(r.program.payloadFormat)}: open it as a file system to see the scripts and files packed in it.`, {
+          ms: 12000,
+          action: { label: "Open as file system", run: () => void openPayload(into, pid) },
+        });
+      }
+      // An IL-only .NET assembly is imported without code analysis (api_minor 94).
+      if (r.program?.dotnet?.codeAnalysisSkipped)
+        toast(`${r.program.dotnet.description}: imported without code analysis, as its code is IL, not machine code. Its C# comes from the ILSpy external decompiler (docs/providers.md).`, { ms: 12000 });
       if (r.libraries.length || r.librariesNotFound.length)
         toast(
           [r.libraries.length ? `Imported ${r.libraries.length} librar${r.libraries.length === 1 ? "y" : "ies"} with it (${r.libraries.map((x) => x.name).join(", ")})` : "",
@@ -1549,6 +1609,17 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
     }
     if (!closed) paintDetails();
   };
+  // Each program's build info in a line (GetBuildInfo), once asked.
+  const buildSummaries = new Map<string, string>();
+  const loadBuildSummary = async (id: string) => {
+    buildSummaries.set(id, "…");
+    try {
+      buildSummaries.set(id, buildInfoSummary(await rk.queries.getBuildInfo({ programId: id })));
+    } catch (e) {
+      buildSummaries.set(id, errText(e));
+    }
+    if (!closed) paintDetails();
+  };
   const paintDetails = () => {
     if (view !== "programs") return;
     const row = rows[active];
@@ -1579,6 +1650,29 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
       // Status is the table's column (its detail in the cell's title); with libraries their line takes its place.
       if (st.text && !libsOn) items.push(...detail("Status", st.detail ?? st.text, { testid: "open-detail-status" }));
       if (p.containerPath) items.push(...detail("From", p.containerPath, { mono: true, wide: true, testid: "open-detail-container" }));
+      if (p.machoSlices.length > 1) {
+        // A universal Mach-O: this slice, and the others to import.
+        const others = p.machoSlices.filter((a) => a !== p.machoSlice);
+        const line = h("span", { class: "od-libs-line" }, h("span", { class: "mono" }, `${p.machoSlice} (of ${p.machoSlices.join(", ")})`));
+        if (machoOn && !p.deleted)
+          for (const a of others)
+            line.append(h("button", { class: "btn small", type: "button", "data-testid": `open-import-slice-${a}`, title: `Import the file's ${a} slice as another program`, onclick: () => void importSlice(project, p, a), text: `Import ${a}` }));
+        items.push(...detail("Slice", line, { testid: "open-detail-slice" }));
+      }
+      // A packer's archive in the file (api_minor 96).
+      if (p.payloadFormat) {
+        const line = h("span", { class: "od-libs-line" }, h("span", {}, payloadText(p.payloadFormat)));
+        if (fsOn && !p.deleted)
+          line.append(h("button", { class: "btn small", type: "button", "data-testid": "open-payload", title: "Browse what is packed in it, and import or extract it", onclick: () => void openPayload(project, p.programId), text: "Open as file system" }));
+        items.push(...detail("Packed", line, { testid: "open-detail-packed" }));
+      }
+      // A .NET assembly (api_minor 94): what its CLR header says, and that IL isn't analysed as machine code.
+      if (p.dotnet)
+        items.push(
+          ...detail(".NET", p.dotnet.description + (p.dotnet.codeAnalysisSkipped ? "; imported without code analysis (its code is IL)" : ""), {
+            testid: "open-detail-dotnet",
+          }),
+        );
       if (libsOn && !p.deleted) {
         const known = libSummaries.get(p.programId);
         const text = h("span", { class: "od-libs-text" }, known ?? "…");
@@ -1602,6 +1696,13 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
           text: "Libraries…",
         });
         items.push(...detail("Libraries", h("span", { class: "od-libs-line" }, text, btn), { testid: "open-detail-libraries" }));
+      }
+      // Go's or Rust's build metadata, when the file has some (nothing shown otherwise).
+      const known = buildInfoOn && !p.deleted ? buildSummaries.get(p.programId) : "none";
+      if (known === undefined) void loadBuildSummary(p.programId);
+      else if (known !== "none" && known !== "…") {
+        const btn = h("button", { class: "btn small", type: "button", "data-testid": "open-build-info", title: "Go modules, Rust crates and the toolchain, as the file says", onclick: () => showBuildInfoDialog(rk, { programId: p.programId, programName: p.name }), text: "Build info…" });
+        items.push(...detail("Built with", h("span", { class: "od-libs-line" }, h("span", { class: "od-libs-text" }, known), btn), { testid: "open-detail-build" }));
       }
       if (p.deleted) {
         const restoreBtn = h("button", { class: "btn small", type: "button", "data-testid": "open-restore", onclick: () => void doRestore(p), text: "Restore" });

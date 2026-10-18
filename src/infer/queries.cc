@@ -6,8 +6,10 @@
 #include "abi.h"
 #include "merge.h"
 #include "sigdb.h"
+#include "structures.h"
 
 #include "revkit/analysis/memory.h"
+#include "revkit/analysis/no_return.h"
 #include "revkit/facts/thread_pool.h"
 
 #include <algorithm>
@@ -39,6 +41,7 @@ void Options::encode(facts::Encoder &e) const {
   facts::encode(e, defaults);
   e.varint(max_varnodes);
   facts::encode(e, keep_return_width);
+  facts::encode(e, structures);
 }
 
 Options Options::decode(facts::Decoder &d) {
@@ -50,6 +53,9 @@ Options Options::decode(facts::Decoder &d) {
   o.defaults = facts::decode<bool>(d);
   o.max_varnodes = facts::decode<std::uint32_t>(d);
   o.keep_return_width = facts::decode<bool>(d);
+  // Encoded last since version 4 of the fixpoint (an input staged before
+  // has none: the default).
+  if (!d.done()) o.structures = facts::decode<bool>(d);
   return o;
 }
 
@@ -76,6 +82,7 @@ void CallNode::encode(facts::Encoder &e) const {
   facts::encode(e, from_data);
   facts::encode(e, callees);
   facts::encode(e, callers);
+  facts::encode(e, call_returns);
 }
 
 CallNode CallNode::decode(facts::Decoder &d) {
@@ -88,6 +95,7 @@ CallNode CallNode::decode(facts::Decoder &d) {
   n.from_data = facts::decode<bool>(d);
   n.callees = facts::decode<std::vector<std::uint64_t>>(d);
   n.callers = facts::decode<std::vector<std::uint64_t>>(d);
+  n.call_returns = facts::decode<std::vector<std::uint64_t>>(d);
   return n;
 }
 
@@ -149,12 +157,57 @@ const Prototype *FixpointResult::find(std::uint64_t entry) const {
   return it != prototypes.end() && it->first == entry ? &it->second : nullptr;
 }
 
+const InferredStructure *FixpointResult::structure(std::string_view name) const {
+  for (const InferredStructure &s : structures)
+    if (s.name == name) return &s;
+  return nullptr;
+}
+
+void InferredField::encode(facts::Encoder &e) const {
+  e.varint(offset);
+  e.varint(size);
+  type.encode(e);
+  e.varint(accesses);
+}
+
+InferredField InferredField::decode(facts::Decoder &d) {
+  InferredField f;
+  f.offset = d.varint();
+  f.size = static_cast<std::uint32_t>(d.varint());
+  f.type = VType::decode(d);
+  f.accesses = static_cast<std::uint32_t>(d.varint());
+  return f;
+}
+
+void InferredStructure::encode(facts::Encoder &e) const {
+  e.bytes(name);
+  e.varint(size);
+  facts::encode(e, fields);
+  e.varint(functions);
+  e.varint(accesses);
+  e.varint(parameters);
+  e.varint(returns);
+}
+
+InferredStructure InferredStructure::decode(facts::Decoder &d) {
+  InferredStructure s;
+  s.name = std::string(d.bytes());
+  s.size = d.varint();
+  s.fields = facts::decode<std::vector<InferredField>>(d);
+  s.functions = static_cast<std::uint32_t>(d.varint());
+  s.accesses = static_cast<std::uint32_t>(d.varint());
+  s.parameters = static_cast<std::uint32_t>(d.varint());
+  s.returns = static_cast<std::uint32_t>(d.varint());
+  return s;
+}
+
 void FixpointResult::encode(facts::Encoder &e) const {
   e.varint(rounds);
   facts::encode(e, converged);
   facts::encode(e, changed);
   e.varint(widened);
   facts::encode(e, prototypes);
+  facts::encode(e, structures);
 }
 
 FixpointResult FixpointResult::decode(facts::Decoder &d) {
@@ -164,6 +217,7 @@ FixpointResult FixpointResult::decode(facts::Decoder &d) {
   r.changed = facts::decode<std::vector<std::uint32_t>>(d);
   r.widened = facts::decode<std::uint32_t>(d);
   r.prototypes = facts::decode<std::vector<std::pair<std::uint64_t, Prototype>>>(d);
+  r.structures = facts::decode<std::vector<InferredStructure>>(d);
   return r;
 }
 
@@ -254,6 +308,16 @@ std::vector<std::pair<std::size_t, std::size_t>> slot_runs(const std::vector<Cod
 CallGraph CallGraphQuery::compute(facts::QueryContext &ctx, const ProgramKey &program) {
   auto info = ctx.get<an::Program>(program);
   auto funcs = ctx.get<an::Functions>(program);
+  // What the decompiler is told doesn't return (inputs::ghidra_no_return):
+  // besides discovery's own, the functions calls leave nothing returning
+  // after (luaX_syntaxerror). Without them a function's decompilation runs
+  // on past such a call into the next function's code, whose argument
+  // registers then look like its own parameters.
+  auto evidence = ctx.get<an::NoReturnEvidence>(program);
+  std::vector<std::uint64_t> entries;
+  for (const an::FunctionInfo &f : funcs->functions) entries.push_back(f.entry.offset);
+  std::sort(entries.begin(), entries.end());
+  auto is_entry = [&](std::uint64_t a) { return std::binary_search(entries.begin(), entries.end(), a); };
   CallGraph g;
   g.nodes.reserve(funcs->functions.size());
   for (const an::FunctionInfo &f : funcs->functions) {
@@ -262,13 +326,23 @@ CallGraph CallGraphQuery::compute(facts::QueryContext &ctx, const ProgramKey &pr
     n.name = f.import.empty() ? f.name : f.import;
     n.import = f.import;
     if ((f.flags & an::kFunctionThunk) && f.import.empty()) n.thunk_target = f.thunk_target;
-    n.no_return = (f.flags & an::kFunctionNoReturn) != 0;
+    n.no_return = (f.flags & an::kFunctionNoReturn) != 0 ||
+                  std::binary_search(evidence->begin(), evidence->end(), f.entry.offset);
     if (f.import.empty() && !f.body.empty()) {
       auto flow = ctx.get<an::Flow>(Location{program, f.flow_key()});
       for (const an::FlowInsn &insn : flow->insns) {
-        const bool call = insn.kind == an::FlowKind::call || (insn.kind == an::FlowKind::jump && insn.tail_call);
+        // An unconditional jump to another function's entry from outside
+        // one: a tail call to the decompiler of the final C, so one here
+        // too, else the decompilation takes in the target's code (a
+        // variadic function's register save area, whose stores read every
+        // argument register).
+        const bool shared_return = insn.kind == an::FlowKind::jump && !insn.conditional && insn.targets.size() == 1 &&
+                                   is_entry(insn.targets[0]) && insn.targets[0] != n.entry && !is_entry(insn.address);
+        const bool call = insn.kind == an::FlowKind::call || (insn.kind == an::FlowKind::jump && insn.tail_call) ||
+                          shared_return;
         if (!call) continue;
         if (!f.body.contains(facts::Address{f.entry.space, insn.address})) continue;
+        if (shared_return) n.call_returns.push_back(insn.address);
         for (std::uint64_t t : insn.targets)
           if (t != n.entry || insn.kind == an::FlowKind::call) n.callees.push_back(info->code_address(t));
       }
@@ -633,6 +707,7 @@ Observation Observe::compute(facts::QueryContext &ctx, const RoundKey &key) {
     run.timeout_seconds = img.options.timeout_seconds;
     for (const facts::AddressRange &r : ctx.get<an::Function>(key.at)->body.ranges())
       run.body.emplace_back(r.first.offset, r.last.offset);
+    if (const CallNode *n = cg->find(key.at.address)) run.call_returns = n->call_returns;
     o = d->run(key.at.address, env, run);
     if (Collector *c = g_collector.load())
       c->add(key.round, key.at.address, std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count());
@@ -722,6 +797,62 @@ Inferred Own::compute(facts::QueryContext &ctx, const RoundKey &key) {
     if (!r->known) return std::nullopt;
     return r->proto;
   };
+  // `depth`: callees that only pass the value on are followed to theirs,
+  // through their round-0 calls (lua_setfield's key to auxsetstr, to
+  // luaS_new, to strlen).
+  std::function<bool(std::uint64_t, std::size_t, const std::string &, int)> reads =
+      [&](std::uint64_t callee, std::size_t index, const std::string &reg, int depth) -> bool {
+    const CallNode *n = cg->find(callee);
+    if (n == nullptr || callee == key.at.address || reg.empty()) return false;
+    // An import reads what its library prototype names (a tail call to
+    // one passes them all on).
+    if (!n->import.empty()) {
+      auto p = img.options.library ? db.find(n->import, org) : std::nullopt;
+      return p && index < p->params.size();
+    }
+    auto r = ctx.get<Round>(RoundKey{{key.at.program, callee}, key.round - 1});
+    if (!r->known || index >= r->proto.params.size()) return false;
+    // Its round-0 view, and its last round's, where a value it only passes
+    // on unchanged shows (the decompiler sees it read once the callee it
+    // goes to is locked).
+    std::vector<facts::Ref<Observation>> views{observation(ctx, RoundKey{{key.at.program, callee}, 0})};
+    if (key.round > 1) views.push_back(observation(ctx, RoundKey{{key.at.program, callee}, key.round - 1}));
+    for (const facts::Ref<Observation> &o : views) {
+      if (!o->ok) continue;
+      // A register a variadic function's save area stores, and nothing
+      // else reads, isn't read.
+      if (std::find(o->spilled_only.begin(), o->spilled_only.end(), reg) != o->spilled_only.end()) return false;
+      for (std::size_t i = 0; i < o->params.size(); ++i) {
+        const Slot &p = o->params[i];
+        if (p.reg != reg) continue;
+        // Read by its own code; or only passed on, to a callee that reads
+        // it.
+        if (!p.passed_only) return true;
+        if (depth >= 4) break;
+        for (const CallSite &c : o->calls)
+          for (std::size_t j = 0; j < c.args.size(); ++j)
+            if (c.target != 0 && c.args[j].from_param == static_cast<std::int32_t>(i) &&
+                reads(c.target, j, c.args[j].reg, depth + 1))
+              return true;
+        break;
+      }
+    }
+    return false;
+  };
+  ev.callee_reads = [&](std::uint64_t callee, std::size_t index, const Slot &arg) {
+    return key.round > 0 && reads(callee, index, arg.reg, 0);
+  };
+  // What a tail call returns, it returns: round 0 doesn't see it (the
+  // callee wasn't locked, so the decompiler didn't know it returns a
+  // value), and once locked the decompiler leaves the function's own return
+  // unknown to it.
+  if (ev.self != nullptr)
+    for (const CallSite &c : ev.self->calls)
+      if (std::find(node->call_returns.begin(), node->call_returns.end(), c.address) != node->call_returns.end())
+        if (auto p = ev.proto_of(c.target); p && !p->ret.is_void()) {
+          ev.tail_ret = p->ret;
+          break;
+        }
   out.known = ev.self0 != nullptr || ev.self != nullptr || !ev.unlocked.empty();
   out.proto = merge(abi_for(img.language_id, img.image->format == loader::Format::pe), ev, org);
   return out;
@@ -936,6 +1067,75 @@ std::vector<std::uint64_t> inferable(const CallGraph &cg) {
 
 }  // namespace
 
+namespace {
+
+// One pointer, one type: a pointer a function passes on unchanged to a
+// callee's parameter is the same value there, but each function's view of
+// what it points to is its own (lua_State * as long * here, char * there),
+// so every call between them casts it. The parameters a value passes
+// through (the last round's Slot::from_param edges, integer registers)
+// are joined into classes, and where every member is a pointer of the
+// same size and they disagree on its target, all take the commonest one.
+void unify_passed_pointers(facts::QueryContext &ctx, const ProgramKey &program, FixpointResult &r, const Abi &abi) {
+  std::map<std::uint64_t, std::size_t> at;  // entry -> index in r.prototypes
+  for (std::size_t i = 0; i < r.prototypes.size(); ++i) at.emplace(r.prototypes[i].first, i);
+  // Nodes: (prototype, parameter index); union-find over them.
+  std::map<std::pair<std::size_t, std::size_t>, std::size_t> node;
+  std::vector<std::size_t> parent;
+  auto id = [&](std::size_t f, std::size_t p) {
+    auto [it, fresh] = node.emplace(std::pair{f, p}, parent.size());
+    if (fresh) parent.push_back(parent.size());
+    return it->second;
+  };
+  std::function<std::size_t(std::size_t)> find = [&](std::size_t x) {
+    while (parent[x] != x) x = parent[x] = parent[parent[x]];
+    return x;
+  };
+  auto int_index = [&](const Slot &s) -> std::optional<std::size_t> {
+    auto pos = arg_position(abi, s);
+    if (!pos || pos->cls != 0) return std::nullopt;
+    return static_cast<std::size_t>(pos->index);
+  };
+  for (std::size_t f = 0; f < r.prototypes.size(); ++f) {
+    auto o = observation(ctx, RoundKey{{program, r.prototypes[f].first}, r.rounds});
+    if (!o->ok) continue;
+    const Prototype &pf = r.prototypes[f].second;
+    for (const CallSite &c : o->calls) {
+      auto callee = at.find(c.target);
+      if (c.target == 0 || callee == at.end() || callee->second == f) continue;
+      const Prototype &pc = r.prototypes[callee->second].second;
+      for (const Slot &a : c.args) {
+        if (a.from_param < 0 || static_cast<std::size_t>(a.from_param) >= o->params.size()) continue;
+        auto i = int_index(o->params[a.from_param]);
+        auto j = int_index(a);
+        if (!i || !j || *i >= pf.params.size() || *j >= pc.params.size()) continue;
+        if (!pf.params[*i].is_pointer() || !pc.params[*j].is_pointer()) continue;
+        const std::size_t x = find(id(f, *i)), y = find(id(callee->second, *j));
+        if (x != y) parent[x] = y;
+      }
+    }
+  }
+  std::map<std::size_t, std::vector<std::pair<std::size_t, std::size_t>>> classes;
+  for (const auto &[k, v] : node) classes[find(v)].push_back(k);
+  for (const auto &[root, members] : classes) {
+    if (members.size() < 2) continue;
+    std::vector<std::pair<VType, int>> counts;
+    for (const auto &[f, p] : members) {
+      const VType &t = r.prototypes[f].second.params[p];
+      auto it = std::find_if(counts.begin(), counts.end(), [&](const auto &c) { return c.first == t; });
+      if (it == counts.end()) counts.emplace_back(t, 1);
+      else ++it->second;
+    }
+    if (counts.size() < 2) continue;
+    const auto best = std::max_element(counts.begin(), counts.end(),
+                                       [](const auto &a, const auto &b) { return a.second < b.second; });
+    if (best->second * 2 <= static_cast<int>(members.size())) continue;  // no majority: leave each its own
+    for (const auto &[f, p] : members) r.prototypes[f].second.params[p] = best->first;
+  }
+}
+
+}  // namespace
+
 FixpointResult Fixpoint::compute(facts::QueryContext &ctx, const ProgramKey &program) {
   const auto img_ref = ctx.get<EffectiveImage>(program);
   const ImageRef &img = image_of(img_ref);
@@ -972,6 +1172,26 @@ FixpointResult Fixpoint::compute(facts::QueryContext &ctx, const ProgramKey &pro
     if (!cur[i]->known) continue;
     r.prototypes.emplace_back(entries[i], img.options.defaults ? finalize(cur[i]->proto, org, img.options.keep_return_width) : cur[i]->proto);
   }
+  if (img.options.interprocedural)
+    if (const Abi *abi = abi_for(img.language_id, img.image->format == loader::Format::pe)) {
+      unify_passed_pointers(ctx, program, r, *abi);
+      if (img.options.structures) {
+        std::vector<std::pair<std::uint64_t, const Observation *>> obs;
+        std::vector<facts::Ref<Observation>> keep;
+        for (const auto &[entry, proto] : r.prototypes) {
+          keep.push_back(observation(ctx, RoundKey{{program, entry}, r.rounds}));
+          obs.emplace_back(entry, &*keep.back());
+        }
+        const SigDb &db = SigDb::for_image(*img.image);
+        auto library = [&](std::uint64_t target) -> std::optional<Prototype> {
+          if (!img.options.library) return std::nullopt;
+          if (const CallNode *n = cg->find(target); n != nullptr && !n->import.empty()) return db.find(n->import, org);
+          if (const std::string *name = cg->slot(target)) return db.find(*name, org);
+          return std::nullopt;
+        };
+        infer_structures(obs, r, *abi, org, library);
+      }
+    }
   // Imports with a library prototype.
   for (const CallNode &n : cg->nodes) {
     if (n.import.empty() || !img.options.library) continue;

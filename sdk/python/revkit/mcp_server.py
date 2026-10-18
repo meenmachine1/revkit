@@ -45,7 +45,7 @@ from google.protobuf.json_format import MessageToDict
 from revkit import (Client, RevkitError, __version__, debug_stop_kind, detect_confidence, format_memory_region, format_provenance,
                     patching, provenance)
 from revkit.expr import ExprError, is_number, parse_number
-from revkit.v1 import assertion_pb2, auth_pb2, bsim_pb2, decompile_pb2, diff_pb2, filesystem_pb2, listing_pb2, patch_pb2, project_pb2, query_pb2, types_pb2
+from revkit.v1 import assertion_pb2, auth_pb2, bsim_pb2, decompile_pb2, diff_pb2, filesystem_pb2, listing_pb2, patch_pb2, project_pb2, provider_pb2, query_pb2, types_pb2
 
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
@@ -53,13 +53,16 @@ WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent
 WORKFLOW = """\
 1. list_programs: the projects and their programs; every program tool takes a program_id from it.
 2. program_summary (language, entry points, memory) and overview (where code, data, undefined bytes and
-   high-entropy (packed or encrypted) regions are).
+   high-entropy (packed or encrypted) regions are); build_info for a Go or Rust binary's toolchain and
+   dependencies. Bytecode (a .NET assembly, DEX, APK, jar, .class, .pyc, Lua chunk, wasm, a JS bundle):
+   decompile_external gives the dedicated decompiler's source (ILSpy, jadx, Vineflower, ...).
 3. Find what matters: list_functions (filters: named, unnamed, thunks; paged), search_symbols, list_strings,
    search_strings (substring or regex over the strings), search_text (the listing), search_memory (bytes), search_scalars (constants), search_decompiled (the C),
    find_next (the next function, label, data, undefined bytes, note).
 4. Read: decompile (paged by line), disassemble (paged by row), function_graph, xrefs, callers, callees,
    get_type, find_type_uses (where a struct or one field is read and written), slice_decompiled (where a
-   variable's value comes from or flows to).
+   variable's value comes from or flows to), trace_value (the same across calls: callers' arguments,
+   callees' returns).
 5. Record what you learn, each edit with a short, specific reason: rename (functions, labels, globals),
    rename_variable / retype_variable (from decompile's variables), retype (globals, prototypes),
    rename_field / retype_field (a struct's fields), parse_c + import_header (new types), set_comment,
@@ -81,8 +84,19 @@ PAGING = """\
 Long results come a page at a time: a result with "truncated": true says in "more" how to get the next
 page (offset, start_line, start), so ask for more only when you need it."""
 
+GUIDE_URI = "revkit://guide"
+
+
+def agent_guide() -> str:
+    """The workflow guide shipped with the SDK (revkit/agent_guide.md)."""
+    from importlib import resources
+
+    return resources.files("revkit").joinpath("agent_guide.md").read_text(encoding="utf-8")
+
+
 INSTRUCTIONS = f"""\
-Tools for reverse engineering with revkit. Call about for the workflow and what this daemon can do.
+Tools for reverse engineering with revkit. Call about for the workflow and what this daemon can do; the
+revkit://guide resource (or the investigate prompt) is the full guide.
 
 {WORKFLOW}
 
@@ -330,6 +344,25 @@ def create_server(
     rk.provenance = provenance(f"agent:{agent}" + (f"@{agent_version}" if agent_version else ""), session=session)
     server = MCPServer("revkit", instructions=INSTRUCTIONS, version=__version__)
 
+    # The workflow guide (agent_guide.md, shipped with the SDK): a resource
+    # to read and a prompt that starts an investigation with it.
+    @server.resource(GUIDE_URI, name="revkit-guide", title="Investigating a binary with revkit",
+                     description="How to work with revkit's tools: find or import a program, read it, record what "
+                                 "you learn with reasons, undo, compare and recognise functions.",
+                     mime_type="text/markdown")
+    def guide() -> str:
+        return agent_guide()
+
+    @server.prompt(name="investigate", title="Investigate a binary with revkit",
+                   description="Start a reverse-engineering task with revkit's workflow guide: what to look for, "
+                               "and optionally in which program.")
+    def investigate(goal: str = "", program_id: str = "") -> str:
+        task = goal.strip() or "Find out what this program does: its main purpose, inputs and outputs."
+        where = f" The program is {program_id}." if program_id.strip() else " Start with list_programs."
+        return (f"{agent_guide()}\n\n## Your task\n\n{task}{where} Call about first. Name and type what you "
+                f"understand, each with a reason, and finish with a short summary of what you found and what "
+                f"is still unclear.")
+
     def guarded(fn):
         # Report API errors to the model as text it can act on, not a crash.
         # functools.wraps keeps the signature MCP derives the tool schema from.
@@ -386,6 +419,7 @@ def create_server(
             "daemon": {"server_version": info.server_version, "api": f"{info.api_major}.{info.api_minor}",
                        "features": sorted(info.features)},
             "mcp_server": __version__,
+            "guide": f"read the {GUIDE_URI} resource (or use the investigate prompt) for the full workflow guide",
         }
         if rk.token:
             who = rk.whoami()
@@ -515,7 +549,7 @@ def create_server(
         if e.kind != filesystem_pb2.FILE_SYSTEM_ENTRY_KIND_DIRECTORY:
             out["size"] = None if e.size_unknown else e.size
         for field in ("permissions", "link_target", "link_path", "note", "detected", "container_format",
-                      "processor", "language_id"):
+                      "processor", "language_id", "content_kind"):
             if getattr(e, field):
                 out[field] = getattr(e, field)
         if e.child_count:
@@ -531,8 +565,10 @@ def create_server(
     def open_filesystem(project_id: str, file: str = "", host_path: str = "", program_id: str = "") -> dict:
         """Opens a container as a file system: an archive (zip, tar, cpio, ar, ISO), a
         compressed file (gzip, xz, bzip2, zstd, lz4, lzma), a file system image (squashfs,
-        ext2/3/4, cramfs, FAT) or a firmware package (uImage, Android boot, UF2), nested
-        to any depth. The source is ``file`` (a path on this machine, sent to the daemon),
+        ext2/3/4, cramfs, FAT), a firmware package (uImage, Android boot, UF2), a packed
+        executable's scripts (PyInstaller, Electron asar, pkg, nexe, Node SEA, Bun) or Lua
+        chunks in firmware, nested to any depth. Entries say their content_kind ("pyc:3.12",
+        "lua:5.4", "js-source", ...) for script and bytecode decompilers. The source is ``file`` (a path on this machine, sent to the daemon),
         ``host_path`` (a file or directory on the daemon's host) or ``program_id`` (a
         program's stored file, e.g. a raw firmware dump). Returns a session_id for the
         other file system tools. Paths cross nested containers with "!":
@@ -618,11 +654,95 @@ def create_server(
             fs.close()
         return {"ok": True}
 
+    # -- external decompilers (api_minor 92; docs/providers.md) -------------------
+
+    def _provider_target(program_id: str, session_id: str, path: str) -> dict:
+        if program_id:
+            return {"program_id": program_id}
+        if session_id and path:
+            return {"filesystem": _fs(session_id), "path": path}
+        raise ValueError("give a program_id, or a session_id (open_filesystem) and a path")
+
+    @server.tool(annotations=READ)
+    @guarded
+    def list_providers(program_id: str = "", session_id: str = "", path: str = "") -> dict:
+        """The external decompilers the daemon can run (ILSpy for .NET, jadx for DEX/APK/jar, Vineflower
+        and CFR for jars and .class, unluac for Lua, pycdc for .pyc, webcrack for JS bundles,
+        wasm-decompile for wasm): which are installed, their versions and what they take. With a
+        program_id, or a session_id and path from open_filesystem: what that file is and which take it."""
+        kw = _provider_target(program_id, session_id, path) if (program_id or session_id) else {}
+        r = rk.providers(**kw)
+        out: dict = {"providers": [{k: v for k, v in (("name", p.name), ("title", p.title), ("kinds", list(p.kinds)),
+                                                        ("available", p.available), ("version", p.version),
+                                                        ("reason", p.reason)) if v or k == "available"}
+                                   for p in r.providers],
+                     "sandbox": r.sandbox}
+        if kw:
+            out["input_kind"] = r.input_kind.kind or None
+            if r.input_kind.kind:
+                out["input"] = r.input_kind.description
+                out["applicable"] = list(r.applicable)
+                out["default_provider"] = r.default_provider
+                if r.cached:
+                    out["cached"] = list(r.cached)
+        return out
+
+    @server.tool(annotations=READ)
+    @guarded
+    def decompile_external(program_id: str = "", session_id: str = "", path: str = "", provider: str = "",
+                           refresh: bool = False, max_chars: int = 20000, list_files: int = 200) -> dict:
+        """Runs a dedicated decompiler on bytecode (a .NET assembly: C# from ILSpy; DEX/APK: Java from jadx;
+        jar/.class: Vineflower; .pyc: pycdc; Lua chunk: unluac; JS bundle: webcrack; wasm: wasm-decompile),
+        sandboxed on the daemon, and returns its main source file (up to max_chars) and the output's file
+        list (a tree for jar, APK and .NET); read_provider_output reads any other file. The input is a
+        program_id, or a session_id and path from open_filesystem (a file inside an archive). provider empty:
+        the default for the input. Results are cached; refresh runs it again. Use this rather than
+        decompile for bytecode: the native decompiler shows a .NET assembly's IL as x86 garbage."""
+        r = rk.decompile_external(**_provider_target(program_id, session_id, path), provider=provider,
+                                  refresh=refresh, max_inline_bytes=max(1024, min(max_chars * 4, 4 << 20)))
+        resp = r.response
+        out: dict = {"provider": resp.provider, "version": resp.provider_version, "status": r.status.lower(),
+                     "input": resp.input_kind.description, "cached": resp.cached, "seconds": round(resp.seconds, 2),
+                     "file_count": len(resp.files)}
+        if resp.detail and not r.ok:
+            out["detail"] = resp.detail
+        if resp.stderr_tail and not r.ok:
+            out["stderr_tail"] = resp.stderr_tail[-2000:]
+        out["files"] = [f.path for f in resp.files[:list_files]]
+        if len(resp.files) > list_files:
+            out["files_truncated"] = True
+        if resp.main_file:
+            text = resp.main_text
+            out["main_file"] = resp.main_file
+            out["main_text"] = text[:max_chars]
+            if len(text) > max_chars or resp.main_truncated:
+                out["main_truncated"] = True
+        return out
+
+    @server.tool(annotations=READ)
+    @guarded
+    def read_provider_output(file: str, program_id: str = "", session_id: str = "", path: str = "",
+                             provider: str = "", offset: int = 0, max_chars: int = 20000) -> dict:
+        """One file of an external decompiler's output (decompile_external's files), from the cache: give the
+        same program_id, or session_id and path, and provider. offset and max_chars page through a long one."""
+        target = _provider_target(program_id, session_id, path)
+        inp = rk._provider_input(target.get("program_id"), target.get("filesystem"), target.get("path"))
+        resp = rk._call(rk.stubs.providers.ReadProviderOutput, provider_pb2.ReadProviderOutputRequest(
+            input=inp, provider=provider, path=file, offset=offset, max_bytes=max(1024, min(max_chars * 4, 4 << 20))))
+        text = resp.data.decode("utf-8", errors="replace")
+        out = {"file": resp.path, "size": resp.size, "language": resp.language, "offset": offset,
+               "text": text[:max_chars]}
+        if resp.truncated or len(text) > max_chars:
+            out["truncated"] = True
+            out["next_offset"] = offset + len(text[:max_chars].encode("utf-8"))
+        return out
+
     @server.tool(annotations=READ)
     @guarded
     def program_summary(program_id: str) -> dict:
         """Language, image base, entry points, memory blocks and function count of a program (overview shows
-        where its code, data and undefined bytes are)."""
+        where its code, data and undefined bytes are); a Mach-O's header ("macho") and a .NET assembly's
+        CLR header ("dotnet": IL-only ones are imported without code analysis: decompile their IL elsewhere)."""
         s = rk.program(program_id).summary()
         out = {
             "name": s.info.name,
@@ -646,6 +766,89 @@ def create_server(
         if spaces:  # other memory spaces, addressed "name:0x100" (key_base + offset * word_size)
             out["spaces"] = [{"name": sp.name, "key_base": _hex(sp.key_base), "word_size": sp.word_size}
                              for sp in spaces]
+        if s.HasField("macho"):  # a Mach-O (api_minor 90)
+            m = s.macho
+            out["macho"] = {
+                "arch": m.arch, "file_type": m.file_type, "uuid": m.uuid, "platform": m.platform,
+                "min_os": m.min_os, "sdk": m.sdk, "install_name": m.install_name,
+                "dylibs": [{"name": d.name, "kind": d.kind} for d in m.dylibs], "rpaths": list(m.rpaths),
+                "slices": [sl.arch for sl in m.slices], "slice": m.slices[m.slice_index].arch if m.slices else "",
+                "code_signed": m.code_signed, "encrypted": m.encrypted, "fixups": m.fixups,
+            }
+        if s.info.HasField("dotnet"):  # a .NET assembly (api_minor 94)
+            d = s.info.dotnet
+            out["dotnet"] = {
+                "description": d.description, "metadata_version": d.metadata_version,
+                "runtime_version": d.runtime_version, "il_only": d.il_only, "mixed_mode": d.mixed_mode,
+                "ready_to_run": d.ready_to_run, "code_analysis_skipped": d.code_analysis_skipped,
+                "flags": _hex(d.flags), "entry_point": _hex(d.entry_point), "streams": list(d.streams),
+            }
+        return out
+
+    @server.tool(annotations=READ)
+    @guarded
+    def build_info(program_id: str, deps: bool = True, settings: bool = True) -> dict:
+        """What toolchain built a program and from what, when the file says: Go's build info (Go version,
+        main module, dependency modules with versions, sums and replacements, build settings such as
+        -ldflags, GOOS/GOARCH, CGO_ENABLED, vcs.revision and vcs.time) and a Rust binary's cargo-auditable
+        dependency list (crates with versions, sources and dependency edges), rustc version and commits.
+        deps=False or settings=False leaves those lists out. Empty "go"/"rust" means the file has none.
+        "go_pclntab" summarizes a Go program's function table (kept by stripped binaries too), which named
+        its functions at import (analysis:go)."""
+        resp = rk.program(program_id).build_info()
+        out: dict = {}
+        if resp.HasField("go"):
+            g = resp.go
+
+            def mod(m) -> dict:
+                e = {"path": m.path, "version": m.version}
+                if m.sum:
+                    e["sum"] = m.sum
+                if m.HasField("replacement"):
+                    e["replacement"] = {k: v for k, v in (("path", m.replacement.path), ("version", m.replacement.version),
+                                                          ("sum", m.replacement.sum)) if v}
+                return e
+
+            go = {"go_version": g.go_version, "path": g.path, "format": g.format, "address": _hex(g.address.offset)}
+            if g.HasField("main"):
+                go["main"] = mod(g.main)
+            go["dep_count"] = len(g.deps)
+            if deps:
+                go["deps"] = [mod(d) for d in g.deps]
+            if settings:
+                go["settings"] = {st.key: st.value for st in g.settings}
+            if g.unparsed:
+                go["unparsed"] = list(g.unparsed)
+            out["go"] = go
+        if resp.HasField("rust"):
+            r = resp.rust
+            rust: dict = {"format": r.format, "package_count": len(r.packages)}
+            if r.HasField("root"):
+                root = r.packages[r.root]
+                rust["root"] = {"name": root.name, "version": root.version}
+            if deps:
+                rust["packages"] = [
+                    {k: v for k, v in (("name", p.name), ("version", p.version), ("source", p.source), ("kind", p.kind),
+                                       ("dependencies", [r.packages[i].name for i in p.dependencies]), ("root", p.root)) if v}
+                    for p in r.packages]
+            out["rust"] = rust
+        if resp.HasField("go_pclntab"):
+            t = resp.go_pclntab
+            tab = {"layout": t.layout, "address": _hex(t.address.offset), "functions": t.functions_read,
+                   "files": t.file_count, "found_by": t.found_by}
+            if t.HasField("text_start"):
+                tab["text_start"] = _hex(t.text_start.offset)
+            if t.warnings:
+                tab["warnings"] = list(t.warnings)
+            out["go_pclntab"] = tab
+        if resp.rustc_version:
+            out["rustc_version"] = resp.rustc_version
+        if resp.rustc_commits:
+            out["rustc_commits"] = list(resp.rustc_commits)
+        if resp.warnings:
+            out["warnings"] = list(resp.warnings)
+        if not out:
+            out["note"] = "no Go build info, cargo-auditable list or rustc markers in this file"
         return out
 
     _NAMED = {"": query_pb2.FUNCTION_NAME_FILTER_UNSPECIFIED, "named": query_pb2.FUNCTION_NAME_FILTER_NAMED,
@@ -1193,6 +1396,37 @@ def create_server(
 
     @server.tool(annotations=READ)
     @guarded
+    def list_objc_classes(program_id: str, name_contains: str = "", limit: int = 100, offset: int = 0) -> dict:
+        """Objective-C classes of a Mach-O (macOS, iOS) from its runtime metadata, a page at a time (limit,
+        then offset): each class's superclass, methods (selector, type encoding, implementation address, the
+        category that adds it, its function's name), ivars (offsets), properties and protocols; then the
+        protocols and Swift types (name, module, kind, fields) on the first page."""
+        r = rk.program(program_id).objc_classes(name_contains)
+        out = []
+        for c in list(r.classes)[offset:offset + max(1, limit)]:
+            out.append({
+                "name": c.name, "superclass": c.superclass, "external": c.external,
+                **({"address": _hex(c.address.offset)} if c.HasField("address") else {}),
+                "methods": [{"selector": m.selector, "types": m.types, "class_method": m.class_method,
+                             **({"category": m.category} if m.category else {}),
+                             **({"address": _hex(m.implementation.offset), "function": m.function_name}
+                                if m.HasField("implementation") else {})} for m in c.methods],
+                "ivars": [{"name": v.name, "type": v.type, "offset": v.offset, "size": v.size} for v in c.ivars],
+                "properties": [{"name": p.name, "attributes": p.attributes} for p in c.properties],
+                "protocols": list(c.protocols),
+            })
+        result = {"classes": out, "offset": offset, "total": len(r.classes)}
+        if offset == 0:
+            result["protocols"] = [{"name": p.name, "methods": [m.selector for m in p.methods]} for p in r.protocols]
+            result["swift_types"] = [{"name": t.name, "module": t.parent, "kind": t.kind, "fields": list(t.fields)}
+                                     for t in r.swift_types]
+        if offset + len(out) < len(r.classes):
+            result.update(_more(f"more classes: call again with offset={offset + len(out)}",
+                                next_offset=offset + len(out)))
+        return result
+
+    @server.tool(annotations=READ)
+    @guarded
     def read_memory(program_id: str, address: str, length: int = 64) -> dict:
         """Bytes of the program's image at an address (at most 4096), as hex and a dump."""
         a = at(program_id, address)
@@ -1407,6 +1641,64 @@ def create_server(
                           "tokens": by_line[n]})
         return {"function": fn.name, "start": r.start, "kind": kind, "lines": lines,
                 "addresses": [_hex(x.offset) for x in r.addresses]}
+
+    _TRACE_UNKNOWN = {query_pb2.TRACE_UNKNOWN_KIND_INDIRECT_CALL: "indirect_call",
+                      query_pb2.TRACE_UNKNOWN_KIND_EXTERNAL_CALL: "external_call",
+                      query_pb2.TRACE_UNKNOWN_KIND_MEMORY: "memory",
+                      query_pb2.TRACE_UNKNOWN_KIND_NO_CALLERS: "no_callers",
+                      query_pb2.TRACE_UNKNOWN_KIND_DECOMPILE_FAILED: "decompile_failed",
+                      query_pb2.TRACE_UNKNOWN_KIND_BUDGET: "budget",
+                      query_pb2.TRACE_UNKNOWN_KIND_UNMATCHED: "unmatched"}
+
+    @server.tool(annotations=READ)
+    @guarded
+    def trace_value(program_id: str, function_address: str, variable: str, direction: str = "backward",
+                    max_depth: int = 0, max_functions: int = 0) -> dict:
+        """Follow a value across function calls: where it comes from (direction "backward": through the callees'
+        return values and the callers' arguments) or where it goes ("forward": into callees' parameters and out
+        through return values), as slice_decompiled does inside one function. variable: its name as decompile shows
+        it. Calls are matched (a value that entered a callee from one call goes back out through that call).
+        Returns each function reached (name, depth: + callees, - callers) with the C lines it touches, the calls
+        crossed, and "unknowns": where it stopped without knowing more (indirect calls, imports, memory, functions
+        nothing calls directly, budgets). max_depth (default 3) and max_functions (default 12) bound it."""
+        prog = rk.program(program_id)
+        a = at(program_id, function_address)
+        try:
+            prog.decompile(a, text=False)
+        except RevkitError as e:
+            if e.code.name != "NOT_FOUND":
+                raise
+            a = prog.function(a, containing=True).entry.offset
+        if direction not in ("backward", "forward"):
+            raise ValueError("direction: 'backward' or 'forward'")
+        r = prog.trace(a, direction, variable=variable, max_depth=max_depth, max_functions=max_functions)
+        fns = [{"function": f.name, "address": _hex(f.entry.offset), "depth": f.depth,
+                "lines": [{"line": l.line, "text": l.text} for l in f.lines]} for f in r.functions]
+        calls = []
+        seen = set()
+        for e in r.edges:
+            if e.kind == query_pb2.TRACE_EDGE_KIND_DATAFLOW:
+                continue
+            src, dst = r.nodes[getattr(e, "from")], r.nodes[e.to]
+            item = {"kind": "argument" if e.kind == query_pb2.TRACE_EDGE_KIND_ARGUMENT else "return",
+                    "call": _hex(e.address.offset),
+                    "from": f"{r.functions[src.function].name}:{src.text or '?'}",
+                    "to": f"{r.functions[dst.function].name}:{dst.text or '?'}"}
+            key = tuple(item.values())
+            if key not in seen:
+                seen.add(key)
+                calls.append(item)
+        unknowns = []
+        for u in r.unknowns:
+            e = {"kind": _TRACE_UNKNOWN.get(u.kind, "?"), "detail": u.detail}
+            if u.HasField("address"):
+                e["address"] = _hex(u.address.offset)
+            if u.HasField("node"):
+                n = r.nodes[u.node]
+                e["at"] = f"{r.functions[n.function].name}:{n.text or '?'}"
+            unknowns.append(e)
+        return {"start": r.start, "direction": direction, "functions": fns, "calls_crossed": calls,
+                "unknowns": unknowns, "truncated": r.truncated}
 
     @server.tool(annotations=READ)
     @guarded
@@ -2267,9 +2559,10 @@ def create_server(
     def import_program(project_id: str, path: str, name: str = "", language_id: str = "", image_base: str = "",
                        format: str = "", raw_offset: str = "", regions: Optional[list[str]] = None,
                        import_libraries: bool = False, library_search_paths: Optional[list[str]] = None,
-                       library_root: str = "") -> dict:
+                       library_root: str = "", macho_slice: str = "") -> dict:
         """Import a file on the daemon's host into a project (needs an admin token when the daemon has accounts).
-        ELF and PE are detected; for raw firmware give format "raw", a language_id (list_languages, or
+        ELF, PE and Mach-O are detected; a universal Mach-O loads its arm64 slice (else x86_64) unless
+        macho_slice names another ("x86_64", "arm64e", "#1"). For raw firmware give format "raw", a language_id (list_languages, or
         detect_raw_layout's suggestion) and an image_base, and where they apply raw_offset (bytes of header
         before the image) and regions ("name:start:size[:perms][:init|uninit|volatile]", hex: RAM, MMIO).
         import_libraries also imports the shared libraries it needs that the project lacks (found in
@@ -2281,7 +2574,7 @@ def create_server(
                               image_base=_addr(image_base) if image_base else None, format=format,
                               raw_offset=_num(raw_offset) if raw_offset else 0, regions=regions or (),
                               import_libraries=import_libraries, library_search_paths=library_search_paths or (),
-                              library_root=library_root)
+                              library_root=library_root, macho_slice=macho_slice)
         return _d(r)
 
     def _resolved(i) -> dict:
@@ -2297,7 +2590,7 @@ def create_server(
     @server.tool(annotations=READ)
     @guarded
     def list_libraries(program_id: str, include_imports: bool = False) -> dict:
-        """A program's shared libraries (ELF DT_NEEDED, PE import DLLs), its own first, then theirs (depth,
+        """A program's shared libraries (ELF DT_NEEDED, PE import DLLs, Mach-O dylibs), its own first, then theirs (depth,
         needed_by), each with the project program it resolves to (resolution "linked" by link_library, "name",
         "soname", or "none": not in the project; import_program with import_libraries brings missing ones) and
         how many of its imports resolve there. include_imports lists every import with the library function it
@@ -3558,7 +3851,14 @@ def create_server(
 
 
 def main(argv=None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    args = sys.argv[1:] if argv is None else list(argv)
+    if args[:1] == ["setup"]:  # revkit-mcp setup: register this server with coding agents
+        from revkit import mcp_setup
+
+        sys.exit(mcp_setup.main(args[1:]))
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
+                                     epilog="revkit-mcp setup [--help]: register this server with Claude Code, Codex, "
+                                            "Cursor and Gemini CLI.")
     parser.add_argument("--daemon", default=os.environ.get("RK_GRPC", "127.0.0.1:50051"), help="rk-daemon gRPC address")
     parser.add_argument("--agent", default=os.environ.get("RK_AGENT"),
                         help="agent name recorded on edits (default: the agent token's name, else mcp)")
@@ -3570,7 +3870,7 @@ def main(argv=None) -> None:
     parser.add_argument("--ca", help="trust this CA or self-signed certificate (PEM; default $RK_TLS_CA)")
     parser.add_argument("--fingerprint", help="pin the daemon's certificate by SHA-256 (default $RK_TLS_FINGERPRINT)")
     parser.add_argument("--server-name", help="name to check the certificate against")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(args)
     create_server(
         args.daemon, args.agent, args.agent_version, args.session, token=args.token, tls=args.tls, ca_cert=args.ca,
         fingerprint=args.fingerprint, server_name=args.server_name,

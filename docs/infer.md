@@ -62,7 +62,7 @@ family joined into one, ranked callees first.
 | Query | Value | Reads |
 | --- | --- | --- |
 | `infer.image.effective` | the staged image (`infer.image`) with the memory map's edits laid over it, and a decompiler pool over that; the staged one itself without edits ([memory-map.md](memory-map.md)) | `infer.image`, `analysis.memory` |
-| `infer.callgraph` | callers and callees (direct and tail calls), import stubs, import slots, functions only tables of pointers reach | `analysis.functions`, `analysis.flow` |
+| `infer.callgraph` | callers and callees (direct and tail calls), import stubs, import slots, functions only tables of pointers reach, and which functions don't return: discovery's, and those the no-return evidence finds, as the decompiler is told (else a caller's decompilation runs on past such a call into the next function's code, whose argument registers look like the caller's parameters), and the unconditional jumps to another function's entry, which its decompilations take as tail calls (`CALL_RETURN` flow overrides, as Ghidra's SharedReturnAnalysisCmd and the final C's inputs have them; else a jump into luaL_error takes in its register save area, whose stores read every argument register) | `analysis.functions`, `analysis.flow`, `analysis.no_return_evidence` |
 | `infer.order` | each function's rank: its component's position, callees first | `infer.callgraph`, `infer.families` |
 | `infer.observe` (f, k) | f decompiled with its callees' prototypes locked: round k's for callees ranked below f, round k-1's for the rest (round 0: only library prototypes) | `infer.round` (callees, k or k-1) |
 | `infer.own` (f, k) | f's prototype from its own evidence | `infer.observe` (f, 0 and k; callers, 0 and k, or k-1 for callers ranked above f) |
@@ -105,7 +105,19 @@ and frozen; rounds are capped at 16. On the corpus nothing is widened.
   whichever sees any: round 0 sees a register a call passes through to an
   unknown callee as a parameter (too many), a later round sees one a
   callee with a parameter too many reads (also too many), and a wrapper
-  that tail-calls a function unknown at round 0 shows none there.
+  that tail-calls a function unknown at round 0 shows none there. A
+  register only a later round sees is a parameter when the function passes
+  it on unchanged (`Slot::from_param`) to a callee that reads it: the
+  callee's round-0 or previous round's view has it, its own code uses it
+  (not only passes it on, `Slot::passed_only`, nor stores it in a register
+  save area) or passes it on to one that does (followed through up to four
+  callees; an import reads what its library prototype names), and it is
+  one of the callee's named parameters (luaL_checklstring's `len`,
+  passed straight to lua_tolstring, which round 0 doesn't see: the
+  decompiler takes only registers written before a call as an unknown
+  callee's arguments). Integer registers only, without holes, and none
+  where the function reads every argument register (a save area's
+  pattern).
   Positions are ordered by the convention (`abi.cc`: System V, Windows
   x64, AAPCS64, RISC-V LP64D), integers before floats where the
   convention doesn't say.
@@ -115,14 +127,20 @@ and frozen; rounds are capped at 16. On the corpus nothing is widened.
   `_IO_FILE *`, one passed to an inferred `int` parameter narrows a
   64-bit register to `int`.
 - **Caller → callee.** What callers pass: a pointer, a char or a float
-  type refines the callee's integer or unknown view; the address of static
+  type refines the callee's integer or unknown view (at a call locked to
+  the callee's previous prototype the decompiler casts a pointer passed
+  to an integer parameter, `(ulong)param_1`, and the observation takes the
+  caller's pointer from before the cast; a pointer cast to another pointer
+  type stays the parameter's); the address of static
   data makes a parameter a pointer, the address of a function a function
   pointer with that function's prototype (`_func_int_int_int *`). How
   results are used: the widest read decides a return's width (an `int`
   zero-extended into RAX is an `int`); a function with no return of its
   own whose callers mostly read the register returns a value; callers'
   pointer use types a return. Recursive calls count.
-- **Returns.** A returned static address is a pointer; a returned function
+- **Returns.** A function ending in a tail call returns what the callee
+  returns (round 0 can't see it, and with the callee locked the decompiler
+  still leaves it unknown); a returned static address is a pointer; a returned function
   address a function pointer; an element loaded from a function-pointer
   table has that table's type.
 - **Varargs.** A run of saved argument registers ending at the last one
@@ -140,6 +158,12 @@ and frozen; rounds are capped at 16. On the corpus nothing is widened.
   default for arithmetic, unsigned needs evidence). Targets that are
   neither an entry nor inside a body (callbacks without unwind info, which
   discovery doesn't follow) become functions.
+- **One pointer, one type.** After the fixpoint, the parameters a pointer
+  passes through unchanged (the last round's `Slot::from_param` edges,
+  integer registers) form classes; where every member is a pointer and
+  they disagree on its target (Lua's lua_State * as `long *` in most
+  functions, `char *` in some), all take the target most of them have, so
+  the calls between them need no cast. No majority: each keeps its own.
 - **Priors.** What remains unknown is spelled as the system headers
   spell values most often (`SigDb::priors`, counted from the glibc
   database): an untyped integer-register return is `int` (a register's
@@ -424,15 +448,109 @@ p-code from one variable, as Ghidra's `FillOutStructureHelper` does, and
 The backend runs the walk in its decompiler workers for every
 pointer-sized parameter and local and serves it as the query
 `infer.pointer_accesses`; TypeService.AutoStructure builds on it
-([types.md](types.md#structures-from-pointer-use)). Inference itself
-doesn't use it yet: a parameter whose accesses describe a struct is still
-inferred as a pointer to bytes or an integer.
+([types.md](types.md#structures-from-pointer-use)). Inference runs the
+same walk in its own observations, for the structures below.
+
+## Structures
+
+A struct pointer typed as a pointer to its first word (`long *`) costs two
+casts per field, `*(int *)((long)param_1 + 0x2c)`, where the source has
+`p->n`. After the fixpoint (`infer.fixpoint`, version 4), inference
+composes a structure per class of pointers that are one value, and types
+the class's parameters and returns with a pointer to it
+(`InferredStructure` in `FixpointResult::structures`; `structures.cc`):
+
+- **What it reads.** Each observation (`infer.observe`, version 6) keeps,
+  per pointer-sized parameter and per pointer-sized call result, the
+  accesses through it (`Observation::pointer_uses`, `results`: offset,
+  size, kind; calls it is passed to), through each value loaded through it
+  (one level: `param_1->field_0x18->...`), whether it is returned
+  unchanged, and the offsets whose loaded value flows back into it (`p =
+  p->next`). The last round's observations are read, so callees are
+  locked to their final prototypes.
+- **Classes.** Nodes are those values; union-find joins a parameter passed
+  on unchanged with the callee's (the `Slot::from_param` edges), what a
+  function returns unchanged with its return, a call's result with its
+  callee's return, a result or a field passed on with the callee's
+  parameter, and a self-pointing field with its variable. Joining two
+  classes joins their fields offset by offset (one field, one type), so
+  `L->l_G` read in 88 functions is one class, global_State (`astruct_53`, 0x588 bytes, in x86-64 gcc -O2 Lua).
+- **Conservative joins.** An edge into a callee's node joins at once when
+  the callee itself reads or writes through it (three or more accesses);
+  a callee that only passes the pointer on, an allocator returning fresh
+  memory, or a `void *` sink joins only when every value reaching it is
+  of one class, else it is *generic* and keeps its own type (Lua's
+  `luaM_malloc_`, a free wrapper). Two classes whose accesses contradict
+  (a pointer field read as a float or a narrower integer, or accessed
+  inside, at two offsets or more, or in a quarter of the smaller one's
+  accesses) aren't joined: each keeps its own structure.
+- **Which classes.** Two or more distinct offsets and three or more
+  accesses, mixed in size or kind. One scalar at its stride is an array
+  (`int *`, `char **`: left as it is); bytes read one by one in runs of
+  eight or more are a buffer (an unrolled checksum); a pointer passed to a
+  library function's `char *` parameter is a string; a pointer something
+  else typed (a library struct like `_IO_FILE *`, a function, a callback's
+  prototype such as main's `char **argv`) is never replaced, and inference
+  only fills prototypes nothing else gives (debug info, the library
+  archives and the user's prototypes rank above it).
+- **Arrays of structures.** Accesses that repeat at one stride (every
+  remainder one size, no overlaps) with negative offsets (a pointer to a
+  stack's top, `top[-1]`) or every element alike are an array of one
+  element structure, sized by the stride: Lua's TValue stack is
+  `astruct_4 *`, 16 bytes, and `L->top + n` needs no cast.
+- **Fields** are composed (`compose_structure`, its `keep_wide` mode: a
+  wide field stays whole where splitting it at narrower accesses inside
+  costs more, so a union's `int` isn't assembled from bytes) from every
+  access of every member, as pointers (to the structure of the class the
+  field's value belongs to, else to the element of its array, else
+  `char *`), floats, integers (the priors' spelling where the sign is
+  unknown) or `undefinedN`; the size is the furthest access (up to 64 KiB)
+  rounded up to the fields' alignment.
+- **Names** are `astruct_<n>`, numbered by each class's first member
+  (entry, then position); deterministic for any thread schedule.
+
+On the tuning corpus the 27 stripped binaries get 1 to 65 structures
+each; against the debug build's prototypes, 469 of the 473 parameters of
+x86-64 gcc -O2 Lua's largest class are `lua_State *` (the others
+`GCObject *` and `TString *`, which start like it), and the structure's
+size is lua_State's, 200 bytes; the next classes are FuncState (53 of
+54), expdesc and LexState (all 37). `rk-infer` writes them under `"structures"` (`--no-structures`
+without); `rk-lift --analyze --decompile` gives them to the decompiler
+(`--no-infer-structures` without), and the daemon publishes them as the
+program's types ([below](#in-the-daemon)). On `/usr/bin/cmake` (19,409
+functions) the pass adds nothing measurable: 368 s wall, 1.65 GB peak
+(398 s and 1.62 GB without; 4,318 structures).
+
+### In the daemon
+
+The published prototypes (`infer.published`) name the structures; the
+same revision asserts each structure's TYPE_DEF records, binds `struct
+astruct_<n>` to it and files it under `/inferred`, with the analysis's
+provenance (`analysis:infer.prototypes`), so they show among the
+program's types (FindTypes: origin the analysis) and the user renames,
+edits or reverts them like any type: the decompiler resolves each name
+through the program's binding (`types.resolved`), so an edit of the
+structure (a field renamed) reaches every function pointing to it, and a
+structure whose assertions are retracted leaves its parameters pointing
+to undefined bytes. A name someone else binds (Auto Structure's
+`astruct_<n>`, the user's) moves the structure to the next free number; a
+binding of inference's the user retracted isn't asserted again
+(`FactStoreTest.InferredStructuresArePublishedAsProgramTypes`). As
+program types they are exported with the rest (a type archive of scope
+`all`), and Auto Structure's next name skips theirs.
 
 ## Known gaps
 
-- **Exact names** can't be recovered (above). A struct type is never
-  named; field accesses make it a pointer, which arity and the decompiled
-  C use, but the signature can't match.
+- **Exact names** can't be recovered (above). An inferred structure is
+  named `astruct_<n>`, so a signature naming the program's struct can't
+  match.
+- **Structures** ([above](#structures)): classes of one type that never
+  pass a value to each other stay apart (Lua's expdesc is five), so calls
+  between them cast; locals that are neither a parameter nor a call's
+  result aren't classed; one level of fields per observation; unions and
+  embedded structures are overlapping fields; 32-bit targets get none
+  (inference is off there). `rk-infer --decompile` (`c_quality.py`) shows
+  them as incomplete structs: its decompiler isn't given their layouts.
 - **Signedness and width of returns** without callers or decisive uses
   fall back to priors (`int`), so 64-bit results (`size_t`, `long`) and
   `uint` checksums are often wrong; integer *rank* on LLP64 (`long` vs

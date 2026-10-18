@@ -28,7 +28,8 @@ page says who may do what, how the daemon checks it, and how to set it up.
   reads and `CreateFidDatabase` writes a Function ID database at a host
   path, `AttachBSimDatabase` and `CreateBSimDatabase` with a path read and
   write a BSim database there, and command plugins may hold the `file`
-  grant.
+  grant. External decompilers ([providers.md](providers.md)) run third-party
+  tools on hostile input on the daemon's host, in a sandbox.
 - Credentials: passwords, session and API tokens, peer secrets.
 
 **Who the daemon defends against.**
@@ -63,8 +64,9 @@ page says who may do what, how the daemon checks it, and how to set it up.
   (0600/0700) only.
 - Hostile input binaries attacking the loaders or the decompiler (that is
   the job of bounds-checked parsers, decompiler worker processes and,
-  later, fuzzing), and hostile plugins beyond their sandbox
-  ([plugins.md](plugins.md)).
+  later, fuzzing), hostile plugins beyond their sandbox
+  ([plugins.md](plugins.md)), and an external decompiler exploited by its
+  input beyond the provider sandbox ([below](#external-decompilers)).
 - Peers are trusted with data: a daemon holding a peer credential can push
   any op with any provenance, as replication requires
   ([collab.md](collab.md)). Give peer credentials only to daemons you run.
@@ -234,6 +236,66 @@ What a container can't do:
 
 The parsers are fuzzing targets in the bug scrub
 ([filesystems.md](filesystems.md#tests-and-fuzzing)).
+
+<a id="external-decompilers"></a>
+**External decompilers** (`ProviderService`, api_minor 92,
+[providers.md](providers.md)) run a third-party tool (ILSpy, jadx,
+Vineflower, CFR, unluac, pycdc, webcrack, wasm-decompile) on bytes the
+caller can already read: a program's stored file or a file of a session the
+caller opened. The tool parses hostile input and is untrusted itself:
+
+| RPC | Needs |
+| --- | --- |
+| `ListProviders`, `DecompileExternal`, `ReadProviderOutput` | viewer; with a program, of its project (a caller limited to some projects names only those); with a session file, the session's owner (anyone else, but an admin, gets `NOT_FOUND`) |
+| `GetProviderSettings`, `SetProviderSettings` | admin: they name host paths (the tools, the runtimes) and the limits |
+
+Viewers may run them, as they may decompile: the output is derived from
+what they can read, and the run is bounded (two at once, eight waiting,
+then `RESOURCE_EXHAUSTED`; the timeout, memory and output limits below). A
+reason a provider is unavailable names host paths, so only admins see it
+whole, with the tool's path and what the sandbox lets it read.
+
+Each run is confined by `rk-sandbox`, which confines itself (it is
+single-threaded, started with `posix_spawn`) and then executes the tool:
+
+- **Files (Landlock)**: read and execute below `/usr`, `/lib*`, `/bin`,
+  `/sbin`, `/etc`, `/proc`, `/sys`, the tool's install directory and its
+  runtime, and the input (a read-only copy in the run's scratch directory);
+  read and write only the run's `out/`, `home/` and `tmp/`; nothing else:
+  not the project directory, `--browse-root`, the credential file, the
+  user's home, `/tmp`. TCP bind and connect are refused (ABI 4); abstract
+  Unix sockets and signals are scoped to the sandbox (ABI 6), so it can't
+  signal the daemon; Landlock's ptrace rule keeps it out of other
+  processes' memory and environment. Without Landlock a run is refused
+  unless an admin sets `allow_weak_sandbox`.
+- **System calls (seccomp)**: no `socket()` at all (no network, and no Unix
+  socket to the user's D-Bus or systemd, which could start processes
+  outside the sandbox), no `connect()`; no new namespaces, mounts, keyring
+  calls, `io_uring`, BPF, perf, ptrace, `process_vm_*`, `userfaultfd`,
+  `pidfd_getfd`, modules or kexec; no `setsid` or `setpgid` (it stays in its
+  process group); only the native ABI. `no_new_privs`.
+- **Network namespace**: an empty one where unprivileged user namespaces
+  are allowed. Ubuntu's AppArmor restriction (this host) refuses them; the
+  seccomp and Landlock rules above hold either way.
+- **Resources**: a wall-clock deadline (120 s) after which the process group
+  gets SIGKILL; `RLIMIT_CPU` (four times the deadline), `RLIMIT_DATA` (the
+  memory limit, 4 GiB), `RLIMIT_FSIZE` (the output cap, 256 MiB),
+  `RLIMIT_NOFILE`; the output's bytes and entries are measured every 250 ms
+  and a run past either cap is killed; no core dumps; whatever the tool
+  leaves running dies with it; SIGKILL when the daemon's thread goes.
+- **Environment**: none of the daemon's (tokens, `DBUS_SESSION_BUS_ADDRESS`,
+  `XDG_RUNTIME_DIR`): a fixed `PATH`, its own `HOME` and `TMPDIR`, and the
+  runtime's settings; stdin `/dev/null`; no other descriptors.
+- **Output**: read as hostile. Links, pipes, sockets and devices it made
+  are deleted, names that aren't UTF-8 are encoded, and files are read
+  only by the paths the result lists, component by component with
+  `O_NOFOLLOW`.
+
+What it doesn't hide: what any local user sees under `/etc`, `/usr`, `/proc`
+and `/sys` (other processes' command lines among them). There is no cgroup
+per run: memory is bounded per process and the number of processes isn't,
+within the CPU and wall-clock limits. Tools are installed by the host's
+owner; revkit downloads none.
 
 **Emulator sessions** ([emulator.md](emulator.md)) belong to the identity
 that created them: running, stepping, writing and closing need editor;
@@ -415,6 +477,7 @@ gRPC calls (HTTP/2 with trailers): their only way in is the HTTP listener.
 | `ParseC` reads host files only for admins, only under `--browse-root` | `Authorize` raises it to admin with a path or include directory; `cparse::host_file_system(roots)` resolves every source and `#include` (`src/backend/parse_c.cc`) | yes |
 | Debug sessions owned by their creator; live targets admin-only | `DebugSessions` (`src/backend/debugger.cc`); `Authorize` raises `CreateDebugSession` with `launch` or `remote` to admin | yes |
 | Scripts: who may run them, run tokens, trust, run ownership | `ScriptService` (`src/api/script_service.cc`): the host role (`ScriptHostRole`, off beyond loopback by default) on top of `Authorize`; run tokens in `Store` (memory only, revoked at the run's end); trust pins per caller | yes |
+| External decompilers: who may run them; the sandbox | `Authorize` (viewer; settings admin); the session's owner in `FileSystemRegistry::Get` (`src/backend/filesystems.cc`); the confinement in `rk-sandbox` (`src/providers/sandbox_exec.cc`: limits, Landlock, seccomp), the deadline, caps and group kill in `run_sandboxed` (`src/providers/sandbox.cc`) | yes |
 | Streams end when their session or token does | `Subscribe` and `Pull` re-check at every heartbeat | yes |
 | Session cookie, CSRF token, Origin | `ConnectGateway::Impl::Handle` (`src/api/connect_gateway.cc`): a valid cookie becomes the bearer metadata only if the Origin (when sent) is the daemon's own and `x-csrf-token` matches the session's; `WhoAmI`, `Login` and `GetServerInfo` are exempt | gateway only |
 | `Host` names the daemon (DNS rebinding) | `HostHeaderAllowed`, a pre-routing handler in `ConnectGateway` (`src/api/connect_gateway.cc`), on every HTTP request; the names from `Server::Start` and `--allow-host` | gateway only (browsers can't speak gRPC) |
@@ -766,6 +829,11 @@ the symbol servers', tighter where debuginfod allows it:
   to make a new one (clients pinning it then need the new fingerprint).
 - **Rate of expensive calls.** Any authenticated caller can still keep the
   decompiler busy.
+- **External decompilers' sandbox** has no cgroup of its own (memory is
+  per process, the process count unbounded within the time limits) and
+  no network namespace where unprivileged user namespaces are restricted
+  (Ubuntu); seccomp refuses every socket regardless
+  ([providers.md](providers.md#the-sandbox)).
 - **Scripts are not sandboxed.** Whoever may run scripts on the daemon
   (`--scripts-host-role`) has a shell as its user. Trust pins guard against
   running text you haven't seen, not against a malicious person allowed to
@@ -815,6 +883,13 @@ the symbol servers', tighter where debuginfod allows it:
   and plaintext, logins and roles, environment configuration, revocation,
   the MCP server with an agent token, and three daemon processes where a
   peer token over TLS replicates and a viewer's token is refused.
+- External decompilers: `src/providers/tests` (`revkit_providers_tests`):
+  with a fake provider, the deadline, the output and file caps, a crash, a
+  child left behind killed with the run, and what the sandbox refuses
+  (reading, listing and writing outside its directories, writing the input,
+  TCP and the D-Bus socket, signalling another process; links and pipes
+  dropped from the output); `AuthPolicyUnit` (every ProviderService method
+  has a policy).
 - Container file systems: `src/container/tests` (`revkit_container_tests`):
   zip bombs (a file's size, the ratio, the session's budget), overlapping
   zip members, traversal and absolute names, control bytes and invalid

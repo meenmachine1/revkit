@@ -116,7 +116,7 @@ class DebugApplier {
         debug_(debug),
         image_(image),
         in_(in),
-        types_(debug.store, data_org(image, in.language), debug.dwarf ? &debug.dwarf->base_type_names : nullptr) {
+        types_(debug.store, data_org(image, in.language + ":" + in.compiler), debug.dwarf ? &debug.dwarf->base_type_names : nullptr) {
     for (lift::FunctionFacts &f : in_.functions) by_entry_[f.entry] = &f;
     for (std::size_t i = 0; i < in_.data.size(); ++i) data_at_[in_.data[i].addr] = i;
   }

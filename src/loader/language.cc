@@ -3,6 +3,9 @@
 
 #include "revkit/loader/load.hh"
 
+#include "revkit/loader/buildinfo.hh"
+#include "revkit/loader/gopclntab.hh"
+
 #include <algorithm>
 #include <array>
 
@@ -32,6 +35,7 @@ constexpr std::uint32_t v850 = 87;
 constexpr std::uint32_t xtensa = 94;
 constexpr std::uint32_t msp430 = 105;
 constexpr std::uint32_t hexagon = 164;
+constexpr std::uint32_t bpf = 247;
 constexpr std::uint32_t loongarch = 258;
 }  // namespace em
 
@@ -131,6 +135,11 @@ std::optional<LanguageSpec> guess(Format format, std::uint32_t machine, unsigned
     case em::msp430:
       if ((flags & 0xff) == EF_MSP430_MACH_MSP430X) return LanguageSpec{"TI_MSP430X:LE:32:default", "default"};
       return LanguageSpec{"TI_MSP430:LE:16:default", "default"};
+    // Linux eBPF objects (clang -target bpf): eBPF.opinion maps 247 to both
+    // byte orders, 64-bit, compiler "default".
+    case em::bpf:
+      if (bits != 64) return std::nullopt;
+      return LanguageSpec{"eBPF:" + e + ":64:default", "default"};
     case em::loongarch: {
       const bool d = (flags & EF_LARCH_ABI_MODIFIER_MASK) != 2;  // 2: single-float ABI
       if (bits == 32) return LanguageSpec{d ? "Loongarch:LE:32:ilp32d" : "Loongarch:LE:32:ilp32f", "default"};
@@ -141,10 +150,112 @@ std::optional<LanguageSpec> guess(Format format, std::uint32_t machine, unsigned
   }
 }
 
+// Ghidra 12.1.4's "Mac OS X Mach-O" opinions (x86, AARCH64, ARM, PowerPC
+// and Sparc .opinion files); the compiler is Swift's or Go's where the
+// file has their sections (MachoLoader.detectCompilerName).
+std::optional<LanguageSpec> guess_macho(std::uint32_t cputype, std::uint32_t cpusubtype, const std::string &special) {
+  auto with = [&](std::string language, std::string compiler, bool specials) -> std::optional<LanguageSpec> {
+    if (specials && !special.empty()) compiler = special;
+    return LanguageSpec{std::move(language), std::move(compiler)};
+  };
+  switch (cputype) {
+    case 7: return with("x86:LE:32:default", "gcc", false);
+    case 0x01000007: return with("x86:LE:64:default", "gcc", special == "swift");
+    case 0x0100000c: return with("AARCH64:LE:64:AppleSilicon", "default", true);
+    case 0x0200000c: return with("AARCH64:LE:32:ilp32", "default", false);
+    case 12:
+      // Ghidra names 12.0, .5 (v4t), .6 (v6) and .9-.12 (v7 family: v8);
+      // the rest are revkit's: v5 and XScale as v5t, v6-M, v7-M and v7E-M
+      // as Cortex, v8-M as v8-m, anything else v8.
+      switch (cpusubtype & 0x00ffffff) {
+        case 5: return with("ARM:LE:32:v4t", "default", false);
+        case 6: return with("ARM:LE:32:v6", "default", false);
+        case 7:
+        case 8: return with("ARM:LE:32:v5t", "default", false);
+        case 14:
+        case 15:
+        case 16: return with("ARM:LE:32:Cortex", "default", false);
+        case 17: return with("ARM:LE:32:v8-m", "default", false);
+        default: return with("ARM:LE:32:v8", "default", false);
+      }
+    case 18: return with("PowerPC:BE:32:default", "default", false);
+    case 0x01000012: return with("PowerPC:BE:64:default", "default", false);
+    case 14: return with("sparc:BE:32:default", "default", false);
+    default: return std::nullopt;
+  }
+}
+
 }  // namespace
 
+// Go's minor version (17 for go1.17.13) from the build info, else the
+// least the pclntab's layout says (1.18 and 1.20 layouts; the 1.16 one is
+// 1.16 or 1.17, the 1.2 one older); nullopt when the image isn't Go.
+std::optional<int> go_minor(const Image &image) {
+  std::string error;
+  if (auto b = read_go_buildinfo(image, &error)) {
+    std::string_view v = b->go_version;
+    if (auto at = v.find("go1."); at != std::string_view::npos) {
+      int minor = 0;
+      std::size_t i = at + 4, digits = 0;
+      for (; i < v.size() && v[i] >= '0' && v[i] <= '9' && digits < 4; ++i, ++digits) minor = minor * 10 + (v[i] - '0');
+      if (digits) return minor;
+    }
+  }
+  // Without build info: the header of a named table (the scan for a
+  // stripped PE's is left to the import's pass).
+  for (const Section &s : image.sections) {
+    const std::string_view n = s.name;
+    if (n != ".gopclntab" && n != ".data.rel.ro.gopclntab" && n != "__gopclntab") continue;
+    std::span<const std::byte> b = section_bytes(image, s);
+    if (b.size() < 8) continue;
+    std::uint32_t le = 0, be = 0;
+    for (int i = 0; i < 4; ++i) {
+      le |= std::to_integer<std::uint32_t>(b[i]) << (8 * i);
+      be = be << 8 | std::to_integer<std::uint32_t>(b[i]);
+    }
+    for (std::uint32_t m : {le, be}) {
+      if (m == 0xfffffff1) return 20;
+      if (m == 0xfffffff0) return 18;
+      if (m == 0xfffffffa) return 16;
+      if (m == 0xfffffffb) return 2;
+    }
+  }
+  return std::nullopt;
+}
+
+// Ghidra's opinions give a Go binary the golang compiler spec (x86.opinion:
+// PE i386 and amd64, ELF x86-64; AARCH64.opinion: ELF and Mach-O arm64).
+// revkit does where the spec's default prototype is how the Go version
+// passes arguments: abi0 (the stack) on i386, Go's register ABI
+// (ABIInternal) on amd64 from Go 1.17 and arm64 from 1.18. An older Go
+// keeps the platform's spec: Ghidra fixes each function up to abi0, which
+// revkit's prototypes can't say yet (docs/go.md).
+bool go_compiler(const Image &image, std::string_view language) {
+  if (image.format == Format::raw) return false;
+  const bool x86_64 = language.starts_with("x86:LE:64:"), x86_32 = language.starts_with("x86:LE:32:"),
+             arm64 = language.starts_with("AARCH64:LE:64:");
+  if (!x86_64 && !x86_32 && !arm64) return false;
+  auto minor = go_minor(image);
+  if (!minor) return false;
+  if (x86_32) return true;
+  return *minor >= (x86_64 ? 17 : 18);
+}
+
 std::optional<LanguageSpec> guess_language(const Image &image) {
-  return guess(image.format, image.machine, image.bits, image.endian, image.flags);
+  std::optional<LanguageSpec> out;
+  if (image.format == Format::macho) {
+    if (!image.macho) return std::nullopt;
+    // SwiftUtils.isSwift (Ghidra prefers it to Go's sections).
+    bool swift = false;
+    for (const Section &s : image.sections)
+      swift |= s.name.starts_with("__swift") || s.name.starts_with("swift") || s.name.starts_with(".sw5");
+    out = guess_macho(image.macho->cputype, image.macho->cpusubtype, swift ? "swift" : "");
+    if (swift) return out;
+  } else {
+    out = guess(image.format, image.machine, image.bits, image.endian, image.flags);
+  }
+  if (out && go_compiler(image, out->language)) out->compiler = "golang";
+  return out;
 }
 
 std::vector<LanguageSpec> all_language_specs() {
@@ -156,10 +267,10 @@ std::vector<LanguageSpec> all_language_specs() {
     });
     if (!seen) out.push_back(*s);
   };
-  const std::array<std::uint32_t, 22> elf_machines{
+  const std::array<std::uint32_t, 23> elf_machines{
       em::i386,  em::mips,      em::mips_rs3_le, em::ppc,     em::ppc64,   em::arm,       em::x86_64, em::aarch64,
       em::riscv, em::sparc,     em::m68k,        em::parisc,  em::sparc32plus, em::sh,    em::sparcv9, em::tricore,
-      em::avr,   em::v850,      em::xtensa,      em::msp430,  em::hexagon, em::loongarch};
+      em::avr,   em::v850,      em::xtensa,      em::msp430,  em::hexagon, em::loongarch, em::bpf};
   const std::array<std::uint32_t, 15> flag_sets{
       0, EF_ARM_BE8, EF_MIPS_ABI2, EF_MIPS_MICROMIPS, E_MIPS_ARCH_3, E_MIPS_ARCH_4, E_MIPS_ARCH_64,
       E_MIPS_ARCH_64R2, E_MIPS_ARCH_32R6, E_MIPS_ARCH_64R6, E_MIPS_ARCH_64R6 | EF_MIPS_MICROMIPS,
@@ -170,6 +281,12 @@ std::vector<LanguageSpec> all_language_specs() {
         for (std::uint32_t f : flag_sets) add(guess(Format::elf, m, bits, e, f));
   for (std::uint32_t m : {pe::i386, pe::amd64, pe::arm64, pe::arm, pe::armnt})
     add(guess(Format::pe, m, 32, Endian::little, 0));
+  // Go's (go_compiler).
+  for (const char *l : {"x86:LE:64:default", "x86:LE:32:default", "AARCH64:LE:64:v8A", "AARCH64:LE:64:AppleSilicon"})
+    add(LanguageSpec{l, "golang"});
+  for (std::uint32_t cpu : {7u, 0x01000007u, 0x0100000cu, 0x0200000cu, 12u, 18u, 0x01000012u, 14u})
+    for (std::uint32_t sub : {0u, 5u, 6u, 7u, 9u, 15u, 17u})
+      for (const char *special : {"", "swift", "golang"}) add(guess_macho(cpu, sub, special));
   return out;
 }
 

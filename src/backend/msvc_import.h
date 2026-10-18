@@ -43,10 +43,19 @@ struct AnalysisAssertion {
 
 struct AnalysisFacts {
   std::string source;  // the provenance id: "msvc"
+  // Staged with import provenance (import:<source>) instead of analysis:
+  // what the file itself says, applied as debug info's is (Objective-C
+  // methods' prototypes from their type encodings).
+  bool import = false;
   std::vector<AnalysisAssertion> assertions;
   std::map<std::string, std::size_t> counts;  // msvc::Markup::counts
   std::vector<std::string> warnings;
 };
+
+// The name the file or the debug info gives each address: the loader's
+// symbols (demangled), exports and the debug info's functions and globals.
+// An analysis pass names only what this doesn't.
+std::map<std::uint64_t, std::string> FileAndDebugNames(const Program &program, const std::vector<DebugFacts> &debug);
 
 // The markup of `program`'s image as assertions, one AnalysisFacts per
 // pass ("pe": headers, directories, exception tables; "msvc": RTTI,
@@ -54,5 +63,11 @@ struct AnalysisFacts {
 // loader's symbols or `debug` give an address are kept; a class the PDB
 // defines is `this`'s type as the PDB has it.
 std::vector<AnalysisFacts> CollectPeAnalysis(const Program &program, const std::vector<DebugFacts> &debug);
+
+// A Mach-O's Objective-C and Swift metadata (revkit::objc; docs/macho.md)
+// the same way: "objc" and "swift" at analysis rank (the structures, names,
+// methods' functions), and the methods' prototypes as import:objc, where
+// the program is a Mach-O.
+std::vector<AnalysisFacts> CollectMachoAnalysis(const Program &program, const std::vector<DebugFacts> &debug);
 
 }  // namespace revkit::backend

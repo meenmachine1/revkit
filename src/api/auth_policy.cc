@@ -136,8 +136,11 @@ const std::map<std::string, MethodPolicy, std::less<>> &Table() {
       {"revkit.v1.QueryService/ListSymbolTree", kViewProject},
       {"revkit.v1.QueryService/PlanClearFlow", kViewProject},
       {"revkit.v1.QueryService/ListRelocations", kViewProject},
+      {"revkit.v1.QueryService/GetBuildInfo", kViewProject},
+      {"revkit.v1.QueryService/TraceValue", kViewProject},
       {"revkit.v1.QueryService/ListLibraryImporters", kViewProject},
       {"revkit.v1.QueryService/GetClassHierarchy", kViewProject},
+      {"revkit.v1.QueryService/ListObjcClasses", kViewProject},
       {"revkit.v1.QueryService/ListCallingConventions", kViewProject},
       // Batch reads for scripts (api_minor 29): what the per-item reads
       // (Decompile, ReadMemory, GetInstruction) allow, in one call.
@@ -319,6 +322,15 @@ const std::map<std::string, MethodPolicy, std::less<>> &Table() {
       {"revkit.v1.FileSystemService/ExtractFromFileSystem", kAdmin},
       {"revkit.v1.FileSystemService/CloseFileSystem", kView},
       {"revkit.v1.FileSystemService/ListFileSystems", kView},
+      // External decompilers (api_minor 92, docs/providers.md): they read
+      // what the caller can read (a program of a project it views, a file
+      // of a session it opened: the backend checks the owner) and run a
+      // bounded, sandboxed tool on it; the settings name host paths.
+      {"revkit.v1.ProviderService/ListProviders", kView},
+      {"revkit.v1.ProviderService/DecompileExternal", kView},
+      {"revkit.v1.ProviderService/ReadProviderOutput", kView},
+      {"revkit.v1.ProviderService/GetProviderSettings", kAdmin},
+      {"revkit.v1.ProviderService/SetProviderSettings", kAdmin},
       // BSim databases (docs/bsim.md): one at a host path is admin's
       // (Authorize); the rest name an attached one.
       {"revkit.v1.BSimService/CreateBSimDatabase", kEditProject},

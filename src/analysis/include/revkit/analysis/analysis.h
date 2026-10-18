@@ -147,6 +147,7 @@ enum SeedFlags : std::uint16_t {
   kSeedInit = 1 << 4,      // DT_INIT/DT_FINI or a (pre)init/fini array entry
   kSeedPlt = 1 << 5,       // a PLT stub or the PLT header
   kSeedProcessor = 1 << 6, // an entry point the processor spec names (ARM's exception vectors)
+  kSeedFunctionStarts = 1 << 7,  // a Mach-O LC_FUNCTION_STARTS entry
 };
 
 struct Seed {
@@ -310,6 +311,8 @@ struct ProgramInfo {
   // and data tables strengthen (see Functions).
   bool search = false;
   std::vector<StartPattern> patterns;
+  // A Mach-O: no-return names are its list's (is_known_no_return).
+  bool macho = false;
   // Memory the user added to the map (analysis.memory, memory.h) whose
   // bytes aren't the program's own pages: zero-filled regions (space 0)
   // and a file's bytes staged in another space at `offset`. Sorted,
@@ -872,7 +875,9 @@ class CodeReader {
 };
 
 // Imported or local functions known never to return, by name. Leading
-// underscores are ignored, as Ghidra ignores them (_exit, __exit).
-bool is_known_no_return(std::string_view name);
+// underscores are ignored, as Ghidra ignores them (_exit, __exit). A
+// Mach-O's list (`macho`) adds MachOFunctionsThatDoNotReturn's names
+// (objc_exception_throw, Swift's fatal errors, __clang_call_terminate).
+bool is_known_no_return(std::string_view name, bool macho = false);
 
 }  // namespace revkit::analysis

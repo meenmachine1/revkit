@@ -26,6 +26,7 @@
 #include "decompiler.h"
 #include "model.h"
 
+#include "revkit/infer/types_bridge.h"
 #include "revkit/infer/vtype.h"
 #include "revkit/facts/engine.h"
 #include "revkit/inputs/ghidra_types.h"
@@ -240,6 +241,8 @@ class QueryLookup final : public RunLookup {
     types::TypeId id;
   };
   std::unique_ptr<Asserted> asserted_type(const std::string &hash);
+  // The program's types an inferred prototype's structures name, by name.
+  infer::StructureIds inferred_structures(const infer::Prototype &p, types::TypeStore &store);
   bool prototype_from(const Asserted &t, lift::FunctionFacts &out, bool warn);
   // An analysis-rank prototype (a virtual method's, docs/pe.md): it types
   // `this` alone, in the prototype's calling convention, and leaves the

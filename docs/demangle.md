@@ -192,4 +192,4 @@ rows, decompiler and the setting) test it.
   gives no prototype at all.
 - A PLT stub named after a demangled import keeps the demangled name when
   the import's target is renamed (stubs are named by analysis, as before).
-- Swift names aren't demangled (Mach-O is deferred).
+- Swift names aren't demangled (a Mach-O's Swift types are read by their descriptors, [macho.md](macho.md#objective-c-and-swift), but their mangled symbols stay as they are).

@@ -34,6 +34,7 @@ constexpr unsigned kDirExport = 0;
 constexpr unsigned kDirImport = 1;
 constexpr unsigned kDirException = 3;
 constexpr unsigned kDirDebug = 6;
+constexpr unsigned kDirClr = 14;  // IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR
 
 constexpr std::uint32_t kDebugTypeCodeView = 2;
 
@@ -82,6 +83,7 @@ class PeParser {
     best_effort("import directory", [&] { read_imports(); });
     best_effort("debug directory", [&] { read_debug(); });
     best_effort("exception directory", [&] { read_pdata(); });
+    best_effort("CLR header", [&] { read_clr(); });
     std::sort(img_.blocks.begin(), img_.blocks.end(),
               [](const Block &a, const Block &b) { return a.start < b.start; });
     return std::move(img_);
@@ -501,6 +503,64 @@ class PeParser {
                           [](const FunctionRange &a, const FunctionRange &b) { return a.start == b.start; }),
               out.end());
     img_.function_ranges = std::move(out);
+  }
+
+  // A .NET assembly: the CLR header (ECMA-335 II.25.3.3) and the metadata
+  // root's version string and stream names (II.24.2.1, II.24.2.2).
+  void read_clr() {
+    const DataDir &d = dirs_[kDirClr];
+    if (d.rva == 0 || d.size == 0) return;
+    const std::uint32_t cb = u32_at(d.rva, "CLR header");
+    if (cb < 72) fail("its size is " + std::to_string(cb) + " bytes, under 72");
+    DotNetInfo n;
+    n.runtime_major = u16_at(d.rva + 4, "CLR header");
+    n.runtime_minor = u16_at(d.rva + 6, "CLR header");
+    n.metadata_rva = u32_at(d.rva + 8, "CLR header");
+    n.metadata_size = u32_at(d.rva + 12, "CLR header");
+    n.flags = u32_at(d.rva + 16, "CLR header");
+    n.entry_point = u32_at(d.rva + 20, "CLR header");
+    n.resources_rva = u32_at(d.rva + 24, "CLR header");
+    n.resources_size = u32_at(d.rva + 28, "CLR header");
+    n.il_only = (n.flags & 0x1) != 0;
+    n.requires_32bit = (n.flags & 0x2) != 0;
+    n.strong_name_signed = (n.flags & 0x8) != 0;
+    n.native_entry_point = (n.flags & 0x10) != 0;
+    n.prefers_32bit = (n.flags & 0x20000) != 0;
+    if (const std::uint32_t mnh = u32_at(d.rva + 64, "CLR header"); mnh != 0) {
+      try {
+        n.ready_to_run = u32_at(mnh, "ReadyToRun header") == 0x00525452;  // "RTR"
+      } catch (const LoadError &) {
+      }
+    }
+    img_.dotnet = n;
+    if (n.metadata_rva == 0) return;
+    DotNetInfo &out = *img_.dotnet;
+    const std::uint64_t root = offset_of(n.metadata_rva, "metadata root");
+    if (r_.u32(root, "metadata root") != 0x424a5342) {  // "BSJB"
+      warn("PE: CLR header: the metadata root has no BSJB signature");
+      return;
+    }
+    const std::uint32_t vlen = r_.u32(checked_add(root, 12, "metadata root"), "metadata root");
+    if (vlen > 255) fail("the metadata version string is " + std::to_string(vlen) + " bytes long");
+    const std::uint64_t vstart = checked_add(root, 16, "metadata root");
+    if (vlen) {
+      auto v = r_.bytes(vstart, vlen, "metadata version");
+      for (std::byte b : v) {
+        if (b == std::byte{0}) break;
+        out.metadata_version.push_back(static_cast<char>(b));
+      }
+    }
+    for (char &c : out.metadata_version)
+      if (static_cast<unsigned char>(c) < 0x20 || static_cast<unsigned char>(c) > 0x7e) c = '?';
+    const std::uint64_t after = checked_add(vstart, (vlen + 3) & ~3u, "metadata root");
+    const std::uint16_t nstreams = r_.u16(checked_add(after, 2, "metadata root"), "metadata root");
+    std::uint64_t at = checked_add(after, 4, "metadata root");
+    for (std::uint16_t i = 0; i < std::min<std::uint16_t>(nstreams, 16); ++i) {
+      const std::uint64_t name_at = checked_add(at, 8, "metadata stream header");
+      const std::string name = r_.cstring(name_at, 32, "metadata stream name");
+      out.streams.push_back(readable(name));
+      at = checked_add(name_at, (name.size() + 1 + 3) & ~std::size_t{3}, "metadata stream header");
+    }
   }
 
   std::shared_ptr<const Bytes> file_;
