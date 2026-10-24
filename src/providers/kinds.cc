@@ -23,7 +23,9 @@ class SpanSource final : public container::Source {
   std::size_t read(std::uint64_t offset, std::span<std::byte> out) const override {
     if (offset >= b_.size()) return 0;
     const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(out.size(), b_.size() - offset));
-    std::memcpy(out.data(), b_.data() + offset, n);
+    // A 0-byte read may come with a null buffer (a zip's empty field):
+    // memcpy of null is undefined even for 0 bytes (providers_kinds_fuzzer).
+    if (n != 0) std::memcpy(out.data(), b_.data() + offset, n);
     return n;
   }
   std::span<const std::byte> view() const override { return b_; }

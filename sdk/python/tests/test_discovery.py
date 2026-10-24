@@ -127,8 +127,10 @@ def test_asserted_entry_is_discovered_and_rebuilds_rows(image_daemon, stripped):
         assert page.rows[0].kind == listing_pb2.LISTING_ROW_KIND_UNDEFINED
 
         with rk.subscribe("default", programs=[prog.id]) as sub:
-            prog.set_function(hidden, reason="only a pointer reaches it")
-            event = sub.next_revision()
+            done = prog.set_function(hidden, reason="only a pointer reaches it")
+            # This edit's event: inference publishes its own revision after
+            # an import (analysis:infer.prototypes), which may come first.
+            event = sub.wait_for(lambda e: e.HasField("revision") and e.revision.revision == done.snapshot.revision).revision
 
         after = {f.entry.offset: f for f in prog.functions()}
         assert hidden in after

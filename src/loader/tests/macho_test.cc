@@ -576,5 +576,101 @@ TEST(Macho, ToleratesBadLinkeditData) {
   EXPECT_TRUE(img.symbols.empty());
 }
 
+// Bug scrub part 3 (fuzz_macho): one DO_BIND_ULEB_TIMES_SKIPPING asking
+// for 16M binds of a long name made gigabytes from a few hundred bytes.
+// Fixups are capped by the pointers the file can hold, and their names
+// share the name budget.
+TEST(Macho, BindCountsAreBoundedByTheFile) {
+  Mini mini;
+  const std::size_t at = 0x5000;
+  std::size_t p = at;
+  mini.m.put(p++, 0x11, 1);  // SET_DYLIB_ORDINAL_IMM 1
+  mini.m.put(p++, 0x40, 1);  // SET_SYMBOL_TRAILING_FLAGS_IMM
+  const std::string name(4000, 'x');
+  mini.m.str(p, name, name.size() + 1);
+  p += name.size() + 1;
+  mini.m.put(p++, 0x71, 1);  // SET_SEGMENT_AND_OFFSET_ULEB: segment 1 (__DATA), offset 0
+  mini.m.put(p++, 0, 1);
+  mini.m.put(p++, 0xc0, 1);  // DO_BIND_ULEB_TIMES_SKIPPING_ULEB: 2^24 times, skipping 0
+  for (std::uint8_t b : {0x80, 0x80, 0x80, 0x08}) mini.m.put(p++, b, 1);
+  mini.m.put(p++, 0, 1);
+  mini.m.put(p++, 0, 1);  // DONE
+  mini.dylib("/usr/lib/libSystem.B.dylib");
+  mini.command(0x80000022, {0, 0, static_cast<std::uint32_t>(at), static_cast<std::uint32_t>(p - at), 0, 0, 0, 0, 0, 0});
+  const Image img = parse(mini.m.bytes());
+  EXPECT_LE(img.relocations.size(), mini.m.b.size() / 8 + 65536);
+  EXPECT_LE(img.imports.size(), mini.m.b.size() / 8 + 65536);
+  // The 4,000-byte name reaches the name budget first (33,000 binds).
+  EXPECT_TRUE(std::any_of(img.warnings.begin(), img.warnings.end(),
+                          [](const std::string &w) { return w.find("names over") != std::string::npos; }))
+      << ::testing::PrintToString(img.warnings);
+  // A short name, the count cap.
+  Mini small;
+  p = at;
+  small.m.put(p++, 0x11, 1);
+  small.m.put(p++, 0x40, 1);
+  small.m.str(p, "_x", 3);
+  p += 3;
+  small.m.put(p++, 0x71, 1);
+  small.m.put(p++, 0, 1);
+  small.m.put(p++, 0xc0, 1);
+  for (std::uint8_t b : {0x80, 0x80, 0x80, 0x08}) small.m.put(p++, b, 1);
+  small.m.put(p++, 0, 1);
+  small.m.put(p++, 0, 1);
+  small.dylib("/usr/lib/libSystem.B.dylib");
+  small.command(0x80000022, {0, 0, static_cast<std::uint32_t>(at), static_cast<std::uint32_t>(p - at), 0, 0, 0, 0, 0, 0});
+  const Image img2 = parse(small.m.bytes());
+  EXPECT_LE(img2.relocations.size(), small.m.b.size() / 8 + 65536);
+  EXPECT_TRUE(std::any_of(img2.warnings.begin(), img2.warnings.end(),
+                          [](const std::string &w) { return w.find("fixups for a file of this size") != std::string::npos; }))
+      << ::testing::PrintToString(img2.warnings);
+  // A threaded bind table of 2^24 entries (arm64e before chained fixups):
+  // 671 MB reserved by one ULEB.
+  Mini threaded;
+  p = at;
+  threaded.m.put(p++, 0xd0, 1);  // THREADED | SET_BIND_ORDINAL_TABLE_SIZE_ULEB
+  for (std::uint8_t b : {0x80, 0x80, 0x80, 0x08}) threaded.m.put(p++, b, 1);
+  threaded.m.put(p++, 0, 1);
+  threaded.dylib("/usr/lib/libSystem.B.dylib");
+  threaded.command(0x80000022, {0, 0, static_cast<std::uint32_t>(at), static_cast<std::uint32_t>(p - at), 0, 0, 0, 0, 0, 0});
+  const Image img3 = parse(threaded.m.bytes());
+  EXPECT_TRUE(std::any_of(img3.warnings.begin(), img3.warnings.end(),
+                          [](const std::string &w) { return w.find("absurd threaded bind table") != std::string::npos; }))
+      << ::testing::PrintToString(img3.warnings);
+}
+
+// Bug scrub part 3: an export trie that is one long chain of terminal
+// nodes names exports whose lengths sum to the square of its depth (30,000
+// nodes in 270 KB: 450 MB of names). They share the name budget.
+TEST(Macho, ExportTrieChainsAreBudgeted) {
+  Mini mini;
+  constexpr std::uint32_t kNodes = 30000;
+  const std::size_t trie = 0x6000;
+  std::size_t at = trie;
+  for (std::uint32_t i = 0; i < kNodes; ++i) {
+    const std::size_t node = at - trie;
+    mini.m.put(at++, 2, 1);  // terminal: flags 0, address 0
+    mini.m.put(at++, 0, 1);
+    mini.m.put(at++, 0, 1);
+    mini.m.put(at++, i + 1 < kNodes ? 1 : 0, 1);
+    if (i + 1 == kNodes) break;
+    mini.m.put(at++, 'a', 1);
+    mini.m.put(at++, 0, 1);
+    const std::size_t child = node + 9;  // this node is 9 bytes: a 3-byte uleb
+    mini.m.put(at++, (child & 0x7f) | 0x80, 1);
+    mini.m.put(at++, ((child >> 7) & 0x7f) | 0x80, 1);
+    mini.m.put(at++, child >> 14, 1);
+  }
+  mini.command(0x80000033, {static_cast<std::uint32_t>(trie), static_cast<std::uint32_t>(at - trie)});
+  const Image img = parse(mini.m.bytes());
+  std::uint64_t bytes = 0;
+  for (const Export &e : img.exports) bytes += e.name.size();
+  EXPECT_LE(bytes, 256ull << 20);
+  EXPECT_GT(img.exports.size(), 1000u);
+  EXPECT_LT(img.exports.size(), kNodes);
+  EXPECT_TRUE(std::any_of(img.warnings.begin(), img.warnings.end(),
+                          [](const std::string &w) { return w.find("export names") != std::string::npos; }));
+}
+
 }  // namespace
 }  // namespace revkit::loader

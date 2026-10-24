@@ -191,6 +191,32 @@ class Backend {
   virtual Status ResolveImport(const CallContext &, const pb::ResolveImportRequest &, pb::ResolveImportResponse &) {
     return Error(StatusCode::kUnimplemented, "ResolveImport is not implemented by this backend");
   }
+  // Nintendo DS games (api_minor 103, feature "nds"; docs/nds.md).
+  virtual Status ExportDecompScratch(const CallContext &, const pb::ExportDecompScratchRequest &,
+                                     pb::ExportDecompScratchResponse &) {
+    return Error(StatusCode::kUnimplemented, "ExportDecompScratch is not implemented by this backend");
+  }
+  virtual Status ImportDsdProject(const CallContext &, const pb::ImportDsdProjectRequest &,
+                                  pb::ImportDsdProjectResponse &) {
+    return Error(StatusCode::kUnimplemented, "ImportDsdProject is not implemented by this backend");
+  }
+  virtual Status ImportNdsRom(const CallContext &, const pb::ImportNdsRomRequest &, pb::ImportNdsRomResponse &) {
+    return Error(StatusCode::kUnimplemented, "ImportNdsRom is not implemented by this backend");
+  }
+  virtual Status CompactProject(const CallContext &, const pb::CompactProjectRequest &, pb::CompactProjectResponse &) {
+    return Error(StatusCode::kUnimplemented, "CompactProject is not implemented by this backend");
+  }
+  virtual Status ExportDsdSymbols(const CallContext &, const pb::ExportDsdSymbolsRequest &,
+                                  pb::ExportDsdSymbolsResponse &) {
+    return Error(StatusCode::kUnimplemented, "ExportDsdSymbols is not implemented by this backend");
+  }
+  // The decomp knowledge base (api_minor 105, feature "decomp-kb"; docs/decomp-kb.md).
+  virtual Status BuildDecompKb(const CallContext &, const pb::BuildDecompKbRequest &, pb::BuildDecompKbResponse &) {
+    return Error(StatusCode::kUnimplemented, "BuildDecompKb is not implemented by this backend");
+  }
+  virtual Status ApplyDecompKb(const CallContext &, const pb::ApplyDecompKbRequest &, pb::ApplyDecompKbResponse &) {
+    return Error(StatusCode::kUnimplemented, "ApplyDecompKb is not implemented by this backend");
+  }
   // Added in api_minor 22 (feature "import-progress"): an import's progress,
   // only for the caller (CallContext.caller) that started it.
   virtual Status GetImportProgress(const CallContext &, const pb::GetImportProgressRequest &,
@@ -523,6 +549,7 @@ class Backend {
   RK_DEBUG_RPC(WriteDebugInput)
   RK_DEBUG_RPC(GetDebugMachine)
   RK_DEBUG_RPC(GetDebugBacktrace)
+  RK_DEBUG_RPC(GetDebugCrash)  // api_minor 102, docs/crash-dumps.md
   RK_DEBUG_RPC(EvaluateDebug)
   RK_DEBUG_RPC(DisassembleDebugMemory)
   RK_DEBUG_RPC(CopyDebugMemory)
@@ -588,6 +615,13 @@ class Backend {
   RK_FS_RPC(ExtractFromFileSystem)
   RK_FS_RPC(CloseFileSystem)
   RK_FS_RPC(ListFileSystems)
+  // Android packages (api_minor 98, docs/android.md).
+  RK_FS_RPC(GetAndroidPackage)
+  RK_FS_RPC(DecodeAndroidXml)
+  RK_FS_RPC(ListAndroidResources)
+  RK_FS_RPC(GetAppleBundle)
+  RK_FS_RPC(ReadPropertyList)
+  RK_FS_RPC(ListUiActions)
 #undef RK_FS_RPC
 
   // BSimService (api_minor 69, docs/bsim.md). Not pure: a backend without a

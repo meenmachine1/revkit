@@ -2,8 +2,9 @@
 # per format, from one source naming its format, and one for the LZ4 and
 # LZO1X block decoders, and one for the bytecode headers (docs/filesystems.md, "Fuzzing"; docs/roadmap.md,
 # "Bug scrub").
-foreach(format zip tar cpio ar iso9660 gzip bzip2 xz lzma zstd lz4 squashfs ext cramfs fat uimage android-boot uf2 partitions codecs
-               bytecode asar pyinstaller pyz lua-chunks node-sea pkg nexe bun)
+foreach(format zip tar cpio ar iso9660 gzip bzip2 xz lzma zstd lz4 squashfs ext cramfs fat uimage android-boot uf2 partitions
+               jffs2 ubi ubifs yaffs2 trx android-sparse dtb ihex srec codecs
+               bytecode asar pyinstaller pyz lua-chunks node-sea pkg nexe bun nds narc)
   string(REPLACE "-" "_" name "${format}")
   add_executable(container_${name}_fuzzer container_fuzzer.cc)
   target_compile_definitions(container_${name}_fuzzer PRIVATE RK_FUZZ_FORMAT="${format}")

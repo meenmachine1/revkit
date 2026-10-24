@@ -34,6 +34,7 @@ import { SubscriptionService } from "./gen/revkit/v1/subscription_pb";
 import { TypeService } from "./gen/revkit/v1/types_pb";
 
 export * from "./gen/revkit/v1/analysis_pb";
+export * from "./gen/revkit/v1/apple_pb";
 export * from "./gen/revkit/v1/assertion_pb";
 export * from "./gen/revkit/v1/auth_pb";
 export * from "./gen/revkit/v1/bsim_pb";

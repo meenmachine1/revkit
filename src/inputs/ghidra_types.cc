@@ -139,6 +139,7 @@ struct BaseInfo {
 DataOrg data_org(const loader::Image &image, const std::string &language_id) {
   DataOrg o;
   o.pointer = image.bits / 8;
+  o.big_endian = language_id.find(":BE:") != std::string::npos;
   const bool x86 = language_id.starts_with("x86:");
   const bool pe = image.format == loader::Format::pe;
   if (x86 && image.bits == 64) {
@@ -459,10 +460,44 @@ DecompElement GhidraTypes::aggregate(types::TypeId id, const types::AggregateTyp
   if (a.complete && a.size != 0) {
     int ordinal = 0;
     std::uint64_t end = 0;
+    std::uint64_t last_off = 0;  // the offset of the field or bitfield before
+    bool last_was_bitfield = false;
     for (const types::Field &f : a.fields) {
-      if (f.bit_size != 0 || f.bit_offset % 8 != 0) {
+      if (f.bit_size != 0) {
+        // A bitfield as the decompiler's <bitfield>: the byte offset of
+        // its container (the bytes it spans) and its least significant
+        // bit there. Bits count in memory order (from the least
+        // significant end of a little-endian unit, the most significant
+        // of a big-endian one), as cparse and DWARF lay them out.
+        const std::uint64_t first_byte = f.bit_offset / 8;
+        const std::uint64_t span = (f.bit_offset % 8 + f.bit_size + 7) / 8;
+        const std::uint64_t lsb = org_.big_endian ? span * 8 - (f.bit_offset % 8 + f.bit_size) : f.bit_offset % 8;
+        const types::Type &ft = store_.get(store_.strip_typedefs(f.type));
+        const bool integral = ft.kind() == types::Kind::Int || ft.kind() == types::Kind::Bool ||
+                              ft.kind() == types::Kind::Enum;
+        // In order, inside the aggregate, and sharing bytes only with the
+        // bitfield before it (the decompiler drops anything else).
+        if (is_union || f.name.empty() || !integral || first_byte + span > a.size || first_byte < last_off ||
+            (first_byte < end && !last_was_bitfield)) {
+          ++ordinal;
+          continue;
+        }
+        fields.push_back(el("bitfield",
+                            {{"first", static_cast<std::int64_t>(lsb)},
+                             {"id", std::int64_t{ordinal}},
+                             {"name", f.name},
+                             {"offset", static_cast<std::int64_t>(first_byte)},
+                             {"size", static_cast<std::int64_t>(f.bit_size)}},
+                            {ref(f.type)}));
+        end = std::max(end, first_byte + span);
+        last_off = first_byte;
+        last_was_bitfield = true;
         ++ordinal;
-        continue;  // bitfields are left out
+        continue;
+      }
+      if (f.bit_offset % 8 != 0) {
+        ++ordinal;
+        continue;
       }
       const std::uint64_t off = f.bit_offset / 8;
       const std::uint64_t fsize = store_.size_of(f.type);
@@ -478,6 +513,8 @@ DecompElement GhidraTypes::aggregate(types::TypeId id, const types::AggregateTyp
       fa.emplace_back("offset", static_cast<std::int64_t>(is_union ? 0 : off));
       fields.push_back(el("field", std::move(fa), {ref(f.type)}));
       if (!is_union) end = off + fsize;
+      last_off = is_union ? 0 : off;
+      last_was_bitfield = false;
       ++ordinal;
     }
   }

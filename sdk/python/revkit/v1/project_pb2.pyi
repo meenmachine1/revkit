@@ -1,6 +1,7 @@
 import datetime
 
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
+from revkit.v1 import apple_pb2 as _apple_pb2
 from revkit.v1 import assertion_pb2 as _assertion_pb2
 from revkit.v1 import common_pb2 as _common_pb2
 from google.protobuf.internal import containers as _containers
@@ -11,6 +12,13 @@ from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class NameConflict(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    NAME_CONFLICT_UNSPECIFIED: _ClassVar[NameConflict]
+    NAME_CONFLICT_KEEP_BOTH: _ClassVar[NameConflict]
+    NAME_CONFLICT_REPLACE: _ClassVar[NameConflict]
+    NAME_CONFLICT_REFUSE: _ClassVar[NameConflict]
 
 class ImportPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -88,6 +96,10 @@ class MemoryBlockSourceKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     MEMORY_BLOCK_SOURCE_KIND_FILE: _ClassVar[MemoryBlockSourceKind]
     MEMORY_BLOCK_SOURCE_KIND_ZERO: _ClassVar[MemoryBlockSourceKind]
     MEMORY_BLOCK_SOURCE_KIND_NONE: _ClassVar[MemoryBlockSourceKind]
+NAME_CONFLICT_UNSPECIFIED: NameConflict
+NAME_CONFLICT_KEEP_BOTH: NameConflict
+NAME_CONFLICT_REPLACE: NameConflict
+NAME_CONFLICT_REFUSE: NameConflict
 IMPORT_PHASE_UNSPECIFIED: ImportPhase
 IMPORT_PHASE_READING: ImportPhase
 IMPORT_PHASE_LOADING: ImportPhase
@@ -906,7 +918,7 @@ class CloseProjectResponse(_message.Message):
     def __init__(self) -> None: ...
 
 class ProgramInfo(_message.Message):
-    __slots__ = ("program_id", "project_id", "name", "format", "language_id", "sha256", "imported_at", "deleted", "deleted_origin", "name_origin", "folder_id", "folder_path", "folder_origin", "container_path", "compiler_spec_id", "file_size", "macho_slice", "macho_slices", "dotnet", "payload_format")
+    __slots__ = ("program_id", "project_id", "name", "format", "language_id", "sha256", "imported_at", "deleted", "deleted_origin", "name_origin", "folder_id", "folder_path", "folder_origin", "container_path", "compiler_spec_id", "file_size", "macho_slice", "macho_slices", "dotnet", "payload_format", "crash_dump")
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
     PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
@@ -927,6 +939,7 @@ class ProgramInfo(_message.Message):
     MACHO_SLICES_FIELD_NUMBER: _ClassVar[int]
     DOTNET_FIELD_NUMBER: _ClassVar[int]
     PAYLOAD_FORMAT_FIELD_NUMBER: _ClassVar[int]
+    CRASH_DUMP_FIELD_NUMBER: _ClassVar[int]
     program_id: str
     project_id: str
     name: str
@@ -947,7 +960,8 @@ class ProgramInfo(_message.Message):
     macho_slices: _containers.RepeatedScalarFieldContainer[str]
     dotnet: DotNetAssembly
     payload_format: str
-    def __init__(self, program_id: _Optional[str] = ..., project_id: _Optional[str] = ..., name: _Optional[str] = ..., format: _Optional[str] = ..., language_id: _Optional[str] = ..., sha256: _Optional[str] = ..., imported_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., deleted: _Optional[bool] = ..., deleted_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., name_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., folder_id: _Optional[str] = ..., folder_path: _Optional[str] = ..., folder_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., container_path: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., file_size: _Optional[int] = ..., macho_slice: _Optional[str] = ..., macho_slices: _Optional[_Iterable[str]] = ..., dotnet: _Optional[_Union[DotNetAssembly, _Mapping]] = ..., payload_format: _Optional[str] = ...) -> None: ...
+    crash_dump: str
+    def __init__(self, program_id: _Optional[str] = ..., project_id: _Optional[str] = ..., name: _Optional[str] = ..., format: _Optional[str] = ..., language_id: _Optional[str] = ..., sha256: _Optional[str] = ..., imported_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., deleted: _Optional[bool] = ..., deleted_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., name_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., folder_id: _Optional[str] = ..., folder_path: _Optional[str] = ..., folder_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., container_path: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., file_size: _Optional[int] = ..., macho_slice: _Optional[str] = ..., macho_slices: _Optional[_Iterable[str]] = ..., dotnet: _Optional[_Union[DotNetAssembly, _Mapping]] = ..., payload_format: _Optional[str] = ..., crash_dump: _Optional[str] = ...) -> None: ...
 
 class DotNetAssembly(_message.Message):
     __slots__ = ("metadata_version", "runtime_version", "flags", "il_only", "mixed_mode", "ready_to_run", "strong_name_signed", "requires_32bit", "prefers_32bit", "entry_point", "native_entry_point", "streams", "code_analysis_skipped", "description")
@@ -1002,7 +1016,7 @@ class ListProgramsResponse(_message.Message):
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., programs: _Optional[_Iterable[_Union[ProgramInfo, _Mapping]]] = ..., folders: _Optional[_Iterable[_Union[ProjectFolder, _Mapping]]] = ...) -> None: ...
 
 class ImportProgramRequest(_message.Message):
-    __slots__ = ("project_id", "path", "content", "program_file", "name", "options", "provenance", "import_id", "folder_id")
+    __slots__ = ("project_id", "path", "content", "program_file", "name", "options", "provenance", "import_id", "folder_id", "on_conflict")
     PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
     PATH_FIELD_NUMBER: _ClassVar[int]
     CONTENT_FIELD_NUMBER: _ClassVar[int]
@@ -1012,6 +1026,7 @@ class ImportProgramRequest(_message.Message):
     PROVENANCE_FIELD_NUMBER: _ClassVar[int]
     IMPORT_ID_FIELD_NUMBER: _ClassVar[int]
     FOLDER_ID_FIELD_NUMBER: _ClassVar[int]
+    ON_CONFLICT_FIELD_NUMBER: _ClassVar[int]
     project_id: str
     path: str
     content: bytes
@@ -1021,7 +1036,8 @@ class ImportProgramRequest(_message.Message):
     provenance: _common_pb2.Provenance
     import_id: str
     folder_id: str
-    def __init__(self, project_id: _Optional[str] = ..., path: _Optional[str] = ..., content: _Optional[bytes] = ..., program_file: _Optional[str] = ..., name: _Optional[str] = ..., options: _Optional[_Union[ImportOptions, _Mapping]] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., import_id: _Optional[str] = ..., folder_id: _Optional[str] = ...) -> None: ...
+    on_conflict: NameConflict
+    def __init__(self, project_id: _Optional[str] = ..., path: _Optional[str] = ..., content: _Optional[bytes] = ..., program_file: _Optional[str] = ..., name: _Optional[str] = ..., options: _Optional[_Union[ImportOptions, _Mapping]] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., import_id: _Optional[str] = ..., folder_id: _Optional[str] = ..., on_conflict: _Optional[_Union[NameConflict, str]] = ...) -> None: ...
 
 class GetImportProgressRequest(_message.Message):
     __slots__ = ("project_id", "import_id")
@@ -1194,7 +1210,7 @@ class CancelRawDetectResponse(_message.Message):
     def __init__(self) -> None: ...
 
 class ImportOptions(_message.Message):
-    __slots__ = ("format", "language_id", "compiler_spec_id", "has_image_base", "image_base", "analyze", "raw_offset", "raw_length", "raw_permissions", "has_entry_point", "entry_point", "regions", "raw_space", "raw_format", "import_libraries", "library_search_paths", "library_depth", "library_root", "macho_slice")
+    __slots__ = ("format", "language_id", "compiler_spec_id", "has_image_base", "image_base", "analyze", "raw_offset", "raw_length", "raw_permissions", "has_entry_point", "entry_point", "regions", "raw_space", "raw_format", "import_libraries", "library_search_paths", "library_depth", "library_root", "macho_slice", "memory_preset")
     FORMAT_FIELD_NUMBER: _ClassVar[int]
     LANGUAGE_ID_FIELD_NUMBER: _ClassVar[int]
     COMPILER_SPEC_ID_FIELD_NUMBER: _ClassVar[int]
@@ -1214,6 +1230,7 @@ class ImportOptions(_message.Message):
     LIBRARY_DEPTH_FIELD_NUMBER: _ClassVar[int]
     LIBRARY_ROOT_FIELD_NUMBER: _ClassVar[int]
     MACHO_SLICE_FIELD_NUMBER: _ClassVar[int]
+    MEMORY_PRESET_FIELD_NUMBER: _ClassVar[int]
     format: str
     language_id: str
     compiler_spec_id: str
@@ -1233,7 +1250,8 @@ class ImportOptions(_message.Message):
     library_depth: int
     library_root: str
     macho_slice: str
-    def __init__(self, format: _Optional[str] = ..., language_id: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., has_image_base: _Optional[bool] = ..., image_base: _Optional[int] = ..., analyze: _Optional[bool] = ..., raw_offset: _Optional[int] = ..., raw_length: _Optional[int] = ..., raw_permissions: _Optional[str] = ..., has_entry_point: _Optional[bool] = ..., entry_point: _Optional[int] = ..., regions: _Optional[_Iterable[_Union[MemoryRegion, _Mapping]]] = ..., raw_space: _Optional[str] = ..., raw_format: _Optional[str] = ..., import_libraries: _Optional[bool] = ..., library_search_paths: _Optional[_Iterable[str]] = ..., library_depth: _Optional[int] = ..., library_root: _Optional[str] = ..., macho_slice: _Optional[str] = ...) -> None: ...
+    memory_preset: str
+    def __init__(self, format: _Optional[str] = ..., language_id: _Optional[str] = ..., compiler_spec_id: _Optional[str] = ..., has_image_base: _Optional[bool] = ..., image_base: _Optional[int] = ..., analyze: _Optional[bool] = ..., raw_offset: _Optional[int] = ..., raw_length: _Optional[int] = ..., raw_permissions: _Optional[str] = ..., has_entry_point: _Optional[bool] = ..., entry_point: _Optional[int] = ..., regions: _Optional[_Iterable[_Union[MemoryRegion, _Mapping]]] = ..., raw_space: _Optional[str] = ..., raw_format: _Optional[str] = ..., import_libraries: _Optional[bool] = ..., library_search_paths: _Optional[_Iterable[str]] = ..., library_depth: _Optional[int] = ..., library_root: _Optional[str] = ..., macho_slice: _Optional[str] = ..., memory_preset: _Optional[str] = ...) -> None: ...
 
 class MemoryRegion(_message.Message):
     __slots__ = ("name", "start", "size", "read", "write", "execute", "initialized", "is_volatile", "space")
@@ -1258,7 +1276,7 @@ class MemoryRegion(_message.Message):
     def __init__(self, name: _Optional[str] = ..., start: _Optional[int] = ..., size: _Optional[int] = ..., read: _Optional[bool] = ..., write: _Optional[bool] = ..., execute: _Optional[bool] = ..., initialized: _Optional[bool] = ..., is_volatile: _Optional[bool] = ..., space: _Optional[str] = ...) -> None: ...
 
 class ImportProgramResponse(_message.Message):
-    __slots__ = ("snapshot", "program", "analysis_job_id", "warnings", "libraries", "libraries_not_found", "library_root")
+    __slots__ = ("snapshot", "program", "analysis_job_id", "warnings", "libraries", "libraries_not_found", "library_root", "name_taken_by", "replaced_program_id")
     SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
     PROGRAM_FIELD_NUMBER: _ClassVar[int]
     ANALYSIS_JOB_ID_FIELD_NUMBER: _ClassVar[int]
@@ -1266,6 +1284,8 @@ class ImportProgramResponse(_message.Message):
     LIBRARIES_FIELD_NUMBER: _ClassVar[int]
     LIBRARIES_NOT_FOUND_FIELD_NUMBER: _ClassVar[int]
     LIBRARY_ROOT_FIELD_NUMBER: _ClassVar[int]
+    NAME_TAKEN_BY_FIELD_NUMBER: _ClassVar[int]
+    REPLACED_PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
     snapshot: _common_pb2.Snapshot
     program: ProgramInfo
     analysis_job_id: str
@@ -1273,7 +1293,9 @@ class ImportProgramResponse(_message.Message):
     libraries: _containers.RepeatedCompositeFieldContainer[ProgramInfo]
     libraries_not_found: _containers.RepeatedCompositeFieldContainer[MissingLibrary]
     library_root: str
-    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., program: _Optional[_Union[ProgramInfo, _Mapping]] = ..., analysis_job_id: _Optional[str] = ..., warnings: _Optional[_Iterable[str]] = ..., libraries: _Optional[_Iterable[_Union[ProgramInfo, _Mapping]]] = ..., libraries_not_found: _Optional[_Iterable[_Union[MissingLibrary, _Mapping]]] = ..., library_root: _Optional[str] = ...) -> None: ...
+    name_taken_by: str
+    replaced_program_id: str
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., program: _Optional[_Union[ProgramInfo, _Mapping]] = ..., analysis_job_id: _Optional[str] = ..., warnings: _Optional[_Iterable[str]] = ..., libraries: _Optional[_Iterable[_Union[ProgramInfo, _Mapping]]] = ..., libraries_not_found: _Optional[_Iterable[_Union[MissingLibrary, _Mapping]]] = ..., library_root: _Optional[str] = ..., name_taken_by: _Optional[str] = ..., replaced_program_id: _Optional[str] = ...) -> None: ...
 
 class MissingLibrary(_message.Message):
     __slots__ = ("name", "needed_by")
@@ -1408,7 +1430,7 @@ class GetProgramSummaryResponse(_message.Message):
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., summary: _Optional[_Union[ProgramSummary, _Mapping]] = ...) -> None: ...
 
 class ProgramSummary(_message.Message):
-    __slots__ = ("info", "language", "image_base", "entry_points", "memory", "function_count", "instruction_count", "file_size", "spaces", "import_image_base", "build_id", "debuglink", "debug_file", "macho")
+    __slots__ = ("info", "language", "image_base", "entry_points", "memory", "function_count", "instruction_count", "file_size", "spaces", "import_image_base", "build_id", "debuglink", "debug_file", "macho", "evm")
     INFO_FIELD_NUMBER: _ClassVar[int]
     LANGUAGE_FIELD_NUMBER: _ClassVar[int]
     IMAGE_BASE_FIELD_NUMBER: _ClassVar[int]
@@ -1423,6 +1445,7 @@ class ProgramSummary(_message.Message):
     DEBUGLINK_FIELD_NUMBER: _ClassVar[int]
     DEBUG_FILE_FIELD_NUMBER: _ClassVar[int]
     MACHO_FIELD_NUMBER: _ClassVar[int]
+    EVM_FIELD_NUMBER: _ClassVar[int]
     info: ProgramInfo
     language: LanguageInfo
     image_base: _common_pb2.Address
@@ -1437,10 +1460,55 @@ class ProgramSummary(_message.Message):
     debuglink: str
     debug_file: str
     macho: MachoSummary
-    def __init__(self, info: _Optional[_Union[ProgramInfo, _Mapping]] = ..., language: _Optional[_Union[LanguageInfo, _Mapping]] = ..., image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., entry_points: _Optional[_Iterable[_Union[EntryPoint, _Mapping]]] = ..., memory: _Optional[_Iterable[_Union[MemoryBlock, _Mapping]]] = ..., function_count: _Optional[int] = ..., instruction_count: _Optional[int] = ..., file_size: _Optional[int] = ..., spaces: _Optional[_Iterable[_Union[AddressSpaceInfo, _Mapping]]] = ..., import_image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., build_id: _Optional[str] = ..., debuglink: _Optional[str] = ..., debug_file: _Optional[str] = ..., macho: _Optional[_Union[MachoSummary, _Mapping]] = ...) -> None: ...
+    evm: EvmSummary
+    def __init__(self, info: _Optional[_Union[ProgramInfo, _Mapping]] = ..., language: _Optional[_Union[LanguageInfo, _Mapping]] = ..., image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., entry_points: _Optional[_Iterable[_Union[EntryPoint, _Mapping]]] = ..., memory: _Optional[_Iterable[_Union[MemoryBlock, _Mapping]]] = ..., function_count: _Optional[int] = ..., instruction_count: _Optional[int] = ..., file_size: _Optional[int] = ..., spaces: _Optional[_Iterable[_Union[AddressSpaceInfo, _Mapping]]] = ..., import_image_base: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., build_id: _Optional[str] = ..., debuglink: _Optional[str] = ..., debug_file: _Optional[str] = ..., macho: _Optional[_Union[MachoSummary, _Mapping]] = ..., evm: _Optional[_Union[EvmSummary, _Mapping]] = ...) -> None: ...
+
+class EvmSummary(_message.Message):
+    __slots__ = ("creation", "runtime_offset", "runtime_size", "functions", "jumps", "direct_jumps", "resolved_jumps", "unresolved_jumps", "unreached_jumps", "jumpdests", "budget", "metadata_offset", "metadata_size")
+    CREATION_FIELD_NUMBER: _ClassVar[int]
+    RUNTIME_OFFSET_FIELD_NUMBER: _ClassVar[int]
+    RUNTIME_SIZE_FIELD_NUMBER: _ClassVar[int]
+    FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    JUMPS_FIELD_NUMBER: _ClassVar[int]
+    DIRECT_JUMPS_FIELD_NUMBER: _ClassVar[int]
+    RESOLVED_JUMPS_FIELD_NUMBER: _ClassVar[int]
+    UNRESOLVED_JUMPS_FIELD_NUMBER: _ClassVar[int]
+    UNREACHED_JUMPS_FIELD_NUMBER: _ClassVar[int]
+    JUMPDESTS_FIELD_NUMBER: _ClassVar[int]
+    BUDGET_FIELD_NUMBER: _ClassVar[int]
+    METADATA_OFFSET_FIELD_NUMBER: _ClassVar[int]
+    METADATA_SIZE_FIELD_NUMBER: _ClassVar[int]
+    creation: bool
+    runtime_offset: int
+    runtime_size: int
+    functions: _containers.RepeatedCompositeFieldContainer[EvmFunction]
+    jumps: int
+    direct_jumps: int
+    resolved_jumps: int
+    unresolved_jumps: int
+    unreached_jumps: int
+    jumpdests: int
+    budget: bool
+    metadata_offset: int
+    metadata_size: int
+    def __init__(self, creation: _Optional[bool] = ..., runtime_offset: _Optional[int] = ..., runtime_size: _Optional[int] = ..., functions: _Optional[_Iterable[_Union[EvmFunction, _Mapping]]] = ..., jumps: _Optional[int] = ..., direct_jumps: _Optional[int] = ..., resolved_jumps: _Optional[int] = ..., unresolved_jumps: _Optional[int] = ..., unreached_jumps: _Optional[int] = ..., jumpdests: _Optional[int] = ..., budget: _Optional[bool] = ..., metadata_offset: _Optional[int] = ..., metadata_size: _Optional[int] = ...) -> None: ...
+
+class EvmFunction(_message.Message):
+    __slots__ = ("selector", "entry", "name", "signature", "standard")
+    SELECTOR_FIELD_NUMBER: _ClassVar[int]
+    ENTRY_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    SIGNATURE_FIELD_NUMBER: _ClassVar[int]
+    STANDARD_FIELD_NUMBER: _ClassVar[int]
+    selector: int
+    entry: _common_pb2.Address
+    name: str
+    signature: str
+    standard: str
+    def __init__(self, selector: _Optional[int] = ..., entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., name: _Optional[str] = ..., signature: _Optional[str] = ..., standard: _Optional[str] = ...) -> None: ...
 
 class MachoSummary(_message.Message):
-    __slots__ = ("arch", "cpu_type", "cpu_subtype", "file_type", "uuid", "platform", "min_os", "sdk", "source_version", "install_name", "dylinker", "dylibs", "rpaths", "slices", "slice_index", "code_signed", "encrypted", "crypt_offset", "crypt_size", "fixups", "flags")
+    __slots__ = ("arch", "cpu_type", "cpu_subtype", "file_type", "uuid", "platform", "min_os", "sdk", "source_version", "install_name", "dylinker", "dylibs", "rpaths", "slices", "slice_index", "code_signed", "encrypted", "crypt_offset", "crypt_size", "fixups", "flags", "code_signature")
     ARCH_FIELD_NUMBER: _ClassVar[int]
     CPU_TYPE_FIELD_NUMBER: _ClassVar[int]
     CPU_SUBTYPE_FIELD_NUMBER: _ClassVar[int]
@@ -1462,6 +1530,7 @@ class MachoSummary(_message.Message):
     CRYPT_SIZE_FIELD_NUMBER: _ClassVar[int]
     FIXUPS_FIELD_NUMBER: _ClassVar[int]
     FLAGS_FIELD_NUMBER: _ClassVar[int]
+    CODE_SIGNATURE_FIELD_NUMBER: _ClassVar[int]
     arch: str
     cpu_type: int
     cpu_subtype: int
@@ -1483,7 +1552,8 @@ class MachoSummary(_message.Message):
     crypt_size: int
     fixups: str
     flags: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, arch: _Optional[str] = ..., cpu_type: _Optional[int] = ..., cpu_subtype: _Optional[int] = ..., file_type: _Optional[str] = ..., uuid: _Optional[str] = ..., platform: _Optional[str] = ..., min_os: _Optional[str] = ..., sdk: _Optional[str] = ..., source_version: _Optional[str] = ..., install_name: _Optional[str] = ..., dylinker: _Optional[str] = ..., dylibs: _Optional[_Iterable[_Union[MachoDylib, _Mapping]]] = ..., rpaths: _Optional[_Iterable[str]] = ..., slices: _Optional[_Iterable[_Union[MachoSlice, _Mapping]]] = ..., slice_index: _Optional[int] = ..., code_signed: _Optional[bool] = ..., encrypted: _Optional[bool] = ..., crypt_offset: _Optional[int] = ..., crypt_size: _Optional[int] = ..., fixups: _Optional[str] = ..., flags: _Optional[_Iterable[str]] = ...) -> None: ...
+    code_signature: _apple_pb2.CodeSignature
+    def __init__(self, arch: _Optional[str] = ..., cpu_type: _Optional[int] = ..., cpu_subtype: _Optional[int] = ..., file_type: _Optional[str] = ..., uuid: _Optional[str] = ..., platform: _Optional[str] = ..., min_os: _Optional[str] = ..., sdk: _Optional[str] = ..., source_version: _Optional[str] = ..., install_name: _Optional[str] = ..., dylinker: _Optional[str] = ..., dylibs: _Optional[_Iterable[_Union[MachoDylib, _Mapping]]] = ..., rpaths: _Optional[_Iterable[str]] = ..., slices: _Optional[_Iterable[_Union[MachoSlice, _Mapping]]] = ..., slice_index: _Optional[int] = ..., code_signed: _Optional[bool] = ..., encrypted: _Optional[bool] = ..., crypt_offset: _Optional[int] = ..., crypt_size: _Optional[int] = ..., fixups: _Optional[str] = ..., flags: _Optional[_Iterable[str]] = ..., code_signature: _Optional[_Union[_apple_pb2.CodeSignature, _Mapping]] = ...) -> None: ...
 
 class MachoDylib(_message.Message):
     __slots__ = ("name", "kind", "current_version", "compatibility_version")
@@ -1606,3 +1676,497 @@ class MemoryBlockSource(_message.Message):
     sha256: str
     missing: bool
     def __init__(self, kind: _Optional[_Union[MemoryBlockSourceKind, str]] = ..., file: _Optional[str] = ..., file_offset: _Optional[int] = ..., length: _Optional[int] = ..., sha256: _Optional[str] = ..., missing: _Optional[bool] = ...) -> None: ...
+
+class ImportDsdProjectRequest(_message.Message):
+    __slots__ = ("project_id", "config_path", "folder_id", "folder_name", "modules", "skip_arm7", "analyze", "provenance", "on_conflict")
+    PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
+    CONFIG_PATH_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_ID_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_NAME_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    SKIP_ARM7_FIELD_NUMBER: _ClassVar[int]
+    ANALYZE_FIELD_NUMBER: _ClassVar[int]
+    PROVENANCE_FIELD_NUMBER: _ClassVar[int]
+    ON_CONFLICT_FIELD_NUMBER: _ClassVar[int]
+    project_id: str
+    config_path: str
+    folder_id: str
+    folder_name: str
+    modules: _containers.RepeatedScalarFieldContainer[str]
+    skip_arm7: bool
+    analyze: bool
+    provenance: _common_pb2.Provenance
+    on_conflict: NameConflict
+    def __init__(self, project_id: _Optional[str] = ..., config_path: _Optional[str] = ..., folder_id: _Optional[str] = ..., folder_name: _Optional[str] = ..., modules: _Optional[_Iterable[str]] = ..., skip_arm7: _Optional[bool] = ..., analyze: _Optional[bool] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., on_conflict: _Optional[_Union[NameConflict, str]] = ...) -> None: ...
+
+class ImportNdsRomRequest(_message.Message):
+    __slots__ = ("project_id", "path", "content", "program_file", "folder_id", "folder_name", "modules", "skip_arm7", "analyze", "provenance", "on_conflict")
+    PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    CONTENT_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_FILE_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_ID_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_NAME_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    SKIP_ARM7_FIELD_NUMBER: _ClassVar[int]
+    ANALYZE_FIELD_NUMBER: _ClassVar[int]
+    PROVENANCE_FIELD_NUMBER: _ClassVar[int]
+    ON_CONFLICT_FIELD_NUMBER: _ClassVar[int]
+    project_id: str
+    path: str
+    content: bytes
+    program_file: str
+    folder_id: str
+    folder_name: str
+    modules: _containers.RepeatedScalarFieldContainer[str]
+    skip_arm7: bool
+    analyze: bool
+    provenance: _common_pb2.Provenance
+    on_conflict: NameConflict
+    def __init__(self, project_id: _Optional[str] = ..., path: _Optional[str] = ..., content: _Optional[bytes] = ..., program_file: _Optional[str] = ..., folder_id: _Optional[str] = ..., folder_name: _Optional[str] = ..., modules: _Optional[_Iterable[str]] = ..., skip_arm7: _Optional[bool] = ..., analyze: _Optional[bool] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., on_conflict: _Optional[_Union[NameConflict, str]] = ...) -> None: ...
+
+class NdsModuleImport(_message.Message):
+    __slots__ = ("module", "kind", "overlay_id", "program", "language_id", "address", "size", "bss_size", "symbols", "functions", "thumb_functions", "data_symbols", "relocations", "cross_module_relocations", "ambiguous_relocations", "sections", "units", "links", "compressed", "warnings", "error")
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    OVERLAY_ID_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_FIELD_NUMBER: _ClassVar[int]
+    LANGUAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    BSS_SIZE_FIELD_NUMBER: _ClassVar[int]
+    SYMBOLS_FIELD_NUMBER: _ClassVar[int]
+    FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    THUMB_FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    DATA_SYMBOLS_FIELD_NUMBER: _ClassVar[int]
+    RELOCATIONS_FIELD_NUMBER: _ClassVar[int]
+    CROSS_MODULE_RELOCATIONS_FIELD_NUMBER: _ClassVar[int]
+    AMBIGUOUS_RELOCATIONS_FIELD_NUMBER: _ClassVar[int]
+    SECTIONS_FIELD_NUMBER: _ClassVar[int]
+    UNITS_FIELD_NUMBER: _ClassVar[int]
+    LINKS_FIELD_NUMBER: _ClassVar[int]
+    COMPRESSED_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    module: str
+    kind: str
+    overlay_id: int
+    program: ProgramInfo
+    language_id: str
+    address: int
+    size: int
+    bss_size: int
+    symbols: int
+    functions: int
+    thumb_functions: int
+    data_symbols: int
+    relocations: int
+    cross_module_relocations: int
+    ambiguous_relocations: int
+    sections: int
+    units: int
+    links: _containers.RepeatedScalarFieldContainer[str]
+    compressed: bool
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    error: str
+    def __init__(self, module: _Optional[str] = ..., kind: _Optional[str] = ..., overlay_id: _Optional[int] = ..., program: _Optional[_Union[ProgramInfo, _Mapping]] = ..., language_id: _Optional[str] = ..., address: _Optional[int] = ..., size: _Optional[int] = ..., bss_size: _Optional[int] = ..., symbols: _Optional[int] = ..., functions: _Optional[int] = ..., thumb_functions: _Optional[int] = ..., data_symbols: _Optional[int] = ..., relocations: _Optional[int] = ..., cross_module_relocations: _Optional[int] = ..., ambiguous_relocations: _Optional[int] = ..., sections: _Optional[int] = ..., units: _Optional[int] = ..., links: _Optional[_Iterable[str]] = ..., compressed: _Optional[bool] = ..., warnings: _Optional[_Iterable[str]] = ..., error: _Optional[str] = ...) -> None: ...
+
+class ImportDsdProjectResponse(_message.Message):
+    __slots__ = ("snapshot", "folder", "modules", "warnings", "imported", "failed", "folder_taken_by", "replaced_program_ids")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    IMPORTED_FIELD_NUMBER: _ClassVar[int]
+    FAILED_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_TAKEN_BY_FIELD_NUMBER: _ClassVar[int]
+    REPLACED_PROGRAM_IDS_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    folder: ProjectFolder
+    modules: _containers.RepeatedCompositeFieldContainer[NdsModuleImport]
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    imported: int
+    failed: int
+    folder_taken_by: str
+    replaced_program_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., folder: _Optional[_Union[ProjectFolder, _Mapping]] = ..., modules: _Optional[_Iterable[_Union[NdsModuleImport, _Mapping]]] = ..., warnings: _Optional[_Iterable[str]] = ..., imported: _Optional[int] = ..., failed: _Optional[int] = ..., folder_taken_by: _Optional[str] = ..., replaced_program_ids: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class ImportNdsRomResponse(_message.Message):
+    __slots__ = ("snapshot", "folder", "modules", "warnings", "imported", "failed", "folder_taken_by", "replaced_program_ids")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    IMPORTED_FIELD_NUMBER: _ClassVar[int]
+    FAILED_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_TAKEN_BY_FIELD_NUMBER: _ClassVar[int]
+    REPLACED_PROGRAM_IDS_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    folder: ProjectFolder
+    modules: _containers.RepeatedCompositeFieldContainer[NdsModuleImport]
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    imported: int
+    failed: int
+    folder_taken_by: str
+    replaced_program_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., folder: _Optional[_Union[ProjectFolder, _Mapping]] = ..., modules: _Optional[_Iterable[_Union[NdsModuleImport, _Mapping]]] = ..., warnings: _Optional[_Iterable[str]] = ..., imported: _Optional[int] = ..., failed: _Optional[int] = ..., folder_taken_by: _Optional[str] = ..., replaced_program_ids: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class ExportDsdSymbolsRequest(_message.Message):
+    __slots__ = ("project_id", "program_ids", "folder_id", "write", "no_new_symbols", "no_renames", "include_text", "read", "provenance")
+    PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_IDS_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_ID_FIELD_NUMBER: _ClassVar[int]
+    WRITE_FIELD_NUMBER: _ClassVar[int]
+    NO_NEW_SYMBOLS_FIELD_NUMBER: _ClassVar[int]
+    NO_RENAMES_FIELD_NUMBER: _ClassVar[int]
+    INCLUDE_TEXT_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    PROVENANCE_FIELD_NUMBER: _ClassVar[int]
+    project_id: str
+    program_ids: _containers.RepeatedScalarFieldContainer[str]
+    folder_id: str
+    write: bool
+    no_new_symbols: bool
+    no_renames: bool
+    include_text: bool
+    read: _common_pb2.ReadOptions
+    provenance: _common_pb2.Provenance
+    def __init__(self, project_id: _Optional[str] = ..., program_ids: _Optional[_Iterable[str]] = ..., folder_id: _Optional[str] = ..., write: _Optional[bool] = ..., no_new_symbols: _Optional[bool] = ..., no_renames: _Optional[bool] = ..., include_text: _Optional[bool] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ...) -> None: ...
+
+class DsdSymbolChange(_message.Message):
+    __slots__ = ("kind", "address", "old_name", "new_name", "line", "reason")
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    OLD_NAME_FIELD_NUMBER: _ClassVar[int]
+    NEW_NAME_FIELD_NUMBER: _ClassVar[int]
+    LINE_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    kind: str
+    address: _common_pb2.Address
+    old_name: str
+    new_name: str
+    line: int
+    reason: str
+    def __init__(self, kind: _Optional[str] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., old_name: _Optional[str] = ..., new_name: _Optional[str] = ..., line: _Optional[int] = ..., reason: _Optional[str] = ...) -> None: ...
+
+class DsdSymbolsExport(_message.Message):
+    __slots__ = ("program_id", "module", "path", "diff", "text", "renamed", "added", "skipped", "changes", "written", "backup_path", "warnings")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    DIFF_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    RENAMED_FIELD_NUMBER: _ClassVar[int]
+    ADDED_FIELD_NUMBER: _ClassVar[int]
+    SKIPPED_FIELD_NUMBER: _ClassVar[int]
+    CHANGES_FIELD_NUMBER: _ClassVar[int]
+    WRITTEN_FIELD_NUMBER: _ClassVar[int]
+    BACKUP_PATH_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    module: str
+    path: str
+    diff: str
+    text: str
+    renamed: int
+    added: int
+    skipped: int
+    changes: _containers.RepeatedCompositeFieldContainer[DsdSymbolChange]
+    written: bool
+    backup_path: str
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, program_id: _Optional[str] = ..., module: _Optional[str] = ..., path: _Optional[str] = ..., diff: _Optional[str] = ..., text: _Optional[str] = ..., renamed: _Optional[int] = ..., added: _Optional[int] = ..., skipped: _Optional[int] = ..., changes: _Optional[_Iterable[_Union[DsdSymbolChange, _Mapping]]] = ..., written: _Optional[bool] = ..., backup_path: _Optional[str] = ..., warnings: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class ExportDsdSymbolsResponse(_message.Message):
+    __slots__ = ("snapshot", "modules", "patch", "renamed", "added", "skipped", "written")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    PATCH_FIELD_NUMBER: _ClassVar[int]
+    RENAMED_FIELD_NUMBER: _ClassVar[int]
+    ADDED_FIELD_NUMBER: _ClassVar[int]
+    SKIPPED_FIELD_NUMBER: _ClassVar[int]
+    WRITTEN_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    modules: _containers.RepeatedCompositeFieldContainer[DsdSymbolsExport]
+    patch: str
+    renamed: int
+    added: int
+    skipped: int
+    written: int
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., modules: _Optional[_Iterable[_Union[DsdSymbolsExport, _Mapping]]] = ..., patch: _Optional[str] = ..., renamed: _Optional[int] = ..., added: _Optional[int] = ..., skipped: _Optional[int] = ..., written: _Optional[int] = ...) -> None: ...
+
+class CompactProjectRequest(_message.Message):
+    __slots__ = ("project_id", "drop_caches", "cache_limit_bytes", "dry_run")
+    PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
+    DROP_CACHES_FIELD_NUMBER: _ClassVar[int]
+    CACHE_LIMIT_BYTES_FIELD_NUMBER: _ClassVar[int]
+    DRY_RUN_FIELD_NUMBER: _ClassVar[int]
+    project_id: str
+    drop_caches: bool
+    cache_limit_bytes: int
+    dry_run: bool
+    def __init__(self, project_id: _Optional[str] = ..., drop_caches: _Optional[bool] = ..., cache_limit_bytes: _Optional[int] = ..., dry_run: _Optional[bool] = ...) -> None: ...
+
+class CompactRule(_message.Message):
+    __slots__ = ("name", "records", "bytes", "dropped")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    RECORDS_FIELD_NUMBER: _ClassVar[int]
+    BYTES_FIELD_NUMBER: _ClassVar[int]
+    DROPPED_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    records: int
+    bytes: int
+    dropped: int
+    def __init__(self, name: _Optional[str] = ..., records: _Optional[int] = ..., bytes: _Optional[int] = ..., dropped: _Optional[int] = ...) -> None: ...
+
+class CompactProjectResponse(_message.Message):
+    __slots__ = ("file_bytes_before", "file_bytes_after", "log_records", "log_bytes", "program_bytes", "memo_records", "memo_bytes", "dropped_records", "dropped_bytes", "dropped_stale", "rules")
+    FILE_BYTES_BEFORE_FIELD_NUMBER: _ClassVar[int]
+    FILE_BYTES_AFTER_FIELD_NUMBER: _ClassVar[int]
+    LOG_RECORDS_FIELD_NUMBER: _ClassVar[int]
+    LOG_BYTES_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_BYTES_FIELD_NUMBER: _ClassVar[int]
+    MEMO_RECORDS_FIELD_NUMBER: _ClassVar[int]
+    MEMO_BYTES_FIELD_NUMBER: _ClassVar[int]
+    DROPPED_RECORDS_FIELD_NUMBER: _ClassVar[int]
+    DROPPED_BYTES_FIELD_NUMBER: _ClassVar[int]
+    DROPPED_STALE_FIELD_NUMBER: _ClassVar[int]
+    RULES_FIELD_NUMBER: _ClassVar[int]
+    file_bytes_before: int
+    file_bytes_after: int
+    log_records: int
+    log_bytes: int
+    program_bytes: int
+    memo_records: int
+    memo_bytes: int
+    dropped_records: int
+    dropped_bytes: int
+    dropped_stale: int
+    rules: _containers.RepeatedCompositeFieldContainer[CompactRule]
+    def __init__(self, file_bytes_before: _Optional[int] = ..., file_bytes_after: _Optional[int] = ..., log_records: _Optional[int] = ..., log_bytes: _Optional[int] = ..., program_bytes: _Optional[int] = ..., memo_records: _Optional[int] = ..., memo_bytes: _Optional[int] = ..., dropped_records: _Optional[int] = ..., dropped_bytes: _Optional[int] = ..., dropped_stale: _Optional[int] = ..., rules: _Optional[_Iterable[_Union[CompactRule, _Mapping]]] = ...) -> None: ...
+
+class BuildDecompKbRequest(_message.Message):
+    __slots__ = ("project_id", "program_ids", "folder_id", "kb_path", "game", "source_root", "manifest_path", "compiler", "flags", "provenance", "skip_near_index", "threads")
+    PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_IDS_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_ID_FIELD_NUMBER: _ClassVar[int]
+    KB_PATH_FIELD_NUMBER: _ClassVar[int]
+    GAME_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_ROOT_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_PATH_FIELD_NUMBER: _ClassVar[int]
+    COMPILER_FIELD_NUMBER: _ClassVar[int]
+    FLAGS_FIELD_NUMBER: _ClassVar[int]
+    PROVENANCE_FIELD_NUMBER: _ClassVar[int]
+    SKIP_NEAR_INDEX_FIELD_NUMBER: _ClassVar[int]
+    THREADS_FIELD_NUMBER: _ClassVar[int]
+    project_id: str
+    program_ids: _containers.RepeatedScalarFieldContainer[str]
+    folder_id: str
+    kb_path: str
+    game: str
+    source_root: str
+    manifest_path: str
+    compiler: str
+    flags: str
+    provenance: _common_pb2.Provenance
+    skip_near_index: bool
+    threads: int
+    def __init__(self, project_id: _Optional[str] = ..., program_ids: _Optional[_Iterable[str]] = ..., folder_id: _Optional[str] = ..., kb_path: _Optional[str] = ..., game: _Optional[str] = ..., source_root: _Optional[str] = ..., manifest_path: _Optional[str] = ..., compiler: _Optional[str] = ..., flags: _Optional[str] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., skip_near_index: _Optional[bool] = ..., threads: _Optional[int] = ...) -> None: ...
+
+class BuildDecompKbResponse(_message.Message):
+    __slots__ = ("kb_path", "game", "functions", "with_source", "units", "too_short", "unnamed", "from_manifest", "total", "warnings", "near_indexed", "anonymous")
+    KB_PATH_FIELD_NUMBER: _ClassVar[int]
+    GAME_FIELD_NUMBER: _ClassVar[int]
+    FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    WITH_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    UNITS_FIELD_NUMBER: _ClassVar[int]
+    TOO_SHORT_FIELD_NUMBER: _ClassVar[int]
+    UNNAMED_FIELD_NUMBER: _ClassVar[int]
+    FROM_MANIFEST_FIELD_NUMBER: _ClassVar[int]
+    TOTAL_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    NEAR_INDEXED_FIELD_NUMBER: _ClassVar[int]
+    ANONYMOUS_FIELD_NUMBER: _ClassVar[int]
+    kb_path: str
+    game: str
+    functions: int
+    with_source: int
+    units: int
+    too_short: int
+    unnamed: int
+    from_manifest: int
+    total: int
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    near_indexed: int
+    anonymous: int
+    def __init__(self, kb_path: _Optional[str] = ..., game: _Optional[str] = ..., functions: _Optional[int] = ..., with_source: _Optional[int] = ..., units: _Optional[int] = ..., too_short: _Optional[int] = ..., unnamed: _Optional[int] = ..., from_manifest: _Optional[int] = ..., total: _Optional[int] = ..., warnings: _Optional[_Iterable[str]] = ..., near_indexed: _Optional[int] = ..., anonymous: _Optional[int] = ...) -> None: ...
+
+class DecompKbFunction(_message.Message):
+    __slots__ = ("game", "module", "address", "size", "mode", "symbol", "name", "prototype", "unit", "source", "text", "compiler", "flags", "status", "full_hash", "specific_hash", "code_units", "specific_extra", "language", "manifest_hash", "fuzzy", "library", "object", "variant", "relocations", "instructions", "anonymous", "small", "calls")
+    GAME_FIELD_NUMBER: _ClassVar[int]
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    SYMBOL_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    PROTOTYPE_FIELD_NUMBER: _ClassVar[int]
+    UNIT_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    COMPILER_FIELD_NUMBER: _ClassVar[int]
+    FLAGS_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    FULL_HASH_FIELD_NUMBER: _ClassVar[int]
+    SPECIFIC_HASH_FIELD_NUMBER: _ClassVar[int]
+    CODE_UNITS_FIELD_NUMBER: _ClassVar[int]
+    SPECIFIC_EXTRA_FIELD_NUMBER: _ClassVar[int]
+    LANGUAGE_FIELD_NUMBER: _ClassVar[int]
+    MANIFEST_HASH_FIELD_NUMBER: _ClassVar[int]
+    FUZZY_FIELD_NUMBER: _ClassVar[int]
+    LIBRARY_FIELD_NUMBER: _ClassVar[int]
+    OBJECT_FIELD_NUMBER: _ClassVar[int]
+    VARIANT_FIELD_NUMBER: _ClassVar[int]
+    RELOCATIONS_FIELD_NUMBER: _ClassVar[int]
+    INSTRUCTIONS_FIELD_NUMBER: _ClassVar[int]
+    ANONYMOUS_FIELD_NUMBER: _ClassVar[int]
+    SMALL_FIELD_NUMBER: _ClassVar[int]
+    CALLS_FIELD_NUMBER: _ClassVar[int]
+    game: str
+    module: str
+    address: int
+    size: int
+    mode: str
+    symbol: str
+    name: str
+    prototype: str
+    unit: str
+    source: str
+    text: str
+    compiler: str
+    flags: str
+    status: str
+    full_hash: str
+    specific_hash: str
+    code_units: int
+    specific_extra: int
+    language: str
+    manifest_hash: str
+    fuzzy: float
+    library: str
+    object: str
+    variant: str
+    relocations: int
+    instructions: _containers.RepeatedScalarFieldContainer[str]
+    anonymous: bool
+    small: bool
+    calls: _containers.RepeatedCompositeFieldContainer[DecompKbCall]
+    def __init__(self, game: _Optional[str] = ..., module: _Optional[str] = ..., address: _Optional[int] = ..., size: _Optional[int] = ..., mode: _Optional[str] = ..., symbol: _Optional[str] = ..., name: _Optional[str] = ..., prototype: _Optional[str] = ..., unit: _Optional[str] = ..., source: _Optional[str] = ..., text: _Optional[str] = ..., compiler: _Optional[str] = ..., flags: _Optional[str] = ..., status: _Optional[str] = ..., full_hash: _Optional[str] = ..., specific_hash: _Optional[str] = ..., code_units: _Optional[int] = ..., specific_extra: _Optional[int] = ..., language: _Optional[str] = ..., manifest_hash: _Optional[str] = ..., fuzzy: _Optional[float] = ..., library: _Optional[str] = ..., object: _Optional[str] = ..., variant: _Optional[str] = ..., relocations: _Optional[int] = ..., instructions: _Optional[_Iterable[str]] = ..., anonymous: _Optional[bool] = ..., small: _Optional[bool] = ..., calls: _Optional[_Iterable[_Union[DecompKbCall, _Mapping]]] = ...) -> None: ...
+
+class DecompKbCall(_message.Message):
+    __slots__ = ("offset", "symbol", "address")
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
+    SYMBOL_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    offset: int
+    symbol: str
+    address: int
+    def __init__(self, offset: _Optional[int] = ..., symbol: _Optional[str] = ..., address: _Optional[int] = ...) -> None: ...
+
+class ApplyDecompKbRequest(_message.Message):
+    __slots__ = ("project_id", "program_ids", "folder_id", "kb_path", "apply", "overwrite", "include_unit_source", "provenance", "near", "min_similarity", "max_near", "export_dir", "threads")
+    PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_IDS_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_ID_FIELD_NUMBER: _ClassVar[int]
+    KB_PATH_FIELD_NUMBER: _ClassVar[int]
+    APPLY_FIELD_NUMBER: _ClassVar[int]
+    OVERWRITE_FIELD_NUMBER: _ClassVar[int]
+    INCLUDE_UNIT_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    PROVENANCE_FIELD_NUMBER: _ClassVar[int]
+    NEAR_FIELD_NUMBER: _ClassVar[int]
+    MIN_SIMILARITY_FIELD_NUMBER: _ClassVar[int]
+    MAX_NEAR_FIELD_NUMBER: _ClassVar[int]
+    EXPORT_DIR_FIELD_NUMBER: _ClassVar[int]
+    THREADS_FIELD_NUMBER: _ClassVar[int]
+    project_id: str
+    program_ids: _containers.RepeatedScalarFieldContainer[str]
+    folder_id: str
+    kb_path: str
+    apply: bool
+    overwrite: bool
+    include_unit_source: bool
+    provenance: _common_pb2.Provenance
+    near: bool
+    min_similarity: float
+    max_near: int
+    export_dir: str
+    threads: int
+    def __init__(self, project_id: _Optional[str] = ..., program_ids: _Optional[_Iterable[str]] = ..., folder_id: _Optional[str] = ..., kb_path: _Optional[str] = ..., apply: _Optional[bool] = ..., overwrite: _Optional[bool] = ..., include_unit_source: _Optional[bool] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., near: _Optional[bool] = ..., min_similarity: _Optional[float] = ..., max_near: _Optional[int] = ..., export_dir: _Optional[str] = ..., threads: _Optional[int] = ...) -> None: ...
+
+class DecompKbMatch(_message.Message):
+    __slots__ = ("program_id", "address", "current_name", "verdict", "functions", "applied", "reason", "unit_source", "similarity", "confidence", "diff")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    CURRENT_NAME_FIELD_NUMBER: _ClassVar[int]
+    VERDICT_FIELD_NUMBER: _ClassVar[int]
+    FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
+    APPLIED_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    UNIT_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    SIMILARITY_FIELD_NUMBER: _ClassVar[int]
+    CONFIDENCE_FIELD_NUMBER: _ClassVar[int]
+    DIFF_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    address: _common_pb2.Address
+    current_name: str
+    verdict: str
+    functions: _containers.RepeatedCompositeFieldContainer[DecompKbFunction]
+    applied: bool
+    reason: str
+    unit_source: str
+    similarity: float
+    confidence: float
+    diff: str
+    def __init__(self, program_id: _Optional[str] = ..., address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., current_name: _Optional[str] = ..., verdict: _Optional[str] = ..., functions: _Optional[_Iterable[_Union[DecompKbFunction, _Mapping]]] = ..., applied: _Optional[bool] = ..., reason: _Optional[str] = ..., unit_source: _Optional[str] = ..., similarity: _Optional[float] = ..., confidence: _Optional[float] = ..., diff: _Optional[str] = ...) -> None: ...
+
+class DecompKbExport(_message.Message):
+    __slots__ = ("dir", "files", "sources", "scratches", "symbols_files", "patch")
+    DIR_FIELD_NUMBER: _ClassVar[int]
+    FILES_FIELD_NUMBER: _ClassVar[int]
+    SOURCES_FIELD_NUMBER: _ClassVar[int]
+    SCRATCHES_FIELD_NUMBER: _ClassVar[int]
+    SYMBOLS_FILES_FIELD_NUMBER: _ClassVar[int]
+    PATCH_FIELD_NUMBER: _ClassVar[int]
+    dir: str
+    files: _containers.RepeatedScalarFieldContainer[str]
+    sources: int
+    scratches: int
+    symbols_files: int
+    patch: str
+    def __init__(self, dir: _Optional[str] = ..., files: _Optional[_Iterable[str]] = ..., sources: _Optional[int] = ..., scratches: _Optional[int] = ..., symbols_files: _Optional[int] = ..., patch: _Optional[str] = ...) -> None: ...
+
+class ApplyDecompKbResponse(_message.Message):
+    __slots__ = ("snapshot", "matches", "hashed", "exact", "candidates", "applied", "ambiguous", "warnings", "near", "exported", "by_call")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    MATCHES_FIELD_NUMBER: _ClassVar[int]
+    HASHED_FIELD_NUMBER: _ClassVar[int]
+    EXACT_FIELD_NUMBER: _ClassVar[int]
+    CANDIDATES_FIELD_NUMBER: _ClassVar[int]
+    APPLIED_FIELD_NUMBER: _ClassVar[int]
+    AMBIGUOUS_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    NEAR_FIELD_NUMBER: _ClassVar[int]
+    EXPORTED_FIELD_NUMBER: _ClassVar[int]
+    BY_CALL_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    matches: _containers.RepeatedCompositeFieldContainer[DecompKbMatch]
+    hashed: int
+    exact: int
+    candidates: int
+    applied: int
+    ambiguous: int
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    near: int
+    exported: DecompKbExport
+    by_call: int
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., matches: _Optional[_Iterable[_Union[DecompKbMatch, _Mapping]]] = ..., hashed: _Optional[int] = ..., exact: _Optional[int] = ..., candidates: _Optional[int] = ..., applied: _Optional[int] = ..., ambiguous: _Optional[int] = ..., warnings: _Optional[_Iterable[str]] = ..., near: _Optional[int] = ..., exported: _Optional[_Union[DecompKbExport, _Mapping]] = ..., by_call: _Optional[int] = ...) -> None: ...

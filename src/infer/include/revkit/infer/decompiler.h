@@ -18,11 +18,13 @@
 #include "revkit/infer/accesses.h"
 #include "revkit/infer/vtype.h"
 #include "revkit/lift/context.hh"
+#include "revkit/lift/decomp_inputs.hh"
 #include "revkit/lift/image_arch.hh"
 #include "revkit/lift/lifter.hh"
 #include "revkit/loader/image.hh"
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -136,6 +138,12 @@ struct Observation {
   // order stored, and whether AL is read first (System V's vector count).
   std::vector<std::string> spills;
   bool reads_al = false;
+  // Registers the entry's straight-line code reads before writing them,
+  // as decoded (by the name of their widest register there): what the
+  // code takes in even where the decompiler drops the use (ARM's `msr
+  // cpsr_c, r0` sets only state no C value shows, so an SDK's interrupt
+  // restore shows no parameter).
+  std::vector<std::string> entry_reads;
   std::vector<CallSite> calls;
   // The pointer-sized parameters' uses as pointers (those with any), and
   // the pointer-sized results of calls (`param` -1, `call` the call).
@@ -193,6 +201,16 @@ struct RunOptions {
   bool prologue = true;
   // Jumps the decompiler takes as tail calls (CALL_RETURN flow overrides).
   std::vector<std::uint64_t> call_returns;
+  // The decoding context of the function's instruction set (ARM's
+  // {"TMode", 1} for Thumb code) and the inclusive ranges it is painted
+  // over (its body and the code of others its flow runs into), after they
+  // are set back to the image's context, as the final C's decompiler does
+  // (lift::FunctionFacts::context): a raw image says nothing about which
+  // code is Thumb, discovery does.
+  std::vector<std::pair<std::string, std::uint32_t>> context;
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> context_ranges;
+  // How a loaded value is typed (Options::load_extension).
+  lift::SourceShape::Extension load_extension = lift::SourceShape::Extension::off;
 };
 
 // One Ghidra architecture over an image. Not thread-safe: one thread at a
@@ -204,8 +222,9 @@ class Prologues {
  public:
   Prologues(std::shared_ptr<const loader::Image> image, std::string language);
   ~Prologues();
-  // Sets o.spills and o.reads_al for the function at `entry`.
-  void fill(std::uint64_t entry, Observation &o);
+  // Sets o.spills and o.reads_al for the function at `entry`, decoded
+  // under `context` (RunOptions::context) over the whole image.
+  void fill(std::uint64_t entry, Observation &o, const std::vector<std::pair<std::string, std::uint32_t>> &context = {});
 
  private:
   struct Impl;
@@ -288,13 +307,14 @@ class DecompilerPool {
 
  private:
   std::shared_ptr<const decompd::ProgramImage> program();
-  std::unique_ptr<lift::Lifter> take_lifter();
+  using Context = std::vector<std::pair<std::string, std::uint32_t>>;
+  std::unique_ptr<lift::Lifter> take_lifter(const Context &context);
 
   std::shared_ptr<const loader::Image> image_;
   std::string language_id_;
   mutable std::mutex mu_;
   std::shared_ptr<const decompd::ProgramImage> program_;
-  std::vector<std::unique_ptr<lift::Lifter>> lifters_;
+  std::map<Context, std::vector<std::unique_ptr<lift::Lifter>>> lifters_;  // by the context they decode under
   std::shared_ptr<Prologues> prologues_;
   std::vector<decompd::Failure> failures_;
 };

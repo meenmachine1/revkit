@@ -108,6 +108,10 @@ struct ConfineOptions {
   std::string cwd;
   std::uint64_t memory = 0, address_space = 0, cpu = 0, file_size = 0, open_files = 0;
   bool allow_weak = false;
+  // At most this Landlock ABI (0: the kernel's): the tests confine as an
+  // older kernel would, to check the seccomp rules that stand in for the
+  // newer rights (signal scoping from 6, truncate from 3).
+  int max_landlock_abi = 0;
 };
 // Confines the calling (single-threaded) process; returns "" or why not.
 std::string confine_self(const ConfineOptions &o);

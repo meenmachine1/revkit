@@ -41,6 +41,7 @@ is scheduled to raise).
 | `EmulatorTarget` | revkit's emulator. Its own step over and out; between stops it hands over the instructions it ran (registers written, memory read and written with the bytes each write replaced). With a machine ([firmware-emulation.md](firmware-emulation.md)) it runs firmware on a board, and each instruction also says which exception it entered or returned from |
 | `GdbRemoteTarget` | a stub speaking the GDB remote serial protocol |
 | `TraceTarget` | a saved trace: read-only, its last snapshot is "now" |
+| `CrashTarget` | a crash dump (an ELF core file, a Windows minidump; `api_minor` 102, feature `crash-dumps`; [crash-dumps.md](crash-dumps.md)): stopped where it crashed, read-only; threads, registers, memory as dumped (the rest from the programs it ran), modules, the memory map |
 
 A `Session` (`session.hh`) drives a target through the program: it maps
 addresses, keeps breakpoints in program or runtime terms, builds step over
@@ -315,6 +316,19 @@ leaves it, the Debugger view's **Disassembly** box takes over (Follow pc).
 That box also shows a frame outside the program when you click the frame
 in the Stack, and any address or expression typed into it, as does
 **Debugger ▸ Disassemble runtime memory…**.
+
+### Crash dumps
+
+`api_minor` 102, feature `crash-dumps`; [crash-dumps.md](crash-dumps.md). A
+core file or minidump opens as a session on a `CrashTarget`: one stop (a
+`SIGNAL` whose detail is "SIGSEGV (SEGV_MAPERR) at 0x0" or the exception),
+the dump's threads to select, its modules mapped to project programs as a
+live process's are ([Libraries](#libraries)), the call stack unwound with
+their CFI (and, for an admin's session, with the CFI and symbols of mapped
+files under `--browse-root` that aren't in the project), and the faulting
+instruction decoded from the program's bytes when the dump left the code
+out. `GetDebugCrash` sums it up. Nothing runs: Continue and the steps are
+refused, and so are writes.
 
 ### Rewind
 
@@ -666,7 +680,8 @@ compiler, or qemu-system-arm.
   left by longjmp or a tail call ends at the next stop.
 - QEMU reports watchpoints before the access, gdbserver on x86 after.
 - Unwinding reads the program's CFI and that of libraries that are project
-  programs (live stops only), not of other modules; PE unwind data
+  programs (live stops and crash dumps), and a crash dump's modules from
+  their files under `--browse-root`; not of other modules; PE unwind data
   (`.pdata`/`UNWIND_INFO`) is not read; CFA expressions (`DW_CFA_def_cfa_expression`, signal frames) are not
   evaluated and fall back to frame pointers or a scan.
 - `qemu-system-arm` 8.2 aborts on the fixture's store to 0xffffffff

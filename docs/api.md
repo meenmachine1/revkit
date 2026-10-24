@@ -23,9 +23,9 @@ has a private hook: if the UI can do it, a script or an agent can too.
 | Service | RPCs | File |
 | --- | --- | --- |
 | `MetaService` | `GetServerInfo` (API version, features, limits), `RestartDaemon` (admins; `api_minor` 55, feature `daemon-restart`) | `meta.proto` |
-| `ProjectService` | `ListProjects`, `OpenProject`, `CloseProject`, `ListPrograms`, `ImportProgram`, `GetProgramSummary`, `ListHostFiles`, `ListLanguages`, `RenameProgram`, `DeleteProgram`, `GetImportProgress` (`api_minor` 22, feature `import-progress`; [below](#import-progress)), `DetectRawLayout`, `GetRawDetectProgress`, `CancelRawDetect` (`api_minor` 23, feature `raw-detect`; [below](#raw-layout-detection)), `AddMemoryRegion`, `UpdateMemoryRegion`, `RemoveMemoryRegion` (`api_minor` 24, feature `memory-map`; [memory-map.md](memory-map.md)), `LoadPdb`, `GetSymbolSettings`, `SetSymbolSettings` (`api_minor` 49, feature `pdb-load`; [pdb.md](pdb.md)), `LoadDebugFile` (`api_minor` 86, feature `debug-files`; [backend.md](backend.md#external-debug-files)) | `project.proto` |
+| `ProjectService` | `ListProjects`, `OpenProject`, `CloseProject`, `ListPrograms`, `ImportProgram`, `GetProgramSummary`, `ListHostFiles`, `ListLanguages`, `RenameProgram`, `DeleteProgram`, `GetImportProgress` (`api_minor` 22, feature `import-progress`; [below](#import-progress)), `DetectRawLayout`, `GetRawDetectProgress`, `CancelRawDetect` (`api_minor` 23, feature `raw-detect`; [below](#raw-layout-detection)), `AddMemoryRegion`, `UpdateMemoryRegion`, `RemoveMemoryRegion` (`api_minor` 24, feature `memory-map`; [memory-map.md](memory-map.md)), `LoadPdb`, `GetSymbolSettings`, `SetSymbolSettings` (`api_minor` 49, feature `pdb-load`; [pdb.md](pdb.md)), `LoadDebugFile` (`api_minor` 86, feature `debug-files`; [backend.md](backend.md#external-debug-files)); `ImportDsdProject`, `ImportNdsRom`, `ExportDsdSymbols` (Nintendo DS games; `api_minor` 103, feature `nds`; [below](#nintendo-ds-games)); `BuildDecompKb`, `ApplyDecompKb` (`api_minor` 105, feature `decomp-kb`; [below](#decomp-knowledge-base)) | `project.proto` |
 | `AssertionService` | `AppendAssertions`, `RetractAssertions`, `GetHistory`, `Blame`, `ListAssertions`, `RevertByProvenance` | `assertion.proto` |
-| `QueryService` | `GetMemoryMap`, `ReadMemory`, `ListFunctions`, `ListSymbols`, `GetFunction`, `GetListing`, `GetInstruction`, `GetXrefs`, `Decompile`, `GetTypes`, `FindTypes`, `GetFunctionGraph`, `ListData`, `ListComments` (`api_minor` 77, feature `comment-table`), `ListRelocations` (`api_minor` 78, feature `relocation-table`), `GetBuildInfo` (`api_minor` 88, feature `build-info`; [build-info.md](build-info.md)), `TraceValue` (`api_minor` 89, feature `value-trace`; [below](#tracing-a-value-across-calls)), `ExportC` (`api_minor` 80, feature `export-c`; server stream), `ListSymbolTree` (`api_minor` 82, feature `symbol-tree`), `PlanClearFlow` (`api_minor` 83, feature `clear-flow`), `ListRegisterValues` (`api_minor` 87, feature `register-values`; [below](#register-values)), `GetClassHierarchy` (`api_minor` 45, feature `msvc-rtti`; [below](#msvc-classes)), `ListObjcClasses` (`api_minor` 91, feature `objc`; [below](#mach-o)); `ListCallingConventions` (`api_minor` 58, feature `calling-conventions`; [below](#calling-conventions)); batch reads for scripts `DecompileMany` and `ListInstructions` (server streams) and `FindBytes` (`api_minor` 29, feature `script-batch`; [below](#batch-reads-for-scripts), [scripting.md](scripting.md)); the searches `SearchMemory`, `SearchText`, `SearchScalars` and `SearchDecompiled`, `FindTypeUses` (`api_minor` 53, feature `type-uses`) (server streams; `api_minor` 41, feature `search`; [below](#search)) | `query.proto` (models in `listing.proto`, `decompile.proto`, `types.proto`) |
+| `QueryService` | `GetMemoryMap`, `ReadMemory`, `ListFunctions`, `ListSymbols`, `GetFunction`, `GetListing`, `GetInstruction`, `GetXrefs`, `Decompile`, `GetTypes`, `FindTypes`, `GetFunctionGraph`, `ListData`, `ListComments` (`api_minor` 77, feature `comment-table`), `ListRelocations` (`api_minor` 78, feature `relocation-table`), `GetBuildInfo` (`api_minor` 88, feature `build-info`; [build-info.md](build-info.md)), `TraceValue` (`api_minor` 89, feature `value-trace`; [below](#tracing-a-value-across-calls)), `ExportC` (`api_minor` 80, feature `export-c`; server stream), `ListSymbolTree` (`api_minor` 82, feature `symbol-tree`), `PlanClearFlow` (`api_minor` 83, feature `clear-flow`), `ListRegisterValues` (`api_minor` 87, feature `register-values`; [below](#register-values)), `GetClassHierarchy` (`api_minor` 45, feature `msvc-rtti`; [below](#msvc-classes)), `ListObjcClasses` (`api_minor` 91, feature `objc`; [below](#mach-o)); `ListCallingConventions` (`api_minor` 58, feature `calling-conventions`; [below](#calling-conventions)); batch reads for scripts `DecompileMany` and `ListInstructions` (server streams) and `FindBytes` (`api_minor` 29, feature `script-batch`; [below](#batch-reads-for-scripts), [scripting.md](scripting.md)); the searches `SearchMemory`, `SearchText`, `SearchScalars` and `SearchDecompiled`, `FindTypeUses` (`api_minor` 53, feature `type-uses`) (server streams; `api_minor` 41, feature `search`; [below](#search)); `ExportDecompScratch` (one function as a matching decompilation's scratch; `api_minor` 103, feature `nds`; [below](#nintendo-ds-games)) | `query.proto` (models in `listing.proto`, `decompile.proto`, `types.proto`) |
 | `SubscriptionService` | `Subscribe` (server stream) | `subscription.proto` |
 | `AnalysisService` | `ListAnalyzers`, `StartAnalysis`, `CancelAnalysis`, `GetAnalysisStatus`. Since `api_minor` 28 (feature `background-inference`, when the daemon infers prototypes: `rk-daemon --infer-prototypes auto`, the default) the analyzer `infer.prototypes` runs in the background after import as a job `GetAnalysisStatus` lists while it runs (with its phase and progress; `idle` is false until it ends), `CancelAnalysis` stops it, `StartAnalysis` with `infer.prototypes` queues it again; its prototypes reach decompilations and `GetFunction` (origin `derived: infer.prototypes`) when it finishes ([infer.md](infer.md)). Function ID (`api_minor` 51, feature `function-id`; [below](#function-id), [fid.md](fid.md)): `ListFidDatabases`, `AttachFidDatabase`, `DetachFidDatabase`, `ListFidMatches`, `ApplyFidMatch`, `RejectFidMatch`, `CreateFidDatabase`, and the analyzer `function-id` in the background after import | `analysis.proto` |
 | `PluginService` | `ListPlugins`, `RunCommand`, `GetPluginFacts` (WebAssembly plugins, [plugins.md](plugins.md)) | `plugin.proto` |
@@ -37,10 +37,10 @@ has a private hook: if the UI can do it, a script or an agent can too.
 | `DiffService` | `CreateDiffSession`, `ListDiffSessions`, `RunDiff`, `GetDiffStatus`, `CancelDiff`, `ListMatches`, `ListUnmatched`, `GetFunctionDiff`, `SummarizeFunctionDiffs`, `AcceptMatches`, `RejectMatches`, `SetMatch`, `ApplyMarkup`, `RevertApply`, `Unmatch`, `CompareFunctions`, `PortFunctionMarkup`: binary diffing and version tracking between two programs of a project, porting names, comments and prototypes (`api_minor` 16, feature `diff`; what changed inside a pair: `api_minor` 17, feature `diff-detail`; any two functions, markup ported between them, unmatching: `api_minor` 54, feature `function-compare`; [diff.md](diff.md), [below](#binary-diffing)) | `diff.proto` |
 | `PatchService` | `Assemble`, `PatchInstruction`, `PatchBytes`, `ListPatches`, `RevertPatches`, `ExportProgram`, `DetectChecksum`, `GetExportSettings`, `SetExportSettings`, `OpenOriginal`: assembling, byte patches as assertions, export with checksum fixups (`api_minor` 27, features `patch`, `assemble`, `export-fixups`; [patching.md](patching.md), [below](#patching)) | `patch.proto` |
 | `ScriptService` | `ListScripts`, `GetScript`, `RunScript` (server stream: started, output, progress, prompts, then result or error; or trust_required), `AnswerPrompt`, `CancelScript`, `UpdateContext`, `SaveScript`, `ListScriptRuns`: Python scripts the daemon runs in host processes with a run token acting as the caller (`api_minor` 31, feature `scripts-host`; [below](#scripts-the-daemon-runs), [scripting.md](scripting.md#the-daemons-script-service)); `SetupScriptPython` (server stream) makes the Python they run with (`api_minor` 33, feature `scripts-setup`); the Python console, `RunScript{interactive}` with `CompleteConsole` and `CancelScript{interrupt}` (`api_minor` 43, features `script-console`, `script-completion`; [scripting.md](scripting.md#the-console)) | `script.proto` |
-| `FileSystemService` | `OpenFileSystem`, `ListFileSystem`, `ReadFileSystemFile`, `GetFileSystemFileInfo`, `ImportFromFileSystem`, `ExtractFromFileSystem`, `CloseFileSystem`, `ListFileSystems`: archives, compressed files, file system images and firmware packages as trees of files, nested to any depth; reading, describing, importing (one or a batch) and extracting their files (`api_minor` 48, feature `filesystems`; [below](#container-file-systems), [filesystems.md](filesystems.md)) | `filesystem.proto` |
+| `FileSystemService` | `OpenFileSystem`, `ListFileSystem`, `ReadFileSystemFile`, `GetFileSystemFileInfo`, `ImportFromFileSystem`, `ExtractFromFileSystem`, `CloseFileSystem`, `ListFileSystems`: archives, compressed files, file system images and firmware packages as trees of files, nested to any depth; reading, describing, importing (one or a batch) and extracting their files (`api_minor` 48, feature `filesystems`; [below](#container-file-systems), [filesystems.md](filesystems.md)); `GetAndroidPackage`, `DecodeAndroidXml`, `ListAndroidResources`: an APK's manifest, resources, native libraries and methods, Flutter facts (`api_minor` 98, feature `android`; [below](#android-packages), [android.md](android.md)) | `filesystem.proto` |
 | `BSimService` | `CreateBSimDatabase`, `AttachBSimDatabase`, `DetachBSimDatabase`, `ListBSimDatabases`, `IngestBSim`, `ListBSimExecutables`, `ListBSimFunctions`, `UpdateBSimExecutable`, `DeleteBSimExecutables`, `SearchBSim`: BSim signature databases, persistent stores of executables' functions and their feature vectors with an LSH index; ingesting a project's programs, listing, categorizing and deleting what is stored (`api_minor` 69, feature `bsim`); functions similar to a program's, with thresholds, filters and an overview (`api_minor` 72, feature `bsim-search`); `ApplyBSimMatches`: a match's name, signature, or signature and types applied to the queried function, one revision for many (`api_minor` 76, feature `bsim-apply`; [bsim.md](bsim.md#applying-matches)) | `bsim.proto` |
 | `ProviderService` | `ListProviders`, `DecompileExternal`, `ReadProviderOutput`, `GetProviderSettings`, `SetProviderSettings`: external decompilers (ILSpy, jadx, Vineflower, CFR, unluac, pycdc, webcrack, wasm-decompile) run in a sandbox on a program's file or a file of a file system session, their output cached (`api_minor` 92, feature `external-decompilers`; [below](#external-decompilers), [providers.md](providers.md)) | `provider.proto` |
-| `DebugService` | `CreateDebugSession` (the emulator, a GDB remote stub, a launched or attached process, a saved trace), `CloseDebugSession`, `ListDebugSessions`, `ResumeDebugSession`, `WaitDebugSession`, `InterruptDebugSession`, `GetDebugState`, `WriteDebugRegisters`, `ReadDebugMemory`, `WriteDebugMemory`, `SetDebugBreakpoints`, `SelectDebugThread`, `ListDebugModules`, `GetDebugTimeline`, `SaveDebugTrace`, `ListDebugTraces`, `DeleteDebugTrace`: debug sessions with a recorded timeline, the caller's state rather than facts; state and memory can be read at any recorded snapshot (`api_minor` 14, features `debugger`, and `debugger-live` with `rk-daemon --debug-live`). The emulator target on a machine (`api_minor` 20, feature `firmware-emulation`): `WriteDebugInput`, `GetDebugMachine`. The call stack (`api_minor` 59, feature `debugger-stack`): `GetDebugBacktrace`. Values (`api_minor` 60, feature `debugger-values`): `EvaluateDebug`; watches in a function's frame, `DebugEvalItem.frame_function` (`api_minor` 61, feature `debugger-watches`). Runtime disassembly (`api_minor` 62, feature `debugger-disassembly`): `DisassembleDebugMemory`. Copying runtime memory into the program (`api_minor` 63, feature `debugger-copy`): `CopyDebugMemory`. Conditional breakpoints (`api_minor` 64, feature `debugger-conditions`): `DebugBreakpointSpec.condition`, `ignore_count`, `disabled`, `SetDebugBreakpointsRequest.update`. Rewinding the emulator (`api_minor` 65, feature `debugger-rewind`): `RewindDebugSession`, `DebugState.rewindable`. An emulator from another session's state (`api_minor` 67, feature `debugger-emulate-from`): `DebugEmulatorTarget.from_session`, `from_snapshot`. Hooks the client answers (`api_minor` 68, feature `debugger-hooks`): `SetDebugHooks`, `AnswerDebugHook`, `DebugStop.hook` | `debugger.proto` |
+| `DebugService` | `CreateDebugSession` (the emulator, a GDB remote stub, a launched or attached process, a saved trace, a crash dump: `api_minor` 102, [below](#crash-dumps)), `GetDebugCrash`, `CloseDebugSession`, `ListDebugSessions`, `ResumeDebugSession`, `WaitDebugSession`, `InterruptDebugSession`, `GetDebugState`, `WriteDebugRegisters`, `ReadDebugMemory`, `WriteDebugMemory`, `SetDebugBreakpoints`, `SelectDebugThread`, `ListDebugModules`, `GetDebugTimeline`, `SaveDebugTrace`, `ListDebugTraces`, `DeleteDebugTrace`: debug sessions with a recorded timeline, the caller's state rather than facts; state and memory can be read at any recorded snapshot (`api_minor` 14, features `debugger`, and `debugger-live` with `rk-daemon --debug-live`). The emulator target on a machine (`api_minor` 20, feature `firmware-emulation`): `WriteDebugInput`, `GetDebugMachine`. The call stack (`api_minor` 59, feature `debugger-stack`): `GetDebugBacktrace`. Values (`api_minor` 60, feature `debugger-values`): `EvaluateDebug`; watches in a function's frame, `DebugEvalItem.frame_function` (`api_minor` 61, feature `debugger-watches`). Runtime disassembly (`api_minor` 62, feature `debugger-disassembly`): `DisassembleDebugMemory`. Copying runtime memory into the program (`api_minor` 63, feature `debugger-copy`): `CopyDebugMemory`. Conditional breakpoints (`api_minor` 64, feature `debugger-conditions`): `DebugBreakpointSpec.condition`, `ignore_count`, `disabled`, `SetDebugBreakpointsRequest.update`. Rewinding the emulator (`api_minor` 65, feature `debugger-rewind`): `RewindDebugSession`, `DebugState.rewindable`. An emulator from another session's state (`api_minor` 67, feature `debugger-emulate-from`): `DebugEmulatorTarget.from_session`, `from_snapshot`. Hooks the client answers (`api_minor` 68, feature `debugger-hooks`): `SetDebugHooks`, `AnswerDebugHook`, `DebugStop.hook` | `debugger.proto` |
 
 **Authentication** (`api_minor` 13, [security.md](security.md)). Unless the
 daemon runs with `--no-auth`, every call except `GetServerInfo`, `Login`
@@ -153,6 +153,7 @@ blame-able. Retracting a retraction reinstates its target.
 | `SetNoReturn{function, no_return}` | `NO_RETURN@entry`: whether calls to the function end their caller's flow (true) or it returns even where analysis says it doesn't (false); the address must be a function's entry (`api_minor` 66, feature `no-return`; [decompiler-inputs.md](decompiler-inputs.md#no-return)) |
 | `SetFallthrough{address, target, no_fallthrough}` | `FALLTHROUGH@addr`: where control goes on after the instruction, instead of the next one (`target`), nowhere (`no_fallthrough`), or, with neither, its own again (Ghidra's Set and Clear Fallthrough; `api_minor` 85, feature `fallthrough-override`; [below](#fallthrough-overrides)) |
 | `SetRegisterValue{register_name, range, value, clear}` | `REGISTER_VALUE@range.first`, `sub` = `<register>:<hex length>`: the register holds `value` over the range (`clear`: no value there), which analysis's references and the decompiler take as known (Ghidra's Set Register Values; `api_minor` 87, feature `register-values`; [below](#register-values)) |
+| `SetDecompilerSettings{settings}` | `NOTE@0`, `sub` = `revkit:decompiler-settings` (reserved): how the decompiler shapes the program's C, every decompilation redone with it (`api_minor` 106, feature `decompiler-settings`; [below](#decompiler-settings)) |
 | `Note{address, tag, text}` | `NOTE@addr`, `sub = tag` |
 | `DefineType{TypeNode}` | `TYPE_DEF`, `sub` = the type's content hash (`api_minor` 4, feature `define-types`) |
 | `BindTypeName{type}` | `TYPE_DEF`, `sub` = `name:<struct\|union\|enum\|typedef> <name>` (`api_minor` 11, feature `type-names`) |
@@ -229,14 +230,66 @@ How assertions resolve:
   run; `on_behalf_of` (`api_minor` 29) narrows a filter to what someone's
   scripts did, here and in `ListAssertions`.
 - **Batches.** `AppendAssertions` is atomic: one revision, or an
-  `INVALID_ARGUMENT` naming `assertions[i]`. It supports `validate_only`
-  and optimistic concurrency (`expected_head_revision` → `ABORTED`).
+  `INVALID_ARGUMENT` naming each refused body and why (`assertions[1]:
+  name contains whitespace...; assertions[4]: ...`, the first 20, then how
+  many more). With `skip_invalid` (`api_minor` 104, feature
+  `assertion-refusals`) the bodies that validate land in one revision and
+  `AppendAssertionsResponse.refused` lists the others (`RefusedAssertion{index,
+  reason}`; no revision when every body is refused; `define_type` bodies are
+  checked together, so one that doesn't parse still refuses the batch). It
+  supports `validate_only` and optimistic concurrency
+  (`expected_head_revision` → `ABORTED`).
 - **Provenance on reads.** Values that queries return carry a
   `FactOrigin`: either `asserted{seq, provenance}` or
   `derived{rule, inputs, confidence, computed_at_revision}`. That covers
   function names, bounds and prototypes, labels, comments, variable names and
   types, xrefs and memory blocks, so a UI can show who said what without a
   second call.
+
+### Result evidence
+
+`api_minor` 97, feature `result-evidence`. A read says what it rests on and
+what it leaves unknown, so a client (an agent above all) can tell "there is
+no caller" from "no caller was found".
+
+- **Source tiers.** `FactOrigin.tier` (`SourceTier`) says how far to trust a
+  value, from who said it. It is for reading, not precedence: which
+  assertion wins is still the fact store's rule above.
+
+  | Tier | From |
+  | --- | --- |
+  | `USER` | a person (`user:`) |
+  | `DEBUG_INFO` | DWARF, PDB, a debug file, Go's pclntab (`import:dwarf`, `import:pdb`, `analysis:go`) |
+  | `SYMBOL` | the file's own tables and metadata: symbols, imports, sections, PE and Objective-C structures, RTTI, demangled names (`import:<format>`, `analysis:pe`, `derived:names.loader`, `derived:analysis.demangler`) |
+  | `LIBRARY` | a library match: Function ID, a type archive's prototype (`analysis:fid`, `derived:library:<archive>`) |
+  | `AGENT` | an agent, plugin or script (`agent:`, `plugin:`, `script:`): a claim with a reason |
+  | `INFERRED` | analysis from rules that follow from the bytes: bounds, xrefs, strings, parameter ID, the decompilation itself; markup ported by a comparison |
+  | `GUESSED` | a heuristic below 0.9 confidence: the decompiler's variable names (0.5) and types (0.6), its prototype without parameter ID (0.7) |
+  | `DEFAULT` | a placeholder: `FUN_00401000`, `DAT_...` |
+
+  The rule is `TierOf` in `src/backend/api_util.cc`; the SDK's
+  `revkit.evidence.source_tier` applies the same rule when an older daemon
+  left the tier unset.
+- **Unknowns.** `DecompiledFunction.unknowns` and, from `GetFunction` (not
+  the lists), `Function.unknowns` are `Unknown{kind, address, detail}`:
+
+  | `UnknownKind` | Meaning |
+  | --- | --- |
+  | `INDIRECT_CALL` | a call through a register or memory whose target nothing resolved: no reference (call, user reference, import slot) and, in a decompilation, no named callee |
+  | `INDIRECT_JUMP` | a computed jump with no recovered destinations (a switch table analysis couldn't read; a thunk's jump through its slot doesn't count) |
+  | `FLOW_TRUNCATED` | analysis stopped following the function at its instruction limit |
+  | `DECOMPILE_FAILED` | the decompiler failed (`DecompileResponse.failure` says how) |
+  | `ANALYSIS_RUNNING` | parameter ID, inference or Function ID still running on the program: prototypes, types and names may change |
+  | `BUDGET` | a limit cut the list (at most 64 indirect calls and jumps are listed per function, then a count) |
+  | `NOT_ANALYZED` | code analysis was skipped (an IL-only .NET assembly) |
+
+  An unknown's absence is the claim: a decompilation with no
+  `INDIRECT_CALL` resolved every call it makes. The flow facts come from
+  analysis's flow graph (`analysis::Flow`), the same memoized query the
+  listing and Clear Flow use, so they cost one lookup per function.
+- **Staleness.** Every response's `Snapshot` (`revision`, `head_revision`)
+  already said which revision it read; `revision < head_revision` means a
+  later edit may have changed it.
 
 ### Queries
 
@@ -705,9 +758,21 @@ Mach-O loader does; `ProgramInfo.format` is `macho`.
 - **Libraries.** A Mach-O's `needed` are its dylibs' install names; one
   resolves to a program named as its file or with that install name, an
   import to its own dylib first (two-level namespace); `import_libraries`
-  looks for each by its file name in the search paths, the file's
-  directory and its `LC_RPATH`s, and loads the slice of the program's CPU
+  expands `@executable_path`, `@loader_path` and `@rpath` (the loading
+  image's `LC_RPATH`s, then its loaders', `api_minor` 100;
+  [apple-apps.md](apple-apps.md#libraries-in-a-bundle)), then looks for each
+  by its file name in the search paths, the file's directory and its
+  `LC_RPATH`s, and loads the slice of the program's CPU
   ([Libraries](#libraries)).
+- **Code signature** (`api_minor` 100, feature `apple-bundles`).
+  `MachoSummary.code_signature` (`CodeSignature`): `LC_CODE_SIGNATURE`'s
+  CodeDirectories (identifier, team id, flags by codesign's names such as
+  `runtime`, hash type, page size, slots, special hashes, the executable
+  segment, CDHash; alternates marked), the entitlements (XML, else DER) as
+  a `PlistValue`, the requirements as text, whether a CMS signature is
+  there and its certificates' names, `adhoc`, every blob, warnings, and
+  where it is in the file. Read, never verified
+  ([apple-apps.md](apple-apps.md#code-signatures)).
 - **Relocations.** `ListRelocations` lists binds, lazy binds, rebases and
   chained fixups (`format` `macho`, type names `BIND_TYPE_POINTER`,
   `REBASE_TYPE_POINTER`, `DYLD_CHAINED_PTR_64`, ...).
@@ -722,6 +787,24 @@ Mach-O loader does; `ProgramInfo.format` is `macho`.
   `external`), the protocols and the Swift types; `name_contains` filters
   all three by name, in any case. A viewer may call it; an empty answer
   for other formats ([macho.md](macho.md#objective-c-and-swift)).
+
+### EVM contracts
+
+`api_minor` 99, feature `evm` ([evm.md](evm.md)). Ethereum Virtual
+Machine bytecode imports as format `evm`: binary or hex text, runtime or
+creation code, detected by solc's prologue (`6080604052`) when
+`ImportOptions` names no format or language, or forced with `format:
+"evm"`. It is a raw image of revkit's own processor `EVM:BE:32:default`
+(block `runtime` at 0; creation code's `init` at `0x100000`), with
+`analysis:evm` functions (the dispatcher, the constructor, one per
+selector, named from a short table of well-known signatures or
+`func_0x<selector>`), `tag_<offset>` labels and code marks on JUMPDESTs,
+and computed-jump references from a stack analysis.
+`ProgramSummary.evm` (`EvmSummary`) has the layout, the dispatcher's
+`EvmFunction`s (selector, entry, name, signature, standard) and the jump
+counts: `jumps`, `direct_jumps`, `resolved_jumps`, `unresolved_jumps`,
+`unreached_jumps`. The raw loader's `hexbytes` container
+(`raw_format: "hexbytes"`) reads hex text for any raw import.
 
 ### .NET assemblies
 
@@ -851,6 +934,130 @@ libraries to other project programs").
   `DebugLocation.library_program_id`, `library_address`, `library_function`;
   `DebugModule.program_id` and `library_slide`; stack frames in it are
   named from its functions, and its disassembly reads `libc.so.6!strlen+0x10`.
+
+### Nintendo DS games
+
+`api_minor` 103, feature `nds` ([nds.md](nds.md)). A DS game as one raw
+program per module (`main`, the autoloads, the ARM9 overlays as
+`ARM:LE:32:v5t`; the ARM7 and its overlays as `ARM:LE:32:v4t`), in a new
+folder, linked to one another by address.
+
+- **`ProjectService.ImportDsdProject{project_id, config_path, folder_id,
+  folder_name, modules, skip_arm7, analyze, provenance}`**: a ds-decomp
+  project's `config.yaml` on the daemon's host. Every file read must be
+  under a `--browse-root` (`FAILED_PRECONDITION` without one,
+  `PERMISSION_DENIED` outside); admin. The binaries come from the extract
+  the config's `rom_config` names (else each module's built `object`).
+  `delinks.txt`'s sections are the blocks, its units plate comments
+  (`import:dsd`); `symbols.txt` is the image's symbol table
+  (`loader::RawOptions::symbols`, kept in the program's raw record): names,
+  sizes, Thumb modes, demangling as an ELF's. Response
+  (`ImportDsdProjectResponse`): the folder and per module
+  (`NdsModuleImport`) its program, address, size, `.bss`, counts (symbols,
+  functions, Thumb functions, data symbols, relocations, cross-module and
+  ambiguous ones, sections, units), links, warnings, or why it failed.
+- **`ProjectService.ImportNdsRom{project_id, path | content |
+  program_file, folder_id, folder_name, modules, skip_arm7, analyze,
+  provenance}`**: a `.nds` image: header, BLZ-decompressed ARM9 split into
+  main and its autoloads by the module parameters, decompressed overlays,
+  the ARM7. No symbols. `INVALID_ARGUMENT` for a file that isn't a DS ROM.
+  `ImportNdsRomResponse` is `ImportDsdProjectResponse` under another name;
+  `NdsModuleImport.compressed` marks decompressed modules and
+  `ProgramInfo.container_path` is `nds://<file>!/<module>`.
+- **Module links**: each program's record has a NOTE, sub
+  `revkit:program.dsd` (reserved), with its source and `link <module>
+  <program id>` lines. Where a program's code or data refers to an
+  address none of its blocks holds and exactly one linked module maps it,
+  the decompiler takes that program's function, data and label there as
+  its own decompilations see them (renames, prototypes, types; each a
+  dependency), and the listing shows the name with
+  **`ListingToken.target_program_id`** (new) naming the program.
+- **`ProjectService.ExportDsdSymbols{project_id, program_ids, folder_id,
+  write, no_new_symbols, no_renames, include_text, read, provenance}`**:
+  per module program, its `symbols.txt` with revkit's names
+  (`DsdSymbolsExport`: `diff`, `text` with `include_text`, counts,
+  `changes` as `DsdSymbolChange{kind renamed|added|skipped, address,
+  old_name, new_name, line, reason}`, `written`, `backup_path`) and all
+  diffs in `patch`. The rule for mangled names: a function not renamed, or
+  renamed to the listed name's demangled form, keeps the listed spelling;
+  any other name is written as typed. `write` (admin, files under a
+  `--browse-root`) backs each file up as `symbols.txt.bak-<UTC time>` first.
+  A viewer's call otherwise.
+- **`QueryService.ExportDecompScratch{program_id, function, read, module,
+  timeout_ms}`**: `text` (a `// PROBE: <symbol> <module> <address>` line,
+  Ghidra's built-in type names, the named types the function uses, its
+  callees' prototypes, linked modules' included, its globals, then its C),
+  `context` and `source` (for a decomp.me scratch), `probe`,
+  `function_name`, `symbol` (as the file spells it), `module`, counts,
+  `notes`, `failure`. A viewer's call.
+- **Library prototypes**: a raw image's `_name` no longer takes a library
+  archive's `name` (`LibraryPrototypes::find`'s underscore rule is for
+  ELF, PE and Mach-O symbols); inputs.program version 16.
+
+`api_minor` 104 ([nds.md](nds.md#what-a-matching-run-needed)):
+
+- **The DS's memory map** (feature `memory-preset`): the DS imports map
+  each module's I/O ports, shared WRAM and main memory's shared area as
+  volatile blocks; **`ImportOptions.memory_preset`** (`"nds-arm9"`,
+  `"nds-arm7"`) does the same for a raw import.
+- **Name conflicts** (feature `import-conflict`): **`NameConflict`**
+  `on_conflict` on `ImportProgramRequest`, `ImportDsdProjectRequest` and
+  `ImportNdsRomRequest` (`KEEP_BOTH`, the default; `REPLACE`; `REFUSE`:
+  `ALREADY_EXISTS`); **`ImportProgramResponse.name_taken_by`**,
+  **`replaced_program_id`**, **`ImportDsdProjectResponse.folder_taken_by`**,
+  **`replaced_program_ids`** (and the same on `ImportNdsRomResponse`).
+- **Function bounds' instruction set** (feature `bounds-isa`):
+  **`SetFunctionBounds.instruction_set`**; unset, an untagged entry keeps
+  the function's (or the code's) instruction set.
+
+Python: `Client.import_dsd_project`, `import_nds_rom`,
+`export_dsd_symbols`, `Program.decomp_scratch`. MCP: `import_dsd_project`,
+`import_nds_rom`, `export_dsd_symbols`, `decomp_scratch`. UI: File →
+Import ds-decomp project…, Import DS ROM…, Export ds-decomp symbols…; the
+decompiler's Copy as decomp scratch ([ui.md](ui.md#nintendo-ds)).
+
+Since `api_minor` 105, `ImportNdsRom` also asserts a function at each
+address one module calls in another (a `ListingEdit` Disassemble with
+`function`, ARM or Thumb by the call; a few rounds), so a ROM's functions
+that only other modules call are found.
+
+### Decomp knowledge base
+
+`api_minor` 105, feature `decomp-kb` ([decomp-kb.md](decomp-kb.md)). Both
+calls read and write files on the daemon's host: admin, paths under a
+`--browse-root` (`FAILED_PRECONDITION` without one, `PERMISSION_DENIED`
+outside).
+
+- **`ProjectService.BuildDecompKb{project_id, program_ids | folder_id,
+  kb_path, game, source_root, manifest_path, compiler, flags,
+  skip_near_index, threads, provenance}`**: a finished game's module
+  programs into the KB directory `kb_path` (made if missing; a game
+  ingested again replaces its records): `DecompKbFunction` records in
+  `functions.jsonl` (hashes, `small`, `anonymous`, `calls`
+  (`DecompKbCall{offset, symbol, address}`), `instructions`, unit, source,
+  text, compiler, flags, status and the manifest's `fuzzy`, `library`,
+  `object`, `variant`, `relocations`, `manifest_hash`), unit files under
+  `sources/`, and the BSim near index `near.rkbsim`. The manifest is
+  JSON lines in a matching pipeline's fields ([decomp-kb.md](decomp-kb.md#the-manifest)).
+  `BuildDecompKbResponse`: `functions`, `with_source`, `units`,
+  `too_short` (small ones, kept), `unnamed` (left out), `anonymous`,
+  `from_manifest`, `near_indexed`, `total`, `warnings`.
+- **`ProjectService.ApplyDecompKb{project_id, program_ids | folder_id,
+  kb_path, apply, overwrite, include_unit_source, near, min_similarity,
+  max_near, export_dir, threads, provenance}`**: the programs' functions
+  matched against the KB: `DecompKbMatch{program_id, address,
+  current_name, verdict exact|call|candidate|near, functions, applied,
+  reason, unit_source, similarity, confidence, diff}`. `apply` names the
+  exact and call matches (placeholder names only unless `overwrite`) with
+  the linker's spelling as the `revkit:dsd.symbol` note, and a plate
+  comment, one revision per program. `export_dir` writes the matches as
+  files (`DecompKbExport{dir, files, sources, scratches, symbols_files,
+  patch}` in `exported`). Counts: `hashed`, `exact`, `by_call`,
+  `candidates`, `ambiguous`, `near`, `applied`.
+
+Python: `Client.build_decomp_kb`, `Client.apply_decomp_kb`. MCP:
+`build_decomp_kb`, `apply_decomp_kb`. UI: File → Apply decomp knowledge
+base… ([ui.md](ui.md#decomp-knowledge-base)).
 
 ### Batch reads for scripts
 
@@ -1750,6 +1957,65 @@ are unchanged.
 symbol-table object it reads, writes or takes the address of; "global
 names": symbol-table objects named in each function's C, summed.)
 
+### Decompiler settings
+
+`api_minor` 106, feature `decompiler-settings`
+([decompiler-inputs.md](decompiler-inputs.md#source-shape)). From this
+version revkit's decompilations follow what the instructions encode where
+Ghidra's canonical forms differ: a loaded value's signedness follows its
+load's extension (`ldrh` and `ldrb` unsigned, `ldrsh` signed), a
+comparison against a constant has the constant on the right
+(`x > 8`, not `8 < x`; `x >= 0`, not `-1 < x`), a signed flag test of a
+decrement's result is one test (`subs r2,r2,#1; bgt`: `n > 0`, not
+`iVar2 != 0 && bVar1`), and a structure's bitfields print as fields. A
+program's settings change that:
+
+`SetDecompilerSettings{settings: DecompilerSettings{comparison_form,
+compilable_c, load_types, ghidra_flag_tests}}` keys a `NOTE` at 0 with the
+reserved sub `revkit:decompiler-settings` (its text the serialized
+settings); one undo step, blame and history as any assertion, kept in
+project archives. Every field's default is revkit's, so empty settings (or
+retracting the assertion) give them back. Every decompilation of the
+program is redone (`QUERY_KIND_DECOMPILE` for the program); `Decompile`,
+`DecompileMany`, `ExportC`, `ExportDecompScratch` and the slices all see
+them.
+
+- `comparison_form`: `COMPARISON_FORM_RIGHT` (the default), `_ENCODED`
+  (also the constant the instruction compares against where the decompiler
+  moved it by one: `x >= 9`, `x <= 0`; for Metrowerks CodeWarrior, whose
+  constants are the source's, where GCC and LLVM rewrite `x < 10` as
+  `x <= 9` themselves) or `_GHIDRA` (`8 < x`, `x < 1`).
+- `load_types`: `LOAD_TYPES_ALL` (the default), `_WORDS` (but for
+  zero-extended bytes: compilers also load a signed `char` with `movzx` or
+  `ldrb`, and `byte` can displace a string buffer's `char`) or `_GHIDRA`
+  (by their uses alone). Inferred prototypes
+  ([infer.md](infer.md#load-types)) are inferred with the default's load
+  types; a program's `load_types` doesn't infer them again.
+- `compilable_c`: C a compiler accepts as it is (`*(T *)((char *)&x + 2)`
+  for `x._2_2_`, `*(T *)&x` for `_x`, `;` after a label ending a block,
+  casts on pointer/integer conversions, `unsigned short` for DWARF's
+  `unsigned_short`). Off by default: the casts cost readability.
+- `ghidra_flag_tests`: Ghidra's two tests for `subs; bgt`.
+
+A matching decompilation of a Nintendo DS game ([nds.md](nds.md)) wants
+`comparison_form` encoded and, for scratches, `compilable_c`.
+
+**Tokens.** A volatile register's token (a read or write through an
+address in a volatile region, which the decompiler prints from its user
+op's annotation) is a `GLOBAL_VARIABLE` with the global at the address as
+its variable entry, or, where there is none, the address as its `target`
+(it was `PUNCTUATION` with neither); a string literal's `STRING` token has
+the string's address as its `target`; a bitfield's `FIELD` token has its
+structure (`parent_type_hash`) and the offset of the bytes holding it
+(`field_offset`). `Variable.type.display` and `FunctionPrototype`'s are
+C's spelling of the type (`code **`, `int[16]`, `char (*)[8]`), where they
+were the decompiler's debug spelling (`code() * *`, `int [16]`).
+
+Python: `Program.set_decompiler_settings(comparison_form="encoded",
+load_types="all", compilable_c=True, ghidra_flag_tests=False)` (no
+arguments: revkit's defaults). rk-lift: `--source-shape <list>`,
+`--no-source-shape`, `--compilable-c`.
+
 ### Structures from pointer use
 
 `TypeService.AutoStructure` (`api_minor` 32, feature `auto-struct`;
@@ -2257,6 +2523,41 @@ MCP: `fid_matches`, `apply_fid_match`, `reject_fid_match`,
   A batch import still imports the program and doesn't descend into its
   archive. Importing bytecode as a program (a `.pyc`, a class file) fails
   with `FAILED_PRECONDITION` saying what it is.
+- **Apple bundles** (`api_minor` 100, feature `apple-bundles`;
+  [apple-apps.md](apple-apps.md)). `FileSystemEntry.bundle_kind` names a
+  directory that is a bundle (`app`, `framework`, `appex`, `bundle`, `xpc`,
+  `plugin`, `storyboardc`, ...), and content kinds name Apple's files
+  (`plist:xml`, `plist:binary`, `keyed-archive`, `nib:archive`,
+  `nib:keyed`, `mobileprovision`, `ipa`). `GetAppleBundle{session_id,
+  path, skip_info_plist?}` describes the bundle at a directory, around a
+  file, or in an .ipa (`Payload/*.app`; `apps` lists them): `AppleBundle`
+  with its layout (`shallow`, `deep`, `versioned`), platform, Info.plist's
+  keys (`AppleBundleInfo`) and the whole of it, the main executable's path,
+  description and `CodeSignature`, the nested bundles (`AppleBundleRef`:
+  path, kind, role, identifier, executable, extension point, version), the
+  Interface Builder files, the provisioning profile (`ProvisioningProfile`)
+  and warnings. `ReadPropertyList{session_id, path, max_values?,
+  max_data_bytes?}`: a plist (XML, binary, or a provisioning profile's) as
+  a `PlistValue` tree, capped (`truncated`, per container `omitted`).
+  Neither verifies a signature. A file that isn't a plist is
+  `INVALID_ARGUMENT`; no bundle at or around a path `NOT_FOUND`.
+  `ReadPropertyListRequest.resolve_keyed_archive` (`api_minor` 101) returns
+  an NSKeyedArchiver archive as a tree of its objects.
+- **UI actions** (`api_minor` 101, feature `ui-actions`;
+  [apple-apps.md](apple-apps.md#interface-builder-and-ui-actions)).
+  `ListUiActions{session_id, path, program_id?, include_documents?}` reads
+  the compiled nibs and storyboards of a bundle, an .ipa, a `.storyboardc`
+  or one nib, and traces each control's action (`UiAction`: the control,
+  its UIKit events, the selector, the target and its class, how that class
+  is known) to the Objective-C method that runs it in the program's
+  metadata (`resolution` `resolved`, `resolved-by-selector`, `ambiguous`,
+  `external`, `unresolved` or `no-program`; the method's name, the class
+  implementing it, its implementation's address and the function's name).
+  The program is `program_id`, else the session's project's program
+  imported from the bundle's main executable. Outlets come as `UiOutlet`;
+  `include_documents` adds each nib's objects and connections
+  (`InterfaceDocument`). Viewer, and of the program's project when it is
+  named.
 - **Reading.** `ReadFileSystemFile{session_id, path, offset, length}` (at
   most 4 MiB a call; links followed). `GetFileSystemFileInfo{session_id,
   path, hashes?}`: the entry, its `container_path`
@@ -2284,6 +2585,74 @@ MCP: `fid_matches`, `apply_fid_match`, `reject_fid_match`,
   the session's owner); `ImportFromFileSystem` editor of the target
   project; `ExtractFromFileSystem` admin
   ([security.md](security.md#container-file-systems)).
+
+### Android packages
+
+Three calls of `FileSystemService` (`api_minor` 98, feature `android`;
+[android.md](android.md)) read an APK in a file system session, by the
+APK's session path (`""` when the file system itself is one; any path
+inside the APK names it too):
+
+- **`GetAndroidPackage{session_id, path, skip_native?, skip_dex?}`** →
+  `AndroidPackage`: `manifest` (`AndroidManifest`: `package`,
+  `version_code`, `version_name`, `min_sdk`, `target_sdk`, `max_sdk`,
+  `compile_sdk`, permissions used and declared, features, the
+  `application_class`, `label`, `icon`, `theme`, the optional flags
+  `debuggable`, `allow_backup`, `uses_cleartext_traffic`,
+  `extract_native_libs`, ..., `network_security_config` and its file,
+  `components` with `exported` (Android's decision) and
+  `exported_explicit`, their permissions and intent filters, `meta_data`),
+  `manifest_xml` and `manifest_xml_resolved`, the `resources` summary
+  (packages, types with their entries and configurations), `abis`,
+  `native_libraries` (session `path`, machine, soname, build ID, needed,
+  `jni_exports`, `jni_onload`, the Flutter role), `dex_files`,
+  `native_methods` (class, method, signature, the two JNI names, the
+  `libraries` exporting them), `flutter` (per ABI the Dart snapshots'
+  headers, `snapshot_hash`, features, the engine's build ID and labelled
+  strings; the hash every ABI agrees on), `warnings`.
+- **`DecodeAndroidXml{session_id, path, resolve?}`** → the compiled XML
+  file as XML text (`xml`), its `root` element, `warnings`; references
+  named from the package's `resources.arsc`, or resolved with `resolve`.
+- **`ListAndroidResources{session_id, path, type?, config?, query?,
+  offset?, limit?}`** → `entries` (`AndroidResourceEntry`: `id`, `name`
+  such as `@string/app_name`, `type`, `key`, `config`, `value`,
+  `value_type`, `reference`, a bag's `parent` and `items`), `total`, and
+  the `types` and `configs` there are. `config` `""` is the default
+  configuration and `*` every one; `limit` 500 by default, at most 5000.
+
+Not an APK (no `AndroidManifest.xml` at the layer's root) or malformed
+data is `INVALID_ARGUMENT`; a member over the session's limits
+`RESOURCE_EXHAUSTED`. Viewer, and the session's owner, as the other reads.
+
+### Crash dumps
+
+`api_minor` 102, feature `crash-dumps` ([crash-dumps.md](crash-dumps.md)): an ELF
+core file or a Windows minidump as a debug session, stopped where the
+program crashed and read-only.
+
+- **`CreateDebugSession{program_id, crash{dump_program_id | host_path |
+  upload_id}}`**: `program_id` is the program to see the crash through (the
+  crashed executable, best); the dump is a program of the same project (an
+  ELF core imports as one; `ProgramInfo.crash_dump` says `elf-core`), a host
+  file or an upload (those two: admin). The session's `target_kind` is
+  `crash-dump`; reads work as for any stopped session (registers, memory,
+  threads, modules, the memory map, `GetDebugBacktrace`, `EvaluateDebug`,
+  `DisassembleDebugMemory`, `CopyDebugMemory`); resuming, breakpoints and
+  writes are `FAILED_PRECONDITION`. Bytes the dump lacks are read from the
+  session's program, the project programs its modules are, or (an admin's
+  session) the mapped files under `--browse-root`.
+- **`GetDebugCrash{session_id, max_frames}`** → `DebugCrash` (also in
+  `CreateDebugSessionResponse.crash`): `format`, `arch`, `reason`, the
+  signal (`signal`, `signal_name`, `signal_code`, `code_name`) or exception
+  (`exception_code`, `exception_name`, `access`), `fault_address`,
+  `crashed_thread`, `pc` with `module`, `module_offset` and `function`, the
+  faulting `instruction` and its bytes, the `backtrace` (`DebugFrame`s),
+  `threads` (each with its pc and `where`), `modules` (with the project
+  `program_id` they are, a minidump's version and PDB name and GUID, a build
+  ID), `pid`, `command`, `args`, `os`, `cpu`, `segments`, `dumped_bytes`,
+  `main_program_id` (the project's program of the dump's executable when the
+  session's isn't it), `summary` (the report as text), `comments`,
+  `warnings`. Another session's is `FAILED_PRECONDITION`.
 
 ### External decompilers
 
@@ -2521,6 +2890,58 @@ then frozen.
 - `api_minor` increments with each additive change. Branches developed in
   parallel may each bump it; on merge, each additive change takes the next
   number, which is why clients should check features rather than numbers.
+  106 added program decompiler settings (`SetDecompilerSettings`
+  assertions, `DecompilerSettings`, `ComparisonForm`, `LoadTypes`) and made
+  the source-shape options revkit's default (load signedness from the
+  load's extension, comparisons with the constant on the right, one test
+  for a decrement's flag test, bitfields as fields), with targets on
+  volatile registers' and string literals' tokens and C type spellings in
+  `Variable.type.display` (feature `decompiler-settings`;
+  [above](#decompiler-settings));
+  105 added the decomp knowledge base (`ProjectService.BuildDecompKb`,
+  `ApplyDecompKb`, `DecompKbFunction`, `DecompKbCall`, `DecompKbMatch`,
+  `DecompKbExport`; `ImportNdsRom`'s functions at other modules' call
+  targets; feature `decomp-kb`; [above](#decomp-knowledge-base),
+  [decomp-kb.md](decomp-kb.md));
+  104 added what a DS matching-decompilation run needed: per-body
+  refusals and `AppendAssertionsRequest.skip_invalid`,
+  `AppendAssertionsResponse.refused`, `RefusedAssertion` (feature
+  `assertion-refusals`); `SetFunctionBounds.instruction_set` (feature
+  `bounds-isa`); `ImportOptions.memory_preset` and the DS imports' volatile
+  I/O blocks (feature `memory-preset`); `NameConflict` and `on_conflict` on
+  the imports, `ImportProgramResponse.name_taken_by`,
+  `replaced_program_id`, `ImportDsdProjectResponse.folder_taken_by`,
+  `replaced_program_ids` (feature `import-conflict`);
+  `ProjectService.CompactProject`, `CompactRule` (feature `compact`;
+  [backend.md](backend.md#compaction));
+  103 added Nintendo DS games (`ProjectService.ImportDsdProject`,
+  `ImportNdsRom`, `ExportDsdSymbols`, `QueryService.ExportDecompScratch`,
+  `NdsModuleImport`, `DsdSymbolsExport`, `DsdSymbolChange`,
+  `ListingToken.target_program_id`, the `revkit:program.dsd` record and its
+  module links; feature `nds`; [above](#nintendo-ds-games), [nds.md](nds.md));
+  102 added crash dumps as debug sessions (`DebugCrashTarget`,
+  `DebugService.GetDebugCrash`, `DebugCrash`, `ProgramInfo.crash_dump`;
+  feature `crash-dumps`; [crash-dumps.md](crash-dumps.md));
+  101 added Interface Builder's nibs and storyboards and their UI actions
+  traced to Objective-C methods (`FileSystemService.ListUiActions`,
+  `ReadPropertyListRequest.resolve_keyed_archive`; feature `ui-actions`;
+  [apple-apps.md](apple-apps.md#interface-builder-and-ui-actions));
+  100 added Apple bundles, property lists and code signatures
+  (`FileSystemService.GetAppleBundle`, `ReadPropertyList`,
+  `FileSystemEntry.bundle_kind`, `MachoSummary.code_signature`, the Apple
+  content kinds, `@rpath` resolution in `import_libraries`; feature
+  `apple-bundles`; [apple-apps.md](apple-apps.md));
+  99 added EVM contracts (`ImportOptions.format` `evm`, detected by
+  content too; `raw_format` `hexbytes`; `ProgramSummary.evm`, `EvmSummary`,
+  `EvmFunction`; `analysis:evm` assertions; revkit's own processors
+  directory and `EVM:BE:32:default`; feature `evm`; [evm.md](evm.md));
+  98 added Android packages (`FileSystemService.GetAndroidPackage`,
+  `DecodeAndroidXml`, `ListAndroidResources`; feature `android`;
+  [android.md](android.md));
+  97 added result evidence (`FactOrigin.tier` and `SourceTier`, `Unknown`
+  and `UnknownKind`, `DecompiledFunction.unknowns`, `Function.unknowns`
+  from `GetFunction`; feature `result-evidence`; [Result
+  evidence](#result-evidence)) and the MCP tools' evidence envelope;
   96 added packed executables and Lua in firmware as file systems (formats
   `asar`, `pyinstaller`, `pyz`, `node-sea`, `pkg`, `nexe`, `bun`,
   `lua-chunks`, and `zip` for an appended zip; `FileSystemEntry.container_format`
@@ -2991,6 +3412,21 @@ with rk.open_filesystem("default", file="fw.zip") as fs:          # or host_path
     fs.import_("/bin/busybox")                                       # program.container_path "zip://fw.zip!/bin/busybox"
 ```
 
+Apple bundles (`api_minor` 100; [apple-apps.md](apple-apps.md)): an .ipa or
+an .app, its Info.plist, signature and profile, read and not verified:
+
+```python
+with rk.open_filesystem("default", file="Demo.ipa") as fs:
+    b = fs.apple_bundle("/").bundle                                 # Payload/Demo.app
+    print(b.info.identifier, b.info.short_version, list(b.info.url_schemes))
+    print(b.code_signature.code_directories[0].team_id, [n.role for n in b.nested])
+    info = revkit.plist_value(b.info_plist)                         # the whole Info.plist as a dict
+    fs.import_([b.executable_path], import_libraries=True)          # with its frameworks, by @rpath
+    for a in fs.ui_actions("/").actions:                            # api_minor 101: the nibs' actions
+        print(a.control_class, list(a.events), a.selector, a.resolution, a.method)  # "-[ViewController buttonTapped:]"
+print(rk.program("default/Demo").entitlements()["get-task-allow"])
+```
+
 External decompilers (`api_minor` 92; [providers.md](providers.md)): a
 dedicated decompiler's source for bytecode, run in the daemon's sandbox:
 
@@ -3003,6 +3439,15 @@ print(ext.text())                                                   # the main f
 with rk.open_filesystem("default", file="release.zip") as fs:
     for path, java in fs.decompile_external("/app.apk").sources():     # jadx: (path, Java) pairs
         ...
+    pkg = fs.android_package("/app.apk")                              # api_minor 98, docs/android.md
+    print(pkg.manifest.package, pkg.manifest.debuggable, [c.name for c in pkg.manifest.components if c.exported])
+    print(fs.android_strings("/app.apk", config="fr"))                 # the strings table
+    for m in pkg.native_methods:                                       # native methods and their exports
+        print(m.class_name, m.method, m.jni_name, list(m.libraries))
+with rk.program("default/crash").crash_dump(host_path="/srv/cores/core.4242") as dbg:   # api_minor 102
+    c = dbg.crash()                                                    # docs/crash-dumps.md
+    print(c.reason, c.function, c.instruction)                         # SIGSEGV (SEGV_MAPERR) at 0x0, lib_store+0x4, ...
+    print(c.summary)                                                   # the backtrace, the threads
 ```
 
 Against a daemon with accounts, pass a token (or a login) and how to trust
@@ -3094,6 +3539,9 @@ How it fits together:
 - `Program.set_register_value`, `clear_register_value` (over a range or
   a function's body), `register_values`, `register_value` and
   `value_registers` (feature `register-values`; [above](#register-values)).
+- `Program.set_decompiler_settings(comparison_form=, load_types=,
+  compilable_c=, ghidra_flag_tests=)` (feature `decompiler-settings`;
+  [above](#decompiler-settings)).
 - `Program.convert`, `set_equate`, `set_enum_equate`, `clear_display`,
   `equates()` (the table folded from `ListAssertions`), `rename_equate`,
   `remove_equate`, `enums_with_value`, `add_reference`,
@@ -3149,6 +3597,15 @@ How it fits together:
   `override_call_signature(call, c_prototype)`,
   `remove_call_signature(call)` and `call_signature(call)`
   (`tests/test_call_signature.py`).
+- Result evidence (feature `result-evidence`, [Result
+  evidence](#result-evidence)): origins carry `.tier`, and
+  `Program.decompile(...).unknowns` and `Program.function(...).unknowns`
+  list what analysis couldn't determine. `revkit.evidence` reads them:
+  `source(origin)` is `{"by": "import:elf", "tier": "symbol"}`,
+  `source_tier(origin)` derives the tier for an older daemon,
+  `unknowns(message)` and `unknown_dict(u)` give dicts.
+  `Program.decompile_result` returns the whole response (`.failure`,
+  `.snapshot`).
 - To regenerate the stubs after a schema change, run
   `sdk/python/generate.sh ~/.cache/revkit/venv/bin/python` and commit the
   result.
@@ -3272,6 +3729,9 @@ Container file systems (`api_minor` 48, `FILESYSTEMS_FEATURE`;
 `parentPath` and `pathLayers` handle session paths, `isBrowsable` and
 `isProgram` read an entry, and `looksLikeContainer` checks a file's first
 bytes in the client (`ts_sdk_filesystems`, `sdk/ts/test/filesystems.ts`).
+Apple bundles (`api_minor` 100, `APPLE_BUNDLES_FEATURE`): `appleBundle(path)`
+and `propertyList(path)` on a session, and `plistValue` for a `PlistValue`
+as plain data; `uiActions(path)` (`api_minor` 101, `UI_ACTIONS_FEATURE`).
 
 Folders and archives (`api_minor` 37, `PROJECT_FOLDERS_FEATURE`,
 `PROJECT_ARCHIVE_FEATURE`; `src/projects.ts`): `resolveFolder` and
@@ -3291,7 +3751,7 @@ annotations-only archive's binaries) and imports it (`ts_sdk_projects`,
 revkit-mcp --daemon 127.0.0.1:50051 --agent claude --agent-version opus-5.5   # stdio
 ```
 
-171 tools, all built on the public SDK. `about` (and the server's
+186 tools, all built on the public SDK. `about` (and the server's
 instructions) gives an agent the workflow (list programs, pick one, find
 functions, decompile, rename, retype and comment with a reason, search
 again), the address syntax, how long results page, its provenance and the
@@ -3333,12 +3793,13 @@ Python's standard library.
 | Group | Tools |
 | --- | --- |
 | Start | `about` |
+| Nintendo DS | `import_dsd_project` (a ds-decomp project as module programs, linked across modules), `import_nds_rom` (a .nds image), `export_dsd_symbols` (revkit's names as symbols.txt diffs; `write` writes them, backed up), `decomp_scratch` (one function as a PROBE-line scratch with the declarations it uses) |
 | Programs | `list_programs`, `program_summary`, `build_info` (a Go binary's Go version, modules and build settings; a Rust binary's cargo-auditable crates, rustc version and commits), `analysis_status`, `list_languages`, `detect_raw_layout` (admin; read-only: suggestions with hex addresses, a confidence per answer, evidence, tie group, the refusal), `import_program` (admin; `raw_offset` and `regions` for raw images, `macho_slice` for a universal Mach-O; `program_summary` has a `macho` object for one), `load_pdb` (a PE's PDB; feature `pdb-load`), `load_debug_file` (a stripped ELF's separate debug file by path, or found by build ID and debuglink, and on debuginfod servers only when an admin turned them on; feature `debug-files`) |
 | Project | `create_folder` (a path, with its parents), `move_to_folder`, `rename_folder`, `delete_folder`, `export_project` (a .rkproj on the server's machine; programs, folders, annotations only), `import_project` (admin; into a new or an existing project, binaries by local path); `list_programs` shows each program's folder |
 | Code | `list_functions` (filters: named or unnamed, thunks, decompile failures, an address range; sorted by address or name), `search_symbols`, `get_function`, `disassemble` (with the address to continue from), `decompile` (by line; with variable storage keys, and the struct fields it uses: name, offset and the struct's hash), `instruction` (p-code), `function_graph` (by block; optionally without instructions), `callers`, `callees`, `xrefs` (by kind), `list_classes` (C++ classes from MSVC RTTI; feature `msvc-rtti`), `list_objc_classes` (a Mach-O's Objective-C classes, protocols and Swift types; feature `objc`), `list_calling_conventions` (the compiler spec's models and their C spelling; feature `calling-conventions`) |
 | Navigation | `find_next` (the next or previous function, label, instruction, data, undefined bytes, different byte or note; feature `find-next`), `overview` (each block's and each slice's bytes by kind and entropy, and the high-entropy regions; feature `overview`) |
 
-| File systems | `open_filesystem` (a local file, a host path or a program's stored file; archives, compressed files, file system images, firmware packages), `list_filesystem` (with what each file is), `read_filesystem_file`, `filesystem_file_info` (hashes, the container path, the container it holds), `import_from_filesystem` (one file, or a batch: programs below folders and inside nested containers, with `preview` and `max_programs`), `close_filesystem` |
+| File systems | `open_filesystem` (a local file, a host path or a program's stored file; archives, compressed files, file system images, firmware packages), `list_filesystem` (with what each file is), `read_filesystem_file`, `filesystem_file_info` (hashes, the container path, the container it holds), `import_from_filesystem` (one file, or a batch: programs below folders and inside nested containers, with `preview` and `max_programs`), `close_filesystem`; an APK's `android_package` (manifest fields, resources, native libraries and methods, Flutter), `android_resources`, `android_xml`, `apple_bundle` (an .ipa's or .app's Info.plist, executable, code signature, nested bundles and profile; feature `apple-bundles`), `read_property_list`, `list_ui_actions` (each control's action in the nibs and storyboards, traced to its Objective-C method; feature `ui-actions`) |
 | External decompilers | `list_providers` (which are installed; with a program or a file of an open file system, what it is and which take it), `decompile_external` (a .NET assembly's C# from ILSpy, a DEX's or jar's Java, a `.pyc`'s Python, ...: the main file and the file list), `read_provider_output` (any file of the output; feature `external-decompilers`) |
 | Code | `list_functions`, `search_symbols`, `get_function`, `disassemble`, `decompile` (with variable storage keys, and the struct fields it uses: name, offset and the struct's hash), `instruction` (p-code), `function_graph`, `callers`, `callees`, `xrefs` |
 | Search | `search_memory` (hex with wildcards, strings in ASCII/UTF-8/UTF-16, decimals, floats, binary, regex; the label and code unit of each match), `search_text` (what the listing shows: comments, labels, signatures, instructions, data; plain or regex), `search_scalars` (a value or range in operands and data), `search_decompiled` (C of every function or those listed), `find_type_uses` (where a struct or one field is used, with each field use's access; feature `type-uses`), `slice_decompiled` (where a variable's value comes from or flows to in the C; feature `decompile-slices`), `trace_value` (the same across calls: into callees' returns and parameters, out to callers; with what it couldn't follow; feature `value-trace`) |
@@ -3353,7 +3814,7 @@ Python's standard library.
 | Scripts | `list_scripts` (the daemon's libraries with metadata, and whether it runs scripts for you), `run_script` (to the end, `args` answering prompts by name; an unconfirmed user or project script comes back as `trust_required` with its source, to show the user before passing `confirm_sha256`) |
 | Patching | `assemble` (the encodings of one instruction at an address, or the error, its column and what was expected; writes nothing), `patch_instruction`, `patch_bytes`, `list_patches`, `revert_patch` (by seq or address), `detect_checksum` (the rule a file or its name obeys), `export_patched` (patches written in, checksum fixups, verified by the daemon; saved where the server runs, or on the daemon's host for an admin) |
 | Emulator | `emu_start` (optionally on a machine: a description, a saved machine's name, or one derived from the program), `emu_run`, `emu_state`, `emu_read_memory`, `emu_write`, `emu_breakpoints`, `emu_machine` (CPU mode, devices, the exceptions taken), `emu_input` (UART bytes, exception breakpoints), `emu_close` |
-| Debugger | `debug_start` (the emulator target takes a machine too), `debug_run`, `debug_state`, `debug_read_memory`, `debug_breakpoints`, `debug_backtrace`, `debug_evaluate`, `debug_disassemble`, `debug_copy_memory`, `debug_rewind`, `emu_call`, `debug_timeline`, `debug_modules`, `debug_close` |
+| Debugger | `debug_start` (the emulator target takes a machine too), `debug_run`, `debug_state`, `debug_read_memory`, `debug_breakpoints`, `debug_backtrace`, `debug_evaluate`, `debug_disassemble`, `debug_copy_memory`, `debug_rewind`, `emu_call`, `debug_timeline`, `debug_modules`, `debug_close`; a crash dump's `debug_crash_dump` (an ELF core or minidump, opened: the session and the crash) and `debug_crash` |
 
 Emulator and debug sessions belong to the server's session and assert
 nothing. A patch is an assertion like any other edit: it carries the
@@ -3380,6 +3841,62 @@ program and `import_header` defines them and binds their names in one edit.
   program can't flood an agent's context.
 - **Errors.** API errors, bad arguments and unexpected failures all come
   back as `{"error": CODE, "message": text}`, never a traceback.
+- **Evidence** (`api_minor` 97, feature `result-evidence`). The core tools'
+  results carry an `evidence` object beside their fields (which are
+  unchanged): `program_summary`, `list_functions`, `get_function`,
+  `decompile`, `xrefs`, `search_symbols`, `list_strings`, `search_strings`,
+  `list_data`, `search_memory`, `search_text`, `search_scalars`,
+  `search_decompiled`, `find_types`, `get_type`, the edits (`rename`,
+  `rename_variable`, `retype`, `retype_variable`, `set_comment` and every
+  tool built on the same result), `bsim_search`, `compare_programs`,
+  `diff_matches`, `diff_unmatched`, `diff_function` and
+  `compare_functions`:
+
+  ```json
+  "evidence": {
+    "revision": 41,
+    "derived_by": "decompile.ghidra",
+    "provenance": {"name": {"by": "import:elf", "tier": "symbol"},
+                   "prototype": {"by": "derived:decompile.ghidra.prototype", "tier": "guessed"}},
+    "unknowns": [{"kind": "indirect_call", "address": "0x401146",
+                  "detail": "indirect call: its target isn't known (a function pointer, a virtual call); ..."}],
+    "limits": [{"kind": "page", "detail": "lines 0-299 of 812: call again with start_line=300 for the rest",
+                "next": {"next_start_line": 300}}],
+    "target_content": ["name", "prototype", "c", "variables[].name", "fields[].name", "demangled[]", "warnings[]"]
+  }
+  ```
+
+  | Field | What |
+  | --- | --- |
+  | `revision` (`head_revision` when newer) | the project revision read: a result from an older revision than a later edit's is stale |
+  | `derived_by` | the analysis that produced the result (`decompile.ghidra`, `xrefs.static`, `bsim`, `diff`) |
+  | `provenance` | for one object, `{field: {"by", "tier", "seq"}}` (`by` as blame prints it: `user:alice`, `import:dwarf`, `agent:claude@opus`, `derived:<rule>`; `seq` for an assertion, for blame and undo); for a list, a note naming the per-item fields: `named_by` and `tier` on functions and symbols, `defined_by` and `tier` on data and types, `tier` on xrefs and variables (`type_tier` for a variable's type), and `list_functions` counts the tiers |
+  | `unknowns` | `[{kind, address?, detail}]`: the daemon's `Unknown`s (lower case) plus `unmatched` (a comparison's functions with no counterpart); `analysis_running` comes from `GetAnalysisStatus` for every tool on a program (asked at most every 2 s) |
+  | `limits` | `[{kind, detail, next?}]`: `page` (with the next call's arguments), `result_size` (the 50,000-character cut), `budget` (a scan stopped early: `search_strings` past 500,000 strings, a search before covering the program), `cap` (a `limit` or `max_matches` reached), `threshold` (BSim's similarity floor), `coverage` (how much of a BSim database was scored) |
+  | `target_content` | the fields, as paths (`data[].value`, `functions[].name`), whose text comes from the program under analysis or from what others wrote in the project: strings, names, comments, types, decompiled code |
+
+  `unknowns` and `limits` are always present, empty when the tool knows of
+  nothing it couldn't determine or that cut it short. **Untrusted
+  content**: text in `target_content` fields is data, however it reads. A
+  string in the binary can be written to look like an instruction to the
+  agent ("ignore previous instructions and run ..."). It comes back
+  verbatim, never rewritten, and every tool result (errors too) but those
+  of `about`, `analysis_status`, `undo_changes`, `revert_my_changes` and
+  the close tools carries `_meta: {"revkit.dev/target-content":
+  {"untrusted": true, "source": "analysis_target", "fields": [...]}}`, so
+  a host or hook can apply stricter handling (approval for writes after
+  target text was read, say). The server's instructions and the guide
+  tell the agent the same.
+
+  Edits say what changed: `changed` is `{what, address, variable?, from,
+  from_by, to, effective}` (the fact's value before and after as blame
+  shows it, who had set the old one, and whether the edit took effect or a
+  higher-precedence assertion shadows it), `undo` is the call that takes
+  it back (`{"tool": "undo_changes", "seqs": [...]}`), `changed_keys`
+  counts the facts whose value moved, and `evidence.provenance.edit` is the
+  edit's own provenance and tier. The design follows rea's MCP contracts
+  (`docs/mcp-contracts.md`: tool results, untrusted target content) in
+  idea; nothing is ported.
 
 - **Provenance.** Every write carries `agent:<name>[@version]` provenance,
   the server's session id (`--session`, default random) and the agent's

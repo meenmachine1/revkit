@@ -66,6 +66,13 @@ struct Options {
   // through unchanged, composed from their accesses (InferredStructure):
   // the parameters point to them instead of to their first word.
   bool structures = true;
+  // How the decompiler types a loaded value, as the final C's decompiler
+  // is set (rk-lift's --source-shape; the daemon's are revkit's defaults;
+  // off, Ghidra's use-based types, for rk-infer and its gate): else a
+  // value loaded with ldrh and typed from its uses locks `short *` where
+  // that C says `ushort *`. With `all`, defaults don't spell a byte
+  // pointee `char` over its loads (finalize).
+  lift::SourceShape::Extension load_extension = lift::SourceShape::Extension::off;
   // Functions whose decompilation grows past this many varnodes (about
   // 1 KB each) aren't observed, only seen from their callers: the corpus's
   // largest has 29K; cmake has a handful of 100K-500K that each took 15 to
@@ -145,7 +152,12 @@ struct CallNode {
 struct CallGraph {
   std::vector<CallNode> nodes;  // by entry
   std::vector<std::pair<std::uint64_t, std::string>> slots;  // import slots (IAT, GOT), by address
+  // ARM interworking (analysis::ProgramInfo::isa_context): a code pointer
+  // with the low bit set is Thumb code at the address without it.
+  bool interworking = false;
 
+  // The node at `entry`; with interworking, also at a Thumb pointer's
+  // address (a function pointer passed, returned or in a table).
   const CallNode *find(std::uint64_t entry) const;
   const std::string *slot(std::uint64_t address) const;
   void encode(facts::Encoder &e) const;
@@ -155,8 +167,9 @@ struct CallGraph {
 struct CallGraphQuery {
   static constexpr std::string_view name = "infer.callgraph";
   // 2: no-return evidence (analysis.no_return_evidence); 3: jumps to
-  // other functions' entries are tail calls (CallNode::call_returns)
-  static constexpr std::uint32_t version = 3;
+  // other functions' entries are tail calls (CallNode::call_returns); 4:
+  // Thumb code pointers (CallGraph::interworking)
+  static constexpr std::uint32_t version = 4;
   using Key = ProgramKey;
   using Value = CallGraph;
   static Value compute(facts::QueryContext &ctx, const Key &program);
@@ -206,8 +219,11 @@ struct Observe {
   // integer parameter is seen as the caller's pointer; 4: arguments that
   // are the caller's parameters passed on (Slot::from_param); 5: jumps to
   // other functions are tail calls (RunOptions::call_returns); 6: pointer
-  // parameters' accesses (Observation::pointer_uses)
-  static constexpr std::uint32_t version = 6;
+  // parameters' accesses (Observation::pointer_uses); 7: decoded in the
+  // function's instruction set (RunOptions::context: ARM's Thumb); 8:
+  // loads typed as the final C's decompiler types them
+  // (Options::load_extension)
+  static constexpr std::uint32_t version = 8;
   using Key = RoundKey;
   using Value = Observation;
   static Value compute(facts::QueryContext &ctx, const Key &key);
@@ -239,7 +255,8 @@ struct FamilyTable {
 
 struct Families {
   static constexpr std::string_view name = "infer.families";
-  static constexpr std::uint32_t version = 1;
+  // 2: Thumb code pointers name their function
+  static constexpr std::uint32_t version = 2;
   using Key = ProgramKey;
   using Value = FamilyTable;
   static Value compute(facts::QueryContext &ctx, const Key &program);
@@ -290,7 +307,8 @@ struct Own {
 // callback type or its table family's consensus, and its round k-1 value.
 struct Round {
   static constexpr std::string_view name = "infer.round";
-  static constexpr std::uint32_t version = 2;
+  // 3: a thunk has its target's prototype
+  static constexpr std::uint32_t version = 3;
   using Key = RoundKey;
   using Value = Inferred;
   static Value compute(facts::QueryContext &ctx, const Key &key);
@@ -378,10 +396,11 @@ FixpointResult run(const facts::Snapshot &snapshot, const ProgramKey &program, f
 
 // Whether inference knows the calling convention of `language_id`'s default
 // prototype for `image` (System V and Windows x86-64, AAPCS64, RISC-V
-// LP64D): elsewhere a prototype is only the decompiler's own view of the
-// function. (32-bit processors aren't: there an int and a pointer are the
-// same size, and the evidence for pointers types too many integers as
-// pointers; a raw ARM image would also need discovery's Thumb ranges.)
+// LP64D; on 32-bit processors AAPCS for ARM and Thumb, MIPS o32 and
+// PowerPC SysV, measured against the source in docs/decomp-quality.md):
+// elsewhere a prototype is only the decompiler's own view of the
+// function. (RISC-V rv32 and x86-32 have tables abi_for gives rk-infer,
+// unmeasured.)
 bool supports(const std::string &language_id, const loader::Image &image);
 
 // The target's C data organization (pointer and long sizes).

@@ -13,7 +13,7 @@ constexpr std::uint32_t kElfMachineArm = 40;
 
 GhidraLoadImage::GhidraLoadImage(std::shared_ptr<const Image> image, std::string arch_type)
     : ghidra::LoadImage("revkit"), image_(std::move(image)), arch_type_(std::move(arch_type)) {
-  const bool thumb_bit = image_->format == Format::elf && image_->machine == kElfMachineArm;
+  const bool thumb_bit = (image_->format == Format::elf || image_->format == Format::raw) && image_->machine == kElfMachineArm;
   for (const Symbol &s : image_->symbols) {
     if (!s.defined || s.type != SymbolType::func || s.name.empty()) continue;
     std::uint64_t addr = thumb_bit ? (s.value & ~std::uint64_t{1}) : s.value;

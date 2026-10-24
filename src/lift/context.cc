@@ -10,7 +10,9 @@ constexpr std::uint32_t kElfMachineArm = 40;
 constexpr std::uint32_t kMachoCpuArm = 12;
 
 bool is_arm(const loader::Image &image) {
-  return (image.format == loader::Format::elf && image.machine == kElfMachineArm) ||
+  // (A raw image with an importer's symbols is marked EM_ARM: loader::RawOptions::symbols.)
+  return ((image.format == loader::Format::elf || image.format == loader::Format::raw) &&
+          image.machine == kElfMachineArm) ||
          (image.format == loader::Format::macho && image.machine == kMachoCpuArm);
 }
 

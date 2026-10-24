@@ -123,9 +123,27 @@ std::string legal_cpp_name(const std::string &in) {
 
 namespace {
 
+// A C type spelled in words ("unsigned short", "long long int"): DWARF's
+// base type names, which C accepts as they are.
+bool c_words(const std::string &name) {
+  static const std::set<std::string> kWords{"unsigned", "signed", "short", "long", "int", "char"};
+  std::istringstream in(name);
+  std::string w;
+  int n = 0;
+  while (in >> w) {
+    if (!kWords.contains(w)) return false;
+    ++n;
+  }
+  return n >= 2;
+}
+
 // The stock pretty printer with Java's name clean-up applied to tokens.
 class LegalNameEmit : public ghidra::EmitPrettyPrint {
  public:
+  // With the compilablec option: C's multi-word type names stay as they
+  // are (`unsigned short`, where Java's clean-up has `unsigned_short`).
+  bool keep_c_words = false;
+
   void tagVariable(const std::string &name, syntax_highlight hl, const ghidra::Varnode *vn,
                    const ghidra::PcodeOp *op) override {
     ghidra::EmitPrettyPrint::tagVariable(hl == const_color ? name : legal_cpp_name(name), hl, vn, op);
@@ -135,7 +153,7 @@ class LegalNameEmit : public ghidra::EmitPrettyPrint {
     ghidra::EmitPrettyPrint::tagFuncName(legal_cpp_name(name), hl, fd, op);
   }
   void tagType(const std::string &name, syntax_highlight hl, const ghidra::Datatype *ct) override {
-    ghidra::EmitPrettyPrint::tagType(legal_cpp_name(name), hl, ct);
+    ghidra::EmitPrettyPrint::tagType(keep_c_words && c_words(name) ? name : legal_cpp_name(name), hl, ct);
   }
   void tagField(const std::string &name, syntax_highlight hl, const ghidra::Datatype *ct, ghidra::int4 off,
                 const ghidra::PcodeOp *op) override {
@@ -154,9 +172,28 @@ class LegalNamePrintC : public ghidra::PrintC {
  public:
   explicit LegalNamePrintC(ghidra::Architecture *arch) : ghidra::PrintC(arch, "c-language") {
     delete emit;  // PrintLanguage owns `emit`
-    emit = new LegalNameEmit();
+    emit = legal_ = new LegalNameEmit();
   }
+  void set_keep_c_words(bool on) { legal_->keep_c_words = on; }
+
+ private:
+  LegalNameEmit *legal_;
 };
+
+}  // namespace
+
+void apply_shape(ghidra::Architecture &arch, const SourceShape &shape) {
+  arch.extension_types = static_cast<int>(shape.extension);
+  arch.flag_result_compare = shape.flag_compare;
+  if (arch.print != nullptr && arch.print->getName() == "c-language") {
+    auto *c = static_cast<ghidra::PrintC *>(arch.print);
+    c->setCompareForm(static_cast<int>(shape.compare));
+    c->setCompilable(shape.compilable);
+    if (auto *legal = dynamic_cast<LegalNamePrintC *>(arch.print)) legal->set_keep_c_words(shape.compilable);
+  }
+}
+
+namespace {
 
 // Moves every top-level <addr> of a <mapsym> encoding to `space`.
 void set_space(DecompElement &mapsym, const std::string &space) {
@@ -464,6 +501,7 @@ InputDecompiler::InputDecompiler(const DecompileConfig &config,
   arch_->allacts.setCurrent(config_.action);
   // DecompileOptions.encode: <currentaction> decompile unreachable off.
   if (!config_.eliminate_unreachable) arch_->allacts.toggleAction("decompile", "unreachable", false);
+  apply_shape(*arch_, config_.shape);
   budget_.install(*arch_);
   install();
 }

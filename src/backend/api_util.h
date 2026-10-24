@@ -22,6 +22,14 @@ const char *CommentSub(pb::CommentKind kind);
 bool MatchesProvenance(const pb::ProvenanceFilter &f, const pb::Provenance &p);
 
 pb::FactOrigin Derived(const std::string &rule, std::uint64_t revision, float confidence = 1.0f);
+
+// How far to trust a value, from who said it (FactOrigin.tier, api_minor 97;
+// docs/api.md "Result evidence"): an assertion's provenance, or the rule and
+// confidence of a derivation.
+pb::SourceTier TierOf(const pb::Provenance &p);
+pb::SourceTier TierOf(const std::string &rule, float confidence);
+// Sets origin.tier from what the origin holds.
+void SetTier(pb::FactOrigin &origin);
 pb::FactOrigin Asserted(const pb::Assertion &a);
 
 // Opaque page tokens "<revision>:<offset>", pinning later pages to the

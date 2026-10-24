@@ -465,6 +465,46 @@ arguments are the format's: `snprintf(local_58,0x20,"k%d",iVar9)` where
 the call passed a 64-bit register before (`(ulong)uVar9`), and a string
 argument shows as its literal (`"path"` for `&DAT_00106247`).
 
+## C++ classes as `this`
+
+The demangler gives a member function's prototype (docs/demangle.md):
+`this` is a pointer to its class, and the class is a declaration of that
+name with no layout, so the decompiled C reads `*(int *)(this + 0x14)`.
+Where the program defines the class (a C++ header imported with ParseC,
+`cplusplus` on: its fields, its `_vptr.<class>` and its size; DefineType;
+debug info another module brings), the decompiler now gets that
+definition wherever a demangled prototype names the class: the backend's
+lookup (`QueryLookup::defined_class`) answers the request for the
+declared class's type with the program's definition, under the id the
+demangled prototypes use, so `this` of every member function, and class
+pointers among their parameters (`Scene::add(Shape *)`), have the fields:
+
+```c
+void Shape::move(Shape *this,int param_2,int param_3)
+{
+  this->x = this->x + param_2;
+  this->y = this->y + param_3;
+  this->flags = this->flags | 2;
+  return;
+}
+```
+
+A name binds when exactly one complete program type has it (as `class N`
+or `struct N`, or in a namespace, `class ns::N`; a BindTypeName binding
+of the name wins over the definition it replaced); the decompilations
+depend on the program's named types, so importing or editing the header
+redoes them. `CxxThisTest.ImportedClassesTypeThis` checks it on the
+32-bit ARM fixture's C++ (tests/data/arm32, `shapes.h`).
+
+Left: virtual calls go through the header's `_vptr.Shape`, an `int
+(**)(...)` as GCC's own `__vtbl_ptr_type`, so they print as
+`(*this->items[i]->_vptr.Shape[2])()`, with neither the method nor its
+arguments; vtables from `_ZTV` symbols and from constructors storing the
+vtable pointer, typed as a structure of the virtual methods' pointers,
+would name them. A class pointer the header's own fields hold and the
+demangler's of the same name are two types to the decompiler, so storing
+one into the other casts (`this->items[n] = (Shape *)param_2`).
+
 ## Project types
 
 A project's types (`api_minor` 52, feature `project-types`): defined once

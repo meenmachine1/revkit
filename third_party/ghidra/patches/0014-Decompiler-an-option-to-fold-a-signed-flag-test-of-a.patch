@@ -1,0 +1,253 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 01:13:36 -0400
+Subject: [PATCH] Decompiler: an option to fold a signed flag test of a
+ decrement's result into one comparison
+
+- Shows: a byte-count loop ending `subs r2,r2,#1; bgt loop` (the
+  source's `while (--n > 0)`, or `n--` at the end of `while (n > 0)`)
+  decompiles as `iVar2 = n + -1; bVar1 = 0 < n; n = iVar2; } while
+  (iVar2 != 0 && bVar1);`: two tests, one of them on the value before
+  the decrement, kept in a temporary.
+- Cause: GT after SUBS is `!Z && N == V`. The rules turn `N == V` into a
+  signed comparison of the value before the subtraction (`0 < n`) and Z
+  into a test of the result (`n - 1 != 0`), and nothing combines a
+  comparison of one varnode with a test of another (RuleLessNotEqual and
+  RuleRangeMeld need the same varnode).
+- Patch: a new rule, RuleFlagResultCompare, behind a new option,
+  `flagcompare` (off by default): `(V + d != 0) && (c < V)` with c + d ==
+  -1 becomes `0 < V + d`, and the negation `(V + d == 0) || (V < c)` with
+  c + d == 0 becomes `V + d <= 0` (the less-or-equal forms of the second
+  comparison too). It assumes the decrement doesn't overflow (V isn't
+  within d of the minimum), as the source code does; that is why it is
+  an option.
+- Seen on: ARMv5TE (Nintendo DS, CodeWarrior) code in a matching
+  decompilation; the same flag pattern on Thumb and other flag-setting
+  processors.
+- Ghidra 12.1.4.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.cc
+index 6cbc4c9..6ea271d 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.cc
+@@ -1423,6 +1423,7 @@ void Architecture::resetDefaultsInternal(void)
+   max_instructions = 100000;
+   infer_pointers = true;
+   extension_types = 0;
++  flag_result_compare = false;
+   analyze_for_loops = true;
+   readonlypropagate = false;
+   nan_ignore_all = false;
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.hh
+index 71edeb8..0fc857d 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.hh
+@@ -177,6 +177,7 @@ public:
+   bool readonlypropagate;	///< true if readonly values should be treated as constants
+   bool infer_pointers;		///< True if we should infer pointers from constants that are likely addresses
+   int4 extension_types;		///< Type a LOAD's value by its instruction's extension: 0 never, 1 always, 2 except zero-extended bytes
++  bool flag_result_compare;	///< True if a signed flag test of a decrement's result becomes one comparison of the result
+   bool analyze_for_loops;	///< True if we should attempt conversion of \e whiledo loops to \e for loops
+   bool nan_ignore_all;		///< True if we should ignore NaN operations, i.e. nan() always returns false
+   bool nan_ignore_compare;	///< True if we should ignore NaN operations protecting floating-point comparisons
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/coreaction.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/coreaction.cc
+index f1664ac..ffacbb0 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/coreaction.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/coreaction.cc
+@@ -5659,6 +5659,7 @@ void ActionDatabase::universalAction(Architecture *conf)
+ 	actprop->addRule( new RuleBoolNegate("analysis") );
+ 	actprop->addRule( new RuleLessEqual("analysis") );
+ 	actprop->addRule( new RuleLessNotEqual("analysis") );
++	actprop->addRule( new RuleFlagResultCompare("analysis") );
+ 	actprop->addRule( new RuleLessOne("analysis") );
+ 	actprop->addRule( new RuleRangeMeld("analysis") );
+ 	actprop->addRule( new RuleFloatRange("analysis") );
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
+index 557fa70..55e15a7 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
+@@ -61,6 +61,7 @@ ElementId ELEM_WARNING = ElementId("warning",210);
+ ElementId ELEM_JUMPTABLEMAX = ElementId("jumptablemax",271);
+ ElementId ELEM_NANIGNORE = ElementId("nanignore",272);
+ ElementId ELEM_BRACEFORMAT = ElementId("braceformat",284);
++ElementId ELEM_FLAGCOMPARE = ElementId("flagcompare",293);
+ ElementId ELEM_ENCODEDCOMPARE = ElementId("encodedcompare",292);
+ ElementId ELEM_EXTENSIONTYPES = ElementId("extensiontypes",291);
+ 
+@@ -105,6 +106,7 @@ OptionDatabase::OptionDatabase(Architecture *g)
+   registerOption(new OptionDefaultPrototype());
+   registerOption(new OptionInferConstPtr());
+   registerOption(new OptionExtensionTypes());
++  registerOption(new OptionFlagCompare());
+   registerOption(new OptionForLoops());
+   registerOption(new OptionInline());
+   registerOption(new OptionNoReturn());
+@@ -323,6 +325,23 @@ string OptionExtensionTypes::apply(Architecture *glb,const string &p1,const stri
+   return res;
+ }
+ 
++/// \class OptionFlagCompare
++/// \brief Toggle whether a signed flag test of a decrement's result becomes one comparison
++///
++/// Setting the first parameter to "on" turns `W != 0 && c < V`, where `W = V + d` and `c + d` is -1
++/// (what `subs r2,r2,#1; bgt` tests), into `0 < W`, and its negation, `W == 0 || V < c'` with `c' + d`
++/// equal to 0, into `W <= 0`
++/// (RuleFlagResultCompare). The rewrite assumes the decrement doesn't overflow, as source code
++/// counting down (`while (--n > 0)`) does.
++string OptionFlagCompare::apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const
++
++{
++  glb->flag_result_compare = onOrOff(p1);
++
++  string res = "Comparing flag results is " + p1;
++  return res;
++}
++
+ /// \class OptionForLoops
+ /// \brief Toggle whether the decompiler attempts to recover \e for-loop variables
+ ///
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
+index 9b6a560..5d9c516 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
+@@ -68,6 +68,7 @@ extern ElementId ELEM_JUMPTABLEMAX;		///< Marshaling element \<jumptablemax>
+ extern ElementId ELEM_NANIGNORE;		///< Marshaling element \<nanignore>
+ extern ElementId ELEM_EXTENSIONTYPES;		///< Marshaling element \<extensiontypes> (ids from 291 are revkit's)
+ extern ElementId ELEM_ENCODEDCOMPARE;		///< Marshaling element \<encodedcompare> (ids from 291 are revkit's)
++extern ElementId ELEM_FLAGCOMPARE;		///< Marshaling element \<flagcompare> (ids from 291 are revkit's)
+ 
+ /// \brief Base class for options classes that affect the configuration of the Architecture object
+ ///
+@@ -147,6 +148,12 @@ public:
+   virtual string apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const;
+ };
+ 
++class OptionFlagCompare : public ArchOption {
++public:
++  OptionFlagCompare(void) { name = "flagcompare"; }	///< Constructor
++  virtual string apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const;
++};
++
+ class OptionForLoops : public ArchOption {
+ public:
+   OptionForLoops(void) { name = "analyzeforloops"; }	///< Constructor
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.cc
+index aa1acff..6d29b36 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.cc
+@@ -2354,6 +2354,93 @@ int4 RuleLessNotEqual::applyOp(PcodeOp *op,Funcdata &data)
+   return 1;
+ }
+ 
++/// \class RuleFlagResultCompare
++/// \brief Simplify a signed flag test of a result back to a comparison of the result
++///
++/// A subtract that sets the flags followed by a signed greater-than branch (ARM `subs r2,r2,#1; bgt`)
++/// tests `W != 0 && c < V`, where `W = V + d` is the result and the comparison is on the value before.
++/// When `c + d` is -1 this is `0 < W` (`W > 0`, the test the instruction encodes), and its negation
++/// `W == 0 || V < c'`, with `c' + d` equal to 0, is `W <= 0`:
++///   - `(V + d != 0) && (c < V)  =>  0 < V + d`
++///   - `(V + d == 0) || (V < c)  =>  V + d <= 0`
++///
++/// The less-or-equal forms `c+1 <= V` and `V <= c'-1` are also matched. The rule assumes the
++/// decrement doesn't overflow (V isn't within d of the minimum), as the source's `--n > 0` does.
++/// It applies only with the \e flagcompare option.
++void RuleFlagResultCompare::getOpList(vector<uint4> &oplist) const
++
++{
++  oplist.push_back(CPUI_BOOL_AND);
++  oplist.push_back(CPUI_BOOL_OR);
++}
++
++/// \brief Is the given result the given base plus a constant
++///
++/// \param res is the possible result
++/// \param base is the possible base
++/// \param d passes back the constant
++/// \return \b true if \b res is INT_ADD(\b base, d)
++bool RuleFlagResultCompare::decrementOf(Varnode *res,Varnode *base,uintb &d)
++
++{
++  if (!res->isWritten()) return false;
++  PcodeOp *addop = res->getDef();
++  if (addop->code() != CPUI_INT_ADD) return false;
++  if (addop->getIn(0) != base) return false;
++  Varnode *cvn = addop->getIn(1);
++  if (!cvn->isConstant()) return false;
++  d = cvn->getOffset();
++  return true;
++}
++
++int4 RuleFlagResultCompare::applyOp(PcodeOp *op,Funcdata &data)
++
++{
++  if (!data.getArch()->flag_result_compare) return 0;
++  bool isAnd = (op->code() == CPUI_BOOL_AND);
++  for(int4 i=0;i<2;++i) {
++    Varnode *eqout = op->getIn(i);
++    Varnode *cmpout = op->getIn(1-i);
++    if (!eqout->isWritten() || !cmpout->isWritten()) continue;
++    PcodeOp *eqop = eqout->getDef();
++    if (eqop->code() != (isAnd ? CPUI_INT_NOTEQUAL : CPUI_INT_EQUAL)) continue;
++    Varnode *res = eqop->getIn(0);
++    Varnode *zero = eqop->getIn(1);
++    if (!zero->isConstant() || zero->getOffset() != 0) continue;
++    PcodeOp *cmpop = cmpout->getDef();
++    OpCode opc = cmpop->code();
++    if (opc != CPUI_INT_SLESS && opc != CPUI_INT_SLESSEQUAL) continue;
++    // AND: c < V or c <= V (the constant first); OR: V < c or V <= c (the constant last)
++    int4 cslot = isAnd ? 0 : 1;
++    Varnode *cvn = cmpop->getIn(cslot);
++    Varnode *base = cmpop->getIn(1-cslot);
++    if (!cvn->isConstant()) continue;
++    uintb d;
++    if (!decrementOf(res,base,d)) continue;
++    int4 sz = res->getSize();
++    uintb mask = calc_mask(sz);
++    uintb sum = (cvn->getOffset() + d) & mask;
++    uintb want;
++    if (isAnd)
++      want = (opc == CPUI_INT_SLESS) ? mask : 0;	// c + d == -1 (c < V), or 0 (c <= V)
++    else
++      want = (opc == CPUI_INT_SLESS) ? 0 : mask;	// c + d == 0 (V < c), or -1 (V <= c)
++    if (sum != want) continue;
++    if (isAnd) {		// 0 < W
++      data.opSetOpcode(op,CPUI_INT_SLESS);
++      data.opSetInput(op,data.newConstant(sz,0),0);
++      data.opSetInput(op,res,1);
++    }
++    else {			// W <= 0
++      data.opSetOpcode(op,CPUI_INT_SLESSEQUAL);
++      data.opSetInput(op,res,0);
++      data.opSetInput(op,data.newConstant(sz,0),1);
++    }
++    return 1;
++  }
++  return 0;
++}
++
+ /// \class RuleTrivialArith
+ /// \brief Simplify trivial arithmetic expressions
+ ///
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.hh
+index 5b8c80d..cb40fad 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/ruleaction.hh
+@@ -487,6 +487,17 @@ public:
+   virtual void getOpList(vector<uint4> &oplist) const;
+   virtual int4 applyOp(PcodeOp *op,Funcdata &data);
+ };
++class RuleFlagResultCompare : public Rule {
++  static bool decrementOf(Varnode *res,Varnode *base,uintb &d);
++public:
++  RuleFlagResultCompare(const string &g) : Rule(g, 0, "flagresultcompare") {}	///< Constructor
++  virtual Rule *clone(const ActionGroupList &grouplist) const {
++    if (!grouplist.contains(getGroup())) return (Rule *)0;
++    return new RuleFlagResultCompare(getGroup());
++  }
++  virtual void getOpList(vector<uint4> &oplist) const;
++  virtual int4 applyOp(PcodeOp *op,Funcdata &data);
++};
+ class RuleTrivialArith : public Rule {
+ public:
+   RuleTrivialArith(const string &g) : Rule(g, 0, "trivialarith") {}	///< Constructor

@@ -644,6 +644,20 @@ TEST(AuthPolicyUnit, ProjectsNamed) {
   o.set_path("/somewhere");
   EXPECT_TRUE(ProjectsNamedBy(o).empty());
   EXPECT_TRUE(ProjectsNamedBy(pb::ListProjectsRequest()).empty());
+  // Fields with other program names (bug scrub part 3): a crash dump's
+  // program, a ROM's stored file, a library's target.
+  pb::CreateDebugSessionRequest d;
+  d.set_program_id("a/main");
+  d.mutable_crash()->set_dump_program_id("b/core");
+  EXPECT_EQ(ProjectsNamedBy(d), (std::vector<std::string>{"a", "b"}));
+  pb::ImportNdsRomRequest rom;
+  rom.set_project_id("a");
+  rom.set_program_file("c/game");
+  EXPECT_EQ(ProjectsNamedBy(rom), (std::vector<std::string>{"a", "c"}));
+  pb::LinkProgramLibraryRequest lib;
+  lib.set_program_id("a/main");
+  lib.set_target_program_id("d/libc");
+  EXPECT_EQ(ProjectsNamedBy(lib), (std::vector<std::string>{"a", "d"}));
 }
 
 // Debugging: the emulator and saved traces are an editor's; launching or
@@ -833,9 +847,7 @@ TEST(AuthPolicyUnit, MethodsNamingAProgramAreProjectScoped) {
     if (depth > 4) return false;
     for (int i = 0; i < d->field_count(); ++i) {
       const gp::FieldDescriptor *f = d->field(i);
-      if (f->type() == gp::FieldDescriptor::TYPE_STRING &&
-          (f->name() == "project_id" || f->name() == "program_id" || f->name() == "program_ids"))
-        return true;
+      if (f->type() == gp::FieldDescriptor::TYPE_STRING && NamedFieldKind(f->name()) != NamedField::none) return true;
       if (f->type() == gp::FieldDescriptor::TYPE_MESSAGE && !f->is_repeated() && !f->is_map() &&
           names(f->message_type(), depth + 1))
         return true;

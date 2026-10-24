@@ -3,6 +3,8 @@
 #include "revkit/inputs/demangled.h"
 
 #include "define_type.h"
+#include "nds_import.h"
+#include "project_archive.h"
 #include "param_id.h"
 
 #include "program.h"
@@ -940,12 +942,81 @@ void QueryLookup::commit_variable_types(lift::FunctionFacts &out) {
 
 const lift::FunctionFacts *QueryLookup::function_at(std::uint64_t entry) {
   const AddressFacts *af = address(entry);
-  return af->starts ? with_overlay(*af->starts) : nullptr;
+  if (af->starts) return with_overlay(*af->starts);
+  if (const Linked *l = linked(entry); l && l->function) return &*l->function;
+  return nullptr;
+}
+
+const std::vector<std::string> &QueryLookup::links() {
+  if (links_) return *links_;
+  links_.emplace();
+  auto src = query([&] { return ctx_->get<q::Source>(program_); });
+  const facts::FactKey key = FactKeyAt(facts::FactKind::Note, archive::kProjectSpace, src->ordinal, std::string(kDsdSub));
+  auto v = query([&] { return ctx_->get<facts::AssertedFact>(key); });
+  const std::string *text = std::get_if<std::string>(&*v);
+  if (text == nullptr || text->empty()) return *links_;
+  auto programs = query([&] { return ctx_->get<q::Programs>(0); });
+  for (const auto &[module, id] : DsdRecord::decode(*text).links)
+    if (id != program_ && std::find(programs->begin(), programs->end(), id) != programs->end()) links_->push_back(id);
+  return *links_;
+}
+
+void QueryLookup::import_types(QueryLookup &from, const lift::DecompElement &e, int depth) {
+  if (depth > 32) return;
+  if (const auto *id = e.attr("id"))
+    if (const auto *u = std::get_if<std::uint64_t>(id); u && !overlay_types_.contains(*u))
+      if (const lift::DecompElement *def = from.type(*u)) {
+        overlay_types_.emplace(*u, *def);
+        import_types(from, *def, depth + 1);
+      }
+  for (const lift::DecompElement &c : e.children) import_types(from, c, depth + 1);
+}
+
+const QueryLookup::Linked *QueryLookup::linked(std::uint64_t a) {
+  if (auto it = linked_.find(a); it != linked_.end()) return &it->second;
+  if (frozen_) return nullptr;
+  const AddressFacts *af = address(a);
+  if (af->block || af->starts || af->contains || af->data || af->label || af->external) return nullptr;
+  Linked &out = linked_[a];
+  QueryLookup *hit = nullptr;
+  for (const std::string &id : links()) {
+    std::unique_ptr<QueryLookup> &sub = linked_lookups_[id];
+    if (!sub) sub = std::make_unique<QueryLookup>(*ctx_, id, 0);
+    if (!sub->address(a)->block) continue;
+    if (hit) return &out;  // two modules map it (overlays sharing addresses): neither
+    hit = sub.get();
+  }
+  if (!hit) return &out;
+  if (const lift::FunctionFacts *f = hit->function_at(a)) {
+    lift::FunctionFacts g = *f;
+    // A callee in another program: its symbol and prototype, nothing to decode.
+    g.body.clear();
+    g.context.clear();
+    g.context_reach.clear();
+    g.locals.clear();
+    import_types(*hit, g.ret.type, 0);
+    for (const lift::ParamFacts &prm : g.params) import_types(*hit, prm.type, 0);
+    out.function = std::move(g);
+  }
+  if (const lift::DataFacts *d = hit->data_containing({}, a)) {
+    lift::DataFacts g = *d;
+    // Its bytes are the other program's: nothing here to read as constant.
+    g.mutability = lift::Mutability::normal;
+    g.string.reset();
+    import_types(*hit, g.type, 0);
+    out.data = std::move(g);
+  }
+  if (const lift::LabelFacts *l = hit->label_at({}, a)) out.label = *l;
+  return &out;
 }
 
 std::optional<lift::FactLookup::Body> QueryLookup::body_containing(std::uint64_t a) {
   const AddressFacts *af = address(a);
-  if (!af->contains) return std::nullopt;
+  if (!af->contains) {
+    // A linked module's function: its entry alone, as the decompiler names it.
+    if (const Linked *l = linked(a); l && l->function) return Body{a, a, &*l->function};
+    return std::nullopt;
+  }
   return Body{af->body_first, af->body_last, with_overlay(*af->contains)};
 }
 
@@ -980,6 +1051,8 @@ const lift::DataFacts *QueryLookup::data_containing(const std::string &space, st
   }
   // A name asserted where the program has no symbol: undefined bytes that
   // carry it, as Java sends them.
+  if (!renamed)
+    if (const Linked *l = linked(a); l && l->data) return &*l->data;
   if (renamed && s->kind == SymbolInfo::Kind::Data && !af->label && !af->contains) {
     lift::DataFacts &out = owned_data_.emplace_back();
     out.addr = a;
@@ -1001,7 +1074,10 @@ const lift::ExternalRefFacts *QueryLookup::external_at(const std::string &space,
 const lift::LabelFacts *QueryLookup::label_at(const std::string &space, std::uint64_t a) {
   if (!space.empty()) return nullptr;
   const AddressFacts *af = address(a);
-  if (!af->label) return nullptr;
+  if (!af->label) {
+    if (const Linked *l = linked(a); l && l->label) return &*l->label;
+    return nullptr;
+  }
   const SymbolInfo *s = symbol(a);
   if (s == nullptr || !s->asserted || s->name.empty() || s->name == af->label->name) return &*af->label;
   lift::LabelFacts &out = owned_labels_.emplace_back(*af->label);
@@ -1038,7 +1114,64 @@ const lift::DecompElement *QueryLookup::type(std::uint64_t id) {
   if (frozen_) return nullptr;  // types are asked for while analysing, not printing
   auto ref = query([&] { return ctx_->get<q::InputsType>({program_, id}); });
   auto &slot = types_.emplace(id, std::move(ref)).first->second;
+  if (*slot)
+    if (const lift::DecompElement *defined = defined_class(id, **slot)) return defined;
   return *slot ? &**slot : nullptr;
+}
+
+// A class the demangler names (an incomplete struct of the class's name:
+// a member function's `this`, a pointer parameter) that the program
+// defines (a C++ header imported with ParseC, DefineType, another
+// module's debug info): the program's definition, under the id the
+// demangler's prototypes refer to, so every function naming the class
+// sees its fields (`this->w`, not `this + 0x14`). Only a name exactly one
+// complete program type has (as `class N` or `struct N`, or in a
+// namespace, `class ns::N`). Null where none does.
+const lift::DecompElement *QueryLookup::defined_class(std::uint64_t id, const lift::DecompElement &decl) {
+  auto text = [&](const char *attr) -> const std::string * {
+    const auto *v = decl.attr(attr);
+    return v != nullptr ? std::get_if<std::string>(v) : nullptr;
+  };
+  const std::string *meta = text("metatype"), *name = text("name");
+  const auto *size = decl.attr("size");
+  if (decl.tag != "type" || !decl.children.empty() || meta == nullptr || *meta != "struct" || name == nullptr ||
+      name->empty() || size == nullptr || !std::holds_alternative<std::int64_t>(*size) || std::get<std::int64_t>(*size) != 1)
+    return nullptr;
+  auto named = query([&] { return ctx_->get<q::TypeNames>(program_); });
+  std::set<std::string> hashes;
+  for (const NamedTypes::Entry &e : named->types) {
+    if (e.library) continue;
+    for (std::string_view kind : {"class ", "struct "}) {
+      if (!e.key.starts_with(kind)) continue;
+      const std::string_view n = std::string_view(e.key).substr(kind.size());
+      if (n == *name || (n.size() > name->size() + 2 && n.ends_with(*name) &&
+                         n.substr(n.size() - name->size() - 2, 2) == "::")) {
+        const std::string *bound = named->bound(e.key);
+        hashes.insert(bound != nullptr ? *bound : e.hash);
+      }
+    }
+  }
+  if (hashes.size() != 1) return nullptr;
+  std::unique_ptr<Asserted> t = asserted_type(*hashes.begin());
+  if (!t) return nullptr;
+  const auto *agg = t->store.get(t->id).as<types::AggregateType>();
+  if (agg == nullptr || !agg->complete || agg->size == 0 || agg->kind == types::AggregateKind::Union) return nullptr;
+  inputs::GhidraTypes enc(t->store, data_org(), nullptr);
+  const lift::DecompElement ref = enc.ref(t->id);
+  const auto *own_attr = ref.attr("id");
+  if (own_attr == nullptr || !std::holds_alternative<std::uint64_t>(*own_attr)) return nullptr;
+  const std::uint64_t own = std::get<std::uint64_t>(*own_attr);
+  std::optional<lift::DecompElement> def;
+  for (lift::DecompElement &d : enc.take_definitions())
+    if (const auto *a = d.attr("id"))
+      if (const auto *u = std::get_if<std::uint64_t>(a)) {
+        if (*u == own) def = d;
+        overlay_types_.emplace(*u, std::move(d));
+      }
+  if (!def) return nullptr;
+  for (auto &[k, v] : def->attrs)
+    if (k == "id") v = id;
+  return &overlay_types_.insert_or_assign(id, std::move(*def)).first->second;
 }
 
 std::vector<const lift::CommentFacts *> QueryLookup::comments(std::uint64_t entry) {
@@ -1069,6 +1202,8 @@ std::vector<lift::TrackedFacts> QueryLookup::tracked(std::uint64_t entry) {
 }
 
 void QueryLookup::reset() {
+  linked_.clear();
+  for (auto &[id, sub] : linked_lookups_) sub->reset();
   addresses_.clear();
   functions_.clear();
   symbols_.clear();

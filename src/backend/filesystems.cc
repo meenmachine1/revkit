@@ -1,5 +1,6 @@
 #include "filesystems.h"
 
+#include "apple_bundles.h"
 #include "open_beneath.h"
 
 #include <fcntl.h>
@@ -98,7 +99,11 @@ void FillEntry(const container::FileSystem &fs, std::uint32_t idx, const std::st
   if (!e.note.empty()) out->set_note(e.note);
   out->set_unreadable(e.loc2 == UINT64_MAX && e.kind == Kind::file);
   out->set_renamed(e.renamed);
-  if (e.kind == Kind::directory) out->set_child_count(static_cast<std::uint32_t>(e.children.size()));
+  if (e.kind == Kind::directory) {
+    out->set_child_count(static_cast<std::uint32_t>(e.children.size()));
+    // An Apple bundle (api_minor 100).
+    if (std::string b = BundleKindOf(fs, idx); !b.empty()) out->set_bundle_kind(b);
+  }
   if (!e.language.empty()) out->set_language_id(e.language);
   if (!e.content_kind.empty()) out->set_content_kind(e.content_kind);
   if (e.load_address) {

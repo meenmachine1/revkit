@@ -132,6 +132,7 @@ lift::DecompileConfig lift_config(const Bundle &b, std::shared_ptr<BundleLookup>
   c.default_labels = b.lift.default_labels;
   c.default_extrapop = b.lift.default_extrapop;
   c.format_strings = b.lift.format_strings;
+  c.shape = b.lift.shape;
   c.eliminate_unreachable = b.mode != Mode::param_id;
   if (b.mode == Mode::signature) c.action = "normalize";
   return c;

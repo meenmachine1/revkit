@@ -57,6 +57,9 @@ set(GHIDRA_ROOT "$ENV{GHIDRA_INSTALL_DIR}" CACHE PATH "Ghidra installation root"
 # source build's tools read them from here, an installed one from
 # share/revkit/typeinfo.
 set(REVKIT_TYPEINFO_DIR ${CMAKE_BINARY_DIR}/typeinfo)
+# Where the build writes revkit's own processors (processors/, compiled with
+# tools/rk-sleigh); installed to share/revkit/processors.
+set(REVKIT_PROCESSORS_DIR ${CMAKE_BINARY_DIR}/processors)
 # The benchmark corpus (scripts/phase0.sh builds it); tests that use it skip
 # when it is missing.
 set(REVKIT_CORPUS_DIR "${PROJECT_SOURCE_DIR}/out/corpus" CACHE PATH "Built corpus binaries")
@@ -122,6 +125,8 @@ add_subdirectory(tools/rk-sandbox)
 add_subdirectory(tools/rk-sigdiff)
 add_subdirectory(tools/rk-sweep)
 add_subdirectory(tools/rk-typeinfo)
+add_subdirectory(tools/rk-sleigh)
+add_subdirectory(processors)
 
 if(REVKIT_BUILD_TESTS)
   add_subdirectory(tests)

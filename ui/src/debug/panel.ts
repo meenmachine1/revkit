@@ -16,6 +16,7 @@
 // it, or edited here); the timeline then marks the exceptions the CPU took,
 // a UART takes typed input, and the run can stop on exceptions.
 
+import type { DebugCrash } from "@revkit/api";
 import {
   DebugBreakpointKind,
   DebugRunMode,
@@ -94,6 +95,10 @@ export interface DebuggerHost {
   selection(): bigint | null;
   /** A call-stack frame was chosen: show its pc (a program address) in the listing and decompiler. */
   showFrame?(pc: bigint): void;
+  /** Crash dump… (feature crash-dumps): which dump to open; null: cancelled. */
+  pickCrashDump?(): Promise<CrashSource | null>;
+  /** Opens another program of the project (a crash dump's executable). */
+  openProgram?(programId: string): void;
 }
 
 export type RunName = "into" | "over" | "out" | "run";
@@ -111,7 +116,10 @@ export interface WatchValue {
   changed: boolean;
   children: { name: string; text: string; type: string }[];
 }
-export type TargetChoice = "emulator" | "machine" | "remote" | "launch";
+export type TargetChoice = "emulator" | "machine" | "remote" | "launch" | "crash";
+
+/** Where a crash dump comes from (feature crash-dumps): a program of the project, a host file, an upload. */
+export type CrashSource = { source: { case: "dumpProgramId" | "hostPath" | "uploadId"; value: string } };
 
 /** An exception the timeline recorded (a snapshot with an event). */
 export interface TimelineEvent {
@@ -273,6 +281,7 @@ export class DebuggerPanel {
   private readonly firmwareRow: HTMLElement;
   private readonly uartInput: HTMLInputElement;
   private readonly breakExc: HTMLInputElement;
+  private readonly crashBox: HTMLElement;
 
   constructor(
     private rk: Revkit,
@@ -295,6 +304,8 @@ export class DebuggerPanel {
     readonly conditions = false,
     /** An emulator from the session's state (feature debugger-emulate-from). */
     readonly emulateFrom = false,
+    /** Crash dumps as sessions (feature crash-dumps). */
+    readonly crashDumps = false,
   ) {
     // Answer the library tabs that ask where this session's pc is.
     pcPanels.add(this);
@@ -316,7 +327,9 @@ export class DebuggerPanel {
       h("option", { value: "machine", disabled: !machines, title: "Firmware on a machine description: memory, peripherals, interrupts" }, "Emulator (machine…)"),
       h("option", { value: "remote", disabled: !live }, "gdb remote host:port"),
       h("option", { value: "launch", disabled: !live }, "Launch locally"),
+      h("option", { value: "crash", disabled: !crashDumps, title: "An ELF core file or a Windows minidump, stopped where it crashed (read-only)" }, "Crash dump…"),
     );
+    this.crashBox = h("div", { class: "dbg-crash", hidden: true, "data-testid": "dbg-crash" });
     this.targetInput = h("input", { class: "dbg-target-input mono", spellcheck: "false", "data-testid": "dbg-target-input" });
     this.targetInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") void this.connect();
@@ -462,6 +475,7 @@ export class DebuggerPanel {
         { class: "emu-body" },
         h("div", { class: "dbg-timeline" }, h("span", { class: "dim" }, "Timeline"), this.scrub, this.liveBtn, this.resumeHereBtn, this.eventsEl, this.eventsLabel, this.scrubLabel),
         this.firmwareRow,
+        this.crashBox,
         this.regsEl,
         this.watchBox,
         this.bpBox,
@@ -507,12 +521,17 @@ export class DebuggerPanel {
       if (!text) return this.host.notify("Give the stub's host:port (gdbserver, qemu -gdb, OpenOCD :3333, J-Link :2331)", true);
       return this.create({ remote: { address: text } });
     }
+    if (choice === "crash") {
+      const src = await this.host.pickCrashDump?.();
+      if (src) await this.create({ crash: src });
+      return;
+    }
     return this.create({ launch: { arguments: text ? text.split(/\s+/) : [] } });
   }
 
   private targetChanged() {
     const choice = this.targetSel.value as TargetChoice;
-    this.targetInput.hidden = choice === "emulator" || choice === "machine";
+    this.targetInput.hidden = choice === "emulator" || choice === "machine" || choice === "crash";
     this.targetInput.placeholder = choice === "remote" ? "host:port or unix:/path" : "arguments";
     this.machineRow.hidden = choice !== "machine";
     if (choice === "machine") void this.refreshMachines();
@@ -625,13 +644,13 @@ export class DebuggerPanel {
     }
   }
 
-  private async create(target: { emulator?: object; remote?: object; launch?: object }, keepParent = false) {
+  private async create(target: { emulator?: object; remote?: object; launch?: object; crash?: object }, keepParent = false) {
     if (this.session && keepParent) {
       this.parent = { session: this.session, request: this.request, label: this.title.textContent ?? "" };
       this.generation++;
       this.session = null;
     } else if (this.session) await this.close(false);
-    const kind = Object.keys(target)[0] as "emulator" | "remote" | "launch";
+    const kind = Object.keys(target)[0] as "emulator" | "remote" | "launch" | "crash";
     this.stops = [];
     const req = {
       programId: this.programId,
@@ -641,7 +660,7 @@ export class DebuggerPanel {
     this.request = req;
     this.busy = true;
     this.enable();
-    this.status.textContent = kind === "emulator" ? "starting…" : "connecting…";
+    this.status.textContent = kind === "emulator" ? "starting…" : kind === "crash" ? "reading the dump…" : "connecting…";
     try {
       this.session = await this.rk.debugger.createDebugSession(req);
     } catch (e) {
@@ -666,6 +685,7 @@ export class DebuggerPanel {
     this.host.show();
     this.title.textContent = this.parent ? `${this.session.description} · from ${this.parent.label}` : `${this.session.description}`;
     this.title.title = this.session.language;
+    this.renderCrash(this.session.crash);
     if (!this.memExpr) this.memExpr = this.session.spRegister;
     this.memInput.value = this.memExpr;
     await this.apply(this.session.state ?? null, this.session.state?.lastStop ?? null);
@@ -772,7 +792,7 @@ export class DebuggerPanel {
     if (!this.request) return;
     const kind = this.request.target.case;
     const value = this.request.target.value as object;
-    if (kind === "emulator" || kind === "remote" || kind === "launch") await this.create({ [kind]: value });
+    if (kind === "emulator" || kind === "remote" || kind === "launch" || kind === "crash") await this.create({ [kind]: value });
   }
 
   async close(hide = true) {
@@ -877,7 +897,9 @@ export class DebuggerPanel {
   private enable() {
     const on = this.session !== null && !this.busy && !this.running;
     const stopped = on && this.state?.targetState === DebugTargetState.STOPPED;
-    for (const id of ["into", "over", "out", "run"]) this.buttons[id].disabled = !stopped;
+    // A crash dump is read, never run.
+    const dump = this.session?.targetKind === "crash-dump";
+    for (const id of ["into", "over", "out", "run"]) this.buttons[id].disabled = !stopped || dump;
     this.buttons.pause.disabled = !this.running;
     this.buttons.fork.hidden = !this.emulateFrom || !this.session || this.parent !== null;
     this.buttons.fork.disabled = !this.session || this.busy || this.running;
@@ -888,6 +910,29 @@ export class DebuggerPanel {
     this.resumeHereBtn.disabled = !on;
     this.buttons.restart.disabled = this.busy || this.request === null;
     this.buttons.start.disabled = this.busy;
+  }
+
+  /** A crash dump session's summary: the reason, where, the faulting instruction, the executable's program. */
+  private renderCrash(c: DebugCrash | undefined) {
+    this.crashBox.hidden = !c;
+    if (!c) return this.crashBox.replaceChildren();
+    const pc = c.pc?.address?.offset ?? 0n;
+    const mod = c.module && !c.function.startsWith(c.module) ? ` (${c.module}+0x${c.moduleOffset.toString(16)})` : "";
+    const main = c.mainProgramId && c.mainProgramId !== this.programId && this.host.openProgram
+      ? h("button", { class: "link", type: "button", "data-testid": "dbg-crash-open-main", onclick: () => this.host.openProgram!(c.mainProgramId) }, `Open the executable, ${c.mainProgramId.replace(/^[^/]*\//, "")}`)
+      : null;
+    const parts: (HTMLElement | null)[] = [
+      h("div", { class: "dbg-crash-reason", "data-testid": "dbg-crash-reason" }, c.reason),
+      h("div", { class: "mono", "data-testid": "dbg-crash-where" }, `at 0x${pc.toString(16)} in ${c.function}${mod} · thread ${c.crashedThread}`),
+      c.instruction ? h("div", { class: "mono dbg-crash-insn", "data-testid": "dbg-crash-insn", title: "The faulting instruction" }, c.instruction) : null,
+      h("div", { class: "dbg-crash-meta dim" },
+        [c.format === "minidump" ? "minidump" : "core", c.arch, c.os, c.pid ? `pid ${c.pid}` : "", c.args || c.command, `${c.threads.length} thread${c.threads.length === 1 ? "" : "s"}`, `${c.modules.length} modules`].filter(Boolean).join(" · ")),
+      h("div", { class: "dbg-crash-actions" },
+        h("button", { class: "btn small", type: "button", "data-testid": "dbg-crash-copy", title: "The reason, where, the backtrace and the threads as text", onclick: () => void navigator.clipboard?.writeText(c.summary).then(() => this.host.notify("Copied the crash report")) }, "Copy report"),
+        ...(main ? [main] : [])),
+      c.warnings.length ? h("div", { class: "dim dbg-crash-warn" }, c.warnings.join(" · ")) : null,
+    ];
+    this.crashBox.replaceChildren(...parts.filter((x): x is HTMLElement => x !== null));
   }
 
   private appendOutput(state: DebugState) {

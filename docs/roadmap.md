@@ -3,8 +3,164 @@
 What is requested but not built yet, and what is in flight. Each entry says
 what it is and why; design notes go in the feature's own doc when work starts.
 
-## Now (2026-10-18)
+## Now (2026-10-23)
 
+Landing what the 2026-10-21 round left on branches, then measuring it on
+the DS matching-decompilation run:
+
+- `phase16/dsfixes` (`api_minor` 104): what the DS run hit: calls into
+  another module no longer taken as no-return, DS I/O volatile by default,
+  Thumb-keeping function bounds, per-item refusals in assertion batches
+  and faster batches, import name conflicts, store compaction.
+- `phase13/nds-kb` (105): the decomp knowledge base
+  ([decomp-kb.md](decomp-kb.md)) and NitroFS/NARC as file systems.
+- `phase16/matchshape` (106): source-shaped output (narrow-load
+  signedness, comparison form, flag-set loop tests, compilable C,
+  bitfields, token gaps; inference types loads as the final C does);
+  re-measured 2026-10-23 ([decomp-quality.md](decomp-quality.md#source-shape-2026-10-21)):
+  every family still wins, the identity rates with Ghidra's C fall on
+  purpose and their baselines are re-saved.
+
+Next: rerun the DS run on the result; the vtables, clobber lists and
+other follow-ups listed in the 2026-10-21 entry below; carving; the end
+of the project's test and scrub ([bug-scrub.md](bug-scrub.md) part 3, Left).
+
+## Round of 2026-10-21
+
+Making revkit a better front end for matching decompilation, from what the
+DS experiment found ([known-issues.md](known-issues.md#found-by-a-matching-decompilation-run-on-a-nintendo-ds-game-2026-10-18)),
+four at a time:
+
+- ~~**Source-shaped output:** narrow loads and stores typed by their
+  instruction's signedness, comparison constants and operand order kept,
+  bitfields, signed loop guards, output a C compiler takes as is, and the
+  token gaps~~ *done* (`api_minor` 106, feature `decompiler-settings`;
+  [decompiler-inputs.md](decompiler-inputs.md#source-shape): the fork's
+  source-shape options on by default for revkit's inputs, per-program
+  settings for encoded comparisons and compilable C). Left: bitfields
+  detected from masks in inferred structures, stack arrays sized right,
+  struct copies as one assignment, a var-to-var compare's operand order,
+  and inference again when a program's load types change.
+- ~~**Inference on 32-bit ARM**, prototypes for 32-bit callees, then C++
+  classes from headers as the `this` type~~ *done*: inference on ARM and
+  Thumb, MIPS o32 and PowerPC by default
+  ([infer.md](infer.md#32-bit-processors),
+  [decomp-quality.md](decomp-quality.md#inference-on-32-bit-arm-mips-and-powerpc-2026-10-21):
+  firmware composite 3892/10223/515 → 8548/4611/1471, every family
+  winning; casts, `noise` and temporaries now lose in those families);
+  an SDK's interrupt restore takes its argument and stack arguments past
+  r3 are counted (the 32-bit ARM fixture, `tests/data/arm32`); a class an
+  imported C++ header defines is `this`'s type
+  ([types.md](types.md#c-classes-as-this)). Next: vtables without RTTI
+  (`_ZTV` symbols, constructors storing the vtable pointer) and virtual
+  calls through a typed vtable; per-function clobber lists for the
+  `extraout_` noise; RISC-V rv32 and x86-32 need corpus images.
+- **What the DS run hit** (landed 2026-10-23, `api_minor` 104;
+  [nds.md](nds.md#what-a-matching-run-needed)): no-return evidence only
+  for a program's own code and under `SetNoReturn(false)`, the DS's I/O
+  as volatile blocks (`memory_preset`), Thumb-keeping function bounds,
+  per-body refusals and `skip_invalid`, batches of C prototypes and data
+  definitions 7 to 15 times faster, import name conflicts, store
+  compaction (`rk-daemon compact`, `CompactProject`, `--cache-limit-mb`),
+  fewer retained analysis revisions. Next: the UI for name conflicts and
+  compaction.
+- ~~**The decomp knowledge base**~~ *done* (`api_minor` 105, feature
+  `decomp-kb`; [decomp-kb.md](decomp-kb.md)): exact matches, names
+  through matched callers, BSim near matches with the diff, the export,
+  the UI; NitroFS and NARC in the file system browser. Next: prototypes
+  and types from the KB, data names through the code, objects as a
+  source, functions only vtables reach in a ROM.
+
+## Done 2026-10-18 (later)
+
+Toward what rea covers that revkit doesn't
+([the comparison](wishlist.md)), three at a time:
+
+- ~~**Apple applications:** `.app` and `.ipa` bundles, `Info.plist`,
+  entitlements and code-signature details~~ *done* (`api_minor` 100,
+  feature `apple-bundles`; [apple-apps.md](apple-apps.md): bundles as file
+  systems with their frameworks found by `@rpath`, property lists, code
+  signatures and provisioning profiles read, not verified); ~~Interface
+  Builder nibs and UI actions traced to their Objective-C handlers~~
+  *done* (`api_minor` 101, feature `ui-actions`;
+  [apple-apps.md](apple-apps.md#interface-builder-and-ui-actions)). Next
+  for Apple: asset catalogs, OpenStep plists and `.strings`, segues and
+  gesture recognizers, dSYM.
+- ~~**Android resources and crash dumps:**~~ *done*: ~~binary `AndroidManifest.xml` and
+  `resources.arsc`, Flutter's Dart snapshot details~~ *done* (`api_minor` 98,
+  feature `android`; [android.md](android.md)): the manifest as XML and as
+  fields (components' exported flags and intent filters, the security
+  flags), the resource table and strings, the native libraries by ABI with
+  their JNI exports and the DEX's native methods linked to them, imported
+  with their neighbours linked, Flutter's snapshot hash and engine build
+  ID; ~~ELF core files and Windows minidumps (threads, registers, modules)
+  in the debugger views~~ *done* (`api_minor` 102, feature `crash-dumps`;
+  [crash-dumps.md](crash-dumps.md)): a stopped, read-only session with the
+  signal or exception, the faulting module, function and instruction, CFI
+  backtraces through project libraries and host files, the threads.
+- ~~**Results that state their unknowns, and EVM:**~~ *done*: evidence and
+  limitations on MCP and SDK results (`api_minor` 97, feature
+  `result-evidence`; [api.md](api.md#result-evidence)); an EVM bytecode
+  processor (`api_minor` 99, feature `evm`; [evm.md](evm.md)).
+
+- **Decomp knowledge base** (requested 2026-10-18): matching
+  decompilation as reproducible, transferable work. ~~Import and export
+  ds-decomp projects~~ *done*, with `.nds` ROMs, module programs linked
+  across modules and decomp scratches (`api_minor` 103, feature `nds`;
+  [nds.md](nds.md)); ~~ingest finished decomps (source, compiler and
+  flags per unit, a per-function manifest); apply them to a new game by
+  Function ID (exact: the name and verbatim source) and BSim (near: a
+  starting scratch with the diff); export dsd symbols and source~~ *done*
+  (`api_minor` 105, feature `decomp-kb`; [decomp-kb.md](decomp-kb.md));
+  left: types and prototypes from the KB, compiled objects as a source,
+  and producers beyond the DS (GBA, N64, GameCube/Wii decomps).
+
+- **Matching decompilation, Nintendo DS first:** ~~ds-decomp projects and
+  `.nds` ROMs as module programs linked across modules, names back to
+  `symbols.txt`, decomp scratches~~ *done* (`api_minor` 103, feature `nds`;
+  [nds.md](nds.md)); ~~a decomp knowledge base that applies finished
+  decomps to a new game; NitroFS and NARC in the file system browser~~
+  *done* (`api_minor` 105; [decomp-kb.md](decomp-kb.md),
+  [filesystems.md](filesystems.md#formats)).
+
+- ~~**The end-of-round test**~~ *done* (2026-10-21; [bug-scrub.md](bug-scrub.md#part-3-2026-10-20-the-end-of-round-test)):
+  the full ctest and `ui_e2e`, ASan + UBSan over every suite and
+  `python_sdk`, TSan over the new concurrency and the rest, the round's 42
+  fuzz harnesses and `fuzz_pe`/`fuzz_elf`, and a security review of the
+  new attack surface. Found and fixed: a viewer's ds-decomp export
+  reading any host file, the provider sandbox's gaps (another process's
+  limits and signals, modes, `/proc`), memory bombs from aliased entries
+  in the new parsers, five fuzzer finds, and the sanitizer and clang builds.
+
+Then: recording what a program does (run, capture, compare), and carving
+(binwalk-style: signatures at any offset checked by each format's own
+parser, entries `@0x<offset>.<kind>`, an entropy strip; API, SDK, MCP and
+the browser's "Scan for embedded data…"), then squashfs before 4.0.
+~~Firmware formats (JFFS2, UBI/UBIFS, YAFFS2, TRX, Android sparse and
+vendor boot images, device trees and FIT, Intel HEX and S-records as
+containers)~~ *done* ([filesystems.md](filesystems.md#formats)).
+
+## Done 2026-10-18
+
+- ~~**EVM contracts**~~ *done* (`api_minor` 99, feature `evm`;
+  [evm.md](evm.md)): revkit's own SLEIGH processor for Ethereum Virtual
+  Machine bytecode, compiled by `rk-sleigh` (the fork's SLEIGH compiler, now
+  built) from a processors directory beside Ghidra's; runtime and creation
+  code, binary or hex text; the dispatcher's functions named by selector
+  (a 33-entry table of well-known signatures), JUMPDESTs labelled, computed
+  jumps resolved by a stack analysis (656 of 658 in OpenZeppelin's ERC-20
+  and ERC-721), `ProgramSummary.evm`. Left: internal functions as
+  functions, 256-bit and address types, storage slot names.
+- ~~**Results that state their evidence**~~ *done* (`api_minor` 97, feature
+  `result-evidence`; [api.md](api.md#result-evidence)): source tiers on every
+  fact origin (user, debug info, symbol, library, agent, inferred, guessed,
+  default), the unknowns of a function and its decompilation (indirect calls
+  and jumps with no known target, flow cut short, a failure, analysis still
+  running), and on the core MCP tools an `evidence` envelope (revision,
+  provenance, unknowns, limits, the fields holding the target's own text) with
+  the `_meta` target-content marker; edits say what changed and how to undo it.
+  Left: the envelope on the other MCP tools (callers, callees, the graph,
+  listings, the emulator and debugger), unknowns in the lists and in the UI.
 - ~~**Bytecode step 1: identify and extract**~~ *done* ([bytecode-lifting.md](bytecode-lifting.md#plan)):
   ~~container formats for PyInstaller, Electron asar, Node pkg, nexe and
   SEA, Bun executables, an appended zip (py2exe, cx_Freeze), and Lua and
@@ -624,8 +780,8 @@ an assertion that analysis, the decompiler and the emulator follow.
 
 ## Later
 
-- ~~**Bug scrub**~~ (*done* 2026-10-16: [bug-scrub.md](bug-scrub.md),
-  parts 1 and 2): ASan, UBSan and TSan over the test suites, fuzzing the
+- ~~**Bug scrub**~~ (*done* 2026-10-16, part 3 2026-10-21: [bug-scrub.md](bug-scrub.md),
+  parts 1 to 3): ASan, UBSan and TSan over the test suites, fuzzing the
   parsers, and a security review of the daemon, parsers and sandboxes.
 - Mach-O: DWARF and dSYM bundles, Swift demangling and types, the dyld
   shared cache and kernelcache ([macho.md](macho.md#known-gaps)).

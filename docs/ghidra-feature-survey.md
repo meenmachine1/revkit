@@ -21,9 +21,9 @@ whether they are current).
 <!-- survey-summary:total -->
 | Part | Features | Have | Partial | Missing | In progress |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Base (CodeBrowser, analyzers, types, search, symbols, ...) | 274 | 134 | 80 | 60 | 0 |
-| Everything else (decompiler, graphs, VT, BSim, FID, debugger, formats, ...) | 467 | 206 | 105 | 156 | 0 |
-| **Total** | **741** | **340** | **185** | **216** | **0** |
+| Base (CodeBrowser, analyzers, types, search, symbols, ...) | 276 | 136 | 81 | 59 | 0 |
+| Everything else (decompiler, graphs, VT, BSim, FID, debugger, formats, ...) | 469 | 209 | 108 | 152 | 0 |
+| **Total** | **745** | **345** | **189** | **211** | **0** |
 <!-- /survey-summary:total -->
 
 ## Part 1: Ghidra 12.1.4 Base module vs revkit: feature gaps
@@ -79,8 +79,8 @@ Key evidence used everywhere:
 | ASCII Strings Analyzer (n-gram model) | Have | `docs/data-analysis.md` step 3; its options (min length, alignment) not exposed | High | |
 | Data Archive Analyzer (library types applied to imports) | Have | revkit's own archives (glibc LP64/ILP32, Windows DLLs and CRT LLP64/ILP32) built from host headers, then Ghidra's `.gdt` for the rest; prototypes by name at library rank (`docs/types.md#library-prototypes`) | High | |
 | Data Reference Analyzer | Have | `docs/data-analysis.md` step 2 (strings, pointers `PTR_`) | High | |
-| Decompiler Parameter ID | Have | `docs/param-id.md`; plus whole-program inference `src/infer` (`docs/infer.md`), with structures for passed-on pointers composed across functions (beyond Ghidra; `docs/infer.md#structures`) | High | |
-| Demangler Analyzer | Have | names, namespaces and classes, prototypes from mangled signatures (`src/inputs/demangled.cc`, `docs/demangle.md`, api_minor 40) | High | |
+| Decompiler Parameter ID | Have | `docs/param-id.md`; plus whole-program inference `src/infer` (`docs/infer.md`; x86-64, AArch64, RISC-V 64, and 32-bit ARM/Thumb, MIPS o32 and PowerPC: `docs/infer.md#32-bit-processors`), with structures for passed-on pointers composed across functions (beyond Ghidra; `docs/infer.md#structures`) | High | |
+| Demangler Analyzer | Have | names, namespaces and classes, prototypes from mangled signatures (`src/inputs/demangled.cc`, `docs/demangle.md`, api_minor 40); a class the program defines (an imported C++ header) is `this`'s type ([types.md](types.md#c-classes-as-this)) | High | |
 | Entry Point Analyzer | Have | discovery seeds (`README.md` "Function discovery") | High | |
 | Format String Analyzer (printf-family call-site varargs types) | Have | call-site prototypes from constant printf/scanf formats, decompiled again with them (`docs/types.md#format-strings`) | Med | |
 | Image Analyzer (embedded GIF/PNG/BMP) | Missing | not found in `src` (no GIF/PNG/BMP signature markup) | Low | S |
@@ -402,8 +402,10 @@ Key evidence used everywhere:
 | Feature | Status | revkit evidence / what's missing | Value | Effort |
 |---|---|---|---|---|
 | Import ELF, PE, raw, Intel HEX, S-records, AVR ELF | Have | `ImportProgram` (`docs/api.md` Raw images, `docs/processors.md`) | High | |
-| Mach-O | Have | thin 32/64-bit and universal files' slices (the default arm64, else x86_64; `ImportOptions.macho_slice`), segments and sections as Ghidra's blocks, LC_MAIN/LC_UNIXTHREAD, nlist symbols, the export trie, binds, lazy and weak binds, rebases and chained fixups (arm64e formats too), stubs and GOT slots named as Ghidra names them, the EXTERNAL block, function starts, data in code, dylibs into library linking, UUID, build version, code signature and encryption reported; Ghidra's language opinions (api_minor 90, [macho.md](macho.md)). Objective-C and Swift metadata too (rows below). Missing: DWARF/dSYM, header markup, object files' relocations | High | |
+| Mach-O | Have | thin 32/64-bit and universal files' slices (the default arm64, else x86_64; `ImportOptions.macho_slice`), segments and sections as Ghidra's blocks, LC_MAIN/LC_UNIXTHREAD, nlist symbols, the export trie, binds, lazy and weak binds, rebases and chained fixups (arm64e formats too), stubs and GOT slots named as Ghidra names them, the EXTERNAL block, function starts, data in code, dylibs into library linking (`@rpath`, `@executable_path` and `@loader_path` expanded as dyld does, api_minor 100), UUID, build version, encryption reported, the code signature read (CodeDirectories, entitlements, requirements as text, signer certificates; not verified; api_minor 100, [apple-apps.md](apple-apps.md#code-signatures)); Ghidra's language opinions (api_minor 90, [macho.md](macho.md)). Objective-C and Swift metadata too (rows below). Missing: DWARF/dSYM, header markup, object files' relocations | High | |
 | COFF / `.o` / `.lib`, MZ/NE (DOS), OMF, DYLD cache, XML/SARIF, GZF | Missing | not found; "Linked images only: no relocation of `.o` files" (`docs/types.md`); `ar` archives open in the file system browser but members aren't loaded as objects | Med | L |
+| Nintendo DS: ds-decomp projects and .nds ROMs | Have (beyond Ghidra) | `ImportDsdProject` (a dsd config.yaml: one program per module at its address, symbols.txt's names, sizes and Thumb modes with demangling, delinks.txt's sections as blocks and units as comments, modules linked by relocs.txt), `ImportNdsRom` (header, BLZ ARM9 and overlays, autoloads split), `ExportDsdSymbols` (names back to symbols.txt as a diff, written with a backup), `ExportDecompScratch` (api_minor 103, feature `nds`; [nds.md](nds.md), `src/nds`, `ui/src/ui/nds.ts`); the DS's I/O as volatile blocks (`ImportOptions.memory_preset` `nds-arm9`/`nds-arm7` on raw imports, api_minor 104); Ghidra ships no DS loader | Med | |
+| Decomp knowledge base: finished decomps applied to a new game | Have (beyond Ghidra) | `BuildDecompKb` (a finished game's module programs: Function ID hashes with short functions, calls, translation units, verbatim source text, compiler and flags from a matching pipeline's JSON-lines manifest, a BSim near index), `ApplyDecompKb` (exact matches, names through matched callers across modules, ambiguities settled by callers, callees or elimination, BSim near matches with the source and an instruction diff; the export as symbols.txt changes, the matched sources in their units and scratches); `ImportNdsRom` finds functions other modules call (api_minor 105, feature `decomp-kb`; [decomp-kb.md](decomp-kb.md), `ui/src/ui/decompkb.ts`); Ghidra's Function ID gives names only | Med | |
 | Drag-and-drop import | Have | Open dialog drop (`docs/known-issues.md`) | Med | |
 | Batch import | Have | `docs/filesystems.md` | - | - |
 | Add To Program | Have | memory map "bytes from a file" (`docs/memory-map.md`) | Med | |
@@ -451,7 +453,7 @@ Key evidence used everywhere:
 | Delete block | Partial | added regions only; image blocks revert (`docs/memory-map.md`, `ui/src/ui/memmap.ts`) | Low | S |
 | Move, split, merge, expand up/down | Missing | not found; `Memory.split`/`join` Unsupported; Set image base moves the whole program, not a block (`docs/memory-map.md`) | Med | M |
 | Set image base (rebase) | Have | `SetImageBase`, Set image base… (`docs/memory-map.md` "Rebase", api_minor 42): every fact and its history move, one undoable edit | High | |
-| Overlay blocks / overlay spaces | Missing | "overlays are not offered" (`docs/memory-map.md` Known gaps) | Med | L |
+| Overlay blocks / overlay spaces | Partial | no overlay spaces (`docs/memory-map.md` Known gaps); a Nintendo DS game's overlays are each a program at its address, linked to main and the autoloads by address, so the decompiler and listing name what is in another module from that program (api_minor 103, feature `nds`; [nds.md](nds.md#modules-across-programs)); no references back across programs | Med | L |
 | Artificial flag, block comment, initialize block | Missing | not found | Low | S |
 
 ### Misc (Address Expressions)
@@ -738,12 +740,12 @@ Per topic: Have / Partial / Missing / In progress.
 | GhidraServer | 1 | 0 | 0 | 0 |
 | Graph | 1 | 1 | 0 | 0 |
 | HeadlessAnalyzer | 1 | 0 | 0 | 0 |
-| ImporterPlugin | 9 | 2 | 2 | 0 |
+| ImporterPlugin | 11 | 2 | 2 | 0 |
 | LabelMgrPlugin | 2 | 2 | 2 | 0 |
 | LanguageProviderPlugin | 2 | 0 | 0 | 0 |
 | LibreTranslatePlugin / TranslateStringsPlugin | 0 | 0 | 1 | 0 |
 | LocationReferencesPlugin | 2 | 0 | 0 | 0 |
-| MemoryMapPlugin | 4 | 1 | 3 | 0 |
+| MemoryMapPlugin | 4 | 2 | 2 | 0 |
 | Misc (Address Expressions) | 1 | 0 | 0 | 0 |
 | Navigation | 3 | 1 | 1 | 0 |
 | OverviewPlugin | 2 | 0 | 0 | 0 |
@@ -771,7 +773,7 @@ Per topic: Have / Partial / Missing / In progress.
 | Tool | 1 | 4 | 0 | 0 |
 | ValidateProgram | 0 | 1 | 0 | 0 |
 | VersionControl | 1 | 1 | 0 | 0 |
-| **Total (76 topics, 274 features)** | **134** | **80** | **60** | **0** |
+| **Total (76 topics, 276 features)** | **136** | **81** | **59** | **0** |
 <!-- /survey-summary:part1 -->
 
 ## Part 2: Ghidra 12.1.4 vs revkit: every module except Base
@@ -852,6 +854,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Respect read-only flags | Partial | const/volatile from the Data menu reach the decompiler (`docs/listing-edit.md`, `SetMutability`); no toggle | Med | S |
 | Alias blocking, split accesses, in-place operators | Missing | not exposed in `DecompileOptions` | Low | M |
 | Constant pointers, for-loops, predication, bitfields, NaN, extended precision | Missing | not exposed in `DecompileOptions` | Low | M |
+| Per-program decompiler settings | Partial | `SetDecompilerSettings` (api_minor 106, `docs/api.md#decompiler-settings`): comparison form, load signedness, compilable C, flag tests, per program; Ghidra's own options above still aren't settings | Med | S |
 | Disable printing of casts | Missing | not found in `DecompileOptions` or the UI | Med | S |
 | Integer format (hex, decimal, best fit) | Missing | no program-wide integer format option; only per-constant Convert (`conv-*`, api_minor 39) | Med | S |
 | Token colors, background, font | Partial | dark/light themes; no per-token colour or font settings | Low | S |
@@ -1124,7 +1127,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | gdbserver via SSH launcher | Partial | connect to a hand-started gdbserver's host:port; no SSH launch (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Med | M |
 | GDB + Wine (PE on Linux) | Missing | not found (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Med | M |
 | rr record/replay, reverse execution | Missing | not found; no `bs`/`bc` reverse packets (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Med | M |
-| Core dump debugging (gdb core, drgn core) | Missing | not found (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Med | M |
+| Core dump debugging (gdb core, drgn core) | Have | ELF core files (and minidumps) as stopped, read-only debug sessions: threads, registers, memory, modules mapped to project programs, CFI backtraces, the faulting instruction, a summary (`src/crash`, `src/debug/crash_target.cc`, `docs/crash-dumps.md`, api_minor 102) | Med | M |
 | drgn: live Linux kernel | Missing | not found (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Low | L |
 | LLDB local (macOS) / remote | Missing | not found; lldb gdb-remote dialect untested (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Med | M |
 | LLDB Android (lldb-server) | Missing | not found (rechecked at 807d127: no change to `src/debug`, `ui/src/debug/panel.ts`, `proto/revkit/v1/debugger.proto` or `docs/debugger.md` since the survey) | Med | M |
@@ -1304,12 +1307,13 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Nested containers (zip in tar.gz in an image, FSRL paths, import depth) | Have | session paths with `!`, container paths in provenance (`docs/filesystems.md`) | - | - |
 | Single-file compression wrappers (gzip, bzip2, xz, lz4, zstd, lzfse, LZSS) opened transparently | Partial | gzip, bzip2, xz, lzma, zstd, lz4 as containers of one file, offered as Open as file system on import (`src/container/compressed.cc`, `decompress.cc`; `docs/filesystems.md` "Formats", `ui/src/ui/open.ts` `looksLikeContainer`); no lzfse, LZSS | Low | S |
 | Archives: zip, 7z, tar, cpio, ISO9660, ar/COFF `.a`/`.lib`, OMF libs | Partial | zip, tar, cpio, ISO 9660, ar (`src/container/*.cc`, `docs/filesystems.md` "Formats"); 7z, rar, cab, OMF not read (`docs/filesystems.md` "Known gaps") | Low | M |
-| Firmware/OS file systems: ext4, squashfs, cramfs, YAFFS2, HFS+, DMG, Android sparse | Partial | ext2/3/4, squashfs, cramfs, FAT, partition tables (`src/container/ext.cc`, `squashfs.cc`, `cramfs.cc`, `fat.cc`; `docs/filesystems.md`); no YAFFS2, HFS+, DMG, Android sparse ("Known gaps") | Med | M |
-| Android: APK, DEX/CDex, ODEX/OAT/VDEX/ART loaders, dex2jar/smali | Partial | DEX and APK decompile to Java through jadx as an external decompiler (`docs/providers.md`, api_minor 92: the decompiler pane, the file system browser's Decompile with jadx…); still no DEX loader: Dalvik languages load raw only and don't decompile natively (`docs/processors.md:152,246`); APK browses as a zip (`docs/filesystems.md`), APKs and DEX named by detection with their content kinds (`apk`, `dex:035`; "Content kinds"); design and experiments in `docs/bytecode-lifting.md` | Med | L |
-| Android boot / vendor_boot images, FBPK | Partial | Android boot images v0-v4 (`src/container/firmware.cc`, `docs/filesystems.md` "Formats"); no vendor_boot, FBPK | Low | S |
-| Apple: dyld shared cache, kernelcache/Mach-O fileset, universal binaries, IPSW, img2/3/4, iBoot | Partial | universal binaries: a slice per program by `ImportOptions.macho_slice`, the others a click away in the Open dialog ([macho.md](macho.md#universal-files-and-slices); not as a file system); no dyld cache, kernelcache/fileset, IPSW, img2/3/4, iBoot; `docs/filesystems.md` "Known gaps" lists no dmg/Apple containers | Med | L |
-| Device tree (FDT/DTB) markup | Missing | not found: a DTB is only named by detection (`docs/filesystems.md` "What each file is") and listed as an Android boot image member; no markup or memory-map suggestion (wishlist "Memory and import") | Med | S |
-| Crash dumps (Windows minidump/pagedump/userdump, Apport) loader | Missing | not found (grep for minidump/MDMP/Apport in `src`, `docs`); wishlist "crash dumps" open | Med | M |
+| Firmware/OS file systems: ext4, squashfs, cramfs, YAFFS2, HFS+, DMG, Android sparse | Partial | ext2/3/4, squashfs 4, cramfs, FAT, partition tables, YAFFS2 (geometry guessed), Android sparse images, and beyond Ghidra JFFS2, UBI/UBIFS, TRX (`src/container/ext.cc`, `squashfs.cc`, `cramfs.cc`, `fat.cc`, `jffs2.cc`, `ubi.cc`, `yaffs2.cc`, `wrappers.cc`; `docs/filesystems.md`); no HFS+, DMG, squashfs before 4.0 ("Known gaps") | Med | M |
+| Android: APK, DEX/CDex, ODEX/OAT/VDEX/ART loaders, dex2jar/smali | Partial | DEX and APK decompile to Java through jadx as an external decompiler (`docs/providers.md`, api_minor 92: the decompiler pane, the file system browser's Decompile with jadx…); an APK's binary XML, `resources.arsc`, manifest fields, native libraries by ABI with their JNI exports, DEX native methods linked to them, and Flutter's snapshot hash (`src/android`, `docs/android.md`, api_minor 98); still no DEX loader: Dalvik languages load raw only and don't decompile natively (`docs/processors.md:152,246`); APK browses as a zip (`docs/filesystems.md`), APKs and DEX named by detection with their content kinds (`apk`, `dex:035`; "Content kinds"); design and experiments in `docs/bytecode-lifting.md` | Med | L |
+| Android boot / vendor_boot images, FBPK | Partial | Android boot images v0-v4 and vendor boot images v3-v4 with v4's ramdisk table (`src/container/firmware.cc`, `docs/filesystems.md` "Formats"); no FBPK | Low | S |
+| Apple: dyld shared cache, kernelcache/Mach-O fileset, universal binaries, IPSW, img2/3/4, iBoot | Partial | universal binaries: a slice per program by `ImportOptions.macho_slice`, the others a click away in the Open dialog ([macho.md](macho.md#universal-files-and-slices); not as a file system); app bundles (row below); no dyld cache, kernelcache/fileset, IPSW, img2/3/4, iBoot; `docs/filesystems.md` "Known gaps" lists no dmg | Med | L |
+| Apple app bundles (`.ipa`, `.app`), property lists (XML, bplist00), provisioning profiles (beyond Ghidra, which reads binary plists in its file formats) | Have | `GetAppleBundle`: an .ipa's or .app's layout, Info.plist's keys (identifier, versions, minimum OS, URL schemes, document types, background modes, usage descriptions, UTIs), main executable and its signature, nested frameworks and extensions with roles, Interface Builder files, the provisioning profile; `ReadPropertyList` (XML, binary, a profile's, keyed archives); bundle kinds and Apple content kinds in listings; Import main executable with its frameworks by `@rpath` (`src/apple`, `src/backend/apple_bundles.cc`, api_minor 100, [apple-apps.md](apple-apps.md)); the UI's Apple bundle… and Property list…, SDK, MCP; compiled nibs and storyboards (NIBArchive and keyed archives) and each control's action traced to its Objective-C method (`ListUiActions`, api_minor 101, [apple-apps.md](apple-apps.md#interface-builder-and-ui-actions)). Missing: asset catalogs, OpenStep plists, segues | Med | |
+| Device tree (FDT/DTB) markup | Partial | a DTB opens as a tree of nodes and property files with its source (`devicetree.dts`, which dtc compiles back to the same blob), FIT images' parts as files at their load addresses (`src/container/wrappers.cc`, `docs/filesystems.md` "Formats"); no markup of a program from it, no memory-map suggestion (wishlist "Memory and import") | Med | S |
+| Crash dumps (Windows minidump/pagedump/userdump, Apport) loader | Partial | ELF cores import with their PT_LOAD segments as memory blocks (`ProgramInfo.crash_dump`); minidumps (threads, modules, memory, Memory64, exception, system info; x86-64, x86, ARM64 contexts) and cores open as debug sessions (`docs/crash-dumps.md`, api_minor 102); minidumps don't import as programs; no pagedump/userdump/Apport | Med | M |
 | Java `.class`/JAR loading, Decompile JAR, Export Eclipse project | Partial | Decompile JAR: Vineflower, CFR or jadx as external decompilers on a jar or `.class` (a program, or a file in the file system browser; the output's source tree; `docs/providers.md`, api_minor 92); no `.class` loader (a JAR browses as a zip and classes and jars are named with their Java version, `java-class:21`, `jar`: `docs/filesystems.md` "Content kinds"), no Eclipse project export; design and experiments in `docs/bytecode-lifting.md` | Low | L |
 | CaRT neutered malware files | Missing | not found (grep of `src/container`, `docs/filesystems.md`) | Low | S |
 | iOS crypto key template | Missing | not found (grep of `src/container`, `docs/filesystems.md`) | Low | S |
@@ -1454,7 +1458,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Feature | Status | revkit evidence (path) or what's missing | Value | Effort |
 | --- | --- | --- | --- | --- |
 | Load any compiled SLEIGH language (`.sla`/`.ldefs`/`.pspec`/`.cspec`) | Have | all 189 languages of the Ghidra tree it points at (`docs/processors.md`, `--ghidra`, `docs/getting-started.md:75`) | - | - |
-| Compile `.slaspec` (SLEIGH compiler) | Missing | `third_party/ghidra/CMakeLists.txt` builds the runtime only (no `slgh_compile`); a tree with only `.slaspec` is refused (`src/runtime/runtime.cc`) | Med | S |
+| Compile `.slaspec` (SLEIGH compiler) | Have | `rk-sleigh` (`tools/rk-sleigh`): the fork's `slgh_compile` built as a tool; the build compiles revkit's own processors (`processors/`, EVM) with it and loads them from a second spec directory beside Ghidra's (`runtime::processors_dir`, `lift::initialize`; `docs/processors.md#revkits-own-processors`). A Ghidra tree with only `.slaspec` is still refused (`src/runtime/runtime.cc`): compile it first | - | - |
 | SLEIGH editor (syntax, navigation, errors) | Missing | not found (grep of `ui/src`, `docs`) | Low | M |
 | Reload an edited processor without restart | Missing | not found (`src/runtime`) | Low | M |
 
@@ -1525,7 +1529,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
   - gdbserver over SSH;
   - Wine for PE programs;
   - rr reverse execution (`bs`/`bc`);
-  - ELF core dumps as a trace target;
+  - ~~ELF core dumps as a trace target~~ *done* as crash dump sessions ([crash-dumps.md](crash-dumps.md), `api_minor` 102);
   - LLDB/debugserver for macOS and lldb-server for Android;
   - Windows kernel (kd) and TTD import;
   - x64dbg;
@@ -1598,12 +1602,13 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 - ~~**High: In-UI Python console (REPL).** A live host bound to `current_program`, `current_address` and the selection, with completion and history (roadmap Scripting Phase 4).~~ *Done (api_minor 43, [scripting.md](scripting.md#the-console)).*
 - **Med: Transparent decompression of single-file wrappers** (gzip, xz, ...) at import, and container-magic recognition in the detector (designed in autodetect.md).
 - **Med: Android.**
+  - ~~the manifest, resources and JNI libraries of an APK~~ *done* ([android.md](android.md), `api_minor` 98);
   - a DEX/APK loader;
   - the injections Dalvik needs to decompile;
-  - boot.img and vendor_boot.
+  - ~~boot.img and vendor_boot~~ *done* ([filesystems.md](filesystems.md#formats)).
 - **Med: Apple containers** (dyld cache, kernelcache); universal binaries load a slice per program ([macho.md](macho.md)).
 - **Med: Device-tree (DTB) parsing.** Mark it up and use it to suggest the memory map for firmware.
-- **Med: Crash dumps.** Load Windows minidumps and ELF cores as programs (shares work with the debugger's core target).
+- **Med: Crash dumps.** ~~ELF cores and Windows minidumps in the debugger~~ *done* ([crash-dumps.md](crash-dumps.md), `api_minor` 102); ELF cores import as programs; minidumps as programs left.
 - ~~**Med: Batch import.** Recursive folders and `-recursive`-style headless import, plus multi-file import in the UI.~~ *Done ([filesystems.md](filesystems.md#importing), `rk-daemon project import-batch`).*
 - **Med: Link dependent libraries.** Load them and resolve imports to other programs in the project (`-librarySearchPaths`).
 - **Med: Java GhidraScripts.** Run them, or translate them with a guided port; today only Python runs.
@@ -1612,7 +1617,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 - **Med: MSVC EH structures** (FuncInfo, unwind/try maps, catch handlers), shown as data and as handler targets.
 - **Med: SARIF.** Export program features and import results into a results table with apply actions (comments, bookmarks, highlights, retypes).
 - **Med: Wildcard assembler.** Wildcards in `src/asm` that return every encoding and the bits each wildcard occupies, plus a "find instructions like this" search over `FindBytes`.
-- **Med: SLEIGH compiler.** Build Ghidra's C++ `slgh_compile` into revkit (`rk-sleigh`) so custom processors compile without Java, and load languages from an extra directory.
+- ~~**Med: SLEIGH compiler.**~~ *done*: `rk-sleigh`, and revkit's own processors from a second directory (`docs/processors.md#revkits-own-processors`).
 - **Med: Version history in the UI.** Open, browse and diff a program at an older revision, and revert to a revision.
 - **Med: Auth.** OIDC/SSO and client certificates (mTLS); Ghidra has PKI, AD/Kerberos and SSH keys.
 - **Med: Docking.**
@@ -1628,7 +1633,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Module / topic | Have | Partial | Missing | In progress |
 |---|---|---|---|---|
 | Decompiler: window and actions | 23 | 10 | 9 | 0 |
-| Decompiler: options and annotations | 5 | 5 | 10 | 0 |
+| Decompiler: options and annotations | 5 | 6 | 10 | 0 |
 | DecompilerDependent | 1 | 2 | 3 | 0 |
 | FunctionGraph and Graph | 8 | 2 | 10 | 0 |
 | GraphFunctionCalls | 2 | 2 | 1 | 0 |
@@ -1644,7 +1649,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | FunctionID | 8 | 1 | 1 | 0 |
 | BytePatterns | 1 | 0 | 5 | 0 |
 | CodeCompare | 8 | 2 | 4 | 0 |
-| Debugger: targets, agents, connections | 5 | 4 | 15 | 0 |
+| Debugger: targets, agents, connections | 6 | 4 | 14 | 0 |
 | Debugger: control, console, platform, model | 5 | 4 | 4 | 0 |
 | Debugger: breakpoints | 8 | 2 | 2 | 0 |
 | Debugger: dynamic listing, memory, copy, sync | 6 | 6 | 4 | 0 |
@@ -1653,7 +1658,7 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Debugger: time, traces, diff, p-code stepper | 3 | 5 | 3 | 0 |
 | Emulator | 14 | 1 | 8 | 0 |
 | Docking | 4 | 8 | 6 | 0 |
-| FileFormats | 4 | 7 | 4 | 0 |
+| FileFormats | 5 | 9 | 2 | 0 |
 | Go and Rust binaries | 2 | 2 | 2 | 0 |
 | PDB | 7 | 4 | 3 | 0 |
 | PyGhidra | 5 | 1 | 0 | 0 |
@@ -1666,9 +1671,9 @@ Value and Effort are left as "-" for Have rows. All revkit paths are relative to
 | Demanglers | 3 | 0 | 1 | 0 |
 | MicrosoftCodeAnalyzer | 3 | 2 | 2 | 0 |
 | Recognizers | 0 | 1 | 0 | 0 |
-| Processor-module authoring | 1 | 0 | 3 | 0 |
+| Processor-module authoring | 2 | 0 | 2 | 0 |
 | Other modules without help pages | 0 | 0 | 3 | 0 |
-| **Total (41 modules, 467 features)** | **206** | **105** | **156** | **0** |
+| **Total (41 modules, 469 features)** | **209** | **108** | **152** | **0** |
 <!-- /survey-summary:part2 -->
 
 "In progress" rows are branches in flight and are not counted as Missing. Rows marked "Have (better)", "Have (beyond Ghidra)" or "Have (revkit only)" count as Have.

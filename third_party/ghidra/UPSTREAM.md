@@ -26,6 +26,10 @@ carries the fix.
 | [0007](patches/0007-SLEIGH-expose-the-decision-tree-s-constructor-patter.patch) `SubtableSymbol`'s decision tree, `DecisionNode` pairs and children | accessors (no behaviour change) | not submitted |
 | [0008](patches/0008-SLEIGH-expose-operand-fields-and-attached-symbol-tab.patch) `TokenField`/`ContextField` layout, `OperandValue` index, name/value/varnode tables | accessors (no behaviour change) | not submitted |
 | [0011](patches/0011-SLEIGH-expose-a-decision-node-s-field.patch) `DecisionNode` field (context or instruction bits, start, size) | accessors (no behaviour change) | not submitted |
+| [0012](patches/0012-Decompiler-an-option-to-type-a-loaded-value-by-its-i.patch) option `extensiontypes`: a LOAD typed by its instruction's sign or zero extension | option, off by default | not submitted |
+| [0013](patches/0013-Decompiler-an-option-to-print-comparisons-with-the-c.patch) option `encodedcompare`: comparisons with the constant on the right, and the constant the instruction encodes | option, off by default | not submitted |
+| [0014](patches/0014-Decompiler-an-option-to-fold-a-signed-flag-test-of-a.patch) option `flagcompare`: `RuleFlagResultCompare`, a decrement's signed flag test as one comparison | option, off by default | not submitted |
+| [0015](patches/0015-Decompiler-an-option-to-print-only-C-a-compiler-acce.patch) option `compilablec`: lvalues for unnamed bytes, statements after labels, pointer/integer casts | option, off by default | not submitted |
 | (none) `jsR_run` never finishes: `RulePtrArith`/`RulePtrsubUndo` cycle | issue only | not submitted |
 
 ## 0001: segfault in `Merge::snipReads` (via `Funcdata::opInsertAfter`)
@@ -254,3 +258,31 @@ carries the fix.
   read-only accessors, nothing else changes.
 - **Repro:** none (nothing fails without it); `fid_hash_test` covers the
   masks against Ghidra's.
+
+## 0012-0015: the source-shape options
+
+Each adds an option, off by default, so Ghidra's output is unchanged
+unless it is set; their commit messages say what each shows, why, and the
+patch. revkit turns them on for its own inputs
+([docs/decompiler-inputs.md](../../docs/decompiler-inputs.md#source-shape)),
+measured against the original source in
+[docs/decomp-quality.md](../../docs/decomp-quality.md#source-shape-2026-10-21).
+
+- **Need:** a matching decompilation (C rewritten until it compiles to the
+  same bytes, here a Nintendo DS game built with Metrowerks CodeWarrior)
+  hand-fixed the same things in bulk: load signedness that doesn't follow
+  `ldrh`/`ldrsh`, comparison constants shifted by one (`x < 1` for the
+  instruction's `x <= 0`), byte-count loop guards as two tests, and C a
+  compiler rejects (`x._0_2_`, a label ending a block, pointer/integer
+  conversions without a cast).
+- **Options** (console `option <name> <value>`, `OptionDatabase`):
+  `extensiontypes on|words|off`, `encodedcompare on|right|off`,
+  `flagcompare on|off`, `compilablec on|off`. Their element ids are 291-294,
+  above `ELEM_UNKNOWN` (290): upstream would renumber them.
+- **Repro:** `repro/0012-extensiontypes.xml`, `0013-encodedcompare.xml`,
+  `0014-flagcompare.xml`, `0015-compilablec.xml`, datatests that decompile
+  with the option off and on (ARMv5TE and x86-64 code).
+- **To report:** one issue proposing the options together, with the
+  matching-decompilation motive; `flagcompare` assumes no overflow at the
+  decrement, which upstream may want as a warning instead.
+

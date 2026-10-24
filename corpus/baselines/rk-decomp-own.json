@@ -2,37 +2,37 @@
  "binaries": {
   "elf-aarch64/clang-O0/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.876812,
-   "c_ast": 0.876812,
-   "c_tokens": 0.485507,
+   "c_alpha": 0.789855,
+   "c_ast": 0.789855,
+   "c_tokens": 0.427536,
    "functions": 0.821429
   },
   "elf-aarch64/clang-O0/stripped/features": {
    "binaries": 1.0,
-   "c_alpha": 0.34058,
-   "c_ast": 0.34058,
-   "c_tokens": 0.166667,
+   "c_alpha": 0.318841,
+   "c_ast": 0.318841,
+   "c_tokens": 0.144928,
    "functions": 0.821429
   },
   "elf-aarch64/clang-O2/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.821918,
-   "c_ast": 0.780822,
-   "c_tokens": 0.369863,
+   "c_alpha": 0.712329,
+   "c_ast": 0.69863,
+   "c_tokens": 0.30137,
    "functions": 0.722772
   },
   "elf-aarch64/clang-O2/debug/lua": {
    "binaries": 1.0,
-   "c_alpha": 0.868385,
-   "c_ast": 0.862958,
-   "c_tokens": 0.393487,
+   "c_alpha": 0.594301,
+   "c_ast": 0.590231,
+   "c_tokens": 0.31479,
    "functions": 0.894417
   },
   "elf-aarch64/clang-O2/debug/zlib": {
    "binaries": 1.0,
-   "c_alpha": 0.880952,
-   "c_ast": 0.869048,
-   "c_tokens": 0.464286,
+   "c_alpha": 0.589286,
+   "c_ast": 0.577381,
+   "c_tokens": 0.321429,
    "functions": 0.831683
   },
   "elf-aarch64/clang-O2/stripped/features": {
@@ -44,163 +44,163 @@
   },
   "elf-aarch64/clang-O2/stripped/lua": {
    "binaries": 1.0,
-   "c_alpha": 0.126187,
-   "c_ast": 0.126187,
-   "c_tokens": 0.016282,
+   "c_alpha": 0.12483,
+   "c_ast": 0.12483,
+   "c_tokens": 0.014925,
    "functions": 0.894417
   },
   "elf-aarch64/clang-O2/stripped/zlib": {
    "binaries": 1.0,
-   "c_alpha": 0.232143,
-   "c_ast": 0.232143,
-   "c_tokens": 0.065476,
+   "c_alpha": 0.22619,
+   "c_ast": 0.22619,
+   "c_tokens": 0.059524,
    "functions": 0.831683
   },
   "elf-aarch64/gcc-O0/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.856115,
-   "c_ast": 0.856115,
-   "c_tokens": 0.676259,
+   "c_alpha": 0.741007,
+   "c_ast": 0.741007,
+   "c_tokens": 0.561151,
    "functions": 0.817647
   },
   "elf-aarch64/gcc-O0/stripped/features": {
    "binaries": 1.0,
-   "c_alpha": 0.338129,
-   "c_ast": 0.338129,
-   "c_tokens": 0.158273,
+   "c_alpha": 0.316547,
+   "c_ast": 0.316547,
+   "c_tokens": 0.136691,
    "functions": 0.817647
   },
   "elf-aarch64/gcc-O2/debug/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.905983,
-   "c_ast": 0.888889,
-   "c_tokens": 0.358974,
+   "c_alpha": 0.74359,
+   "c_ast": 0.726496,
+   "c_tokens": 0.230769,
    "functions": 0.823944
   },
   "elf-aarch64/gcc-O2/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.775,
-   "c_ast": 0.775,
-   "c_tokens": 0.375,
+   "c_alpha": 0.625,
+   "c_ast": 0.625,
+   "c_tokens": 0.3,
    "functions": 0.740741
   },
   "elf-aarch64/gcc-O2/stripped/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.282051,
-   "c_ast": 0.282051,
-   "c_tokens": 0.145299,
+   "c_alpha": 0.273504,
+   "c_ast": 0.273504,
+   "c_tokens": 0.136752,
    "functions": 0.823944
   },
   "elf-aarch64/gcc-O2/stripped/features": {
    "binaries": 1.0,
-   "c_alpha": 0.45,
-   "c_ast": 0.45,
-   "c_tokens": 0.175,
+   "c_alpha": 0.4375,
+   "c_ast": 0.4375,
+   "c_tokens": 0.1625,
    "functions": 0.740741
   },
   "elf-riscv64/clang-O0/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.902256,
-   "c_ast": 0.902256,
-   "c_tokens": 0.864662,
+   "c_alpha": 0.781955,
+   "c_ast": 0.781955,
+   "c_tokens": 0.744361,
    "functions": 0.815951
   },
   "elf-riscv64/clang-O0/stripped/features": {
    "binaries": 1.0,
-   "c_alpha": 0.12782,
-   "c_ast": 0.12782,
-   "c_tokens": 0.105263,
+   "c_alpha": 0.112782,
+   "c_ast": 0.112782,
+   "c_tokens": 0.090226,
    "functions": 0.815951
   },
   "elf-riscv64/clang-O2/debug/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.919643,
-   "c_ast": 0.901786,
-   "c_tokens": 0.455357,
+   "c_alpha": 0.767857,
+   "c_ast": 0.75,
+   "c_tokens": 0.339286,
    "functions": 0.848485
   },
   "elf-riscv64/clang-O2/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.797101,
-   "c_ast": 0.782609,
-   "c_tokens": 0.637681,
+   "c_alpha": 0.695652,
+   "c_ast": 0.695652,
+   "c_tokens": 0.565217,
    "functions": 0.704082
   },
   "elf-riscv64/clang-O2/stripped/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.151786,
-   "c_ast": 0.151786,
-   "c_tokens": 0.107143,
+   "c_alpha": 0.133929,
+   "c_ast": 0.133929,
+   "c_tokens": 0.089286,
    "functions": 0.848485
   },
   "elf-riscv64/clang-O2/stripped/features": {
    "binaries": 1.0,
-   "c_alpha": 0.115942,
-   "c_ast": 0.115942,
-   "c_tokens": 0.072464,
+   "c_alpha": 0.101449,
+   "c_ast": 0.101449,
+   "c_tokens": 0.057971,
    "functions": 0.704082
   },
   "elf-riscv64/gcc-O0/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.896296,
-   "c_ast": 0.881481,
-   "c_tokens": 0.859259,
+   "c_alpha": 0.77037,
+   "c_ast": 0.762963,
+   "c_tokens": 0.740741,
    "functions": 0.808383
   },
   "elf-riscv64/gcc-O0/stripped/features": {
    "binaries": 1.0,
-   "c_alpha": 0.140741,
-   "c_ast": 0.140741,
-   "c_tokens": 0.118519,
+   "c_alpha": 0.125926,
+   "c_ast": 0.125926,
+   "c_tokens": 0.103704,
    "functions": 0.808383
   },
   "elf-riscv64/gcc-O2/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.844156,
-   "c_ast": 0.844156,
-   "c_tokens": 0.623377,
+   "c_alpha": 0.701299,
+   "c_ast": 0.701299,
+   "c_tokens": 0.558442,
    "functions": 0.719626
   },
   "elf-riscv64/gcc-O2/debug/zlib": {
    "binaries": 1.0,
-   "c_alpha": 0.842105,
-   "c_ast": 0.842105,
-   "c_tokens": 0.660819,
+   "c_alpha": 0.643275,
+   "c_ast": 0.643275,
+   "c_tokens": 0.502924,
    "functions": 0.838235
   },
   "elf-riscv64/gcc-O2/stripped/features": {
    "binaries": 1.0,
-   "c_alpha": 0.116883,
-   "c_ast": 0.116883,
-   "c_tokens": 0.077922,
+   "c_alpha": 0.103896,
+   "c_ast": 0.103896,
+   "c_tokens": 0.064935,
    "functions": 0.719626
   },
   "elf-riscv64/gcc-O2/stripped/zlib": {
    "binaries": 1.0,
-   "c_alpha": 0.076023,
-   "c_ast": 0.076023,
-   "c_tokens": 0.076023,
+   "c_alpha": 0.064327,
+   "c_ast": 0.064327,
+   "c_tokens": 0.064327,
    "functions": 0.838235
   },
   "elf-x86_64/clang-O0/debug/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.934783,
-   "c_ast": 0.934783,
-   "c_tokens": 0.76087,
+   "c_alpha": 0.862319,
+   "c_ast": 0.862319,
+   "c_tokens": 0.688406,
    "functions": 0.873418
   },
   "elf-x86_64/clang-O0/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.876923,
-   "c_ast": 0.876923,
-   "c_tokens": 0.661538,
+   "c_alpha": 0.846154,
+   "c_ast": 0.846154,
+   "c_tokens": 0.630769,
    "functions": 0.807453
   },
   "elf-x86_64/clang-O0/debug/zlib": {
    "binaries": 1.0,
-   "c_alpha": 0.938462,
-   "c_ast": 0.938462,
-   "c_tokens": 0.774359,
+   "c_alpha": 0.764103,
+   "c_ast": 0.764103,
+   "c_tokens": 0.6,
    "functions": 0.855263
   },
   "elf-x86_64/clang-O0/stripped/cjson": {
@@ -219,30 +219,30 @@
   },
   "elf-x86_64/clang-O0/stripped/zlib": {
    "binaries": 1.0,
-   "c_alpha": 0.2,
-   "c_ast": 0.2,
-   "c_tokens": 0.061538,
+   "c_alpha": 0.194872,
+   "c_ast": 0.194872,
+   "c_tokens": 0.05641,
    "functions": 0.855263
   },
   "elf-x86_64/clang-O2/debug/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.929825,
-   "c_ast": 0.912281,
-   "c_tokens": 0.307018,
+   "c_alpha": 0.824561,
+   "c_ast": 0.807018,
+   "c_tokens": 0.27193,
    "functions": 0.850746
   },
   "elf-x86_64/clang-O2/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.815385,
-   "c_ast": 0.815385,
-   "c_tokens": 0.292308,
+   "c_alpha": 0.707692,
+   "c_ast": 0.707692,
+   "c_tokens": 0.246154,
    "functions": 0.691489
   },
   "elf-x86_64/clang-O2/stripped/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.27193,
-   "c_ast": 0.263158,
-   "c_tokens": 0.114035,
+   "c_alpha": 0.254386,
+   "c_ast": 0.245614,
+   "c_tokens": 0.096491,
    "functions": 0.850746
   },
   "elf-x86_64/clang-O2/stripped/features": {
@@ -254,128 +254,128 @@
   },
   "elf-x86_64/gcc-O0/debug/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.94964,
-   "c_ast": 0.94964,
-   "c_tokens": 0.76259,
+   "c_alpha": 0.848921,
+   "c_ast": 0.848921,
+   "c_tokens": 0.661871,
    "functions": 0.86875
   },
   "elf-x86_64/gcc-O0/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.861538,
-   "c_ast": 0.861538,
-   "c_tokens": 0.653846,
+   "c_alpha": 0.769231,
+   "c_ast": 0.769231,
+   "c_tokens": 0.561538,
    "functions": 0.807453
   },
   "elf-x86_64/gcc-O0/stripped/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.201439,
-   "c_ast": 0.201439,
-   "c_tokens": 0.086331,
+   "c_alpha": 0.179856,
+   "c_ast": 0.179856,
+   "c_tokens": 0.064748,
    "functions": 0.86875
   },
   "elf-x86_64/gcc-O0/stripped/features": {
    "binaries": 1.0,
-   "c_alpha": 0.369231,
-   "c_ast": 0.369231,
-   "c_tokens": 0.161538,
+   "c_alpha": 0.346154,
+   "c_ast": 0.346154,
+   "c_tokens": 0.138462,
    "functions": 0.807453
   },
   "elf-x86_64/gcc-O2/debug/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.910714,
-   "c_ast": 0.892857,
-   "c_tokens": 0.339286,
+   "c_alpha": 0.821429,
+   "c_ast": 0.803571,
+   "c_tokens": 0.294643,
    "functions": 0.854962
   },
   "elf-x86_64/gcc-O2/debug/features": {
    "binaries": 1.0,
-   "c_alpha": 0.794521,
-   "c_ast": 0.794521,
-   "c_tokens": 0.246575,
+   "c_alpha": 0.684932,
+   "c_ast": 0.684932,
+   "c_tokens": 0.232877,
    "functions": 0.73
   },
   "elf-x86_64/gcc-O2/debug/lua": {
    "binaries": 1.0,
-   "c_alpha": 0.839695,
-   "c_ast": 0.832061,
-   "c_tokens": 0.480916,
+   "c_alpha": 0.684478,
+   "c_ast": 0.679389,
+   "c_tokens": 0.408397,
    "functions": 0.901376
   },
   "elf-x86_64/gcc-O2/debug/zlib": {
    "binaries": 1.0,
-   "c_alpha": 0.847458,
-   "c_ast": 0.841808,
-   "c_tokens": 0.502825,
+   "c_alpha": 0.683616,
+   "c_ast": 0.677966,
+   "c_tokens": 0.389831,
    "functions": 0.842857
   },
   "elf-x86_64/gcc-O2/stripped/cjson": {
    "binaries": 1.0,
-   "c_alpha": 0.267857,
-   "c_ast": 0.258929,
-   "c_tokens": 0.116071,
+   "c_alpha": 0.25,
+   "c_ast": 0.241071,
+   "c_tokens": 0.098214,
    "functions": 0.854962
   },
   "elf-x86_64/gcc-O2/stripped/features": {
    "binaries": 1.0,
-   "c_alpha": 0.493151,
-   "c_ast": 0.493151,
-   "c_tokens": 0.136986,
+   "c_alpha": 0.479452,
+   "c_ast": 0.479452,
+   "c_tokens": 0.123288,
    "functions": 0.73
   },
   "elf-x86_64/gcc-O2/stripped/lua": {
    "binaries": 1.0,
-   "c_alpha": 0.119593,
-   "c_ast": 0.119593,
-   "c_tokens": 0.016539,
+   "c_alpha": 0.115776,
+   "c_ast": 0.115776,
+   "c_tokens": 0.012723,
    "functions": 0.901376
   },
   "elf-x86_64/gcc-O2/stripped/zlib": {
    "binaries": 1.0,
-   "c_alpha": 0.237288,
-   "c_ast": 0.237288,
-   "c_tokens": 0.084746,
+   "c_alpha": 0.225989,
+   "c_ast": 0.225989,
+   "c_tokens": 0.073446,
    "functions": 0.842857
   },
   "pe-x86_64/clang-O0/debug/features.exe": {
    "binaries": 1.0,
-   "c_alpha": 0.461832,
-   "c_ast": 0.454198,
-   "c_tokens": 0.343511,
+   "c_alpha": 0.408397,
+   "c_ast": 0.40458,
+   "c_tokens": 0.30916,
    "functions": 1.0
   },
   "pe-x86_64/clang-O0/stripped/features.exe": {
    "binaries": 1.0,
-   "c_alpha": 0.122951,
-   "c_ast": 0.118852,
-   "c_tokens": 0.118852,
+   "c_alpha": 0.110656,
+   "c_ast": 0.110656,
+   "c_tokens": 0.110656,
    "functions": 0.931298
   },
   "pe-x86_64/clang-O2/debug/cjson.exe": {
    "binaries": 1.0,
-   "c_alpha": 0.525735,
-   "c_ast": 0.518382,
-   "c_tokens": 0.165441,
+   "c_alpha": 0.448529,
+   "c_ast": 0.444853,
+   "c_tokens": 0.136029,
    "functions": 1.0
   },
   "pe-x86_64/clang-O2/debug/features.exe": {
    "binaries": 1.0,
-   "c_alpha": 0.384211,
-   "c_ast": 0.378947,
-   "c_tokens": 0.226316,
+   "c_alpha": 0.3,
+   "c_ast": 0.3,
+   "c_tokens": 0.168421,
    "functions": 0.969388
   },
   "pe-x86_64/clang-O2/stripped/cjson.exe": {
    "binaries": 1.0,
-   "c_alpha": 0.078125,
-   "c_ast": 0.070312,
-   "c_tokens": 0.042969,
+   "c_alpha": 0.058594,
+   "c_ast": 0.054688,
+   "c_tokens": 0.03125,
    "functions": 0.941176
   },
   "pe-x86_64/clang-O2/stripped/features.exe": {
    "binaries": 1.0,
-   "c_alpha": 0.081395,
-   "c_ast": 0.075581,
-   "c_tokens": 0.075581,
+   "c_alpha": 0.063953,
+   "c_ast": 0.063953,
+   "c_tokens": 0.063953,
    "functions": 0.905263
   }
  },
@@ -392,18 +392,18 @@
    "total": 0
   },
   "c_alpha": {
-   "agree": 4935,
-   "rate": 0.502956,
+   "agree": 4154,
+   "rate": 0.423359,
    "total": 9812
   },
   "c_ast": {
-   "agree": 4896,
-   "rate": 0.498981,
+   "agree": 4128,
+   "rate": 0.420709,
    "total": 9812
   },
   "c_tokens": {
-   "agree": 2785,
-   "rate": 0.283836,
+   "agree": 2335,
+   "rate": 0.237974,
    "total": 9812
   },
   "decompiled_c": {

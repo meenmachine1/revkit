@@ -205,6 +205,36 @@ class ProjectServiceStub:
                 request_serializer=revkit_dot_v1_dot_project__pb2.ResolveImportRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_project__pb2.ResolveImportResponse.FromString,
                 _registered_method=True)
+        self.ImportDsdProject = channel.unary_unary(
+                '/revkit.v1.ProjectService/ImportDsdProject',
+                request_serializer=revkit_dot_v1_dot_project__pb2.ImportDsdProjectRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_project__pb2.ImportDsdProjectResponse.FromString,
+                _registered_method=True)
+        self.CompactProject = channel.unary_unary(
+                '/revkit.v1.ProjectService/CompactProject',
+                request_serializer=revkit_dot_v1_dot_project__pb2.CompactProjectRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_project__pb2.CompactProjectResponse.FromString,
+                _registered_method=True)
+        self.ImportNdsRom = channel.unary_unary(
+                '/revkit.v1.ProjectService/ImportNdsRom',
+                request_serializer=revkit_dot_v1_dot_project__pb2.ImportNdsRomRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_project__pb2.ImportNdsRomResponse.FromString,
+                _registered_method=True)
+        self.ExportDsdSymbols = channel.unary_unary(
+                '/revkit.v1.ProjectService/ExportDsdSymbols',
+                request_serializer=revkit_dot_v1_dot_project__pb2.ExportDsdSymbolsRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_project__pb2.ExportDsdSymbolsResponse.FromString,
+                _registered_method=True)
+        self.BuildDecompKb = channel.unary_unary(
+                '/revkit.v1.ProjectService/BuildDecompKb',
+                request_serializer=revkit_dot_v1_dot_project__pb2.BuildDecompKbRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_project__pb2.BuildDecompKbResponse.FromString,
+                _registered_method=True)
+        self.ApplyDecompKb = channel.unary_unary(
+                '/revkit.v1.ProjectService/ApplyDecompKb',
+                request_serializer=revkit_dot_v1_dot_project__pb2.ApplyDecompKbRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_project__pb2.ApplyDecompKbResponse.FromString,
+                _registered_method=True)
 
 
 class ProjectServiceServicer:
@@ -578,6 +608,75 @@ class ProjectServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ImportDsdProject(self, request, context):
+        """Nintendo DS games (api_minor 103, feature "nds"; docs/nds.md). A
+        ds-decomp project (its config.yaml on the daemon's host, under a
+        --browse-root) as one program per module, in a new folder: main, the
+        autoloads and the ARM9 overlays as ARM:LE:32:v5t, the ARM7 and its
+        overlays as ARM:LE:32:v4t, each at its load address, with
+        symbols.txt's names, sizes and Thumb modes, delinks.txt's sections as
+        blocks and its translation units as plate comments. Each module is
+        linked to the modules its relocs.txt calls and reads (and main and the
+        autoloads), so the decompiler and listing name what is in another
+        module from that program. Needs admin (it reads the host).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CompactProject(self, request, context):
+        """Shrinks a closed project's store (api_minor 104, feature "compact";
+        docs/backend.md, "Compaction"): its stale memos (and, as asked, every
+        memo or those beyond a size) are dropped, then the LMDB file is
+        rewritten without its free pages, as mdb_copy -c does. The log is kept
+        whole. FAILED_PRECONDITION while the project is open (CloseProject
+        first) or when it isn't on disk. Needs admin.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ImportNdsRom(self, request, context):
+        """A .nds ROM image (by host path under a --browse-root, as bytes, or a
+        program's stored file) as the same programs, decompressed (BLZ) and
+        with the autoloads split out; no symbols (the ROM has none). Needs
+        admin for a host path, editor otherwise.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ExportDsdSymbols(self, request, context):
+        """The renames and the new functions and data of a ds-decomp project's
+        module programs as changes to each module's symbols.txt, in dsd's
+        syntax: a unified diff per file and, with write, the files written
+        (each backed up first beside it). A viewer's call; writing needs admin
+        and the files under a --browse-root.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def BuildDecompKb(self, request, context):
+        """The decomp knowledge base (api_minor 105, feature "decomp-kb";
+        docs/decomp-kb.md): finished matching decompilations, carried to a new
+        game. BuildDecompKb ingests a finished game's module programs (their
+        functions' Function ID hashes, translation units, verbatim sources,
+        compiler and flags, from delinks.txt, the source tree and a manifest)
+        into a KB directory on the daemon's host; ApplyDecompKb matches a new
+        program's functions against it, names the exact matches and returns
+        their source. Both need admin (the host's files) and a --browse-root.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ApplyDecompKb(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ProjectServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -750,6 +849,36 @@ def add_ProjectServiceServicer_to_server(servicer, server):
                     servicer.ResolveImport,
                     request_deserializer=revkit_dot_v1_dot_project__pb2.ResolveImportRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_project__pb2.ResolveImportResponse.SerializeToString,
+            ),
+            'ImportDsdProject': grpc.unary_unary_rpc_method_handler(
+                    servicer.ImportDsdProject,
+                    request_deserializer=revkit_dot_v1_dot_project__pb2.ImportDsdProjectRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_project__pb2.ImportDsdProjectResponse.SerializeToString,
+            ),
+            'CompactProject': grpc.unary_unary_rpc_method_handler(
+                    servicer.CompactProject,
+                    request_deserializer=revkit_dot_v1_dot_project__pb2.CompactProjectRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_project__pb2.CompactProjectResponse.SerializeToString,
+            ),
+            'ImportNdsRom': grpc.unary_unary_rpc_method_handler(
+                    servicer.ImportNdsRom,
+                    request_deserializer=revkit_dot_v1_dot_project__pb2.ImportNdsRomRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_project__pb2.ImportNdsRomResponse.SerializeToString,
+            ),
+            'ExportDsdSymbols': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExportDsdSymbols,
+                    request_deserializer=revkit_dot_v1_dot_project__pb2.ExportDsdSymbolsRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_project__pb2.ExportDsdSymbolsResponse.SerializeToString,
+            ),
+            'BuildDecompKb': grpc.unary_unary_rpc_method_handler(
+                    servicer.BuildDecompKb,
+                    request_deserializer=revkit_dot_v1_dot_project__pb2.BuildDecompKbRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_project__pb2.BuildDecompKbResponse.SerializeToString,
+            ),
+            'ApplyDecompKb': grpc.unary_unary_rpc_method_handler(
+                    servicer.ApplyDecompKb,
+                    request_deserializer=revkit_dot_v1_dot_project__pb2.ApplyDecompKbRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_project__pb2.ApplyDecompKbResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1671,6 +1800,168 @@ class ProjectService:
             '/revkit.v1.ProjectService/ResolveImport',
             revkit_dot_v1_dot_project__pb2.ResolveImportRequest.SerializeToString,
             revkit_dot_v1_dot_project__pb2.ResolveImportResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ImportDsdProject(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.ProjectService/ImportDsdProject',
+            revkit_dot_v1_dot_project__pb2.ImportDsdProjectRequest.SerializeToString,
+            revkit_dot_v1_dot_project__pb2.ImportDsdProjectResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CompactProject(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.ProjectService/CompactProject',
+            revkit_dot_v1_dot_project__pb2.CompactProjectRequest.SerializeToString,
+            revkit_dot_v1_dot_project__pb2.CompactProjectResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ImportNdsRom(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.ProjectService/ImportNdsRom',
+            revkit_dot_v1_dot_project__pb2.ImportNdsRomRequest.SerializeToString,
+            revkit_dot_v1_dot_project__pb2.ImportNdsRomResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExportDsdSymbols(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.ProjectService/ExportDsdSymbols',
+            revkit_dot_v1_dot_project__pb2.ExportDsdSymbolsRequest.SerializeToString,
+            revkit_dot_v1_dot_project__pb2.ExportDsdSymbolsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def BuildDecompKb(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.ProjectService/BuildDecompKb',
+            revkit_dot_v1_dot_project__pb2.BuildDecompKbRequest.SerializeToString,
+            revkit_dot_v1_dot_project__pb2.BuildDecompKbResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ApplyDecompKb(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.ProjectService/ApplyDecompKb',
+            revkit_dot_v1_dot_project__pb2.ApplyDecompKbRequest.SerializeToString,
+            revkit_dot_v1_dot_project__pb2.ApplyDecompKbResponse.FromString,
             options,
             channel_credentials,
             insecure,

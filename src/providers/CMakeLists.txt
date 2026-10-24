@@ -15,3 +15,6 @@ target_compile_definitions(revkit_providers PRIVATE REVKIT_SANDBOX_BUILD_PATH="$
 if(REVKIT_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
+if(REVKIT_FUZZ)
+  add_subdirectory(fuzz)
+endif()

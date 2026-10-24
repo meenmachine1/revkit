@@ -55,6 +55,11 @@ message Function {
   // Set where `name` is the demangler analysis's name for a mangled symbol
   // (api_minor 40, feature "demangle"; docs/demangle.md).
   DemangledName demangled = 18;
+  // What analysis couldn't determine about the function (api_minor 97,
+  // feature "result-evidence"): indirect calls and jumps with no known
+  // target, flow cut at the instruction limit, decompilation known to
+  // fail. Set by GetFunction only, not by the lists.
+  repeated Unknown unknowns = 19;
 }
 
 enum FunctionSort {
@@ -198,6 +203,10 @@ message ListingToken {
   // For a SYMBOL token whose name is a demangled one (api_minor 40,
   // feature "demangle").
   DemangledName demangled = 10;
+  // The program `target` is in when it isn't this one (api_minor 103,
+  // feature "nds"): a DS module's call into main or an autoload, named from
+  // the linked module program (docs/nds.md). Open that program there.
+  string target_program_id = 11;
 }
 
 // A comment as displayed on a row or line.

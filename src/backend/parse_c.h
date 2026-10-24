@@ -38,7 +38,7 @@ class ProgramTypes {
   std::string definition(const std::string &key) const;
   // Its definition is only the library archive's (the program has none of
   // its own and binds none).
-  bool library_only(const std::string &key) const { return !definition(key).empty() && !own_.contains(key); }
+  bool library_only(const std::string &key) const { return !definition(key).empty() && !own(key); }
   // The recorded hash of a type interned from the program's records, or
   // nullptr for a type the parse made.
   const std::string *recorded(types::TypeId id) const;
@@ -46,9 +46,17 @@ class ProgramTypes {
   std::optional<types::TypeId> intern(const std::string &hash);
 
  private:
+  // Whether the program defines or binds `key`.
+  bool own(const std::string &key) const;
+
   const NamedTypes &names_;
-  std::map<std::string, std::string> definitions_;  // key -> hash, as definition() picks
-  std::set<std::string> own_;                       // keys the program defines or binds
+  // NamedTypes from types.names is sorted by (key, hash) and its bindings by
+  // key: definition() and own() search it, so a parse costs nothing per
+  // named type (a batch of thousands of retypes or data definitions made
+  // one each). Another's is indexed here.
+  bool sorted_ = true;
+  std::map<std::string, std::string> definitions_;  // unsorted names: key -> hash, as definition() picks
+  std::set<std::string> own_;                       // unsorted names: keys the program defines or binds
   Closure closure_;
   types::TypeStore &store_;
   std::map<std::string, types::TypeId> by_hash_;
@@ -81,6 +89,20 @@ struct ParsedRetype {
   std::map<std::string, Def> types;  // hash -> what to define
 };
 std::optional<ParsedRetype> ParseRetype(const ParseCContext &c, const std::string &declaration, bool function);
+
+// ParseRetype for many declarations against one program (a batch of
+// prototypes): the program's named types are gathered once, not per
+// declaration, which was most of a parse's time.
+class RetypeParser {
+ public:
+  explicit RetypeParser(const ParseCContext &c);
+  std::optional<ParsedRetype> parse(const std::string &declaration, bool function);
+
+ private:
+  types::TypeStore store_;
+  ProgramTypes program_;
+  cparse::Options options_;
+};
 
 // A function prototype as text (a BSim database's, docs/bsim.md "Applying
 // matches") as a skeleton signature of the program, as Ghidra's BSim Apply

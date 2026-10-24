@@ -19,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 
 namespace revkit::backend {
@@ -35,6 +36,18 @@ struct DebugBounds {
   bool live = false;
   std::size_t traces_per_program = 64;
   std::uint64_t max_trace_bytes = 512ull << 20;
+};
+
+// A crash dump's bytes (api_minor 102, docs/crash-dumps.md), resolved by
+// the backend: a program's stored file, a host file, an upload.
+struct DebugCrashSource {
+  std::shared_ptr<const void> keep;  // holds `bytes`
+  std::span<const std::byte> bytes;
+  std::string name;  // what to call it ("core", "crash.dmp")
+  // Where an ELF core's mapped files may be read from (code the dump left
+  // out, a module's call-frame information and symbols): --browse-root,
+  // for an admin's session; empty: never from the host.
+  std::vector<std::string> host_roots;
 };
 
 // What a session needs of its program, resolved by the backend.
@@ -54,6 +67,8 @@ struct DebugProgram {
   // 67, docs/debugger.md "Libraries"): a library this program links, else a
   // program of that name. Its program and function_at are set; nullopt: none.
   std::function<std::optional<DebugProgram>(const std::string &module)> library;
+  // A crash dump target's source (CreateDebugSessionRequest.crash).
+  std::shared_ptr<const DebugCrashSource> crash;
 };
 
 // What evaluating needs of the program at the call's revision (docs/debugger.md
@@ -125,6 +140,8 @@ class DebugSessions {
   api::Status GetMachine(const api::CallContext &ctx, const pb::GetDebugMachineRequest &req, pb::GetDebugMachineResponse &resp);
   api::Status GetBacktrace(const api::CallContext &ctx, const pb::GetDebugBacktraceRequest &req,
                            pb::GetDebugBacktraceResponse &resp);
+  // A crash dump session's summary (api_minor 102, docs/crash-dumps.md).
+  api::Status GetCrash(const api::CallContext &ctx, const pb::GetDebugCrashRequest &req, pb::GetDebugCrashResponse &resp);
 
   api::Status Disassemble(const api::CallContext &ctx, const pb::DisassembleDebugMemoryRequest &req, const DebugEvalEnv &env,
                           pb::DisassembleDebugMemoryResponse &resp);

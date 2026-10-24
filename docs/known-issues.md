@@ -3,6 +3,97 @@
 Bugs we know about and intend to fix. Newest first. Each entry says what
 happens, where it was seen, what's been ruled out, and any workaround.
 
+## 32-bit inference and matching decompilation (2026-10-23)
+
+- **Status:** open. Found rerunning the DS matching-decompilation pipeline
+  on master `07f58073`.
+- **What happens:** with prototype inference now on for 32-bit ARM, the
+  decompiled C of a DS game's modules scores *lower* when compiled with
+  the original compiler than with inference off, which is about the same as
+  0.1.3. Two causes:
+  - The Export C types header isn't accepted by an old C compiler as
+    written: `<stdbool.h>` and `_Bool`, `_Static_assert` lines, 64-bit
+    padding bitfields, and re-declared built-in typedefs (`code` as `void`).
+  - Inferred structures (`astruct_N`) and the header disagree on fields,
+    and some `_func_*` function types are absent from the header. In one
+    module 213 functions failed to compile with inference on, against 9
+    with it off. On the functions that compiled both ways, the fuzzy score
+    was a little lower with inference on.
+- **Workaround:** decompile with `--no-infer-prototypes` (rk-lift) or
+  inference off for matching work, or decompile both ways and pick per
+  function.
+- **Wanted:** an Export C header option for old compilers (C89, no
+  `stdbool`/`_Static_assert`, no padding bitfields wider than the target's
+  `int`, no redefinition of built-ins), headers fetched at the same revision
+  as the decompilations, and every type a decompilation names present in the
+  header. Also: the cross-module no-return fix only applies to programs
+  imported with `ImportDsdProject` (it needs the module boundaries); raw
+  imports with their own assertions still see calls into other modules as
+  not returning.
+
+## Found by a matching-decompilation run on a Nintendo DS game (2026-10-18)
+
+A private experiment used revkit 0.1.3 as the front end of a matching
+decompilation of a retail DS game (ARMv5TE, CodeWarrior 1.2; main, ITCM and
+15 overlays loaded as raw programs, symbols from ds-decomp asserted through
+the SDK). It reached 67% objdiff fuzzy and 9% exact in under two hours. These
+are the revkit problems it hit, costliest first. No game data is recorded
+here. Fixed in `api_minor` 104 and gone from this list: calls into
+another module taken as no-return, the DS's I/O not volatile, Thumb
+entries through the SDK, an import's name taken silently, all-or-nothing and slow assertion
+batches, and stores that only grow ([nds.md](nds.md#what-a-matching-run-needed)).
+
+- ~~**Prototypes on 32-bit ARM are guessed.**~~ *Fixed 2026-10-21*:
+  inference runs on 32-bit ARM and Thumb
+  ([infer.md](infer.md#32-bit-processors)); stack arguments past r3 count
+  (a seven-argument call passes seven) and an interrupt restore whose use
+  of r0 the decompiler drops takes it (the 32-bit ARM fixture,
+  `tests/data/arm32`). Before: inference was off for 32-bit; Ghidra's
+  Parameter ID on raw images (`--param-id on`) helped about a third of the
+  functions it touched and hurt twice as many.
+- **Daemon memory with Parameter ID.** With `--param-id on` and 16 programs
+  in one project the daemon reached 5.4 GB. Measured and partly reduced
+  (fewer retained analysis revisions); the rest is the memo budget filling,
+  which `--memo-budget` and `--retain` bound
+  ([memory.md](memory.md#many-programs-and-parameter-id)).
+- ~~**Token gaps.** Volatile globals come back as `punctuation` tokens with no
+  target or variable entry. String-literal tokens have no target address.
+  Some variable type text isn't valid C (`code() * *`).~~ *Fixed*
+  (`api_minor` 106, feature `decompiler-settings`;
+  [api.md](api.md#decompiler-settings)).
+- **Output a C compiler rejects or miscompiles,** which had to be rewritten
+  before compiling: partial field access (`x._0_2_`), a label or `case` at
+  the end of a block with no statement, stack structs split into scalars,
+  struct copies printed as word copies, 1-bit bitfield tests as signed
+  shifts, load signedness that doesn't match the instruction (`ldrh` shown
+  signed), and pointer/integer conversions without casts.
+  *Mostly fixed* (2026-10-21; [decompiler-inputs.md](decompiler-inputs.md#source-shape)):
+  load signedness follows the load's extension and bitfields print as
+  fields by default; the program setting `compilable_c` prints partial
+  accesses as lvalues, `;` after a label ending a block, and casts on
+  pointer/integer conversions. Left: stack structs split into scalars and
+  struct copies printed as word copies.
+- **What hand-matching had to fix, most common first** (a 16-minute
+  sprint on functions already 95–99% similar; 61 became exact). Each is
+  something the decompiler or its inputs could get right in bulk:
+  signedness of 8- and 16-bit loads and stores (the type should follow
+  `ldrh`/`ldrsh`/`ldrb`/`ldrsb`); comparison constants shifted by one
+  (`x < 1` for `x <= 0`, `8 < x` for `9 <= x`) and compare operand order;
+  bitfields printed as masks and shifts (`& 1`, `(x & 0x1f) >> 4`,
+  `& 0xfe`); byte-count loop guards as `!= 0` for a signed `0 < n`;
+  dropped or invented arguments from guessed 32-bit prototypes (one SDK
+  function called by 263 functions lost its only argument: since
+  inference on 32-bit ARM, a register the entry reads is a parameter);
+  stack arrays
+  one element too large; and the order of independent stores.
+  *Since 2026-10-21* ([decompiler-inputs.md](decompiler-inputs.md#source-shape)):
+  load signedness, comparisons (the constant on the right by default, the
+  instruction's constant with `COMPARISON_FORM_ENCODED`), bitfields
+  printed where the type has them, and `subs; bgt` loop guards as `n > 0`.
+  Not yet: bitfields detected from masks in inferred structures, stack
+  arrays sized right (the element count isn't in stripped code), the order
+  of independent stores.
+
 ## Discovery loses the code after a skipped jump on AVR
 
 - **Status:** open (2026-10-05). Found scoring the AVR firmware images.

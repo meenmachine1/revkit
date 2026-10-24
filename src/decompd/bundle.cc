@@ -130,9 +130,33 @@ std::optional<lift::Mutability> LiftFacts::default_block(const std::string &spac
                            : !best->write ? lift::Mutability::constant : lift::Mutability::normal;
 }
 
+namespace {
+
+// The source-shape options as one byte: the extension mode in bits 0-1,
+// the comparison form in bits 2-3, then flags.
+std::uint8_t shape_bits(const lift::SourceShape &s) {
+  return static_cast<std::uint8_t>((static_cast<unsigned>(s.extension) & 3) |
+                                   (static_cast<unsigned>(s.compare) & 3) << 2 | (s.flag_compare ? 16 : 0) |
+                                   (s.compilable ? 32 : 0));
+}
+
+lift::SourceShape shape_of(std::uint8_t bits) {
+  lift::SourceShape s;
+  const unsigned extension = bits & 3, compare = (bits >> 2) & 3;
+  if (extension > 2 || compare > 2 || bits >= 64) throw facts::DecodeError("bundle: bad source-shape options");
+  s.extension = static_cast<lift::SourceShape::Extension>(extension);
+  s.compare = static_cast<lift::SourceShape::Compare>(compare);
+  s.flag_compare = bits & 16;
+  s.compilable = bits & 32;
+  return s;
+}
+
+}  // namespace
+
 void LiftFacts::encode(facts::Encoder &e) const {
   e.u8(static_cast<std::uint8_t>((default_names ? 1 : 0) | (default_labels ? 2 : 0) | (default_extrapop ? 4 : 0) |
                                  (format_strings ? 8 : 0)));
+  e.u8(shape_bits(shape));
   e.bytes(address_prefix);
   facts::encode(e, blocks);
   facts::encode(e, spaces);
@@ -162,6 +186,7 @@ LiftFacts LiftFacts::decode(facts::Decoder &d) {
   f.default_labels = flags & 2;
   f.default_extrapop = flags & 4;
   f.format_strings = flags & 8;
+  f.shape = shape_of(d.u8());
   f.address_prefix = std::string(d.bytes());
   f.blocks = facts::decode<std::vector<lift::BlockFacts>>(d);
   f.spaces = facts::decode<std::vector<std::string>>(d);
@@ -215,6 +240,7 @@ std::string Bundle::arch_key() const {
   if (mode != Mode::observe) {
     e.u8(static_cast<std::uint8_t>((lift.default_names ? 1 : 0) | (lift.default_labels ? 2 : 0) |
                                    (lift.default_extrapop ? 4 : 0) | (lift.format_strings ? 8 : 0)));
+    e.u8(shape_bits(lift.shape));
     e.bytes(lift.address_prefix);
   }
   return std::move(e).str();

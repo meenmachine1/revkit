@@ -106,12 +106,13 @@ struct InputsStatic {
 
 struct InputsProgram {
   static constexpr std::string_view name = "inputs.program";
-  static constexpr std::uint32_t version = 15;  // 2: from inputs.static; 3: pointer slots looked up; 4: context; 5: data analysis; 6: no-return;
+  static constexpr std::uint32_t version = 16;  // 2: from inputs.static; 3: pointer slots looked up; 4: context; 5: data analysis; 6: no-return;
                                                 // 7: context_reach; 8: ARM functions' context; 9: call fixups by name; 10: locals' source types
                                                 // 11: a raw image's patches through patch.page; 12: the memory map;
                                                 // 13: demangled names and prototypes (docs/demangle.md)
                                                 // 14: revkit's library archives (library.prototypes)
                                                 // 15: a separate debug file (program.debug_file)
+                                                // 16: a raw image's `_name` isn't the archives' `name` (docs/nds.md)
   using Key = ProgramKey;
   using Value = ProgramInputs;
   static Value compute(facts::QueryContext &ctx, const Key &program);
@@ -249,6 +250,8 @@ class QueryLookup final : public RunLookup {
   // other parameters to whatever else gives them (inference, Decompiler
   // Parameter ID, the decompiler).
   void apply_this(lift::FunctionFacts &out, const Asserted &t);
+  // The program's definition of a class the demangler declares (type()).
+  const lift::DecompElement *defined_class(std::uint64_t id, const lift::DecompElement &decl);
   // Whether a parameter is in the register `this` is passed in (RCX, ECX
   // under __thiscall, x0).
   bool in_this_register(const lift::ParamFacts &p);
@@ -262,6 +265,21 @@ class QueryLookup final : public RunLookup {
   // as this lookup sees it (published, or a dependency's), if any.
   std::optional<lift::CommittedSignature> param_id(std::uint64_t entry);
   infer::DataOrg InferOrg();
+
+  // What the program's linked modules answer at an address none of its
+  // blocks holds (a DS overlay's call into main: nds_import.h, the
+  // revkit:program.dsd record): the function there, data containing it
+  // and its label, from that module's own lookup (its renames, prototypes
+  // and inferred types), with the type definitions they use. Only when
+  // exactly one linked module maps the address; unfrozen only.
+  struct Linked {
+    std::optional<lift::FunctionFacts> function;
+    std::optional<lift::DataFacts> data;
+    std::optional<lift::LabelFacts> label;
+  };
+  const Linked *linked(std::uint64_t a);
+  const std::vector<std::string> &links();
+  void import_types(QueryLookup &from, const lift::DecompElement &e, int depth);
 
   // Runs `get` through the context; a failure is kept and stops the run.
   template <class F>
@@ -294,6 +312,9 @@ class QueryLookup final : public RunLookup {
   const std::set<std::string> *models_ = nullptr;
   std::set<std::string> warnings_;
   std::optional<std::pair<std::uint64_t, int>> this_register_;  // offset, size; size 0: none
+  std::optional<std::vector<std::string>> links_;
+  std::map<std::string, std::unique_ptr<QueryLookup>> linked_lookups_;
+  std::map<std::uint64_t, Linked> linked_;
 };
 
 }  // namespace revkit::backend

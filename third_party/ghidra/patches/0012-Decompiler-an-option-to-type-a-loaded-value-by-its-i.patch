@@ -1,0 +1,262 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 01:10:45 -0400
+Subject: [PATCH] Decompiler: an option to type a loaded value by its
+ instruction's extension
+
+- Shows: `ldrh r1,[r0]; add r1,r1,#1; strh r1,[r0]` (an unsigned short
+  incremented in place) decompiles as `short *param_1; *param_1 =
+  *param_1 + 1;`, and `ldrh r0,[r0]; bx lr` returns `undefined2`. The
+  instruction says the value is unsigned; the C says signed or nothing, so
+  C written from it (a matching decompilation) compiles to `ldrsh` or
+  needs the type guessed.
+- Cause: the zero-extension the instruction applies (INT_ZEXT of the
+  LOAD's output) is simplified away before types are inferred (the
+  SUBPIECE of the ZEXT'd sum is the 2-byte sum), so the loaded value is
+  typed by its remaining uses alone, here an INT_ADD (signed).
+- Patch: a new option, `extensiontypes` (off by default, so nothing
+  changes unless it is set). With it on, FlowInfo marks each LOAD whose
+  output its own instruction reads with INT_SEXT as sign-extending, and
+  with INT_ZEXT, for a value smaller than an int, as zero-extending (an
+  int-sized zero-extension is how x86-64 and AArch64 write a 32-bit
+  result, not a choice of signedness). TypeOpLoad::getOutputLocal then
+  gives the output a signed or unsigned integer type instead of unknown,
+  which type propagation weighs with the uses as before: an unsigned use
+  of a sign-extended value still wins (SuperH's mov.b followed by
+  extu.b stays unsigned).
+  `extensiontypes words` leaves out zero-extended bytes: compilers load a
+  signed char with movzx or ldrb where only its low bits matter, and the
+  unsigned type would displace the char a string or buffer has.
+- Seen on: ARMv5TE (Nintendo DS, CodeWarrior) code in a matching
+  decompilation; the same on MIPS (lhu), PowerPC (lhz), x86 (movzx).
+- Ghidra 12.1.4.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.cc
+index 97c33cd..6cbc4c9 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.cc
+@@ -1422,6 +1422,7 @@ void Architecture::resetDefaultsInternal(void)
+   flowoptions = FlowInfo::error_toomanyinstructions;
+   max_instructions = 100000;
+   infer_pointers = true;
++  extension_types = 0;
+   analyze_for_loops = true;
+   readonlypropagate = false;
+   nan_ignore_all = false;
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.hh
+index ebd0e84..71edeb8 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/architecture.hh
+@@ -176,6 +176,7 @@ public:
+   bool aggressive_ext_trim;	///< Aggressively trim inputs that look like they are sign extended
+   bool readonlypropagate;	///< true if readonly values should be treated as constants
+   bool infer_pointers;		///< True if we should infer pointers from constants that are likely addresses
++  int4 extension_types;		///< Type a LOAD's value by its instruction's extension: 0 never, 1 always, 2 except zero-extended bytes
+   bool analyze_for_loops;	///< True if we should attempt conversion of \e whiledo loops to \e for loops
+   bool nan_ignore_all;		///< True if we should ignore NaN operations, i.e. nan() always returns false
+   bool nan_ignore_compare;	///< True if we should ignore NaN operations protecting floating-point comparisons
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/flow.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/flow.cc
+index 0add3cc..01ed44d 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/flow.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/flow.cc
+@@ -380,6 +380,42 @@ PcodeOp *FlowInfo::xrefControlFlow(list<PcodeOp *>::const_iterator oiter,bool &s
+ /// \param curaddr is the address of the instruction to process
+ /// \param startbasic indicates of the instruction starts a basic block and passes back whether the next instruction does
+ /// \return \b true if the processed instruction has a fall-thru flow
++/// \brief Mark each LOAD of an instruction with the extension the instruction applies to its value
++///
++/// A LOAD whose output the same instruction reads with INT_SEXT is marked as sign-extending, and one
++/// read with INT_ZEXT, of a value smaller than an \e int, as zero-extending (a zero-extension of an
++/// \e int sized value is how some processors write a 32-bit result to a 64-bit register, not a choice
++/// of signedness). The p-code is not yet in SSA form, so the output and the read are matched by storage.
++/// \param oiter points to the first op of the instruction in the dead list
++void FlowInfo::markLoadExtensions(list<PcodeOp *>::const_iterator oiter)
++
++{
++  int4 intSize = glb->types->getSizeOfInt();
++  for(list<PcodeOp *>::const_iterator iter=oiter;iter!=obank.endDead();++iter) {
++    PcodeOp *op = *iter;
++    if (op->code() != CPUI_LOAD) continue;
++    const Varnode *outvn = op->getOut();
++    if (outvn == (const Varnode *)0) continue;
++    list<PcodeOp *>::const_iterator iter2 = iter;
++    for(++iter2;iter2!=obank.endDead();++iter2) {
++      PcodeOp *readop = *iter2;
++      OpCode opc = readop->code();
++      if (opc == CPUI_INT_SEXT || opc == CPUI_INT_ZEXT) {
++	const Varnode *invn = readop->getIn(0);
++	if (invn->getAddr() == outvn->getAddr() && invn->getSize() == outvn->getSize()) {
++	  if (opc == CPUI_INT_SEXT)
++	    op->setLoadExtension(true);
++	  else if (outvn->getSize() < intSize && (glb->extension_types == 1 || outvn->getSize() > 1))
++	    op->setLoadExtension(false);
++	  break;
++	}
++      }
++      Varnode *wr = readop->getOut();	// Stop where the loaded value is overwritten
++      if (wr != (Varnode *)0 && wr->getAddr() == outvn->getAddr()) break;
++    }
++  }
++}
++
+ bool FlowInfo::processInstruction(const Address &curaddr,bool &startbasic)
+ 
+ {
+@@ -471,6 +507,8 @@ bool FlowInfo::processInstruction(const Address &curaddr,bool &startbasic)
+   if (oiter != obank.endDead()) {
+     stat.seqnum = (*oiter)->getSeqNum();
+     data.opMarkStartInstruction(*oiter); // Mark the first op in the instruction
++    if (glb->extension_types != 0)
++      markLoadExtensions(oiter);
+     if (flowoverride != Override::NONE)
+       data.overrideFlow(curaddr,flowoverride);
+     xrefControlFlow(oiter,startbasic,isfallthru,(FuncCallSpecs *)0);
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/flow.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/flow.hh
+index 360a864..daa1af0 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/flow.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/flow.hh
+@@ -111,6 +111,7 @@ private:
+   void newAddress(PcodeOp *from,const Address &to);	///< Register a new (non fall-thru) flow target
+   void deleteRemainingOps(list<PcodeOp *>::const_iterator oiter);
+   PcodeOp *xrefControlFlow(list<PcodeOp *>::const_iterator oiter,bool &startbasic,bool &isfallthru,FuncCallSpecs *fc);
++  void markLoadExtensions(list<PcodeOp *>::const_iterator oiter);	///< Mark LOADs with the extension their instruction applies
+   bool processInstruction(const Address &curaddr,bool &startbasic);
+   void fallthru(void);					///< Process (the next) sequence of instructions in fall-thru order
+   PcodeOp *findRelTarget(PcodeOp *op,Address &res) const;
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/op.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/op.hh
+index 7e516fd..18c2526 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/op.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/op.hh
+@@ -116,7 +116,9 @@ public:
+     hold_output = 0x80,		///< Output varnode (of call) should not be removed if it is unread
+     concat_root = 0x100,	///< Output of \b this is root of a CONCAT tree
+     no_indirect_collapse = 0x200,	///< Do not collapse \b this INDIRECT (via RuleIndirectCollapse)
+-    store_unmapped = 0x400	///< If STORE collapses to a stack Varnode, force it to be unmapped
++    store_unmapped = 0x400,	///< If STORE collapses to a stack Varnode, force it to be unmapped
++    zext_load = 0x800,		///< LOAD whose instruction zero-extends the value it reads
++    sext_load = 0x1000		///< LOAD whose instruction sign-extends the value it reads
+   };
+ private:
+   TypeOp *opcode;		///< Pointer to class providing behavioral details of the operation
+@@ -224,6 +226,9 @@ public:
+   void setNoIndirectCollapse(void) { addlflags |= no_indirect_collapse; }	///< Prevent collapse of INDIRECT
+   bool isStoreUnmapped(void) const { return ((addlflags & store_unmapped)!=0); }	///< Is STORE location supposed to be unmapped
+   void setStoreUnmapped(void) const { addlflags |= store_unmapped; }	///< Mark that STORE location should be unmapped
++  bool isZextLoad(void) const { return ((addlflags & zext_load)!=0); }	///< Does the instruction of \b this LOAD zero-extend its value
++  bool isSextLoad(void) const { return ((addlflags & sext_load)!=0); }	///< Does the instruction of \b this LOAD sign-extend its value
++  void setLoadExtension(bool isSigned) const { addlflags |= (isSigned ? sext_load : zext_load); }	///< Mark the extension applied to a LOAD's value
+   /// \brief Return \b true if this LOADs or STOREs from a dynamic \e spacebase pointer
+   bool usesSpacebasePtr(void) const { return ((flags&PcodeOp::spacebase_ptr)!=0); }
+   uintm getCseHash(void) const;	///< Return hash indicating possibility of common subexpression elimination
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
+index e077843..1c175e3 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
+@@ -61,6 +61,7 @@ ElementId ELEM_WARNING = ElementId("warning",210);
+ ElementId ELEM_JUMPTABLEMAX = ElementId("jumptablemax",271);
+ ElementId ELEM_NANIGNORE = ElementId("nanignore",272);
+ ElementId ELEM_BRACEFORMAT = ElementId("braceformat",284);
++ElementId ELEM_EXTENSIONTYPES = ElementId("extensiontypes",291);
+ 
+ /// If the parameter is "on" return \b true, if "off" return \b false.
+ /// Any other value causes an exception.
+@@ -102,6 +103,7 @@ OptionDatabase::OptionDatabase(Architecture *g)
+   registerOption(new OptionErrorTooManyInstructions());
+   registerOption(new OptionDefaultPrototype());
+   registerOption(new OptionInferConstPtr());
++  registerOption(new OptionExtensionTypes());
+   registerOption(new OptionForLoops());
+   registerOption(new OptionInline());
+   registerOption(new OptionNoReturn());
+@@ -295,6 +297,30 @@ string OptionInferConstPtr::apply(Architecture *glb,const string &p1,const strin
+   return res;
+ }
+ 
++/// \class OptionExtensionTypes
++/// \brief Toggle whether a loaded value is typed by the extension its instruction applies
++///
++/// Setting the first parameter to "on" makes a LOAD whose instruction sign-extends the value
++/// (\e ldrsh, \e movsx, \e lh) give it a signed integer type, and one whose instruction
++/// zero-extends a value smaller than an \e int (\e ldrh, \e movzx, \e lhu) an unsigned one,
++/// as the type of the LOAD's output in type propagation. The extension itself is usually
++/// simplified away before types are inferred (a value loaded, incremented and stored back
++/// at its own size), and the value is then typed by its other uses alone.
++/// "words" does the same except for a zero-extended byte: compilers load a signed \e char with
++/// \e movzx or \e ldrb where only its low bits matter, so the unsigned type would displace the
++/// \e char a string or a buffer has.
++string OptionExtensionTypes::apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const
++
++{
++  if (p1 == "words")
++    glb->extension_types = 2;
++  else
++    glb->extension_types = onOrOff(p1) ? 1 : 0;
++
++  string res = "Typing loads by their extension is " + p1;
++  return res;
++}
++
+ /// \class OptionForLoops
+ /// \brief Toggle whether the decompiler attempts to recover \e for-loop variables
+ ///
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
+index 7a7f713..9cf30de 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
+@@ -66,6 +66,7 @@ extern ElementId ELEM_TOGGLERULE;		///< Marshaling element \<togglerule>
+ extern ElementId ELEM_WARNING;			///< Marshaling element \<warning>
+ extern ElementId ELEM_JUMPTABLEMAX;		///< Marshaling element \<jumptablemax>
+ extern ElementId ELEM_NANIGNORE;		///< Marshaling element \<nanignore>
++extern ElementId ELEM_EXTENSIONTYPES;		///< Marshaling element \<extensiontypes> (ids from 291 are revkit's)
+ 
+ /// \brief Base class for options classes that affect the configuration of the Architecture object
+ ///
+@@ -139,6 +140,12 @@ public:
+   virtual string apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const;
+ };
+ 
++class OptionExtensionTypes : public ArchOption {
++public:
++  OptionExtensionTypes(void) { name = "extensiontypes"; }	///< Constructor
++  virtual string apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const;
++};
++
+ class OptionForLoops : public ArchOption {
+ public:
+   OptionForLoops(void) { name = "analyzeforloops"; }	///< Constructor
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/typeop.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/typeop.cc
+index 025b843..391f8f3 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/typeop.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/typeop.cc
+@@ -438,6 +438,19 @@ TypeOpLoad::TypeOpLoad(TypeFactory *t) : TypeOp(t,CPUI_LOAD,"load")
+   behave = new OpBehavior(CPUI_LOAD,false,true); // Dummy behavior
+ }
+ 
++/// A LOAD marked with the extension its instruction applies (see the \e extensiontypes option)
++/// produces a signed or unsigned integer; otherwise its output is unknown.
++Datatype *TypeOpLoad::getOutputLocal(const PcodeOp *op) const
++
++{
++  int4 size = op->getOut()->getSize();
++  if (op->isSextLoad())
++    return tlst->getBase(size,TYPE_INT);
++  if (op->isZextLoad())
++    return tlst->getBase(size,TYPE_UINT);
++  return tlst->getBase(size,TYPE_UNKNOWN);
++}
++
+ Datatype *TypeOpLoad::getInputCast(const PcodeOp *op,int4 slot,const CastStrategy *castStrategy) const
+ 
+ {
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/typeop.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/typeop.hh
+index 5a5fd1d..878ac16 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/typeop.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/typeop.hh
+@@ -267,6 +267,7 @@ class TypeOpLoad : public TypeOp {
+ public:
+   TypeOpLoad(TypeFactory *t);			///< Constructor
+   //  virtual Datatype *getInputLocal(const PcodeOp *op,int4 slot) const;
++  virtual Datatype *getOutputLocal(const PcodeOp *op) const;
+   virtual Datatype *getInputCast(const PcodeOp *op,int4 slot,const CastStrategy *castStrategy) const;
+   virtual Datatype *getOutputToken(const PcodeOp *op,CastStrategy *castStrategy) const;
+   virtual Datatype *propagateType(Datatype *alttype,PcodeOp *op,Varnode *invn,Varnode *outvn,

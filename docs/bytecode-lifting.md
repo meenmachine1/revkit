@@ -82,8 +82,9 @@ behind every release, while the decompiler's structuring of p-code doesn't
 depend on the version, so this fills a real gap. Exception tables are the
 main work. **WebAssembly** needs SLEIGH plus a stack-height pre-pass, or a
 dedicated front end (M to L), after the wasm-decompile provider. The rest are later:
-Hermes (under [JavaScript](#javascript)), and Dart AOT, EVM, BEAM,
-AutoIt, PHP and Ruby (under [Others](#others)).
+Hermes (under [JavaScript](#javascript)), and Dart AOT, BEAM,
+AutoIt, PHP and Ruby (under [Others](#others)). **EVM** is built, as a
+SLEIGH processor of revkit's own ([evm.md](evm.md), `api_minor` 99).
 
 ## What revkit has today
 
@@ -115,11 +116,11 @@ AutoIt, PHP and Ruby (under [Others](#others)).
     pool;
   - Dalvik's range invokes copy a run of registers (`moveRangeToIV`);
     Dalvik's SLEIGH emits `CPOOLREF` itself.
-- **The SLEIGH compiler is vendored but not built.** `slgh_compile.cc`,
-  `slghparse.cc` and `slghscan.cc` are in the fork. revkit loads only the
-  `.sla` files a Ghidra install ships, from that one root
-  ([getting-started.md](getting-started.md#ghidra-processor-specs)). A
-  processor revkit ships itself would need a second spec directory.
+- **The SLEIGH compiler is built** (`rk-sleigh`, 2026-10-18): `slgh_compile.cc`,
+  `slghparse.cc` and `slghscan.cc` from the fork. revkit's own processors
+  (EVM) are compiled with it at build time into a second spec directory
+  beside the Ghidra install's
+  ([processors.md](processors.md#revkits-own-processors)).
 - **Loaders**: ELF, PE, Mach-O and raw (`loader::Format`). There is no
   class, dex or wasm loader. `EM_BPF` (247) maps to Ghidra's eBPF language
   (`eBPF:LE:64:default`, `eBPF:BE:64:default`), so a clang-built eBPF
@@ -226,7 +227,14 @@ Where SLEIGH breaks:
   context (what the community wasm plugin does) or a dedicated decoder
   (b).
 - **Wide words**: EVM's 256-bit stack values exceed what the decompiler's
-  constant folding handles (64-bit `uintb`).
+  constant folding and known-bits tracking handle (64-bit `uintb`; wider
+  varnodes aren't folded, but their known-zero bits are computed in 64 bits,
+  so a shift right by 224 would look like zero). The EVM processor keeps
+  every operation that moves bits across bit 64 a CALLOTHER, and no
+  constant wider than 64 bits ([evm.md](evm.md#the-processor)).
+- **Instruction length**: the C++ SLEIGH engine decodes at most 16 bytes
+  (`ParserContext::buf`), so EVM's `PUSH16` to `PUSH32` decode as their
+  opcode, load their immediate from the code and branch past it.
 - **Source syntax**: the decompiler prints C or Java. Lua or Python
   syntax means a new `PrintLanguage`; `printjava.cc` (a PrintC subclass)
   shows the size of one, a patch to the fork.
@@ -514,7 +522,7 @@ contracts). Recommended: (c) first, (a) with the pre-pass later.
 | PHP opcache | file-cache `.bin` with `OPCACHE` magic and a system id per PHP build | (d) detection only | S | low |
 | AutoIt | the compiled script in an RCDATA resource (`AU3!EA06`), encrypted and compressed by a known scheme | (d) extraction (AutoIt-Ripper, MIT, as the reference) | S to M | medium (commodity malware) |
 | AutoHotkey | the script as plain text in RCDATA (`>AUTOHOTKEY SCRIPT<`) | (d) extraction | S | medium (malware) |
-| EVM | 256-bit stack machine, contracts as raw bytecode | (b) a front end, or a provider (heimdall-rs, MIT; panoramix, MIT); SLEIGH breaks on 256-bit words | M to L | low for revkit's audience |
+| EVM | 256-bit stack machine, contracts as raw bytecode | ~~(b) a front end, or a provider~~ **built** as (a) (`api_minor` 99, [evm.md](evm.md)): revkit's own SLEIGH processor with the operations that cross bit 64 as CALLOTHERs (so 64-bit folding stays sound), `PUSHn tag; JUMP` folded into direct branches, long `PUSH`es split around the engine's 16-byte limit; a loader for runtime and creation code, binary or hex; the dispatcher's selectors named; computed jumps resolved by a stack analysis (all but 2 of 658 jumps in OpenZeppelin's ERC-20 and ERC-721). Providers (heimdall-rs, MIT; panoramix, MIT) would still give source-like output | M | low for revkit's audience |
 | Erlang BEAM | IFF `FOR1`/`BEAM` chunks; `Dbgi` (or old `Abst`) holds the abstract code when built with debug info | (d) chunk listing and source from debug info; (a) only without it | S, then L | low |
 | Dart and Flutter AOT | native ARM64 or x86-64 code in `libapp.so` (`_kDartIsolateSnapshotInstructions`); objects reached through the object pool register (x27 on ARM64) | native pipeline plus a snapshot parser for class and function names and object-pool entries (blutter, MIT, as the reference) | L | medium to high (Flutter apps), version-specific |
 
@@ -742,11 +750,11 @@ the output an external provider gives at no lifting cost.
 | 1. Extraction | ~~container formats: PyInstaller CArchive and PYZ (adding `.pyc` headers to scripts), `asar`, pkg, nexe, Node SEA, Bun; Lua chunk carving in blobs~~ *done* (2026-10-18); py2exe's `PYTHONSCRIPT`, Deno, Nuitka onefile; AutoIt and AutoHotkey scripts from resources; .NET embedded resources and single-file bundles | M |
 | 2. Providers (**built**: [providers.md](providers.md)) | an `ExternalDecompiler` provider kind: a configured command per format, run in the worker sandbox with time and memory limits, the output cached by content hash and shown as source (decompiler pane, files in the container browser), API and MCP tool to fetch it. Providers: ilspycmd, jadx, Vineflower or CFR, unluac, pycdc, webcrack, wasm-decompile | M, then S each |
 | 3. JVM and Dalvik | the `.class` and DEX loaders (the language from the DEX version); the entry and call-other injection library and the constant pools in the worker (ported from Ghidra, Apache-2.0); the bundle's managed-metadata part and its prediction; the Java printer; per-address context for `alignmentPad`; exception handlers as entry points | M |
-| 4. SLEIGH toolchain | build `rk-sleigh` from the fork; a revkit processors directory beside Ghidra's (shipped specs, generated ones); a generator from opcode tables to `.slaspec` | S to M |
+| 4. SLEIGH toolchain | ~~build `rk-sleigh` from the fork; a revkit processors directory beside Ghidra's~~ *done* (2026-10-18, with EVM: [processors.md](processors.md#revkits-own-processors)); a generator from opcode tables to `.slaspec` (EVM's is a script, `processors/EVM/gen_slaspec.py`) | S to M |
 | 5. Lua | chunk loader (all versions; protos as functions, `K[]` and upvalue tables laid out, names from debug info); generated specs for 5.1 to 5.4 and LuaJIT 2.0 and 2.1, permuted tables as input; varargs and multiple results through call-other ops | M |
 | 6. Python 3.11+ | `.pyc` loader (marshal, code objects as functions, consts and names laid out or as constant pool); specs generated per minor version from CPython's opcode metadata; exception-table handlers as entry points; an `object` core type | L |
 | 7. Wasm | module loader; the stack-height pre-pass painting context; the spec | M to L |
-| Later | Hermes (generated from `BytecodeList.def`), Dart AOT metadata, a Lua or Python `PrintLanguage`, CIL SLEIGH, EVM | L each |
+| Later | Hermes (generated from `BytecodeList.def`), Dart AOT metadata, a Lua or Python `PrintLanguage`, CIL SLEIGH; ~~EVM~~ *done* ([evm.md](evm.md)) | L each |
 
 Phases 0 to 2 give the most for the least, and need no decompiler work.
 Phase 3 is the strongest case for the p-code route, being already proven.

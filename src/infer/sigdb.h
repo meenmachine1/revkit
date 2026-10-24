@@ -19,6 +19,11 @@
 
 namespace revkit::infer {
 
+// A 32-bit ARM ELF whose EABI flags don't say hard float (the VFP
+// argument registers): its calls pass floats in core registers, where the
+// default .cspec of ARMv6 and later models s0-s15.
+bool soft_float_arm(const loader::Image &image);
+
 // The C types system headers give values most often, by size, as a prior
 // for values whose type evidence is missing or weak.
 struct Priors {
@@ -36,7 +41,11 @@ struct Priors {
 
 class SigDb {
  public:
-  explicit SigDb(std::string_view text);
+  // `core_floats`: floats travel in core registers (soft-float ARM), so a
+  // float or double in a prototype is given as an integer of its size,
+  // which the hard-float convention the decompiler models also passes
+  // there (a float in r0, a double in r0:r1), instead of in s0 or d0.
+  explicit SigDb(std::string_view text, bool core_floats = false);
 
   // The prototype of an imported function, with types sized for `org`.
   // Versioned ELF names (memcpy@GLIBC_2.14) and glibc's ISO aliases
@@ -47,7 +56,8 @@ class SigDb {
   std::optional<Prototype> callback(std::string_view name, std::size_t index, const DataOrg &org) const;
   std::size_t size() const { return entries_.size(); }
 
-  // The database for an image's platform: Windows for PE, glibc otherwise.
+  // The database for an image's platform: Windows for PE, glibc otherwise
+  // (with core floats for a soft-float 32-bit ARM ELF: soft_float_arm).
   static const SigDb &for_image(const loader::Image &image);
 
   // Priors from the glibc headers' prototypes, with sizes for `org`.
@@ -55,7 +65,9 @@ class SigDb {
 
  private:
   const std::vector<std::string> *lookup(std::string_view name) const;
+  Prototype as_called(Prototype p) const;
   std::unordered_map<std::string, std::vector<std::string>> entries_;
+  bool core_floats_ = false;
 };
 
 }  // namespace revkit::infer

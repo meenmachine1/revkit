@@ -76,6 +76,7 @@ struct RawLine {
 // lines end where the printer starts a new statement or declaration.
 class TokenEmitter : public ghidra::Emit {
  public:
+  explicit TokenEmitter(const ghidra::Architecture *arch) : arch_(arch) {}
   std::vector<RawLine> lines;
 
   void Reset() {
@@ -129,6 +130,9 @@ class TokenEmitter : public ghidra::Emit {
         if (ghidra::HighVariable *high = HighOf(vn))
           if (const ghidra::Symbol *sym = high->getSymbol(); sym != nullptr && sym->getCategory() == ghidra::Symbol::equate)
             t.display_set = true;
+        // A string literal is printed from the pointer to it: its address
+        // is the token's target (PrintC::pushPtrCharConstant).
+        if (t.kind == pb::CODE_TOKEN_KIND_STRING) t.target = StringAddress(vn, op);
       }
       return;
     }
@@ -136,6 +140,17 @@ class TokenEmitter : public ghidra::Emit {
     if (ghidra::HighVariable *high = HighOf(vn)) {
       t.symbol = high->getSymbol();
       if (t.symbol == nullptr) t.high = high;
+    } else if (vn != nullptr && vn->isAnnotation() && op != nullptr) {
+      // The address a volatile access (a user op) names: the global at it,
+      // or, where none is, the address itself (PrintC::pushAnnotation's
+      // `Ram04000006`).
+      const ghidra::Scope *scope = op->getParent()->getFuncdata()->getScopeLocal();
+      if (const ghidra::SymbolEntry *entry = scope->queryContainer(vn->getAddr(), 1, op->getAddr())) {
+        t.symbol = entry->getSymbol();
+      } else if (vn->getSpace() == arch_->getDefaultDataSpace() || vn->getSpace() == arch_->getDefaultCodeSpace()) {
+        t.kind = pb::CODE_TOKEN_KIND_GLOBAL_VARIABLE;
+        t.target = vn->getOffset();
+      }
     } else if (!declarations_.empty()) {
       t.symbol = declarations_.back();
     }
@@ -176,9 +191,11 @@ class TokenEmitter : public ghidra::Emit {
     SetOpAddress(t, op);
     SetField(t, ct, ident);
   }
-  void tagBitField(const std::string &name, syntax_highlight, const ghidra::Datatype *, int,
+  void tagBitField(const std::string &name, syntax_highlight, const ghidra::Datatype *ct, int ident,
                    const ghidra::PcodeOp *op) override {
-    SetOpAddress(Add(pb::CODE_TOKEN_KIND_FIELD, name), op);
+    RawToken &t = Add(pb::CODE_TOKEN_KIND_FIELD, name);
+    SetOpAddress(t, op);
+    SetBitField(t, ct, ident);
   }
   void tagComment(const std::string &name, syntax_highlight, const ghidra::AddrSpace *, ghidra::uintb off) override {
     RawToken &t = Add(pb::CODE_TOKEN_KIND_COMMENT, name);
@@ -271,6 +288,32 @@ class TokenEmitter : public ghidra::Emit {
     t.parent_id = ct->getUnsizedId();
   }
 
+  // A bitfield's parent and the byte offset of the bytes holding it.
+  static void SetBitField(RawToken &t, const ghidra::Datatype *ct, int ident) {
+    if (ct == nullptr) return;
+    for (int i = 0; i < 16 && ct->getTypedef() != nullptr; ++i) ct = ct->getTypedef();
+    if (ct->getMetatype() != ghidra::TYPE_STRUCT) return;
+    const auto *st = static_cast<const ghidra::TypeStruct *>(ct);
+    for (int i = 0; i < st->numBitFields(); ++i)
+      if (st->getBitField(i).ident == ident) {
+        t.field_offset = static_cast<std::uint64_t>(st->getBitField(i).bits.byteOffset);
+        t.parent_id = ct->getUnsizedId();
+        return;
+      }
+  }
+
+  // The address of the string a constant pointer prints as.
+  std::optional<std::uint64_t> StringAddress(const ghidra::Varnode *vn, const ghidra::PcodeOp *op) const {
+    if (arch_ == nullptr) return std::nullopt;
+    ghidra::uintb encoding;
+    ghidra::Address point;
+    if (op != nullptr) point = op->getAddr();
+    ghidra::Address a =
+        arch_->resolveConstant(arch_->getDefaultDataSpace(), vn->getOffset(), vn->getSize(), point, encoding);
+    if (a.isInvalid()) return std::nullopt;
+    return a.getOffset();
+  }
+
   RawToken &Add(pb::CodeTokenKind kind, const std::string &text) {
     if (lines.empty()) lines.push_back({0, {}});
     RawLine &line = lines.back();
@@ -293,6 +336,7 @@ class TokenEmitter : public ghidra::Emit {
     return t;
   }
 
+  const ghidra::Architecture *arch_;
   int prototype_depth_ = 0;
   std::vector<const ghidra::Symbol *> declarations_;
   int comment_depth_ = 0;
@@ -305,7 +349,7 @@ class CapturePrintC : public ghidra::PrintC {
  public:
   explicit CapturePrintC(ghidra::Architecture *arch) : ghidra::PrintC(arch, "c-language") {
     delete emit;  // PrintLanguage owns `emit` and deletes it in its destructor
-    tokens_ = new TokenEmitter();
+    tokens_ = new TokenEmitter(arch);
     emit = tokens_;
   }
   TokenEmitter &tokens() { return *tokens_; }
@@ -314,11 +358,34 @@ class CapturePrintC : public ghidra::PrintC {
   TokenEmitter *tokens_;
 };
 
+// A data type as C names it without a declarator's name: `code **`,
+// `int[16]`, `char (*)[8]`, where the decompiler's debug spelling
+// (Datatype::printRaw) has `code() * *` and `int [16]`.
 std::string TypeName(const ghidra::Datatype *t) {
   if (t == nullptr) return "undefined";
-  std::ostringstream s;
-  t->printRaw(s);
-  return s.str();
+  std::string decl;  // the abstract declarator, built from the outside in
+  for (int depth = 0; depth < 64 && t->getName().empty(); ++depth) {
+    const ghidra::type_metatype meta = t->getMetatype();
+    if (meta == ghidra::TYPE_PTR || meta == ghidra::TYPE_PTRREL) {
+      decl = "*" + decl;
+      t = static_cast<const ghidra::TypePointer *>(t)->getPtrTo();
+    } else if (meta == ghidra::TYPE_ARRAY) {
+      if (!decl.empty() && decl.front() == '*') decl = "(" + decl + ")";
+      const auto *a = static_cast<const ghidra::TypeArray *>(t);
+      decl += "[" + std::to_string(a->numElements()) + "]";
+      t = a->getBase();
+    } else {
+      break;
+    }
+  }
+  std::string base = t->getName();
+  if (base.empty()) {
+    if (t->getMetatype() == ghidra::TYPE_CODE) base = "code";
+    else if (t->getMetatype() == ghidra::TYPE_VOID) base = "void";
+    else base = "undefined" + std::to_string(t->getSize());
+  }
+  if (decl.empty()) return base;
+  return decl.front() == '[' ? base + decl : base + " " + decl;
 }
 
 std::int64_t SignedOffset(const ghidra::Address &a) {
@@ -939,12 +1006,32 @@ void DecompilerPool::Warm(const ImageInputs &image) {
   decompd::Bundle b = program->bundle(decompd::Mode::tokens, 0);
   b.lift.default_labels = false;
   b.lift.address_prefix = image.address_prefix;
+  b.lift.shape = lift::SourceShape::own();  // the architecture revkit's default settings use
   workers_->warm(decompd::encode_bundle(b));
   predictor.join();
 }
 
+lift::SourceShape ShapeFromSettings(const pb::DecompilerSettings &s) {
+  lift::SourceShape shape = lift::SourceShape::own();
+  switch (s.comparison_form()) {
+    case pb::COMPARISON_FORM_GHIDRA: shape.compare = lift::SourceShape::Compare::ghidra; break;
+    case pb::COMPARISON_FORM_RIGHT: shape.compare = lift::SourceShape::Compare::right; break;
+    case pb::COMPARISON_FORM_ENCODED: shape.compare = lift::SourceShape::Compare::encoded; break;
+    default: break;
+  }
+  switch (s.load_types()) {
+    case pb::LOAD_TYPES_GHIDRA: shape.extension = lift::SourceShape::Extension::off; break;
+    case pb::LOAD_TYPES_WORDS: shape.extension = lift::SourceShape::Extension::words; break;
+    case pb::LOAD_TYPES_ALL: shape.extension = lift::SourceShape::Extension::all; break;
+    default: break;
+  }
+  if (s.ghidra_flag_tests()) shape.flag_compare = false;
+  shape.compilable = s.compilable_c();
+  return shape;
+}
+
 DecompileOutput DecompilerPool::Decompile(const DecompileInputs &inputs, const ImageInputs &image,
-                                          RunLookup &lookup) {
+                                          RunLookup &lookup, const lift::SourceShape &shape) {
   const auto started = std::chrono::steady_clock::now();
   auto program = ProgramFor(image);
   const double program_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -971,6 +1058,10 @@ DecompileOutput DecompilerPool::Decompile(const DecompileInputs &inputs, const I
   // Call-site prototypes from constant printf/scanf formats (revkit's own
   // inputs: docs/types.md#format-strings).
   builder.set_format_strings(true);
+  // The fork's source-shape options (docs/decompiler-inputs.md, "Source
+  // shape"): load signedness and comparisons as the instructions encode
+  // them, as the program's decompiler settings say.
+  builder.set_shape(shape);
   std::vector<std::pair<std::uint64_t, std::string>> overrides;
   for (const auto &[addr, kind] : inputs.flow_overrides)
     if (const char *name = OverrideName(kind)) overrides.emplace_back(addr, name);

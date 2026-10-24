@@ -119,8 +119,9 @@ and frozen; rounds are capped at 16. On the corpus nothing is widened.
   where the function reads every argument register (a save area's
   pattern).
   Positions are ordered by the convention (`abi.cc`: System V, Windows
-  x64, AAPCS64, RISC-V LP64D), integers before floats where the
-  convention doesn't say.
+  x64, AAPCS64, RISC-V LP64D; AAPCS, MIPS o32 and PowerPC SysV on
+  32-bit processors, [below](#32-bit-processors)), integers before
+  floats where the convention doesn't say.
 - **Callee → caller.** Callees are decompiled locked, so their parameter
   types flow into the caller's variables and from there into the caller's
   own parameters: a value passed to `fprintf`'s `FILE *` makes a parameter
@@ -332,7 +333,9 @@ asserted prototypes take, with signature source `analysis`: in its own
 decompilation and at the calls to it. `FactStoreTest.
 InferredPrototypesReachTheDecompiler` checks it (waiting for the job): the decompiler alone
 shows `uint checksum(byte *param_1,int param_2)`, with inference `uint
-checksum(char *param_1,int param_2)`, and the caller passes `(char *)`.
+checksum(uchar *param_1,int param_2)` (the source's `unsigned char *`; with
+Ghidra's load types, `char *`: [Load types](#load-types)), and the caller
+passes `(uchar *)`.
 Where the program also gets Ghidra's Decompiler Parameter ID (by default
 a PE below 2 MiB; [param-id.md](param-id.md)), the inferred prototype wins
 over the analyzer's commit and the commit stands where inference has none:
@@ -349,7 +352,7 @@ front ends.
 `rk-lift --analyze --decompile` locks inferred prototypes by default (as
 does the daemon, in the background, above): for functions with no library prototype, in programs
 without debug info, where inference has a convention (`infer::supports`:
-the 64-bit ones above). Against the original source this wins in every
+the 64-bit ones above, and 32-bit ARM, MIPS and PowerPC: [below](#32-bit-processors)). Against the original source this wins in every
 tuning family ([decomp-quality.md](decomp-quality.md)). For the
 decompiler, an unknown return keeps its register's width
 (`Options::keep_return_width`): `finalize`'s prior spells an unknown
@@ -439,6 +442,145 @@ Lua and zlib; Lua's inference takes 3.9 s instead of 3.0 s at `-j 4`.
 On the corpus (27 binaries, 2 threads each) inference takes 70 to 200 s
 in all depending on the load; every binary converges in at most 9 rounds
 (the two-unchanged-rounds rule included), nothing widened.
+
+## 32-bit processors
+
+Inference runs on 32-bit ARM (ARM and Thumb code, AAPCS: r0-r3, then the
+stack), MIPS o32 (a0-a3, the stack past 16 bytes) and PowerPC SysV
+(r3-r10), in rk-lift and in the daemon by default, as on the 64-bit
+conventions (`infer::supports`). RISC-V rv32 and x86-32 (cdecl) have
+tables (`abi.cc`) that `rk-infer` uses but are off by default: no corpus
+image measures them. Stack arguments past the registers count as integer
+positions after them (`int_index`), so a seven-argument call (four in
+r0-r3, three at sp+0, +4, +8) is one prototype of seven.
+
+**Decoding.** A raw ARM image says nothing about which code is Thumb;
+discovery does (`kFunctionThumb`). Each observation now decodes its
+function in its own instruction set, as the final C's decompiler does
+(`lift::InputDecompiler::set_context`): `RunOptions::context` (`TMode` 0
+or 1) is painted over the function's body and the code its flow reaches,
+after they are set back to the image's context, in the decompiler worker
+(`infer.observe` version 7), in `predict()`'s lifter (the pool keeps one
+per context) and in the prologue reader (`Prologues`, one per context).
+Before this, every Thumb function of a mixed image decompiled as ARM.
+
+**Interworking pointers.** A pointer to Thumb code has bit 0 set. The call
+graph (`CallGraph::interworking`, `infer.callgraph` version 4) finds a
+function from such a pointer (a callback passed, a returned function, a
+table member), and tables of code pointers in data are read with the bit
+cleared (`code_pointer_slots`, `infer.families` version 2), so a table of
+Thumb handlers is a family.
+
+**Thunks.** A veneer (`ldr pc, [pc, #-4]`) or an interworking stub (`bx
+pc` into an ARM `b`) decompiles as a jump through a register with no
+parameters. A thunk now has its target's prototype (`infer.round` version
+3; 32-bit only: on the 64-bit corpus the decompiler's own view of a thunk
+already matches, and taking the target's moved two functions the wrong
+way).
+
+**One size for ints and pointers.** What made inference type sizes,
+offsets and block numbers as pointers when it was tried on 32-bit targets
+before (littlefs's `lfs_bd_read` with all eight parameters pointers), and
+what it does now, all on 32-bit targets only:
+
+- *Constants.* A raw image is one read/write/execute block, so every
+  constant inside it looked like a function's address. Only a function's
+  entry is one now (`Evidence::is_function`); a constant past the first
+  64 KiB that is not one is data's address (a string in flash: the
+  `strings` metric depends on it), and smaller ones are integers.
+- *Callers' types.* A pointer some caller passes types the parameter only
+  when more callers pass a pointer there than an integer or a plain
+  constant: one caller's mistyped value made memcpy's length a `char *`,
+  and then every caller's length a cast. A 4-byte pointer never refines a
+  narrower parameter.
+- *Priors.* The glibc headers are counted as ILP32 (a `long` is a word),
+  and an unknown word is an `int`: pointers aren't counted among the word
+  priors (`SigDb::priors`), so pointer-ness needs evidence.
+- *Prologues.* A call or branch to the next instruction (PowerPC's PIC
+  `bcl 20,31,.+4`) no longer ends the prologue reader, which had missed
+  u-boot printf's register save area (and so its `...`) behind it.
+- *Spills.* A register save area's stores go to the stack. On 32-bit
+  targets only those count (a push, or a store through an address from
+  the stack pointer): a Thumb constructor storing its arguments into the
+  object (`this->w = w`) had looked variadic.
+
+**Parameters the decompiler gets wrong on ARM.**
+
+- *Dropped uses.* An SDK's interrupt restore (`mrs r1, cpsr; bic r2, r1,
+  #0xc0; orr r2, r2, r0; msr cpsr_c, r2; bx lr`) writes only processor
+  state, which no C value shows, so the decompiler sees no parameter and
+  its unlocked callers pass none (the DS run: 263 callers of one restore
+  with no argument). The prologue reader now records the registers the
+  entry's straight-line code reads before writing them, other than to
+  push them (`Observation::entry_reads`); an argument register there is
+  a parameter, in order.
+- *Parameters no caller passes.* A function that pushes r3 to keep the
+  stack 8-byte aligned (`push {r3, lr}`) and passes that slot to an
+  unknown callee (printf) gets r3 as a parameter; every caller of it
+  locked with four then shows `in_r3`. The last parameters (stack words,
+  then registers, from the end) that no more than half of two or more
+  callers set before the call are dropped; a caller passing its own
+  parameter on unchanged at a locked call counts as setting it, and a
+  register the entry reads as a value stays.
+
+**Structures.** A struct pointer the decompiler types as an integer
+(`*(int *)(param_1 + 8)`) never joined a class. A word parameter its own
+code reads or writes through three or more times at two or more offsets
+now joins one as a pointer, and gets the class's structure if the class
+makes one. A class of word fields is a structure, not an array of ints,
+when some field's loaded value is itself read or written through.
+
+**Library prototypes on soft-float ARM.** The default `.cspec` of ARMv6
+and later passes floats in s0-s15. A 32-bit ARM ELF whose EABI flags
+don't say hard float (`soft_float_arm`) passes them in core registers, so
+a library prototype's `float` and `double` come as integers of their size
+(`ulonglong sqrt(ulonglong)`), which the hard-float convention also
+passes in r0 and r0:r1. ARMv4 and v5 (`ARM_v45.cspec`) have no VFP
+registers and are unaffected.
+
+**The fixture.** `tests/data/arm32` is a small ARMv5TE firmware in C and
+C++ built with clang and ld.lld at test time (`make_fixture.py`, also a
+firmware corpus of two images, -O2 and -Os, for the scripts): ARM and
+Thumb code calling each other, the interrupt pair above in assembly, a
+seven-argument function, a long-branch veneer and a Thumb-to-ARM stub, a
+table of Thumb handlers, structures through word parameters, soft float
+through the runtime's helpers, and C++ classes with virtual calls.
+`Arm32.*` (`src/infer/tests/arm32_test.cc`) loads it as a raw image and
+checks the restore's parameter, the seven arguments, the Thumb functions,
+the thunks' prototypes and which parameters are pointers. In its C (rk-lift)
+every call to the restore passes the state and the seven-argument calls
+pass seven.
+
+**Results.** Against the source ([decomp-quality.md](decomp-quality.md#inference-on-32-bit-arm-mips-and-powerpc-2026-10-21)),
+the firmware composite goes from 3892/10223/515 to 8548/4611/1471, every
+family wins, parameter classes 88/14434/108 → 4582/9797/251, arity
+29/14582/19 → 587/13844/199 and members 2/7843/0 → 1860/5638/347. Casts, `noise` and
+temporaries now lose in the three families (they won or tied before):
+typed pointers bring null-pointer and conversion casts where Ghidra's
+words take none, and the noise left is mostly registers GCC keeps live
+across calls it knows don't clobber them (`-fipa-ra`), which a locked
+prototype says are clobbered. `rk-infer`'s gate is unchanged (the tuning
+corpus is 64-bit, and its C is byte-identical).
+
+## Load types
+
+The final C's decompiler types a loaded value by its instruction's
+extension (`extensiontypes`, [decompiler-inputs.md](decompiler-inputs.md#source-shape)):
+`ldrh` unsigned, `ldrsh` signed. Each observation's decompiler is set the
+same way (`Options::load_extension`, staged with the image, `RunOptions`
+and the worker's bundle, and rk-infer `--decompile`'s C; `infer.observe`
+version 8): rk-lift passes its
+shape (`--no-source-shape`: Ghidra's use-based types), the daemon
+`lift::SourceShape::own()`, and rk-infer keeps Ghidra's, so its gate is
+unchanged. Without it a pointer whose `ldrh` value is decremented was
+inferred `short *` and locked over the C's `ushort *`.
+
+With every load typed (`all`, not `words`), defaults (`finalize`) don't
+spell a byte pointee `char`: a `uchar *` stays one, and an unknown
+pointee (a pointer only read at offsets, a structure no class formed) is
+`void`, where the headers' prior would be `char` and lock a signed byte
+over an `ldrb`. Its loads then print as their instructions encode them,
+`*(byte *)((int)param_1 + 4)` (`rk_lift_source_shape`).
 
 ## Pointer accesses
 
@@ -548,8 +690,10 @@ program types they are exported with the rest (a type archive of scope
   pass a value to each other stay apart (Lua's expdesc is five), so calls
   between them cast; locals that are neither a parameter nor a call's
   result aren't classed; one level of fields per observation; unions and
-  embedded structures are overlapping fields; 32-bit targets get none
-  (inference is off there). `rk-infer --decompile` (`c_quality.py`) shows
+  embedded structures are overlapping fields; on 32-bit targets a
+  structure whose fields are all words, none of them dereferenced in the
+  code seen (a queue's head, tail, size and an items pointer only ever
+  indexed), is taken for an array of ints. `rk-infer --decompile` (`c_quality.py`) shows
   them as incomplete structs: its decompiler isn't given their layouts.
 - **Signedness and width of returns** without callers or decisive uses
   fall back to priors (`int`), so 64-bit results (`size_t`, `long`) and
@@ -584,9 +728,16 @@ program types they are exported with the rest (a type archive of scope
 - **Discovery.** Functions only code pointers in instructions reach (a
   callback loaded with `lea` and passed) are still not functions; tables
   in data are followed here, which `src/analysis` could adopt as seeds.
+- **32-bit processors** ([32-bit processors](#32-bit-processors)):
+  casts, `noise` and temporaries lose against Ghidra's untyped C where
+  they won before; callees whose last parameter only some callers set
+  keep it or lose it by a majority; registers GCC keeps live across a
+  call it knows doesn't clobber them (`-fipa-ra`) print as `extraout_`.
 - **Languages.** Calling-convention tables exist for x86-64 (System V,
-  Windows), AArch64 and RISC-V 64; other languages get the decompiler's
-  own view only. 32-bit targets are untested.
+  Windows), AArch64 and RISC-V 64, and on 32-bit processors ARM, MIPS
+  o32 and PowerPC SysV (on by default), RISC-V rv32 and x86-32 (rk-infer
+  only, unmeasured: no corpus image); other languages get the
+  decompiler's own view only.
 - **Library databases** are glibc (also used for the AArch64 and RISC-V
   ELF builds, whose `char` signedness and `va_list` differ, neither of
   which the printed types show) and mingw-w64; no C++ standard library.

@@ -134,6 +134,14 @@ service QueryService {
   // (api_minor 80, feature "export-c"). Progress messages while the
   // functions decompile, then the files in parts.
   rpc ExportC(ExportCRequest) returns (stream ExportCResponse);
+  // One function as a starting scratch for a matching decompilation
+  // (api_minor 103, feature "nds"; docs/nds.md, "From revkit to a
+  // scratch"): a `// PROBE: <mangled> <module> <address>` line, Ghidra's
+  // built-in type names, the named types the function uses, the callees'
+  // prototypes and the globals' declarations it refers to (from linked DS
+  // modules too), then its decompiled C. For a decomp.me scratch's context
+  // and source, or a probe file.
+  rpc ExportDecompScratch(ExportDecompScratchRequest) returns (ExportDecompScratchResponse);
   // Finds a byte pattern, with an optional bit mask, in the program's
   // initialized memory (as patched), in address order.
   rpc FindBytes(FindBytesRequest) returns (FindBytesResponse);
@@ -1976,4 +1984,37 @@ message ListObjcClassesResponse {
   repeated ObjcClass classes = 2;
   repeated ObjcProtocol protocols = 3;
   repeated SwiftType swift_types = 4;
+}
+
+// --- Decomp scratch (api_minor 103, feature "nds"; docs/nds.md) --------------
+
+message ExportDecompScratchRequest {
+  string program_id = 1;
+  Address function = 2;  // its entry
+  ReadOptions read = 3;
+  // The module the PROBE line names; default: the DS module the program
+  // is (ImportDsdProject, ImportNdsRom), else the program's name.
+  string module = 4;
+  uint32 timeout_ms = 5;  // the decompilation's; 0: the daemon's
+}
+
+message ExportDecompScratchResponse {
+  Snapshot snapshot = 1;
+  // The whole scratch: probe line, context, then the function.
+  string text = 2;
+  // Its parts, for a decomp.me scratch: `context` (everything but the
+  // function) and `source` (the probe line and the function's C).
+  string context = 3;
+  string source = 4;
+  string probe = 5;          // "// PROBE: _ZN13GameOverScene6UpdateEv ov006 0x02219604"
+  string function_name = 6;  // as revkit shows it
+  string symbol = 7;         // as the file spells it (mangled), else the name
+  string module = 8;
+  uint32 types = 9;          // named types declared
+  uint32 callees = 10;       // callee prototypes declared
+  uint32 globals = 11;       // globals declared
+  repeated string notes = 12;  // what the context couldn't declare, and why
+  // Set when the decompiler failed; the scratch then has the probe line
+  // and the context only.
+  DecompileFailure failure = 13;
 }

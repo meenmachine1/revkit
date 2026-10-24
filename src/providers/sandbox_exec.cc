@@ -92,8 +92,22 @@ std::string apply_landlock(const ConfineOptions &o, int abi) {
   const int ruleset = static_cast<int>(rs);
   const std::uint64_t file_mask = kFsExecute | kFsWriteFile | kFsReadFile | kFsTruncate | kFsIoctlDev;
   const std::uint64_t read = kFsExecute | kFsReadFile | kFsReadDir;
-  for (const std::string &p : o.read_paths)
+  for (const std::string &p : o.read_paths) {
+    if (p == "/proc" || p == "/proc/") {
+      // Not every process's /proc/<pid> (the daemon's environ, cmdline and
+      // fd links are readable to the same user): this process's own, which
+      // the tool keeps across execve (its /proc/self), and the system-wide
+      // files runtimes read about the machine.
+      const std::string self = "/proc/" + std::to_string(::getpid());
+      for (const std::string &q : {self, std::string("/proc/cpuinfo"), std::string("/proc/meminfo"),
+                                  std::string("/proc/stat"), std::string("/proc/sys"), std::string("/proc/filesystems"),
+                                  std::string("/proc/loadavg"), std::string("/proc/uptime"), std::string("/proc/version"),
+                                  std::string("/proc/pressure")})
+        if (std::string e = add_path(ruleset, q, read, read & file_mask & all); !e.empty()) return e;
+      continue;
+    }
     if (std::string e = add_path(ruleset, p, read, read & file_mask & all); !e.empty()) return e;
+  }
   for (const std::string &p : o.write_paths)
     if (std::string e = add_path(ruleset, p, all, all & file_mask); !e.empty()) return e;
   // The character devices programs open for reading and writing.
@@ -126,9 +140,36 @@ struct Filter {
     jump(BPF_JMP | BPF_JEQ | BPF_K, static_cast<std::uint32_t>(n), 0, 1);
     stmt(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (static_cast<std::uint32_t>(e) & SECCOMP_RET_DATA));
   }
+  // if nr == n: allowed when, for every (argument, values), the argument's
+  // low 32 bits are one of the values (pids and the like: the kernel reads
+  // an int); else errno e. The accumulator holds nr again after it.
+  void allow_only(long n, const std::vector<std::pair<int, std::vector<std::uint32_t>>> &conditions, int e) {
+    std::vector<sock_filter> b;
+    std::vector<std::size_t> to_deny;  // JA instructions to point at the deny
+    for (const auto &[arg, values] : conditions) {
+      b.push_back(BPF_STMT(BPF_LD | BPF_W | BPF_ABS, static_cast<std::uint32_t>(offsetof(seccomp_data, args) + 8 * arg)));
+      for (std::size_t j = 0; j < values.size(); ++j)  // a match skips the other tests and the JA
+        b.push_back(BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, values[j], static_cast<std::uint8_t>(values.size() - j), 0));
+      to_deny.push_back(b.size());
+      b.push_back(BPF_STMT(BPF_JMP | BPF_JA, 0));
+    }
+    b.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW));
+    const std::size_t deny_at = b.size();
+    b.push_back(BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (static_cast<std::uint32_t>(e) & SECCOMP_RET_DATA)));
+    for (std::size_t p : to_deny) b[p].k = static_cast<std::uint32_t>(deny_at - p - 1);
+    jump(BPF_JMP | BPF_JEQ | BPF_K, static_cast<std::uint32_t>(n), 0, static_cast<std::uint8_t>(b.size()));
+    code.insert(code.end(), b.begin(), b.end());
+  }
 };
 
-std::string apply_seccomp() {
+// Numbers the system's headers may predate.
+#ifndef SYS_fchmodat2
+#define SYS_fchmodat2 452
+#endif
+
+// `abi`: the Landlock ABI applied (0: none). `self`: this process's pid,
+// the tool's after execve.
+std::string apply_seccomp(int abi, pid_t self) {
   Filter f;
   f.stmt(BPF_LD | BPF_W | BPF_ABS, offsetof(seccomp_data, arch));
   f.jump(BPF_JMP | BPF_JEQ | BPF_K, kAuditArch, 1, 0);
@@ -155,6 +196,41 @@ std::string apply_seccomp() {
                  long{SYS_delete_module}, long{SYS_setsid}, long{SYS_setpgid}, long{SYS_name_to_handle_at},
                  long{SYS_open_by_handle_at}, long{SYS_fanotify_init}, long{SYS_pidfd_getfd}})
     f.deny(n, EPERM);
+  // Neither Landlock nor the rules above confine a file's mode, owner or
+  // extended attributes by path: the tool could open up the daemon's
+  // credentials or lock it out of its store (bug scrub part 3).
+  for (long n : {
+#ifdef SYS_chmod
+           long{SYS_chmod}, long{SYS_chown}, long{SYS_lchown},
+#endif
+           long{SYS_fchmod}, long{SYS_fchmodat}, long{SYS_fchmodat2}, long{SYS_fchown}, long{SYS_fchownat},
+           long{SYS_setxattr}, long{SYS_lsetxattr}, long{SYS_fsetxattr}, long{SYS_removexattr},
+           long{SYS_lremovexattr}, long{SYS_fremovexattr}, long{SYS_process_madvise}, long{SYS_kcmp}})
+    f.deny(n, EPERM);
+  // Before Landlock ABI 3, truncate(path) isn't a right it handles.
+  if (abi < 3) f.deny(SYS_truncate, EPERM);
+  // Limits, priorities and memory placement of this process only: another
+  // process of the daemon's user (the daemon itself: prlimit64(RLIMIT_CPU)
+  // would kill it) is refused.
+  const std::uint32_t me = static_cast<std::uint32_t>(self);
+  f.allow_only(SYS_prlimit64, {{0, {0, me}}}, EPERM);
+  f.allow_only(SYS_setpriority, {{0, {0 /* PRIO_PROCESS */}}, {1, {0, me}}}, EPERM);
+  f.allow_only(SYS_ioprio_set, {{0, {1 /* IOPRIO_WHO_PROCESS */}}, {1, {0, me}}}, EPERM);
+  for (long n : {long{SYS_sched_setaffinity}, long{SYS_sched_setscheduler}, long{SYS_sched_setparam},
+                 long{SYS_sched_setattr}, long{SYS_migrate_pages}, long{SYS_move_pages}})
+    f.allow_only(n, {{0, {0, me}}}, EPERM);
+  // Signals: from Landlock ABI 6 they are scoped to the sandbox. Before,
+  // only this process, its own threads and its own process group (the
+  // session setsid made) may be signalled: kill(-1) and the daemon are
+  // refused.
+  if (abi < 6) {
+    f.allow_only(SYS_kill, {{0, {0, me, static_cast<std::uint32_t>(-self)}}}, EPERM);
+    f.allow_only(SYS_tgkill, {{0, {me}}}, EPERM);
+    f.allow_only(SYS_rt_sigqueueinfo, {{0, {me}}}, EPERM);
+    f.allow_only(SYS_rt_tgsigqueueinfo, {{0, {me}}}, EPERM);
+    f.deny(SYS_tkill, EPERM);
+    f.deny(SYS_pidfd_send_signal, EPERM);
+  }
   // clone3's flags are in memory a filter can't read: ENOSYS makes libc
   // fall back to clone(), whose flags it can.
   f.deny(SYS_clone3, ENOSYS);
@@ -207,7 +283,7 @@ bool child_succeeds(bool (*fn)()) {
 
 bool seccomp_works() {
   if (::prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return false;
-  if (!apply_seccomp().empty()) return false;
+  if (!apply_seccomp(landlock_abi(), ::getpid()).empty()) return false;
   // A socket must now be refused.
   const int s = ::socket(AF_INET, SOCK_STREAM, 0);
   return s < 0 && errno == EACCES;
@@ -232,7 +308,10 @@ SandboxSupport probe_self() {
 }
 
 std::string confine_self(const ConfineOptions &o) {
-  ::close_range(3, ~0u, 0);
+  if (::close_range(3, ~0u, 0) != 0) {
+    // Kernels before 5.9: close them one by one.
+    for (int fd = 3; fd < 65536; ++fd) ::close(fd);
+  }
   // No core dumps; the limits the caller asked for.
   const rlimit no_core{0, 0};
   ::setrlimit(RLIMIT_CORE, &no_core);
@@ -247,7 +326,8 @@ std::string confine_self(const ConfineOptions &o) {
   if (::getppid() == 1) return "the parent went away";
   if (::prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0) return err("no_new_privs");
   if (child_succeeds(enter_netns) && !enter_netns()) return "entering a network namespace failed after the probe succeeded";
-  const int abi = landlock_abi();
+  int abi = landlock_abi();
+  if (o.max_landlock_abi > 0 && abi > o.max_landlock_abi) abi = o.max_landlock_abi;
   if (abi > 0) {
     if (std::string e = apply_landlock(o, abi); !e.empty()) return e;
   } else if (!o.allow_weak) {
@@ -255,7 +335,7 @@ std::string confine_self(const ConfineOptions &o) {
            "without it: allow_weak_sandbox)";
   }
   if (!o.cwd.empty() && ::chdir(o.cwd.c_str()) != 0) return err("chdir " + o.cwd);
-  if (std::string e = apply_seccomp(); !e.empty()) return e;
+  if (std::string e = apply_seccomp(abi, ::getpid()); !e.empty()) return e;
   return {};
 }
 

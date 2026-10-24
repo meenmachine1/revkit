@@ -17,7 +17,7 @@ add_library(revkit_lift STATIC
   param_id.cc)
 add_library(revkit::lift ALIAS revkit_lift)
 target_include_directories(revkit_lift PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(revkit_lift PUBLIC revkit::loader revkit::loader_ghidra ghidra::decomp)
+target_link_libraries(revkit_lift PUBLIC revkit::loader revkit::loader_ghidra ghidra::decomp PRIVATE revkit::runtime)
 target_compile_options(revkit_lift PRIVATE -Wall -Wextra)
 
 if(REVKIT_BUILD_TESTS)

@@ -271,6 +271,69 @@ message FactOrigin {
     AssertedBy asserted = 1;
     Derivation derived = 2;
   }
+  // How far to trust the value, from who said it (api_minor 97, feature
+  // "result-evidence"; docs/api.md "Result evidence"). Unset from older
+  // servers: a client derives it from the provenance or rule.
+  SourceTier tier = 3;
+}
+
+// What kind of source a value rests on, most trusted first. The order is
+// for reading, not precedence: the fact store's precedence (ProvenanceKind)
+// still decides which assertion wins.
+enum SourceTier {
+  SOURCE_TIER_UNSPECIFIED = 0;
+  // A person said so (PROVENANCE_KIND_USER).
+  SOURCE_TIER_USER = 1;
+  // Debug information: DWARF, PDB, a debug file, Go's pclntab.
+  SOURCE_TIER_DEBUG_INFO = 2;
+  // The file's own symbol tables and metadata (ELF and Mach-O symbols, PE
+  // exports, Objective-C metadata), names the demangler spelled out.
+  SOURCE_TIER_SYMBOL = 3;
+  // A library match: Function ID, a type archive's prototype, BSim.
+  SOURCE_TIER_LIBRARY = 4;
+  // An agent, plugin or script said so (PROVENANCE_KIND_AGENT, PLUGIN,
+  // SCRIPT): a claim with a reason, not yet a person's.
+  SOURCE_TIER_AGENT = 5;
+  // Analysis worked it out from the code with rules that follow from the
+  // bytes (function bounds, xrefs, strings, parameter ID).
+  SOURCE_TIER_INFERRED = 6;
+  // A heuristic's guess: the decompiler's variable names and types,
+  // its prototype without parameter ID (Derivation.confidence below 0.9).
+  SOURCE_TIER_GUESSED = 7;
+  // Nothing is known: a placeholder (FUN_00401000, DAT_..., undefined4).
+  SOURCE_TIER_DEFAULT = 8;
+}
+
+// What a result could not determine, and why (api_minor 97, feature
+// "result-evidence"): an absence in a result is only evidence of absence
+// where no unknown covers it.
+enum UnknownKind {
+  UNKNOWN_KIND_UNSPECIFIED = 0;
+  // A call through a register or memory whose target nothing resolved
+  // (no reference, no constant the decompiler could follow).
+  UNKNOWN_KIND_INDIRECT_CALL = 1;
+  // A computed jump whose destinations weren't recovered (a switch table
+  // analysis couldn't read).
+  UNKNOWN_KIND_INDIRECT_JUMP = 2;
+  // The function's flow stopped at analysis's instruction limit: its body
+  // may be longer than shown.
+  UNKNOWN_KIND_FLOW_TRUNCATED = 3;
+  // The decompiler failed on the function (DecompileFailure says how).
+  UNKNOWN_KIND_DECOMPILE_FAILED = 4;
+  // Background analysis (parameter ID, inference, Function ID) is still
+  // running on the program: prototypes, types and names may change.
+  UNKNOWN_KIND_ANALYSIS_RUNNING = 5;
+  // A budget, limit or deadline stopped the work before it was complete.
+  UNKNOWN_KIND_BUDGET = 6;
+  // Code analysis was skipped for the program (an IL-only .NET assembly).
+  UNKNOWN_KIND_NOT_ANALYZED = 7;
+}
+
+message Unknown {
+  UnknownKind kind = 1;
+  // The instruction it is about, when there is one.
+  Address address = 2;
+  string detail = 3;
 }
 
 message AssertedBy {

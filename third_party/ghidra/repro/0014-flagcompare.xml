@@ -1,0 +1,30 @@
+<decompilertest>
+<!--
+  memset_cw(p, c, n): while (n > 0) { *p++ = c; n -= 1; }, as CodeWarrior's
+  byte loops end: subs then bgt.
+    8000: cmp r2,#0          8004: bxle lr
+    8008: strb r1,[r0],#1    800c: subs r2,r2,#1   8010: bgt 0x8008
+    8014: bx lr
+  GT after SUBS is !Z and N == V: Ghidra keeps the test of the result and
+  the comparison of the value before as two (iVar2 != 0 and bVar1, in C); with
+  flagcompare they are the one test the instruction makes, 0 < n.
+-->
+<binaryimage arch="ARM:LE:32:v5t:default">
+<bytechunk space="ram" offset="0x8000" readonly="true">
+000052e31eff2fd10110c0e4012052e2fcffffca1eff2fe1
+</bytechunk>
+</binaryimage>
+<script>
+  <com>map fun r0x8000 memset_cw</com>
+  <com>parse line extern void memset_cw(char *p,char c,int4 n);</com>
+  <com>lo fu memset_cw</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>option flagcompare on</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>quit</com>
+</script>
+<stringmatch name="Off: two tests" min="1" max="1">while \(.* != 0 &amp;&amp; .*\);</stringmatch>
+<stringmatch name="On: one test" min="1" max="1">while \(0 &lt; n\);</stringmatch>
+</decompilertest>

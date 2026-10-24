@@ -120,6 +120,11 @@ struct Options {
   // With --analyze --decompile: call-site prototypes from constant
   // printf/scanf formats (lift::DecompileConfig::format_strings).
   bool format_strings = true;
+  // With --analyze --decompile: the fork's source-shape options
+  // (lift::SourceShape::own() unless --source-shape or --no-source-shape
+  // says otherwise), and with --compilable-c C a compiler accepts as well.
+  std::optional<revkit::lift::SourceShape> shape;
+  bool compilable = false;
 };
 
 // Sets the kinds of revkit facts named in `list` ("all", "none" or
@@ -190,6 +195,13 @@ void usage(std::ostream &os) {
         "  --no-infer-structures  with them: without inference's structures for passed-on pointers\n"
         "  --no-format-strings    with --analyze --decompile: no call-site prototypes from constant printf/scanf\n"
         "                         formats (docs/types.md#format-strings)\n"
+        "  --source-shape <list>  with --analyze --decompile: the decompiler options that print what the\n"
+        "                         instructions encode (docs/decompiler-inputs.md), a comma list of\n"
+        "                         extension|words, right|encoded, flag, compilable, all (the default:\n"
+        "                         extension,right,flag) or none\n"
+        "  --no-source-shape      --source-shape none: Ghidra's forms\n"
+        "  --compilable-c         C a compiler accepts: no x._0_2_ pieces, no label ending a block, pointer and\n"
+        "                         integer conversions cast\n"
         "                   for functions with no library ones (default: with them, over Parameter ID's, in a\n"
         "                   program without debug info where infer knows the calling convention: x86-64,\n"
         "                   AArch64, RISC-V 64)\n"
@@ -237,7 +249,8 @@ struct Inferred {
   std::vector<revkit::infer::InferredStructure> structures;
 };
 Inferred infer_prototypes(std::shared_ptr<const revkit::loader::Image> image, const std::string &language_id,
-                          const std::string &identity, unsigned threads, bool in_process, bool structures) {
+                          const std::string &identity, unsigned threads, bool in_process, bool structures,
+                          revkit::lift::SourceShape::Extension extension) {
   namespace an = revkit::analysis;
   namespace infer = revkit::infer;
   revkit::facts::FactDb db;
@@ -251,6 +264,7 @@ Inferred infer_prototypes(std::shared_ptr<const revkit::loader::Image> image, co
     infer::Options options;
     options.keep_return_width = true;  // the decompiler's callers read the whole register
     options.structures = structures;
+    options.load_extension = extension;  // loads typed as the C's decompiler types them
     infer::stage_image(tx, prog, image, language_id, identity, options);
     tx.commit();
   }
@@ -443,6 +457,28 @@ std::optional<Options> parse_args(int argc, char **argv) {
     else if (arg == "--no-infer-prototypes") opt.infer_prototypes = false;
     else if (arg == "--no-infer-structures") opt.infer_structures = false;
     else if (arg == "--no-format-strings") opt.format_strings = false;
+    else if (arg == "--no-source-shape") opt.shape = revkit::lift::SourceShape{};
+    else if (arg == "--source-shape" && (v = value())) {
+      revkit::lift::SourceShape s;
+      std::string list = v, item;
+      std::stringstream in(list);
+      while (std::getline(in, item, ',')) {
+        if (item == "all") s = revkit::lift::SourceShape::own();
+        else if (item == "none") s = revkit::lift::SourceShape{};
+        else if (item == "extension") s.extension = revkit::lift::SourceShape::Extension::all;
+        else if (item == "words") s.extension = revkit::lift::SourceShape::Extension::words;
+        else if (item == "right") s.compare = revkit::lift::SourceShape::Compare::right;
+        else if (item == "encoded") s.compare = revkit::lift::SourceShape::Compare::encoded;
+        else if (item == "flag") s.flag_compare = true;
+        else if (item == "compilable") s.compilable = true;
+        else {
+          std::cerr << "rk-lift: --source-shape: unknown option " << item << "\n";
+          return std::nullopt;
+        }
+      }
+      opt.shape = s;
+    }
+    else if (arg == "--compilable-c") opt.compilable = true;
     else if (arg == "--param-id" && (v = value())) {
       std::optional<revkit::inputs::ParamIdMode> m = revkit::inputs::parse_param_id_mode(v);
       if (!m) {
@@ -1068,6 +1104,8 @@ int run(const Options &opt) {
     config.default_labels = synthesize_labels.value_or(!(analyzed && opt.own.labels));
     config.default_extrapop = !exported;
     config.format_strings = analyzed && opt.format_strings;
+    if (analyzed) config.shape = opt.shape.value_or(revkit::lift::SourceShape::own());
+    if (opt.compilable) config.shape.compilable = true;
     config.threads = opt.threads.value_or(0);
     if (param_id_plan) {
       // Every function decompiled bottom-up, the signatures it finds
@@ -1094,7 +1132,7 @@ int run(const Options &opt) {
                                            // deterministic for any number of threads; --in-order's
                                            // one decompiler thread needn't bound it
                                            std::max(2u, opt.threads.value_or(std::thread::hardware_concurrency())),
-                                           opt.in_process, opt.infer_structures);
+                                           opt.in_process, opt.infer_structures, config.shape.extension);
       apply_inferred(*inputs, protos, infer_eligible, *image, lang.id());
       for (revkit::lift::FunctionFacts &f : inputs->functions)
         if (infer_this.contains(f.entry))

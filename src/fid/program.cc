@@ -150,6 +150,7 @@ ProgramHashes hash_program(const ProgramSource &src) {
 
   HashOptions options;
   options.skip_x86_nops = skips_x86_nops(out.language);
+  options.min_code_units = src.min_code_units;
   options.relocated = [&](std::uint64_t first, std::uint64_t last) {
     auto it = std::lower_bound(src.relocations.begin(), src.relocations.end(), first);
     return it != src.relocations.end() && *it <= last;
@@ -311,6 +312,7 @@ ProgramHashes hash_program(const ProgramSource &src) {
     }
     current = g.get();
     pf.hash = hash_function(units, options);
+    pf.instructions = static_cast<std::uint32_t>(units.size());
     current = nullptr;
 
     // Calls and terminators from the flow.
@@ -346,6 +348,7 @@ ProgramHashes hash_program(const ProgramSource &src) {
   std::vector<std::vector<std::pair<std::uint64_t, std::size_t>>> callers(n);  // (call insn, caller)
   for (std::size_t i = 0; i < n; ++i) {
     std::sort(calls[i].begin(), calls[i].end());
+    out.functions[i].calls = calls[i];
     std::unordered_set<std::uint64_t> done;
     for (const auto &[from, to] : calls[i]) {
       if (!done.insert(to).second) continue;

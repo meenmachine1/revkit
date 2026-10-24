@@ -249,6 +249,35 @@ TEST(RawHex, SRecords) {
                LoadError);  // checksum
 }
 
+// Hex text (an EVM contract's bytecode, api_minor 99): the bytes it spells
+// load as a binary file, regions indexing them.
+TEST(RawHex, HexText) {
+  const std::string text = "0x6080 6040\n52deadbeef\n";
+  EXPECT_EQ(detect_raw_container(*text_of(text)), RawContainer::hexbytes);
+  ASSERT_TRUE(decode_hex_text(*text_of(text)));
+  EXPECT_EQ(decode_hex_text(*text_of(text))->size(), 9u);
+  EXPECT_FALSE(decode_hex_text(*text_of("0x608")));       // an odd digit
+  EXPECT_FALSE(decode_hex_text(*text_of("0x60 8 0")));    // a pair split
+  EXPECT_EQ(detect_raw_container(*text_of("abc")), RawContainer::binary);  // too short to say
+  RawOptions o;
+  o.language = "x86:LE:32:default";
+  o.base = 0x1000;
+  RawRegion r;
+  r.name = "tail";
+  r.start = 0x8000;
+  r.size = 4;
+  r.file_offset = 5;
+  r.file_size = 4;
+  r.initialized = true;
+  o.regions.push_back(r);
+  Image img = parse_raw(text_of(text), o);
+  ASSERT_EQ(img.blocks.size(), 2u);
+  EXPECT_EQ(img.blocks[0].size, 9u);
+  EXPECT_EQ(byte_at(img, 0x1004), 0x52);
+  EXPECT_EQ(byte_at(img, 0x8000), 0xde);
+  EXPECT_EQ(raw_container_from_string("hexbytes"), RawContainer::hexbytes);
+}
+
 // Without a language memory provider (no SLEIGH here), a named space gets
 // the next free base; keys split back to (space, offset).
 TEST(RawSpaces, RegionsInOtherSpacesAreKeyed) {

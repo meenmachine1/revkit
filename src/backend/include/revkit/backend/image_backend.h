@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <ostream>
 #include <string>
 #include <vector>
 
@@ -152,6 +153,11 @@ struct ImageBackendOptions {
   // Resident derived facts per project, in bytes. Over it, memos are
   // evicted (spilled to the project directory when there is one).
   std::size_t memo_budget = std::size_t{2} << 30;
+  // Stored memos per project, in bytes (rk-daemon --cache-limit-mb): as a
+  // project opens, those beyond it are dropped, the ones used longest ago
+  // first (compact.h), so its store stops growing; 0: no limit. Stale
+  // memos (of rules gone or changed) are dropped by compaction alone.
+  std::uint64_t persisted_cache_limit = 0;
   // WebAssembly plugins (docs/plugins.md): loaders tried for files the
   // built-in loaders don't recognise, analyzers served by GetPluginFacts,
   // commands run by RunCommand. Null: no plugins (PluginService answers
@@ -165,6 +171,20 @@ struct ImageBackendOptions {
 
 // Throws revkit::lift::LiftError if ghidra_root is not a Ghidra install.
 std::unique_ptr<api::Backend> MakeImageBackend(ImageBackendOptions options);
+
+// rk-daemon compact (docs/backend.md, "Compaction"): each project store in
+// `project_dir` (or only `project`), its stale memos dropped (and every memo
+// with drop_caches, or those beyond cache_limit bytes, used longest ago
+// first), then rewritten without free pages. The caller holds the
+// directory's lock (no daemon is using it). A report per project goes to
+// `out`; returns how many stores were compacted, and throws on an error.
+struct StoreCompaction {
+  bool drop_caches = false;
+  std::uint64_t cache_limit = 0;
+  bool dry_run = false;
+};
+int CompactProjectDir(const std::string &project_dir, const std::string &project, const StoreCompaction &options,
+                      std::ostream &out);
 
 // Fact-engine counters of one project's rules (queries.h), by rule name,
 // since the last reset: how much an edit or a reopen recomputed. For tests

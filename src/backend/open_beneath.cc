@@ -1,6 +1,7 @@
 #include "open_beneath.h"
 
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -51,6 +52,54 @@ int OpenBeneath(const std::filesystem::path &root, const std::filesystem::path &
   ::close(rfd);
   errno = saved;
   return fd;
+}
+
+std::optional<std::string> ReadRegularFile(const std::filesystem::path &canonical, const std::vector<std::string> &roots,
+                                           std::uint64_t max_bytes, std::string *why) {
+  auto fail = [&](const char *m) -> std::optional<std::string> {
+    if (why) *why = m;
+    return std::nullopt;
+  };
+  if (!canonical.is_absolute()) return fail("missing");
+  const int flags = O_RDONLY | O_NONBLOCK | O_NOCTTY;
+  int fd = -1;
+  if (roots.empty()) {
+    fd = ::open(canonical.c_str(), flags | O_NOFOLLOW | O_CLOEXEC);
+  } else {
+    bool under = false;
+    for (const std::string &r : roots) {
+      std::error_code ec;
+      const std::filesystem::path root = std::filesystem::canonical(r, ec);
+      if (ec) continue;
+      const std::filesystem::path rel = canonical.lexically_normal().lexically_relative(root);
+      if (rel.empty() || *rel.begin() == "..") continue;
+      under = true;
+      fd = OpenBeneath(root, rel, flags);
+      if (fd >= 0) break;
+    }
+    if (!under) return fail("outside the browse roots");
+  }
+  if (fd < 0) return fail(errno == ELOOP || errno == ENOTDIR ? "not a regular file" : "missing");
+  struct stat st {};
+  if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+    ::close(fd);
+    return fail("not a regular file");
+  }
+  if (static_cast<std::uint64_t>(st.st_size) > max_bytes) {
+    ::close(fd);
+    return fail("too large");
+  }
+  std::string out(static_cast<std::size_t>(st.st_size), '\0');
+  std::size_t got = 0;
+  while (got < out.size()) {
+    const ssize_t n = ::pread(fd, out.data() + got, out.size() - got, static_cast<off_t>(got));
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0) break;
+    got += static_cast<std::size_t>(n);
+  }
+  ::close(fd);
+  if (got != out.size()) return fail("unreadable");
+  return out;
 }
 
 }  // namespace revkit::backend

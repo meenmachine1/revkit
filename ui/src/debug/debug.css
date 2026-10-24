@@ -68,3 +68,11 @@
 #emu .dbg-bp.disabled .dbg-bp-addr, #emu .dbg-bp.disabled .dbg-bp-cond { opacity: 0.5; text-decoration: line-through; }
 #emu .dbg-bp.bad .dbg-bp-addr { color: var(--warn); }
 #emu .dbg-bp-cond { overflow: hidden; text-overflow: ellipsis; }
+
+/* A crash dump's summary (feature crash-dumps; docs/ui.md "Crash dumps"). */
+.dbg-crash { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; margin: 4px 0; border: 1px solid color-mix(in srgb, var(--error) 45%, var(--border)); border-radius: 6px; background: color-mix(in srgb, var(--error) 7%, var(--bg)); font-size: 12px; }
+.dbg-crash[hidden] { display: none; }
+.dbg-crash-reason { font-weight: 600; color: var(--error); overflow-wrap: anywhere; }
+.dbg-crash-insn { color: var(--fg); }
+.dbg-crash-meta, .dbg-crash-warn { overflow-wrap: anywhere; }
+.dbg-crash-actions { display: flex; gap: 8px; align-items: center; }

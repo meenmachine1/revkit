@@ -19,8 +19,10 @@ option java_package = "dev.revkit.api.v1";
 // history, blame and bulk revert.
 service AssertionService {
   // Appends a batch of assertions atomically: all land in one new revision
-  // or none do (INVALID_ARGUMENT names the offending index). Returns the
-  // stored assertions with their sequence numbers and canonical keys.
+  // or none do (INVALID_ARGUMENT names each offending index and why; with
+  // skip_invalid the valid ones land and the others are returned in
+  // refused). Returns the stored assertions with their sequence numbers and
+  // canonical keys.
   rpc AppendAssertions(AppendAssertionsRequest) returns (AppendAssertionsResponse);
   // Retracts assertions by sequence number, appending one retraction per
   // target in a single revision. Retracting a retraction re-instates its
@@ -121,7 +123,66 @@ message AssertionBody {
     // Values; FACT_KIND_REGISTER_VALUE; api_minor 87, feature
     // "register-values").
     SetRegisterValue register_value = 33;
+    // How the decompiler shapes a program's C (api_minor 106, feature
+    // "decompiler-settings"; docs/decompiler-inputs.md, "Source shape").
+    // Keyed as a NOTE at address 0 with the reserved sub
+    // "revkit:decompiler-settings".
+    SetDecompilerSettings decompiler_settings = 34;
   }
+}
+
+// How comparisons against a constant print.
+enum ComparisonForm {
+  // revkit's default: COMPARISON_FORM_RIGHT.
+  COMPARISON_FORM_UNSPECIFIED = 0;
+  // As Ghidra prints them: `8 < x`, `x < 1`, `-1 < x`.
+  COMPARISON_FORM_GHIDRA = 1;
+  // The constant on the right: `x > 8`, `x < 1`, `x >= 0`.
+  COMPARISON_FORM_RIGHT = 2;
+  // Also with the constant the instruction compares against where the
+  // decompiler moved it by one: `x >= 9`, `x <= 0`. For code from a
+  // compiler that keeps the source's constants (Metrowerks CodeWarrior);
+  // GCC and LLVM rewrite `x < 10` as `x <= 9` themselves.
+  COMPARISON_FORM_ENCODED = 3;
+}
+
+// How loaded values are typed.
+enum LoadTypes {
+  // revkit's default: LOAD_TYPES_ALL.
+  LOAD_TYPES_UNSPECIFIED = 0;
+  // As Ghidra types them: by their uses alone.
+  LOAD_TYPES_GHIDRA = 1;
+  // With the signedness the instruction's extension gives (ldrh unsigned,
+  // ldrsh signed), except for zero-extended bytes: compilers load a signed
+  // char with movzx or ldrb where only its low bits matter, and the
+  // unsigned type can displace a string buffer's char.
+  LOAD_TYPES_WORDS = 2;
+  // Zero-extended bytes too (ldrb, movzx: unsigned).
+  LOAD_TYPES_ALL = 3;
+}
+
+// What the decompiler prints for one program. Every field's default is
+// revkit's; an empty SetDecompilerSettings (or retracting it) gives them
+// all back.
+message DecompilerSettings {
+  ComparisonForm comparison_form = 1;
+  // C a C compiler accepts as it is: bytes no field names as
+  // `*(T *)((char *)&x + 2)` (not `x._2_2_`), a variable read wider than
+  // its symbol as `*(T *)&x` (not `_x`), no label or case ending a block,
+  // casts on conversions between pointers and integers, C's multi-word
+  // type names (`unsigned short`). Off by default: the casts cost
+  // readability.
+  bool compilable_c = 2;
+  LoadTypes load_types = 3;
+  // Ghidra's two tests for a signed flag test of a decrement's result
+  // (`subs r2,r2,#1; bgt`: `iVar2 != 0 && 0 < n`) instead of one (`n > 0`).
+  bool ghidra_flag_tests = 4;
+}
+
+// Key: NOTE at address 0 in the program, sub "revkit:decompiler-settings".
+// Every decompilation of the program is redone with them.
+message SetDecompilerSettings {
+  DecompilerSettings settings = 1;
 }
 
 // Key: LANGUAGE at address 0 in the program. The language and compiler
@@ -638,6 +699,13 @@ message SetFunctionBounds {
   Address entry = 1;
   repeated AddressRange body = 2;
   bool remove = 3;
+  // ARM programs: the function's instruction set. UNSPECIFIED: Thumb when
+  // the entry has bit 0 set, else the one the function already at the entry
+  // has, else the code there's (so an untagged entry keeps a Thumb function
+  // Thumb). A Thumb function is keyed at its tagged entry. Refused on a
+  // language with one instruction set, and ARM with bit 0 set. Added in
+  // api_minor 104 (feature "bounds-isa").
+  InstructionSet instruction_set = 4;
 }
 
 enum FlowOverrideKind {
@@ -819,16 +887,36 @@ message AppendAssertionsRequest {
   // feature "project-types"). program_id still names a program, whose data
   // model the types are laid out for.
   bool project_scope = 6;
+  // Commit the bodies that validate and leave out the others, each named in
+  // AppendAssertionsResponse.refused (its index and why), instead of
+  // refusing the whole batch. Still one revision; none when every body is
+  // refused. define_type bodies are checked together: one that doesn't
+  // parse still refuses the batch. Added in api_minor 104 (feature
+  // "assertion-refusals").
+  bool skip_invalid = 7;
+}
+
+// A body AppendAssertions left out (skip_invalid).
+message RefusedAssertion {
+  // Its index in AppendAssertionsRequest.assertions.
+  uint32 index = 1;
+  // Why, as INVALID_ARGUMENT would say it after "assertions[i]: ".
+  string reason = 2;
 }
 
 message AppendAssertionsResponse {
-  // The new revision (or current head for validate_only).
+  // The new revision (or current head for validate_only, or when every
+  // body was refused).
   Snapshot snapshot = 1;
-  // Stored entries, in request order.
+  // Stored entries, in request order (with skip_invalid, the bodies that
+  // weren't refused), then what they bring (types a C declaration defines,
+  // the operands an equate applies to, demoted primary references).
   repeated Assertion assertions = 2;
   // Keys whose effective value changed, sorted. Subscribers receive the
   // same keys in the matching RevisionEvent.
   repeated FactKey changed_keys = 3;
+  // skip_invalid: the bodies left out, in index order (api_minor 104).
+  repeated RefusedAssertion refused = 4;
 }
 
 message RetractAssertionsRequest {

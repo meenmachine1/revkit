@@ -2,7 +2,11 @@
 // feature "filesystems"): path helpers without a daemon, then against
 // `rk-daemon --backend image` a zip holding an ELF and a tar.gz (made with
 // Python's zipfile and tarfile) opened from bytes, listed with guesses,
-// read across layers, described, imported (one, and a batch preview).
+// read across layers, described, imported (one, and a batch preview); an
+// APK from tests/data/android/make_apk.py (api_minor 98, feature
+// "android"): its manifest, strings and a compiled layout; and (api_minor
+// 99, feature "apple-bundles") an .ipa made with plistlib: its bundle and
+// its Info.plist as plain data.
 //
 //   RK_DAEMON=../../build/tools/rk-daemon/rk-daemon npx tsx test/filesystems.ts
 import { createConnectTransport } from "@connectrpc/connect-node";
@@ -13,8 +17,8 @@ import path from "node:path";
 import assert from "node:assert/strict";
 
 import {
-  createRevkit, displayPath, encodeName, FileSystemEntryKind, FILESYSTEMS_FEATURE, isBrowsable, isProgram, joinPath,
-  looksLikeContainer, openFileSystem, parentPath, pathLayers,
+  ANDROID_FEATURE, APPLE_BUNDLES_FEATURE, UI_ACTIONS_FEATURE, createRevkit, displayPath, encodeName, FileSystemEntryKind,
+  FILESYSTEMS_FEATURE, isBrowsable, isProgram, joinPath, looksLikeContainer, openFileSystem, parentPath, pathLayers, plistValue,
 } from "../src/index";
 
 const bin = process.env.RK_DAEMON ?? path.resolve(import.meta.dirname, "../../../build/tools/rk-daemon/rk-daemon");
@@ -47,6 +51,42 @@ with zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED) as z:
     z.writestr('notes/readme.txt', 'hello\n')
     z.writestr('pkg/data.tar.gz', tgz.getvalue())
 `;
+
+const MAKE_IPA = String.raw`
+import plistlib, sys, zipfile
+info = {"CFBundleIdentifier": "com.example.ts", "CFBundleExecutable": "Tiny", "CFBundleShortVersionString": "3.1",
+        "CFBundleURLTypes": [{"CFBundleURLSchemes": ["tiny"]}], "UIDeviceFamily": [1], "Big": 2**64 - 1}
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    z.writestr('Payload/Tiny.app/Info.plist', plistlib.dumps(info, fmt=plistlib.FMT_BINARY))
+    z.writestr('Payload/Tiny.app/Tiny', b'not a Mach-O')
+`;
+
+async function apple(rk: ReturnType<typeof createRevkit>) {
+  const ipaPath = path.join(dir, "Tiny.ipa");
+  execFileSync("python3", ["-I", "-c", MAKE_IPA, ipaPath]);
+  const fs = await openFileSystem(rk, "default", { file: new Uint8Array(readFileSync(ipaPath)), name: "Tiny.ipa" });
+  try {
+    const payload = await fs.entries("/Payload");
+    assert.equal(payload[0].bundleKind, "app");
+    const r = await fs.appleBundle("/");
+    assert.equal(r.bundle?.path, "/Payload/Tiny.app");
+    assert.equal(r.bundle?.info?.identifier, "com.example.ts");
+    assert.deepEqual(r.bundle?.info?.urlSchemes, ["tiny"]);
+    assert.equal(r.bundle?.executablePath, "/Payload/Tiny.app/Tiny");
+    const plist = await fs.propertyList("/Payload/Tiny.app/Info.plist");
+    assert.equal(plist.format, "binary");
+    const v = plistValue(plist.root) as Record<string, unknown>;
+    assert.equal(v.CFBundleShortVersionString, "3.1");
+    assert.deepEqual(v.UIDeviceFamily, [1]);
+    assert.equal(v.Big, 2n ** 64n - 1n);
+    // No nibs here: no actions, no documents (api_minor 98).
+    const ui = await fs.uiActions("/");
+    assert.equal(ui.actions.length, 0);
+    assert.equal(ui.documents.length, 0);
+  } finally {
+    await fs.close();
+  }
+}
 
 async function main() {
   pure();
@@ -93,6 +133,27 @@ async function main() {
     } finally {
       await fs.close();
     }
+    // An Android package.
+    const apkPath = path.join(dir, "app.apk");
+    execFileSync("python3", ["-I", path.resolve(import.meta.dirname, "../../../tests/data/android/make_apk.py"), apkPath]);
+    assert.ok(info.features.includes(ANDROID_FEATURE), `${info.features}`);
+    const apk = await openFileSystem(rk, "default", { file: new Uint8Array(readFileSync(apkPath)), name: "app.apk" });
+    try {
+      const pkg = await apk.androidPackage();
+      assert.equal(pkg.manifest?.package, "com.example.droid");
+      assert.equal(pkg.manifest?.versionCode, 7n);
+      assert.equal(pkg.manifest?.debuggable, true);
+      assert.ok(pkg.manifestXml.includes('android:label="@string/app_name"'));
+      assert.equal(pkg.nativeMethods.length, 6);
+      const strings = await apk.androidResources("", { type: "string", config: "fr" });
+      assert.deepEqual(strings.entries.map((e) => e.key).sort(), ["app_name", "hello"]);
+      assert.ok((await apk.androidXml("/res/layout/main.xml", true)).includes('android:text="Hello, world!"'));
+    } finally {
+      await apk.close();
+    }
+    assert.ok(info.features.includes(APPLE_BUNDLES_FEATURE), `${info.features}`);
+    assert.ok(info.features.includes(UI_ACTIONS_FEATURE), `${info.features}`);
+    await apple(rk);
     console.log("ts filesystems: ok");
   } finally {
     daemon.kill();

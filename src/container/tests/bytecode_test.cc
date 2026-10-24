@@ -193,6 +193,14 @@ TEST(ContainerBytecode, ClassesDexWasmAndOthers) {
   EXPECT_EQ(g.content_kind, "yarb:3.4");
   EXPECT_EQ(guess_of(str(std::string_view("FOR1\0\0\0\x10" "BEAM", 12))).content_kind, "beam");
   EXPECT_EQ(guess_of(str(std::string_view("OPCACHE\0", 8))).content_kind, "php-opcache");
+  // EVM bytecode as solc writes it, binary or hex text (docs/evm.md).
+  g = guess_of(bytes({0x60, 0x80, 0x60, 0x40, 0x52, 0x34, 0x80, 0x15}));
+  EXPECT_EQ(g.content_kind, "evm");
+  EXPECT_EQ(g.description, "EVM bytecode (solc)");
+  g = guess_of(str("0x6080604052348015610010575f80fd5b50\n"));
+  EXPECT_EQ(g.content_kind, "evm");
+  EXPECT_EQ(g.description, "EVM bytecode as hex text (solc)");
+  EXPECT_NE(guess_of(str("6080604")).content_kind, "evm");
 }
 
 TEST(ContainerBytecode, V8CodeCacheFromNode) {

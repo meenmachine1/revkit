@@ -2,6 +2,7 @@
 // libzstd, and LZ4 and LZO1X decoded here. Streams go into a Sink, which
 // applies the limits; blocks into a buffer of the expected size.
 #include "revkit/container/decompress.hh"
+#include "revkit/nds/compress.hh"
 
 #include <bzlib.h>
 #include <lzma.h>
@@ -339,6 +340,8 @@ std::string_view name(Codec c) {
     case Codec::lz4_frame: return "lz4";
     case Codec::lz4_block: return "lz4-block";
     case Codec::lzo1x: return "lzo";
+    case Codec::nds_lz: return "nds-lz";
+    case Codec::nds_blz: return "nds-blz";
   }
   return "?";
 }
@@ -493,6 +496,20 @@ void decompress(Codec codec, const Source &src, std::uint64_t offset, std::uint6
         lzo1x_decode(data, dec, max);
       out.consumed(data.size());
       out.append(dec);
+      return;
+    }
+    case Codec::nds_lz:
+    case Codec::nds_blz: {
+      if (in.remaining() > (64u << 20)) throw LimitError("DS compressed data over 64 MiB");
+      auto data = in.take(static_cast<std::size_t>(in.remaining()), "DS compressed data");
+      const std::span<const std::uint8_t> bytes(reinterpret_cast<const std::uint8_t *>(data.data()), data.size());
+      const std::size_t max = static_cast<std::size_t>(std::min<std::uint64_t>(ctx.limits.max_file_bytes, 256u << 20));
+      std::string error;
+      std::optional<std::vector<std::uint8_t>> dec =
+          codec == Codec::nds_lz ? ::revkit::nds::decompress(bytes, max, &error) : ::revkit::nds::blz_decompress(bytes, max, &error);
+      if (!dec) throw Error(error);
+      out.consumed(data.size());
+      out.append(std::span<const std::byte>(reinterpret_cast<const std::byte *>(dec->data()), dec->size()));
       return;
     }
   }

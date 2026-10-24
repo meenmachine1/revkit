@@ -288,6 +288,12 @@ class Projects final : public pb::ProjectService::Service {
   RK_UNARY(ListProgramLibraries)
   RK_STAMPED(LinkProgramLibrary, StampRequest)
   RK_UNARY(ResolveImport)
+  RK_STAMPED(ImportDsdProject, StampRequest)
+  RK_STAMPED(ImportNdsRom, StampRequest)
+  RK_STAMPED(ExportDsdSymbols, StampRequest)
+  RK_UNARY(CompactProject)
+  RK_STAMPED(BuildDecompKb, StampRequest)
+  RK_STAMPED(ApplyDecompKb, StampRequest)
   grpc::Status ExportProject(grpc::ServerContext *ctx, const pb::ExportProjectRequest *req,
                              grpc::ServerWriter<pb::ExportProjectResponse> *writer) override {
     return ServeStream(*auth_, ctx, "revkit.v1.ProjectService/ExportProject", *req, writer,
@@ -354,6 +360,7 @@ class Queries final : public pb::QueryService::Service {
   RK_UNARY(ListRelocations)
   RK_UNARY(GetBuildInfo)
   RK_UNARY(TraceValue)
+  RK_UNARY(ExportDecompScratch)
   RK_UNARY(ListLibraryImporters)
   RK_UNARY(GetClassHierarchy)
   RK_UNARY(ListObjcClasses)
@@ -574,6 +581,12 @@ class FileSystems final : public pb::FileSystemService::Service {
   RK_UNARY(ExtractFromFileSystem)
   RK_UNARY(CloseFileSystem)
   RK_UNARY(ListFileSystems)
+  RK_UNARY(GetAndroidPackage)
+  RK_UNARY(DecodeAndroidXml)
+  RK_UNARY(ListAndroidResources)
+  RK_UNARY(GetAppleBundle)
+  RK_UNARY(ReadPropertyList)
+  RK_UNARY(ListUiActions)
 
  private:
   std::shared_ptr<Backend> backend_;
@@ -632,6 +645,7 @@ class Debugger final : public pb::DebugService::Service {
   RK_UNARY(WriteDebugInput)
   RK_UNARY(GetDebugMachine)
   RK_UNARY(GetDebugBacktrace)
+  RK_UNARY(GetDebugCrash)
   RK_UNARY(EvaluateDebug)
   RK_UNARY(DisassembleDebugMemory)
   RK_UNARY(CopyDebugMemory)

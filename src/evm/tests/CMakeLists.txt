@@ -1,0 +1,5 @@
+add_executable(revkit_evm_tests evm_test.cc)
+target_link_libraries(revkit_evm_tests PRIVATE revkit::evm GTest::gtest_main)
+target_compile_options(revkit_evm_tests PRIVATE -Wall -Wextra)
+target_compile_definitions(revkit_evm_tests PRIVATE REVKIT_EVM_DATA="${PROJECT_SOURCE_DIR}/tests/data/evm")
+gtest_discover_tests(revkit_evm_tests)

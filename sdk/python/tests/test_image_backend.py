@@ -74,8 +74,12 @@ def test_real_binary_rename_subscribe_blame_revert(image_daemon, binary):
                 appended = agent.program(prog.id).rename(checksum, "fnv1a", reason="FNV-1a constants")
             seq = appended.assertions[0].seq
 
-            event = sub.next_revision()
-            assert event.revision == start + 1
+            # The rename's event: inference may publish its own revision
+            # first, after the import (analysis:infer.prototypes).
+            event = sub.wait_for(
+                lambda e: e.HasField("revision") and e.revision.revision == appended.snapshot.revision
+            ).revision
+            assert event.revision > start
             assert event.cause == subscription_pb2.CHANGE_CAUSE_ASSERTION
             assert [a.seq for a in event.assertions] == [seq]
             assert any(k.address.offset == checksum for k in event.changed_keys)
@@ -95,8 +99,9 @@ def test_real_binary_rename_subscribe_blame_revert(image_daemon, binary):
 
             reverted = prog.revert(kind="agent", session="run-1")
             assert list(reverted.retracted_seqs) == [seq]
-            event = sub.next_revision()
-            assert event.cause == subscription_pb2.CHANGE_CAUSE_RETRACTION
+            event = sub.wait_for(
+                lambda e: e.HasField("revision") and e.revision.cause == subscription_pb2.CHANGE_CAUSE_RETRACTION
+            ).revision
 
         assert prog.function(checksum).name == "checksum"
         assert "checksum(" in prog.decompile(main).text

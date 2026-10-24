@@ -62,7 +62,8 @@ bool x86_skipped(std::span<const std::uint8_t> bytes) {
 bool skips_x86_nops(const std::string &language) { return language.starts_with("x86:"); }
 
 std::optional<HashQuad> hash_function(std::span<const HashUnit> units, const HashOptions &o) {
-  if (units.size() < static_cast<std::size_t>(kShortHashCodeUnits)) return std::nullopt;
+  const int min_units = std::max(1, o.min_code_units);
+  if (units.size() < static_cast<std::size_t>(min_units)) return std::nullopt;
   Fnv1a64 full, specific;
   int specific_count = 0, call_count = 0, index = -1;
   std::vector<std::uint8_t> buffer;
@@ -126,7 +127,7 @@ std::optional<HashQuad> hash_function(std::span<const HashUnit> units, const Has
     specific.update(buffer);
   }
   ++index;
-  if (index < kShortHashCodeUnits) return std::nullopt;
+  if (index < min_units) return std::nullopt;
   HashQuad q;
   q.code_units = static_cast<std::uint16_t>(static_cast<std::int16_t>(index - call_count));
   q.full = full.value();

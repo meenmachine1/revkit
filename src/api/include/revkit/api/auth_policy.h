@@ -36,6 +36,14 @@ std::vector<std::string> MethodsWithPolicy();
 // program_id ("project/program") and program_ids, at any depth.
 std::vector<std::string> ProjectsNamedBy(const google::protobuf::Message &request);
 
+// Whether a request's string field of this name holds a project
+// ("project_id") or a program ("program_id", "program_ids", any
+// "*_program_id(s)" such as a crash dump's "dump_program_id", and
+// "program_file", a program's stored file): what ProjectsNamedBy collects,
+// and what the schema test (AuthPolicyUnit) checks every method for.
+enum class NamedField { none, project, program };
+NamedField NamedFieldKind(std::string_view field_name);
+
 // Checks a call. `caller` is null for a call without valid credentials;
 // with authentication disabled, pass an anonymous admin. Returns
 // UNAUTHENTICATED, PERMISSION_DENIED, or OK.

@@ -163,11 +163,15 @@ executes the tool in its place:
   copy of the input (mode 0444, the directory 0555), `out/` the output,
   `home/` and `tmp/` the tool's own. It is removed after the run.
 - **Landlock** (Linux 5.13+; ABI 8 on this host, kernel 7.0): the tool may
-  read and execute only below `/usr`, `/lib*`, `/bin`, `/sbin`, `/etc`,
-  `/proc` and `/sys` (the system's programs, libraries and configuration;
-  runtimes read `/proc/self` and the cgroup files), its own install
-  directory and runtime (the jar's directory, the JDK, the .NET root,
-  the npm package's `node_modules`), and the input; read and write only
+  read and execute only below `/usr`, `/lib*`, `/bin`, `/sbin`, `/etc` and
+  `/sys` (the system's programs, libraries and configuration); in `/proc`,
+  its own `/proc/<pid>` (its `/proc/self`, kept across `execve`) and the
+  system-wide files runtimes read (`cpuinfo`, `meminfo`, `stat`, `sys/`,
+  `filesystems`, `loadavg`, `uptime`, `version`, `pressure/`), not other
+  processes' (a child the tool starts can't read its own `/proc/self`);
+  its own install directory and runtime (a Java provider's jar alone, the
+  JDK, the .NET root, the npm package's `node_modules`), and the input;
+  read and write only
   `out/`, `home/` and `tmp/`; and `/dev/null`, `/dev/zero`, `/dev/full`,
   `/dev/random`, `/dev/urandom`. Everything else is refused: the project
   directory and its databases, `--browse-root`, the user's home (the
@@ -187,8 +191,18 @@ executes the tool in its place:
   past the filter), `bpf`, `perf_event_open`, `ptrace`,
   `process_vm_readv`/`writev`, `userfaultfd`, `pidfd_getfd`, module and
   kexec calls, `setsid` and `setpgid` (so nothing leaves the run's process
-  group), and every system call of another ABI (x32, i386: the process is
-  killed). `no_new_privs` is set first.
+  group), `chmod`, `chown` and the extended-attribute calls (by path and by
+  descriptor: Landlock doesn't confine a file's mode or owner),
+  `process_madvise`, `kcmp`, `truncate` where Landlock is older than ABI 3,
+  and every system call of another ABI (x32, i386: the process is
+  killed). `prlimit64`, `setpriority`, `ioprio_set`, the `sched_set*`
+  calls, `migrate_pages` and `move_pages` act on the tool's own pid only
+  (`prlimit64(the daemon, RLIMIT_CPU, 1)` would kill it). Where Landlock
+  is older than ABI 6 (Linux 6.12; Ubuntu 24.04's 6.8), signals aren't
+  scoped, so `kill` may reach only the tool itself and its own process
+  group, `tgkill` and `rt_(tg)sigqueueinfo` only its own threads, and
+  `tkill` and `pidfd_send_signal` are refused. `no_new_privs` is set
+  first.
 - **A network namespace**, empty, where the kernel lets an unprivileged
   process map its uid in a new user namespace. Ubuntu 24.04 and later
   restrict that (AppArmor's `apparmor_restrict_unprivileged_userns`), as on
@@ -203,8 +217,10 @@ executes the tool in its place:
   larger); `RLIMIT_NOFILE` 1024; no core dumps.
 - **The deadline and the caps**, watched by the daemon: the output
   directory and stdout are measured every 250 ms (bytes and entries,
-  links not followed), and past the timeout, the output cap or the file
-  cap, or when the caller goes away, the whole process group gets SIGKILL.
+  links not followed), and `home/` and `tmp/` together against four times
+  the output cap and the same entry cap; past the timeout, either cap or
+  the file cap, or when the caller goes away, the whole process group gets
+  SIGKILL.
   When the tool exits, whatever it left running in its group is killed
   too, before its process is reaped (so the group's id can't have been
   reused). The helper also has `PR_SET_PDEATHSIG` (SIGKILL when the
@@ -221,9 +237,8 @@ netns=0` here); `ListProvidersResponse.sandbox` and every result's
 provider's runs fail with `SANDBOX_ERROR` and the reason) unless an admin
 sets `allow_weak_sandbox`; seccomp and the limits still apply then.
 
-What the sandbox doesn't do: it doesn't hide what `/etc`, `/usr`, `/proc`
-and `/sys` show any local user (the system's configuration, other
-processes' command lines in `/proc/<pid>/cmdline`); it has no cgroup of
+What the sandbox doesn't do: it doesn't hide what `/etc`, `/usr` and
+`/sys` show any local user (the system's configuration); it has no cgroup of
 its own, so memory is bounded per process (a tool that forks many
 processes could use that much each, within the CPU and wall-clock limits,
 and the group dies at the deadline) and the number of processes isn't

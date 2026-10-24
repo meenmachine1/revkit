@@ -40,7 +40,7 @@
 namespace revkit::decompd {
 
 // Bumped when the encoding or its meaning changes.
-inline constexpr std::uint32_t kBundleVersion = 5;  // 2: types encoded; 3: functions' context_reach; 4: this_guessed; 5: calls' signature overrides
+inline constexpr std::uint32_t kBundleVersion = 6;  // 2: types encoded; 3: functions' context_reach; 4: this_guessed; 5: calls' signature overrides; 6: source-shape options
 // Bytes travel in aligned chunks of this size.
 inline constexpr std::uint64_t kChunk = 1024;
 
@@ -84,6 +84,8 @@ struct LiftFacts {
   // lift::DecompileConfig::format_strings: call-site prototypes from
   // constant printf/scanf formats.
   bool format_strings = false;
+  // lift::DecompileConfig::shape: the fork's source-shape options.
+  lift::SourceShape shape;
   std::string address_prefix;
   // block_at for an address without an answer of its own.
   std::vector<lift::BlockFacts> blocks;

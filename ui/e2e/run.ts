@@ -37,7 +37,7 @@
 // page, the HttpOnly cookie, an edit stamped user:alice, emulating, a
 // reload, logging out, and signing in from another origin with a bearer
 // token as the Tauri shell does), and raw layout detection in the Open
-// dialog (e2e/detect.ts), and scripts (e2e/scripts.ts), demangled names (e2e/demangle.ts), the class hierarchy (e2e/classes.ts), Mach-O slices (e2e/macho.ts), Function ID (e2e/fid.ts), and the daemon status chip
+// dialog (e2e/detect.ts), and scripts (e2e/scripts.ts), demangled names (e2e/demangle.ts), the class hierarchy (e2e/classes.ts), Mach-O slices (e2e/macho.ts), Apple bundles (e2e/apple.ts), Function ID (e2e/fid.ts), and the daemon status chip
 // (e2e/daemon.ts: connected, a killed daemon, Reconnect), the searches (e2e/search.ts), the polish pass's menus, focus and narrow windows (e2e/uipolish.ts), the keymap presets (e2e/keymap.ts), resizable dialogs (e2e/dialogsize.ts), the Open dialog's table (e2e/opendialog.ts) and shared libraries (e2e/libraries.ts). Every edit is checked in a second page and
 // undone.
 
@@ -57,6 +57,8 @@ import { consoleChecks } from "./console";
 import { scriptsChecks } from "./scripts";
 import { projectChecks } from "./projects";
 import { fileSystemChecks } from "./filesystems";
+import { androidChecks } from "./android";
+import { crashChecks } from "./crash";
 import { daemonChecks } from "./daemon";
 import { byteViewChecks } from "./byteview";
 import { searchChecks } from "./search";
@@ -64,10 +66,12 @@ import { demangleChecks } from "./demangle";
 import { hoverChecks } from "./hover";
 import { classesChecks } from "./classes";
 import { machoChecks } from "./macho";
+import { appleChecks } from "./apple";
 import { debugFileChecks } from "./debugfiles";
 import { buildInfoChecks } from "./buildinfo";
 import { providerChecks } from "./providers";
 import { traceChecks } from "./trace";
+import { ndsChecks } from "./nds";
 import { projectTypesChecks } from "./projecttypes";
 import { fidChecks } from "./fid";
 import { callsiteChecks } from "./callsite";
@@ -2596,6 +2600,15 @@ async function main() {
     until: (p, what, pred, ms) => until(p, what, pred as unknown as (s: Snap) => boolean, ms) as never,
   });
 
+  // Android packages (e2e/android.ts): the manifest, resources, native code and Flutter of an APK.
+  if (wants("android.ts")) await androidChecks({
+    base, exe, check, open, rpc, assert,
+    until: (p, what, pred, ms) => until(p, what, pred as unknown as (s: Snap) => boolean, ms) as never,
+  });
+
+  // Crash dumps (e2e/crash.ts): a core opened from the daemon host in the Debugger view.
+  if (wants("crash.ts")) await crashChecks({ base, exe, check, open, rpc, assert });
+
   // Scripts (e2e/scripts.ts): the Script Manager, a starter from the palette with a prompt and
   // progress, one undo step in two pages, trust and Cancel, the right-click entry.
   if (wants("scripts.ts")) await scriptsChecks({
@@ -2767,6 +2780,20 @@ async function main() {
     },
   });
 
+  // Apple applications (e2e/apple.ts): an .ipa's bundle, its signature and profile, Import main
+  // executable with its framework, Property list…, a program's Signature….
+  if (wants("apple.ts")) await appleChecks({
+    base, dir: tmp, check, rpc, assert, log,
+    page: async (query) => {
+      const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => log(`  [pageerror] ${e.message}`));
+      await p.goto(`${base}/?${query}`);
+      await p.waitForSelector("body[data-ready='1']", { timeout: 20000 });
+      return p;
+    },
+  });
+
   // Separate debug files (e2e/debugfiles.ts): Load debug file… and its settings.
   if (wants("debugfiles.ts")) await debugFileChecks({
     base, dir: tmp, check, rpc, assert, log,
@@ -2809,6 +2836,19 @@ async function main() {
   // Trace value across calls (e2e/trace.ts).
   if (wants("trace.ts")) await traceChecks({
     base, dir: tmp, check, rpc, assert, log,
+    page: async (query) => {
+      const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });
+      const p = await ctx.newPage();
+      p.on("pageerror", (e) => log(`  [pageerror] ${e.message}`));
+      await p.goto(`${base}/?${query}`);
+      await p.waitForSelector("body[data-ready='1']", { timeout: 20000 });
+      return p;
+    },
+  });
+
+  // Nintendo DS: ds-decomp import, linked modules, scratch, export (e2e/nds.ts).
+  if (wants("nds.ts")) await ndsChecks({
+    base, dir: tmp, root, check, rpc, assert, log,
     page: async (query) => {
       const ctx = await browser!.newContext({ viewport: { width: 1500, height: 900 } });
       const p = await ctx.newPage();

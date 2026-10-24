@@ -1,0 +1,324 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 01:18:44 -0400
+Subject: [PATCH] Decompiler: an option to print only C a compiler accepts
+
+- Shows: C that has to be rewritten before a C compiler takes it, which a
+  matching decompilation (and anyone recompiling decompiled code) does
+  by hand: `grec._0_4_` for bytes of a variable no field names, `_DAT_x`
+  for a read wider than its symbol, a label or the last `case` of a
+  switch with no statement after it (`case 5:` then `}`), and
+  conversions between pointers and integers without a cast (`uint x =
+  p;`, where GCC 14 makes -Wint-conversion an error).
+- Cause: the printer's artificial names (PrintC::pushPartialSymbol's
+  `_off_size_`, pushMismatchSymbol's `_` prefix) are for reading, label
+  emission doesn't look at what follows, and CastStrategyC::castStandard
+  leaves out casts C only warns about.
+- Patch: a new print option, `compilablec` (off by default). With it on:
+  - the bytes print as an lvalue C accepts, `*(T *)((char *)&grec + 4)`
+    (T the varnode's type, or undefinedN), and `*(T *)&x` for a read
+    wider than x;
+  - a label whose block prints nothing is followed by `;`, and so is the
+    last case of a switch when its block prints nothing;
+  - castStandard (CastStrategy::setExplicitPointerCasts) casts every
+    conversion between a pointer and an integer type and between
+    pointers whose typed targets differ in kind.
+- Seen on: ARMv5TE (Nintendo DS, CodeWarrior) code in a matching
+  decompilation, and on x86-64 and AArch64 programs.
+- Ghidra 12.1.4.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/cast.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/cast.cc
+index 2f3590a..c8a879a 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/cast.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/cast.cc
+@@ -297,6 +297,17 @@ bool CastStrategyC::isExtensionCastImplied(const PcodeOp *op,const PcodeOp *read
+   return false;
+ }
+ 
++/// \brief Is the given meta-type an integer, as far as conversions to and from pointers go
++///
++/// \param meta is the given meta-type
++/// \return \b true for integer, boolean, enumerated and undefined meta-types
++static bool isIntegerMeta(type_metatype meta)
++
++{
++  return (meta == TYPE_INT || meta == TYPE_UINT || meta == TYPE_UNKNOWN || meta == TYPE_BOOL ||
++	  meta == TYPE_ENUM_INT || meta == TYPE_ENUM_UINT);
++}
++
+ Datatype *CastStrategyC::castStandard(Datatype *reqtype,Datatype *curtype,
+ 				      bool care_uint_int,bool care_ptr_uint) const
+ 
+@@ -336,6 +347,18 @@ Datatype *CastStrategyC::castStandard(Datatype *reqtype,Datatype *curtype,
+     }
+     return reqtype; // Otherwise, always cast change in size
+   }
++  if (explicitPointerCasts) {
++    // What a C compiler requires a cast for: a conversion between a pointer and an integer, and
++    // between pointers whose (non-void, typed) targets differ in kind
++    type_metatype curmeta = curbase->getMetatype();
++    type_metatype reqmeta = reqbase->getMetatype();
++    if (!isptr) {
++      if (curmeta == TYPE_PTR && isIntegerMeta(reqmeta)) return reqtype;
++      if (reqmeta == TYPE_PTR && isIntegerMeta(curmeta)) return reqtype;
++    }
++    else if (reqmeta != curmeta && reqmeta != TYPE_UNKNOWN && curmeta != TYPE_UNKNOWN)
++      return reqtype;
++  }
+   switch(reqbase->getMetatype()) {
+   case TYPE_UNKNOWN:
+   case TYPE_PARTIALSTRUCT:	// As they are ultimately stripped, treat partials as undefined
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/cast.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/cast.hh
+index 8d315fe..7afb5bf 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/cast.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/cast.hh
+@@ -55,8 +55,10 @@ public:
+ protected:
+   TypeFactory *tlst;			///< Type factory associated with the Architecture
+   int4 promoteSize;			///< Size of \b int data-type, (size that integers get promoted to)
++  bool explicitPointerCasts;		///< Cast every conversion between a pointer and an integer, or between pointers
+ public:
+-  CastStrategy(void) {}			///< Constructor
++  CastStrategy(void) { explicitPointerCasts = false; }	///< Constructor
++  void setExplicitPointerCasts(bool val) { explicitPointerCasts = val; }	///< Toggle casts a C compiler requires
+   void setTypeFactory(TypeFactory *t);	///< Establish the data-type factory
+   virtual ~CastStrategy(void) {}	///< Destructor
+ 
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
+index 55e15a7..3ab1610 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
+@@ -61,6 +61,7 @@ ElementId ELEM_WARNING = ElementId("warning",210);
+ ElementId ELEM_JUMPTABLEMAX = ElementId("jumptablemax",271);
+ ElementId ELEM_NANIGNORE = ElementId("nanignore",272);
+ ElementId ELEM_BRACEFORMAT = ElementId("braceformat",284);
++ElementId ELEM_COMPILABLEC = ElementId("compilablec",294);
+ ElementId ELEM_FLAGCOMPARE = ElementId("flagcompare",293);
+ ElementId ELEM_ENCODEDCOMPARE = ElementId("encodedcompare",292);
+ ElementId ELEM_EXTENSIONTYPES = ElementId("extensiontypes",291);
+@@ -117,6 +118,7 @@ OptionDatabase::OptionDatabase(Architecture *g)
+   registerOption(new OptionConventionPrinting());
+   registerOption(new OptionNoCastPrinting());
+   registerOption(new OptionEncodedCompare());
++  registerOption(new OptionCompilable());
+   registerOption(new OptionMaxLineWidth());
+   registerOption(new OptionIndentIncrement());
+   registerOption(new OptionCommentIndent());
+@@ -475,6 +477,28 @@ string OptionEncodedCompare::apply(Architecture *glb,const string &p1,const stri
+   return "Encoded comparisons turned "+prop;
+ }
+ 
++/// \class OptionCompilable
++/// \brief Toggle whether the decompiler prints only C a compiler accepts
++///
++/// Setting the first parameter to "on" changes what a C compiler would reject:
++///   - bytes of a variable no field names print as `*(T *)((char *)&x + 2)` rather than `x._2_2_`,
++///     and a variable read wider than its symbol as `*(T *)&x` rather than `_x`
++///   - a label or the last \e case of a \e switch with no statement after it gets an empty statement
++///   - a conversion between a pointer and an integer, or between pointers to different kinds of
++///     data, gets a cast
++string OptionCompilable::apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const
++
++{
++  bool val = onOrOff(p1);
++  if (glb->print->getName() != "c-language")
++    return "Only c-language accepts the compilable option";
++  PrintC *lng = (PrintC *)glb->print;
++  lng->setCompilable(val);
++  string prop;
++  prop = val ? "on" : "off";
++  return "Compilable C turned "+prop;
++}
++
+ /// \class OptionInPlaceOps
+ /// \brief Toggle whether \e in-place operators (+=, *=, &=, etc.) are emitted by the decompiler
+ string OptionInPlaceOps::apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
+index 5d9c516..7a476cd 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
+@@ -69,6 +69,7 @@ extern ElementId ELEM_NANIGNORE;		///< Marshaling element \<nanignore>
+ extern ElementId ELEM_EXTENSIONTYPES;		///< Marshaling element \<extensiontypes> (ids from 291 are revkit's)
+ extern ElementId ELEM_ENCODEDCOMPARE;		///< Marshaling element \<encodedcompare> (ids from 291 are revkit's)
+ extern ElementId ELEM_FLAGCOMPARE;		///< Marshaling element \<flagcompare> (ids from 291 are revkit's)
++extern ElementId ELEM_COMPILABLEC;		///< Marshaling element \<compilablec> (ids from 291 are revkit's)
+ 
+ /// \brief Base class for options classes that affect the configuration of the Architecture object
+ ///
+@@ -214,6 +215,12 @@ public:
+   virtual string apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const;
+ };
+ 
++class OptionCompilable : public ArchOption {
++public:
++  OptionCompilable(void) { name="compilablec"; }		///< Constructor
++  virtual string apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const;
++};
++
+ class OptionMaxLineWidth : public ArchOption {
+ public:
+   OptionMaxLineWidth(void) { name = "maxlinewidth"; }	///< Constructor
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/printc.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/printc.cc
+index 31efae5..d315c8d 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/printc.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/printc.cc
+@@ -1734,6 +1734,8 @@ void PrintC::resetDefaultsPrintC(void)
+   option_convention = true;
+   option_hide_exts = true;
+   option_compare_form = 0;
++  option_compilable = false;
++  castStrategy->setExplicitPointerCasts(false);
+   option_inplace_ops = false;
+   option_nocasts = false;
+   option_NULL = false;
+@@ -2195,6 +2197,15 @@ void PrintC::pushPartialSymbol(const Symbol *sym,int4 off,int4 sz,
+     }
+   }
+ 
++  if (option_compilable && !stack.empty() && stack.back().field == (const TypeField *)0 && stack.back().size > 0
++      && stack.back().token == &object_member) {
++    // The bytes no field names: *(T *)((char *)&x + off), not x._off_size_
++    int4 rawoff = stack.back().offset;
++    int4 rawsz = stack.back().size;
++    stack.pop_back();
++    pushBytesAt(sym,stack,rawoff,rawsz,vn,op);
++    return;
++  }
+   if ((finalcast != (Datatype *)0)&&(!option_nocasts)) {
+     pushOp(&typecast,op);
+     pushType(finalcast);
+@@ -2218,9 +2229,57 @@ void PrintC::pushPartialSymbol(const Symbol *sym,int4 off,int4 sz,
+   }
+ }
+ 
++/// The expression is `*(T *)((char *)&x.f + off)`, where `x.f` is the symbol and the fields resolved
++/// so far, and T is the Varnode's type (or an undefined type of its size): an lvalue C accepts for the
++/// bytes no field names, in place of the artificial `x.f._off_size_`.
++/// \param sym is the symbol
++/// \param stack is the fields and subscripts resolved before the bytes
++/// \param off is the offset of the bytes within the last resolved field
++/// \param sz is the number of bytes
++/// \param vn is the Varnode accessing the bytes
++/// \param op is the PcodeOp accessing the bytes
++void PrintC::pushBytesAt(const Symbol *sym,const vector<PartialSymbolEntry> &stack,int4 off,int4 sz,
++			 const Varnode *vn,const PcodeOp *op)
++{
++  TypeFactory *types = glb->types;
++  Datatype *ct = vn->isAnnotation() ? (Datatype *)0 : vn->getHigh()->getType();
++  if (ct == (Datatype *)0 || ct->getSize() != sz || ct->getMetatype() == TYPE_PARTIALSTRUCT ||
++      ct->getMetatype() == TYPE_PARTIALUNION || ct->getMetatype() == TYPE_PARTIALENUM)
++    ct = types->getBase(sz,TYPE_UNKNOWN);
++  uint4 wordSize = glb->getDefaultDataSpace()->getWordSize();
++  Datatype *ptrType = types->getTypePointer(types->getSizeOfPointer(),ct,wordSize);
++  pushOp(&dereference,op);
++  pushOp(&typecast,op);
++  pushType(ptrType);
++  if (off != 0) {
++    pushOp(&binary_plus,op);
++    pushOp(&typecast,op);
++    pushType(types->getTypePointer(types->getSizeOfPointer(),types->getTypeChar(1),wordSize));
++  }
++  pushOp(&addressof,op);
++  for(int4 i=stack.size()-1;i>=0;--i)
++    pushOp(stack[i].token,op);
++  pushSymbol(sym,vn,op);
++  for(int4 i=0;i<stack.size();++i) {
++    const PartialSymbolEntry &entry (stack[i]);
++    if (entry.field == (const TypeField *)0)
++      push_integer(entry.offset, entry.size, (entry.offset < 0), syntax, (Varnode *)0, op, 0);
++    else
++      pushAtom(Atom(entry.field->name,fieldtoken,entry.hilite,entry.parent,entry.field->ident,op));
++  }
++  if (off != 0)
++    push_integer(off,4,false,syntax,(Varnode *)0,op,Symbol::force_dec);
++}
++
+ void PrintC::pushMismatchSymbol(const Symbol *sym,int4 off,int4 sz,
+ 				const Varnode *vn,const PcodeOp *op)
+ {
++  if (off==0 && option_compilable) {
++    // *(T *)&x, not _x, which names nothing
++    vector<PartialSymbolEntry> stack;
++    pushBytesAt(sym,stack,0,sz,vn,op);
++    return;
++  }
+   if (off==0) {
+   // The most common situation is when a user sees a reference
+   // to a variable and forces a symbol to be there but guesses
+@@ -3434,6 +3493,35 @@ void PrintC::emitLabelStatement(const FlowBlock *bl)
+   emit->tagLine(0);
+   emitLabel(bl);
+   emit->print(COLON);
++  if (option_compilable && printsNothing(bl)) {
++    emit->spaces(1);
++    emit->print(SEMICOLON);	// A label must label a statement
++  }
++}
++
++/// A basic block (or a copy of one) prints nothing when every op in it is unprinted, implied or
++/// a plain branch, which the block structure prints if needed.
++/// \param bl is the given block
++/// \return \b true if the block prints no statement
++bool PrintC::printsNothing(const FlowBlock *bl) const
++
++{
++  if (bl->getType() == FlowBlock::t_copy)
++    bl = bl->subBlock(0);
++  if (bl->getType() != FlowBlock::t_basic)
++    return false;
++  const BlockBasic *bb = (const BlockBasic *)bl;
++  list<PcodeOp *>::const_iterator iter;
++  for(iter=bb->beginOp();iter!=bb->endOp();++iter) {
++    const PcodeOp *inst = *iter;
++    if (inst->notPrinted()) continue;
++    if (inst->code() == CPUI_BRANCH) continue;
++    const Varnode *vn = inst->getOut();
++    if ((vn!=(const Varnode *)0)&&(vn->isImplied()))
++      continue;
++    return false;
++  }
++  return true;
+ }
+ 
+ /// The block does not have to be a basic block.  This routine finds the entry basic
+@@ -3566,6 +3654,10 @@ void PrintC::emitBlockSwitch(const BlockSwitch *bl)
+ 	emit->tagLine();
+ 	emitGotoStatement(bl2,(const FlowBlock *)0,FlowBlock::f_break_goto); // need an explicit break statement
+       }
++      else if (option_compilable && i==bl->getNumCaseBlocks()-1 && printsNothing(bl2)) {
++	emit->tagLine();
++	emit->print(SEMICOLON);	// The last case must label a statement
++      }
+       emit->endBlock(id2);
+     }
+     emit->stopIndent(id);
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/printc.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/printc.hh
+index f797c1e..9224c9f 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/printc.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/printc.hh
+@@ -150,6 +150,7 @@ protected:
+   bool option_unplaced;		///< Set to \b true if we should display unplaced comments
+   bool option_hide_exts;	///< Set to \b true if we should hide implied extension operations
+   int4 option_compare_form;	///< How comparisons print: 0 as p-code has them, 1 the constant on the right, 2 also as encoded
++  bool option_compilable;	///< Set to \b true to print only C a compiler accepts
+   Emit::brace_style option_brace_func;		///< How function declaration braces should be formatted
+   Emit::brace_style option_brace_ifelse;	///< How braces for if/else blocks are formatted
+   Emit::brace_style option_brace_loop;		///< How braces for loop blocks are formatted
+@@ -201,6 +202,9 @@ protected:
+   void opTypeCast(const PcodeOp *op);			///< Push the given p-code op using type-cast syntax to the RPN stack
+   void opHiddenFunc(const PcodeOp *op);			///< Push the given p-code op as a hidden token
+   void opComparison(const OpToken *tok,const PcodeOp *op);	///< Push a \e less or \e less-or-equal comparison
++  bool printsNothing(const FlowBlock *bl) const;	///< Does the given block print no statement
++  void pushBytesAt(const Symbol *sym,const vector<PartialSymbolEntry> &stack,int4 off,int4 sz,
++		   const Varnode *vn,const PcodeOp *op);	///< Push the bytes at an offset into a symbol as a dereference
+   static void printCharHexEscape(ostream &s,int4 val);	///< Print value as an escaped hex sequence
+   bool printCharacterConstant(ostream &s,const Address &addr,Datatype *charType) const;
+   int4 getHiddenThisSlot(const PcodeOp *op,FuncProto *fc);	///< Get position of "this" pointer needing to be hidden
+@@ -249,6 +253,7 @@ public:
+   void setDisplayUnplaced(bool val) { option_unplaced = val; }	///< Toggle whether \e unplaced comments are displayed in the header
+   void setHideImpliedExts(bool val) { option_hide_exts = val; }	///< Toggle whether implied extensions are hidden
+   void setCompareForm(int4 val) { option_compare_form = val; }	///< Set how comparisons print (0, 1 or 2)
++  void setCompilable(bool val) { option_compilable = val; castStrategy->setExplicitPointerCasts(val); }	///< Toggle printing only C a compiler accepts
+   void setBraceFormatFunction(Emit::brace_style style) { option_brace_func = style; }	///< Set how function declarations are formatted
+   void setBraceFormatIfElse(Emit::brace_style style) { option_brace_ifelse = style; }	///< Set how if/else blocks are formatted
+   void setBraceFormatLoop(Emit::brace_style style) { option_brace_loop = style; }	///< Set how loop blocks are formatted

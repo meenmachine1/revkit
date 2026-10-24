@@ -259,8 +259,10 @@ Each run is confined by `rk-sandbox`, which confines itself (it is
 single-threaded, started with `posix_spawn`) and then executes the tool:
 
 - **Files (Landlock)**: read and execute below `/usr`, `/lib*`, `/bin`,
-  `/sbin`, `/etc`, `/proc`, `/sys`, the tool's install directory and its
-  runtime, and the input (a read-only copy in the run's scratch directory);
+  `/sbin`, `/etc`, `/sys`, the tool's own `/proc/<pid>` and the
+  system-wide `/proc` files (not other processes'), the tool's install
+  directory (a jar alone) and its runtime, and the input (a read-only copy
+  in the run's scratch directory);
   read and write only the run's `out/`, `home/` and `tmp/`; nothing else:
   not the project directory, `--browse-root`, the credential file, the
   user's home, `/tmp`. TCP bind and connect are refused (ABI 4); abstract
@@ -273,7 +275,11 @@ single-threaded, started with `posix_spawn`) and then executes the tool:
   outside the sandbox), no `connect()`; no new namespaces, mounts, keyring
   calls, `io_uring`, BPF, perf, ptrace, `process_vm_*`, `userfaultfd`,
   `pidfd_getfd`, modules or kexec; no `setsid` or `setpgid` (it stays in its
-  process group); only the native ABI. `no_new_privs`.
+  process group); no `chmod`, `chown` or extended attributes; limits,
+  priorities and memory placement (`prlimit64`, `setpriority`,
+  `sched_set*`, ...) of its own process only; before Landlock ABI 6,
+  signals to itself and its own group only; only the native ABI.
+  `no_new_privs`.
 - **Network namespace**: an empty one where unprivileged user namespaces
   are allowed. Ubuntu's AppArmor restriction (this host) refuses them; the
   seccomp and Landlock rules above hold either way.

@@ -63,6 +63,9 @@ struct ObserveFacts {
   Answers functions;  // SymbolEnv::function
   Answers imports;    // SymbolEnv::import_slot
   std::vector<std::uint64_t> call_returns;  // RunOptions::call_returns
+  std::vector<std::pair<std::string, std::uint32_t>> context;  // RunOptions::context
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> context_ranges;
+  lift::SourceShape::Extension load_extension = lift::SourceShape::Extension::off;  // RunOptions::load_extension
 
   std::string encode() const {
     facts::Encoder e;
@@ -70,6 +73,9 @@ struct ObserveFacts {
     encode_answers(e, functions);
     encode_answers(e, imports);
     facts::encode(e, call_returns);
+    facts::encode(e, context);
+    facts::encode(e, context_ranges);
+    e.varint(static_cast<std::uint32_t>(load_extension));
     return std::move(e).str();
   }
   static ObserveFacts decode(std::string_view bytes) {
@@ -79,6 +85,9 @@ struct ObserveFacts {
     f.functions = decode_answers(d);
     f.imports = decode_answers(d);
     f.call_returns = facts::decode<std::vector<std::uint64_t>>(d);
+    f.context = facts::decode<std::vector<std::pair<std::string, std::uint32_t>>>(d);
+    f.context_ranges = facts::decode<std::vector<std::pair<std::uint64_t, std::uint64_t>>>(d);
+    f.load_extension = static_cast<lift::SourceShape::Extension>(d.varint());
     d.expect_done();
     return f;
   }
@@ -122,6 +131,9 @@ class ObserveSession final : public decompd::Session {
     RunOptions o;
     o.want_c = facts.want_c;
     o.call_returns = facts.call_returns;
+    o.context = facts.context;
+    o.context_ranges = facts.context_ranges;
+    o.load_extension = facts.load_extension;
     o.max_varnodes = limits.max_varnodes;
     o.timeout_seconds = limits.timeout_seconds;
     o.prologue = false;
@@ -145,11 +157,13 @@ class ObserveSession final : public decompd::Session {
 // decompiler would ask them (an import slot first, then a function).
 class ObserveSource final : public decompd::BundleSource {
  public:
-  ObserveSource(const decompd::ProgramImage &program, std::uint64_t entry, SymbolEnv &env, bool want_c,
-                std::vector<std::uint64_t> call_returns)
+  ObserveSource(const decompd::ProgramImage &program, std::uint64_t entry, SymbolEnv &env, const RunOptions &options)
       : program_(program), entry_(entry), env_(env) {
-    facts_.want_c = want_c;
-    facts_.call_returns = std::move(call_returns);
+    facts_.want_c = options.want_c;
+    facts_.call_returns = options.call_returns;
+    facts_.context = options.context;
+    facts_.context_ranges = options.context_ranges;
+    facts_.load_extension = options.load_extension;
   }
 
   void add(const decompd::Prediction &p) {
@@ -269,7 +283,7 @@ std::vector<decompd::Failure> DecompilerPool::failures() const {
 }
 
 void DecompilerPool::trim() {
-  std::vector<std::unique_ptr<lift::Lifter>> lifters;
+  std::map<Context, std::vector<std::unique_ptr<lift::Lifter>>> lifters;
   std::shared_ptr<const decompd::ProgramImage> program;
   std::shared_ptr<Prologues> prologues;
   {
@@ -284,7 +298,9 @@ void DecompilerPool::trim() {
 
 std::size_t DecompilerPool::idle_lifters() const {
   std::lock_guard lock(mu_);
-  return lifters_.size();
+  std::size_t n = 0;
+  for (const auto &[context, v] : lifters_) n += v.size();
+  return n;
 }
 
 std::shared_ptr<const decompd::ProgramImage> DecompilerPool::program() {
@@ -295,12 +311,12 @@ std::shared_ptr<const decompd::ProgramImage> DecompilerPool::program() {
   return program_;
 }
 
-std::unique_ptr<lift::Lifter> DecompilerPool::take_lifter() {
+std::unique_ptr<lift::Lifter> DecompilerPool::take_lifter(const Context &context) {
   {
     std::lock_guard lock(mu_);
-    if (!lifters_.empty()) {
-      auto l = std::move(lifters_.back());
-      lifters_.pop_back();
+    if (auto it = lifters_.find(context); it != lifters_.end() && !it->second.empty()) {
+      auto l = std::move(it->second.back());
+      it->second.pop_back();
       return l;
     }
   }
@@ -309,6 +325,15 @@ std::unique_ptr<lift::Lifter> DecompilerPool::take_lifter() {
                                    : language_id_;
   auto l = std::make_unique<lift::Lifter>(image_, language);
   for (const lift::ContextRegion &c : lift::image_context(*image_)) l->set_context(c.name, c.value, c.start, c.end);
+  // The function's instruction set over the whole space, on top of the
+  // image's (decompd::LifterPool's way): predict() decodes its body.
+  for (const auto &[name, value] : context) {
+    try {
+      l->set_context(name, value, 0);
+    } catch (const lift::LiftError &) {
+      // not a context variable of this language
+    }
+  }
   return l;
 }
 
@@ -316,12 +341,12 @@ Observation DecompilerPool::run(std::uint64_t entry, SymbolEnv &env, const RunOp
   auto program = this->program();
   decompd::Prediction p;
   {
-    std::unique_ptr<lift::Lifter> lifter = take_lifter();
+    std::unique_ptr<lift::Lifter> lifter = take_lifter(options.context);
     p = decompd::predict(*lifter, *program, entry, options.body);
     std::lock_guard lock(mu_);
-    lifters_.push_back(std::move(lifter));
+    lifters_[options.context].push_back(std::move(lifter));
   }
-  ObserveSource source(*program, entry, env, options.want_c, options.call_returns);
+  ObserveSource source(*program, entry, env, options);
   source.add(p);
   const decompd::Limits limits{options.timeout_seconds, options.max_varnodes};
   decompd::BundledRun run = decompd::run_bundled(*workers(), source, limits, entry);
@@ -362,7 +387,7 @@ Observation DecompilerPool::run(std::uint64_t entry, SymbolEnv &env, const RunOp
       }
       prologues = prologues_;
     }
-    prologues->fill(entry, o);
+    prologues->fill(entry, o, options.context);
   }
   return o;
 }

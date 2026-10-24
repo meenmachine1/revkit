@@ -48,6 +48,7 @@ from revkit.expr import ExprError, Resolver, evaluate_text, is_number, parse_num
 from revkit.v1 import (
     analysis_pb2,
     analysis_pb2_grpc,
+    apple_pb2,
     assertion_pb2,
     auth_pb2,
     auth_pb2_grpc,
@@ -139,6 +140,14 @@ _INSTRUCTION_SETS = {
     "": assertion_pb2.INSTRUCTION_SET_UNSPECIFIED,
     "arm": assertion_pb2.INSTRUCTION_SET_ARM,
     "thumb": assertion_pb2.INSTRUCTION_SET_THUMB,
+}
+
+_NAME_CONFLICTS = {
+    "": project_pb2.NAME_CONFLICT_UNSPECIFIED,
+    "keepboth": project_pb2.NAME_CONFLICT_KEEP_BOTH,
+    "keep_both": project_pb2.NAME_CONFLICT_KEEP_BOTH,
+    "replace": project_pb2.NAME_CONFLICT_REPLACE,
+    "refuse": project_pb2.NAME_CONFLICT_REFUSE,
 }
 
 _STRING_ENCODINGS = {
@@ -571,6 +580,28 @@ def _signed64(v: int) -> int:
 PREVIEW_LINES = 12
 
 _CHAR_ESCAPES = {0: "\\0", 7: "\\a", 8: "\\b", 9: "\\t", 10: "\\n", 11: "\\v", 12: "\\f", 13: "\\r", 39: "\\'", 92: "\\\\"}
+
+
+def plist_value(v: "apple_pb2.PlistValue"):
+    """A property list value (``PlistValue``, api_minor 100, feature
+    ``apple-bundles``; docs/apple-apps.md) as Python: str, int, float, bool,
+    ``datetime`` (UTC), bytes (data, cut where the response cut it), list,
+    dict, None (a binary plist's null), and a keyed archive's UID as
+    ``{"CF$UID": n}`` (Foundation's own spelling)."""
+    import datetime
+
+    kind = v.WhichOneof("value")
+    if kind is None or kind == "null_value":
+        return None
+    if kind == "array_value":
+        return [plist_value(x) for x in v.array_value.items]
+    if kind == "dict_value":
+        return {e.key: plist_value(e.value) for e in v.dict_value.entries}
+    if kind == "date_value":
+        return datetime.datetime.fromtimestamp(v.date_value.seconds + v.date_value.nanos / 1e9, datetime.timezone.utc)
+    if kind == "uid_value":
+        return {"CF$UID": v.uid_value}
+    return getattr(v, kind)
 
 
 def scalar_text(value: int, bits: int = 64) -> dict:
@@ -1667,6 +1698,18 @@ class Client:
     def close_project(self, project_id: str) -> None:
         self._call(self._stubs.projects.CloseProject, project_pb2.CloseProjectRequest(project_id=project_id))
 
+    def compact_project(self, project_id: str, *, drop_caches: bool = False, cache_limit_mb: int = 0,
+                        dry_run: bool = False) -> project_pb2.CompactProjectResponse:
+        """Shrinks a closed project's store on disk (``CompactProject``, api_minor 104,
+        feature "compact"; docs/backend.md, "Compaction"): stale memos dropped
+        (every memo with ``drop_caches``, or those used longest ago beyond
+        ``cache_limit_mb``), then the file rewritten without its free pages.
+        The log is kept whole. Close the project first; reopen it after.
+        Needs admin."""
+        req = project_pb2.CompactProjectRequest(project_id=project_id, drop_caches=drop_caches,
+                                                cache_limit_bytes=cache_limit_mb << 20, dry_run=dry_run)
+        return self._call(self._stubs.projects.CompactProject, req, timeout=None)
+
     def programs(self, project_id: str, *, include_deleted: bool = False) -> Sequence[project_pb2.ProgramInfo]:
         req = project_pb2.ListProgramsRequest(project_id=project_id, include_deleted=include_deleted)
         return self._call(self._stubs.projects.ListPrograms, req).programs
@@ -2043,6 +2086,8 @@ class Client:
         folder_id: str = "",
         macho_slice: str = "",
         program_file: str = "",
+        memory_preset: str = "",
+        on_conflict: str = "",
     ) -> project_pb2.ImportProgramResponse:
         """Imports a file. ``format`` forces "elf", "pe", "macho" or a loader plugin by
         name; by default the built-in loaders are tried, then loader plugins by magic.
@@ -2078,7 +2123,16 @@ class Client:
         the runpath and ``/etc/ld.so.conf`` are read inside it instead of the
         host's. Without it, a file imported by ``path`` from such a tree under a
         ``--browse-root`` uses that tree (``response.library_root``).
-        ``folder_id`` puts the program (and its libraries) in that folder."""
+        ``folder_id`` puts the program (and its libraries) in that folder.
+
+        ``memory_preset`` (api_minor 104, feature "memory-preset") adds a
+        platform's memory map to a raw image: "nds-arm9" or "nds-arm7" map the
+        DS's I/O ports, shared WRAM and main memory's shared area as volatile
+        memory. ``on_conflict`` (feature "import-conflict") says what a name
+        already in the project does: "keep_both" (the default: ``name-2``,
+        ``response.name_taken_by`` says which program had it), "replace" (that
+        program is deleted, undoably, and the new one shows the name;
+        ``response.replaced_program_id``) or "refuse" (``ALREADY_EXISTS``)."""
         opts = project_pb2.ImportOptions()
         if options is not None:
             opts.CopyFrom(options)
@@ -2108,7 +2162,10 @@ class Client:
             opts.library_root = library_root
         if macho_slice:
             opts.macho_slice = macho_slice
-        req = project_pb2.ImportProgramRequest(project_id=project_id, name=name, options=opts, provenance=self.provenance)
+        if memory_preset:
+            opts.memory_preset = memory_preset
+        req = project_pb2.ImportProgramRequest(project_id=project_id, name=name, options=opts, provenance=self.provenance,
+                                               on_conflict=_choice(_NAME_CONFLICTS, on_conflict, "on_conflict"))
         if folder_id:
             req.folder_id = folder_id
         if program_file:
@@ -2144,6 +2201,167 @@ class Client:
             thread.join()
         report()
         return resp
+
+    def import_dsd_project(
+        self,
+        project_id: str,
+        config_path: str,
+        *,
+        folder_id: str = "",
+        folder_name: str = "",
+        modules: Sequence[str] = (),
+        skip_arm7: bool = False,
+        analyze: bool = False,
+        on_conflict: str = "",
+    ) -> project_pb2.ImportDsdProjectResponse:
+        """A Nintendo DS game's ds-decomp project as programs (``ImportDsdProject``,
+        api_minor 103, feature "nds"; docs/nds.md): ``config_path`` is its
+        ``config.yaml`` on the daemon's host, under a ``--browse-root``. Each
+        module (main, the ITCM and DTCM autoloads, the overlays, and the ARM7
+        from the extract unless ``skip_arm7``) becomes a raw program at its
+        load address in a new folder (``folder_name``, else the project's
+        name and version, inside ``folder_id``), with symbols.txt's names,
+        sizes and Thumb modes, delinks.txt's sections as blocks and its
+        translation units as plate comments, linked to the modules its
+        relocs.txt refers to so calls into main are named and typed.
+        ``modules`` limits it to those names. ``on_conflict`` ("keep_both",
+        "replace", "refuse"; api_minor 104) says what a folder of the game's
+        name already there does. Needs admin."""
+        req = project_pb2.ImportDsdProjectRequest(
+            project_id=project_id, config_path=config_path, folder_id=folder_id, folder_name=folder_name,
+            modules=list(modules), skip_arm7=skip_arm7, analyze=analyze, provenance=self.provenance,
+            on_conflict=_choice(_NAME_CONFLICTS, on_conflict, "on_conflict"))
+        return self._call(self._stubs.projects.ImportDsdProject, req, timeout=None)
+
+    def import_nds_rom(
+        self,
+        project_id: str,
+        *,
+        path: str = "",
+        content: bytes = b"",
+        program_file: str = "",
+        folder_id: str = "",
+        folder_name: str = "",
+        modules: Sequence[str] = (),
+        skip_arm7: bool = False,
+        analyze: bool = False,
+        on_conflict: str = "",
+    ) -> project_pb2.ImportNdsRomResponse:
+        """A .nds ROM image as the same programs ``import_dsd_project`` makes
+        (``ImportNdsRom``, api_minor 103, feature "nds"): by ``path`` on the
+        daemon's host (under a ``--browse-root``), ``content``, or a program's
+        stored file (``program_file``). The ARM9 is decompressed (BLZ), the
+        ITCM and DTCM autoloads split out, compressed overlays decompressed;
+        the ROM carries no symbols. ``on_conflict`` as ``import_dsd_project``.
+        Needs admin."""
+        req = project_pb2.ImportNdsRomRequest(
+            project_id=project_id, folder_id=folder_id, folder_name=folder_name, modules=list(modules),
+            skip_arm7=skip_arm7, analyze=analyze, provenance=self.provenance,
+            on_conflict=_choice(_NAME_CONFLICTS, on_conflict, "on_conflict"))
+        if program_file:
+            req.program_file = program_file
+        elif path:
+            req.path = path
+        else:
+            req.content = content
+        return self._call(self._stubs.projects.ImportNdsRom, req, timeout=None)
+
+    def export_dsd_symbols(
+        self,
+        project_id: str,
+        *,
+        program_ids: Sequence[str] = (),
+        folder_id: str = "",
+        write: bool = False,
+        renames: bool = True,
+        new_symbols: bool = True,
+        include_text: bool = False,
+    ) -> project_pb2.ExportDsdSymbolsResponse:
+        """revkit's names as changes to a ds-decomp project's symbols.txt files
+        (``ExportDsdSymbols``, api_minor 103, feature "nds"; docs/nds.md,
+        "Writing names back"): for each module program (``program_ids``, else
+        every one in ``folder_id``, else the project's), a unified diff
+        (``modules[i].diff``, all of them in ``patch``) renaming each listed
+        symbol whose name changed in place and adding named functions and
+        data dsd doesn't list, in dsd's syntax. A name that is revkit's
+        demangled form of the listed (mangled) one keeps the listed name; a
+        new name is written as typed. With ``write`` the files are written,
+        each copied to ``symbols.txt.bak-<UTC time>`` first (admin, under a
+        ``--browse-root``)."""
+        req = project_pb2.ExportDsdSymbolsRequest(
+            project_id=project_id, program_ids=list(program_ids), folder_id=folder_id, write=write,
+            no_renames=not renames, no_new_symbols=not new_symbols, include_text=include_text,
+            provenance=self.provenance)
+        return self._call(self._stubs.projects.ExportDsdSymbols, req)
+
+    def build_decomp_kb(
+        self,
+        project_id: str,
+        kb_path: str,
+        *,
+        program_ids: Sequence[str] = (),
+        folder_id: str = "",
+        game: str = "",
+        source_root: str = "",
+        manifest_path: str = "",
+        compiler: str = "",
+        flags: str = "",
+        skip_near_index: bool = False,
+        threads: int = 0,
+    ) -> project_pb2.BuildDecompKbResponse:
+        """A finished matching decomp into a decomp knowledge base (``BuildDecompKb``,
+        api_minor 105, feature "decomp-kb"; docs/decomp-kb.md): each function of
+        the module programs (``program_ids``, else those in ``folder_id``) with its
+        Function ID hashes, its translation unit (delinks.txt), its own text in the
+        unit's source (under ``source_root``, by default the dsd project's root;
+        the unit files are copied into the KB), and the compiler and flags it
+        matches with (the JSON-lines ``manifest_path``'s, a matching pipeline's
+        fields, else ``compiler`` and ``flags``). Each function is also signed
+        into the KB's BSim near index unless ``skip_near_index``. ``kb_path`` is a
+        directory on the daemon's host under a ``--browse-root``; ingesting
+        ``game`` again replaces its records. Admin."""
+        req = project_pb2.BuildDecompKbRequest(
+            project_id=project_id, kb_path=kb_path, program_ids=list(program_ids), folder_id=folder_id, game=game,
+            source_root=source_root, manifest_path=manifest_path, compiler=compiler, flags=flags,
+            skip_near_index=skip_near_index, threads=threads, provenance=self.provenance)
+        return self._call(self._stubs.projects.BuildDecompKb, req, timeout=None)
+
+    def apply_decomp_kb(
+        self,
+        project_id: str,
+        kb_path: str,
+        *,
+        program_ids: Sequence[str] = (),
+        folder_id: str = "",
+        apply: bool = False,
+        overwrite: bool = False,
+        include_unit_source: bool = False,
+        near: bool = False,
+        min_similarity: Optional[float] = None,
+        max_near: int = 0,
+        export_dir: str = "",
+        threads: int = 0,
+    ) -> project_pb2.ApplyDecompKbResponse:
+        """A decomp knowledge base matched against new programs (``ApplyDecompKb``,
+        api_minor 105): each function whose Function ID hashes are a KB
+        function's (``verdict`` "exact"; "candidate" when only the instructions
+        match) with the KB function's symbol, unit, own source text, compiler and
+        flags. With ``near``, the functions left get BSim's closest KB functions
+        ("near", at least ``min_similarity``, default 0.7; ``max_near`` each,
+        default 1) with the similarity and the instruction ``diff``: a starting
+        scratch. With ``apply`` the exact matches with placeholder names (any,
+        with ``overwrite``) are renamed, their linker spelling noted for
+        ``export_dsd_symbols``, and a plate comment says where they came from.
+        ``export_dir`` (on the daemon's host, under a ``--browse-root``) gets the
+        changed symbols.txt files and symbols.patch, the exact matches' source
+        in their units' paths and the near matches as ``scratch/`` files. Admin."""
+        req = project_pb2.ApplyDecompKbRequest(
+            project_id=project_id, kb_path=kb_path, program_ids=list(program_ids), folder_id=folder_id, apply=apply,
+            overwrite=overwrite, include_unit_source=include_unit_source, near=near, max_near=max_near,
+            export_dir=export_dir, threads=threads, provenance=self.provenance)
+        if min_similarity is not None:
+            req.min_similarity = min_similarity
+        return self._call(self._stubs.projects.ApplyDecompKb, req, timeout=None)
 
     def detect_raw_layout(
         self,
@@ -2530,6 +2748,52 @@ class FileSystem:
         return self._call("GetFileSystemFileInfo", filesystem_pb2.GetFileSystemFileInfoRequest(
             session_id=self.session_id, path=path, hashes=hashes))
 
+    def apple_bundle(self, path: str = "/", *, skip_info_plist: bool = False) -> filesystem_pb2.GetAppleBundleResponse:
+        """An Apple bundle (api_minor 100, feature ``apple-bundles``; docs/apple-apps.md):
+        ``path`` is an .app, a framework, an app extension, a file inside one, or an
+        .ipa (its ``Payload/*.app``). ``.bundle`` has its ``layout``, ``platform``,
+        ``info`` (Info.plist's keys: identifier, versions, minimum OS, URL schemes,
+        document types, background modes, usage descriptions, exported and imported
+        types), ``info_plist`` (all of it; ``plist_value`` makes it Python),
+        ``executable_path``, ``code_signature`` (read, never verified), ``nested``
+        bundles (frameworks, extensions, ...), ``interface_files`` and
+        ``provisioning_profile``; ``.apps`` lists every app an .ipa holds. Import
+        ``bundle.executable_path`` with ``import_libraries=True`` to bring its
+        frameworks, found by ``@rpath``."""
+        return self._call("GetAppleBundle", filesystem_pb2.GetAppleBundleRequest(
+            session_id=self.session_id, path=path, skip_info_plist=skip_info_plist))
+
+    def property_list(self, path: str, *, max_values: int = 0, max_data_bytes: int = 0,
+                      resolve_keyed_archive: bool = False) -> filesystem_pb2.ReadPropertyListResponse:
+        """A property list file as a tree (api_minor 100, feature ``apple-bundles``):
+        XML or binary, or a provisioning profile's plist (``format``
+        "mobileprovision"); ``plist_value(r.root)`` makes it Python. At most
+        ``max_values`` values (default 20000; ``truncated`` says when entries were
+        left out) and ``max_data_bytes`` of each data value (default 4096);
+        ``keyed_archive`` says it is an NSKeyedArchiver archive, and
+        ``resolve_keyed_archive`` (api_minor 101) returns one as a tree of its
+        objects ({"$top": ...}, each object with "$class", later references as
+        {"$ref": uid})."""
+        return self._call("ReadPropertyList", filesystem_pb2.ReadPropertyListRequest(
+            session_id=self.session_id, path=path, max_values=max_values, max_data_bytes=max_data_bytes,
+            resolve_keyed_archive=resolve_keyed_archive))
+
+    def ui_actions(self, path: str = "/", *, program_id: str = "",
+                   include_documents: bool = False) -> filesystem_pb2.ListUiActionsResponse:
+        """Interface Builder's UI wiring (api_minor 101, feature ``ui-actions``;
+        docs/apple-apps.md): the compiled nibs and storyboards of a bundle, an .ipa,
+        a .storyboardc or a nib, and ``.actions``: each control's action
+        (``control_class``, ``control_label``, ``events`` such as "touchUpInside",
+        ``selector``, ``target`` and ``target_class``) traced to the Objective-C
+        method it runs (``resolution`` "resolved", "resolved-by-selector",
+        "ambiguous", "external", "unresolved" or "no-program"; ``method``,
+        ``implementation``, ``function_name``). The program is ``program_id``, else
+        the project's program imported from the bundle's main executable.
+        ``.outlets``; ``include_documents`` adds each nib's objects and
+        connections."""
+        return self._call("ListUiActions", filesystem_pb2.ListUiActionsRequest(
+            session_id=self.session_id, path=path, program_id=program_id, include_documents=include_documents))
+
     def import_(
         self,
         paths: Union[str, Sequence[str]] = "/",
@@ -2607,6 +2871,58 @@ class FileSystem:
         """An external decompiler on one file of this file system (:meth:`Client.decompile_external`):
         a jar, an APK, a .pyc, a Lua chunk, a .NET assembly, a wasm module."""
         return self._client.decompile_external(filesystem=self, path=path, provider=provider, refresh=refresh)
+
+    def android_package(self, path: str = "", *, native: bool = True,
+                        dex: bool = True) -> filesystem_pb2.AndroidPackage:
+        """An APK's manifest, resources, native libraries, native methods and
+        Flutter facts (api_minor 98, feature "android"; docs/android.md).
+        ``path`` names the APK in this file system ("" or "/": the file
+        system itself is one). ``native=False`` skips reading the native
+        libraries (no JNI exports, no Flutter hash), ``dex=False`` the DEX
+        files (no native methods).
+
+        ``.manifest`` has the fields (``package``, ``version_code``,
+        ``min_sdk``, ``target_sdk``, ``uses_permissions``, ``components``
+        with ``exported`` and ``intent_filters``, ``debuggable``,
+        ``allow_backup``, ``uses_cleartext_traffic``,
+        ``network_security_config``, ...), ``.manifest_xml`` the XML text,
+        ``.native_libraries`` each ``lib/<abi>/*.so`` (its ``path`` imports
+        it: ``import_(lib.path)``), ``.native_methods`` the DEX's native
+        methods with the ``libraries`` exporting their JNI names, and
+        ``.flutter`` the Dart snapshot hash per ABI."""
+        return self._call("GetAndroidPackage", filesystem_pb2.GetAndroidPackageRequest(
+            session_id=self.session_id, path=path, skip_native=not native, skip_dex=not dex)).package
+
+    def android_xml(self, path: str, *, resolve: bool = False) -> str:
+        """A compiled XML file of an APK (``"/app.apk!/res/layout/main.xml"``)
+        as XML text; ``resolve`` gives references' default-configuration
+        values instead of their names."""
+        return self._call("DecodeAndroidXml", filesystem_pb2.DecodeAndroidXmlRequest(
+            session_id=self.session_id, path=path, resolve=resolve)).xml
+
+    def android_resources(self, path: str = "", *, type: str = "", config: str = "", query: str = "",
+                          offset: int = 0, limit: int = 0) -> filesystem_pb2.ListAndroidResourcesResponse:
+        """The entries of an APK's ``resources.arsc``: one ``type``
+        (``"string"`` for the strings table; "" every type), one ``config``
+        ("" the default configuration, ``"fr"``, ``"night"``, ``"*"`` every
+        one), names or values containing ``query``. ``.entries`` (``id``,
+        ``name`` such as ``"@string/app_name"``, ``config``, ``value``,
+        ``value_type``, a bag's ``items``), ``.total``, and the ``types``
+        and ``configs`` there are."""
+        return self._call("ListAndroidResources", filesystem_pb2.ListAndroidResourcesRequest(
+            session_id=self.session_id, path=path, type=type, config=config, query=query, offset=offset,
+            limit=limit))
+
+    def android_strings(self, path: str = "", *, config: str = "") -> dict:
+        """The strings table for one configuration as ``{name: value}``."""
+        out, offset = {}, 0
+        while True:
+            r = self.android_resources(path, type="string", config=config, offset=offset, limit=5000)
+            for e in r.entries:
+                out[e.key] = e.value
+            offset += len(r.entries)
+            if not r.entries or offset >= r.total:
+                return out
 
     def close(self) -> None:
         if self.session_id:
@@ -2829,6 +3145,20 @@ class Program:
         slices, whether it is code-signed or encrypted; None for any other format."""
         s = self.summary()
         return s.macho if s.HasField("macho") else None
+
+    def code_signature(self) -> Optional["apple_pb2.CodeSignature"]:
+        """A Mach-O's code signature (api_minor 100, feature ``apple-bundles``;
+        docs/apple-apps.md), read and NOT verified: ``.code_directories``
+        (identifier, team_id, flag_names such as "runtime", hash_type, cdhash),
+        ``.entitlements``, ``.requirements`` (their text), ``.certificates`` (the
+        CMS signature's, by name), ``.adhoc``; None without one."""
+        m = self.macho()
+        return m.code_signature if m is not None and m.HasField("code_signature") else None
+
+    def entitlements(self) -> dict:
+        """A Mach-O's entitlements as a dict (its code signature's; {} without)."""
+        sig = self.code_signature()
+        return plist_value(sig.entitlements) or {} if sig is not None and sig.HasField("entitlements") else {}
 
     def dotnet(self) -> Optional[project_pb2.DotNetAssembly]:
         """A .NET assembly's CLR header (api_minor 94, feature "dotnet"): metadata and
@@ -3292,10 +3622,18 @@ class Program:
         return list(self.xrefs(addr, direction="from"))
 
     def decompile(self, entry: AddressLike, *, text: bool = True):
-        """The decompiled function (token lines, variables, prototype; ``.text`` when ``text``)."""
+        """The decompiled function (token lines, variables, prototype; ``.text`` when ``text``).
+        ``.unknowns`` (api_minor 97) lists what it couldn't determine: indirect calls with no
+        known target, unrecovered switch tables, a failure; each origin's ``tier`` says how far
+        to trust a name or type (revkit.evidence)."""
+        return self.decompile_result(entry, text=text).function
+
+    def decompile_result(self, entry: AddressLike, *, text: bool = True) -> query_pb2.DecompileResponse:
+        """The whole Decompile response: ``.function``, ``.failure`` (set when the decompiler
+        failed) and ``.snapshot`` (the revision it was read at)."""
         req = query_pb2.DecompileRequest(program_id=self.id, function=address(entry), read=self._read())
         req.options.include_text = text
-        return self._q("Decompile", req).function
+        return self._q("Decompile", req)
 
     _SLICE_KINDS = {
         "def_use": query_pb2.SLICE_KIND_DEF_USE,
@@ -3440,6 +3778,20 @@ class Program:
                 call.cancel()
 
         return stream()
+
+    def decomp_scratch(
+        self, function: AddressLike, *, module: str = "", timeout_ms: int = 0
+    ) -> "query_pb2.ExportDecompScratchResponse":
+        """One function as a matching decompilation's starting scratch
+        (``ExportDecompScratch``, api_minor 103, feature "nds"; docs/nds.md):
+        ``text`` is a ``// PROBE: <mangled> <module> <address>`` line, Ghidra's
+        built-in type names, the named types it uses, its callees'
+        prototypes (from linked DS modules too) and the globals it reads,
+        then its decompiled C; ``context`` and ``source`` split it for a
+        decomp.me scratch. ``module`` overrides the PROBE line's module."""
+        req = query_pb2.ExportDecompScratchRequest(
+            program_id=self.id, function=address(function), read=self._read(), module=module, timeout_ms=timeout_ms)
+        return self._q("ExportDecompScratch", req)
 
     def export_c(
         self,
@@ -4561,14 +4913,20 @@ class Program:
         reason: str = "",
         expected_head_revision: int = 0,
         validate_only: bool = False,
+        skip_invalid: bool = False,
     ) -> assertion_pb2.AppendAssertionsResponse:
-        """Appends assertions atomically (one revision). Provenance defaults to the client's actor."""
+        """Appends assertions atomically (one revision). Provenance defaults to the client's actor.
+
+        A refused body refuses the batch (``RevkitError`` naming each index and
+        why); with ``skip_invalid`` the others land and ``response.refused``
+        lists the left-out ones (``index``, ``reason``; api_minor 104)."""
         req = assertion_pb2.AppendAssertionsRequest(
             program_id=self.id,
             assertions=[assertion_pb2.AssertionInput(body=b) for b in bodies],
             provenance=self.client._prov(actor, reason),
             expected_head_revision=expected_head_revision,
             validate_only=validate_only,
+            skip_invalid=skip_invalid,
         )
         return self.client._call(self.client.stubs.assertions.AppendAssertions, req)
 
@@ -4696,9 +5054,13 @@ class Program:
         body = assertion_pb2.AssertionBody(comment=assertion_pb2.Comment(address=address(addr), kind=_COMMENT_KINDS[kind], text=text))
         return self.append(body, **kw)
 
-    def set_function(self, entry: AddressLike, body: Sequence[tuple] = (), **kw):
-        """Declares a function at ``entry``; ``body`` is inclusive (first, last) ranges (empty = discover)."""
-        b = assertion_pb2.SetFunctionBounds(entry=address(entry), body=[address_range(*r) for r in body])
+    def set_function(self, entry: AddressLike, body: Sequence[tuple] = (), isa: Optional[str] = None, **kw):
+        """Declares a function at ``entry``; ``body`` is inclusive (first, last) ranges (empty = discover).
+
+        ARM: ``isa`` "arm" or "thumb"; None keeps the mode the entry's bit 0,
+        the function already there or the code there has (api_minor 104)."""
+        b = assertion_pb2.SetFunctionBounds(entry=address(entry), body=[address_range(*r) for r in body],
+                                            instruction_set=_choice(_INSTRUCTION_SETS, isa, "isa"))
         return self.append(assertion_pb2.AssertionBody(function_bounds=b), **kw)
 
     def remove_function(self, entry: AddressLike, **kw):
@@ -4719,6 +5081,35 @@ class Program:
         its say again."""
         b = assertion_pb2.SetNoReturn(function=address(function), no_return=no_return)
         return self.append(assertion_pb2.AssertionBody(no_return=b), **kw)
+
+    def set_decompiler_settings(self, *, comparison_form: str = "", load_types: str = "", compilable_c: bool = False,
+                                ghidra_flag_tests: bool = False, **kw):
+        """How the decompiler shapes this program's C (``SetDecompilerSettings``,
+        api_minor 106, feature ``decompiler-settings``; docs/decompiler-inputs.md,
+        "Source shape"). ``comparison_form``: ``"right"`` (revkit's default:
+        ``x > 8``, ``x < 1``), ``"encoded"`` (also the constant the instruction
+        compares against: ``x >= 9``, ``x <= 0``; for a compiler that keeps the
+        source's, Metrowerks CodeWarrior) or ``"ghidra"`` (``8 < x``).
+        ``compilable_c``: C a compiler accepts as it is (no ``x._2_2_``, no label
+        ending a block, pointer/integer conversions cast). ``load_types``:
+        ``"all"`` (revkit's default: the signedness the load's extension
+        gives, ``ldrh`` and ``ldrb`` unsigned, ``ldrsh`` signed), ``"words"``
+        (but for zero-extended bytes, which compilers also use for signed
+        chars) or ``"ghidra"``. ``ghidra_flag_tests`` turns off the one-test form of
+        ``subs; bgt``. Every decompilation of the program is redone; no
+        arguments give revkit's defaults back."""
+        forms = {"": assertion_pb2.COMPARISON_FORM_UNSPECIFIED, "ghidra": assertion_pb2.COMPARISON_FORM_GHIDRA,
+                 "right": assertion_pb2.COMPARISON_FORM_RIGHT, "encoded": assertion_pb2.COMPARISON_FORM_ENCODED}
+        loads = {"": assertion_pb2.LOAD_TYPES_UNSPECIFIED, "ghidra": assertion_pb2.LOAD_TYPES_GHIDRA,
+                 "words": assertion_pb2.LOAD_TYPES_WORDS, "all": assertion_pb2.LOAD_TYPES_ALL}
+        if comparison_form not in forms:
+            raise ValueError("comparison_form is right, encoded or ghidra, not %r" % comparison_form)
+        if load_types not in loads:
+            raise ValueError("load_types is words, all or ghidra, not %r" % load_types)
+        s = assertion_pb2.DecompilerSettings(comparison_form=forms[comparison_form], load_types=loads[load_types],
+                                             compilable_c=compilable_c, ghidra_flag_tests=ghidra_flag_tests)
+        body = assertion_pb2.AssertionBody(decompiler_settings=assertion_pb2.SetDecompilerSettings(settings=s))
+        return self.append(body, **kw)
 
     def set_fallthrough(self, addr: AddressLike, target: Optional[AddressLike] = None, **kw):
         """Sets where control goes on after the instruction at ``addr``
@@ -5296,6 +5687,34 @@ class Program:
         created = self.client._call(self.client.stubs.debugger.CreateDebugSession, req)
         return DebugSession(self.client, created.session_id, created)
 
+    def crash_dump(self, dump=None, *, host_path: str = "", file=None, client: str = "") -> "DebugSession":
+        """Opens a crash dump as a stopped, read-only debug session over this
+        program (api_minor 102, feature "crash-dumps"; docs/crash-dumps.md):
+        an ELF core file or a Windows minidump. ``dump`` is a program of the
+        project the dump was imported as (a Program or its id; ELF cores
+        import), else ``host_path`` (a file on the daemon's host) or ``file``
+        (a local path or bytes, uploaded); the last two need an admin.
+
+        Open it on the crashed executable for its code and names: the
+        dump's modules that are other project programs (its libraries) are
+        mapped to them, and ``.crash()`` (also ``.created.crash``) says the
+        signal or exception, the faulting address, module, function and
+        instruction, the backtrace and threads; ``main_program_id`` names
+        the executable's program when this one isn't it. Registers,
+        memory, threads, the backtrace and disassembly read as in any
+        session; running and writing are refused."""
+        req = debugger_pb2.CreateDebugSessionRequest(program_id=self.id, client=client)
+        if dump is not None:
+            req.crash.dump_program_id = dump.id if isinstance(dump, Program) else str(dump)
+        elif host_path:
+            req.crash.host_path = str(host_path)
+        elif file is not None:
+            req.crash.upload_id = self.client.upload(file)
+        else:
+            raise ValueError("give the dump: a program, host_path or file")
+        created = self.client._call(self.client.stubs.debugger.CreateDebugSession, req)
+        return DebugSession(self.client, created.session_id, created)
+
     def debug_traces(self) -> Sequence[debugger_pb2.DebugTraceInfo]:
         """Traces saved with this program (DebugSession.save)."""
         req = debugger_pb2.ListDebugTracesRequest(program_id=self.id)
@@ -5852,6 +6271,14 @@ class DebugSession:
         return self._call("ListDebugModules", debugger_pb2.ListDebugModulesRequest(session_id=self.id))
 
     # -- the recording ---------------------------------------------------------
+
+    def crash(self, max_frames: int = 0) -> debugger_pb2.DebugCrash:
+        """A crash dump session's summary (api_minor 102): ``reason``
+        ("SIGSEGV (SEGV_MAPERR) at 0x0"), ``fault_address``, ``pc`` with the
+        ``module`` and ``module_offset``, ``function``, ``instruction``,
+        ``backtrace`` (DebugFrame), ``threads``, ``modules`` (with the project
+        programs they are), the process and system, and ``summary`` as text."""
+        return self._call("GetDebugCrash", debugger_pb2.GetDebugCrashRequest(session_id=self.id, max_frames=max_frames)).crash
 
     def backtrace(self, snapshot: Optional[int] = None, max_frames: int = 0) -> list:
         """The call stack now, or at a recorded snapshot (api_minor 59, feature

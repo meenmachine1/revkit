@@ -208,6 +208,11 @@ message DecompiledFunction {
   Derivation origin = 9;
   // The data-flow graph (DecompileOptions.include_dataflow; api_minor 57).
   DataFlow dataflow = 10;
+  // What this decompilation could not determine (api_minor 97, feature
+  // "result-evidence"): indirect calls whose target neither a reference nor
+  // the decompiler resolved, computed jumps with no recovered table, flow
+  // cut at analysis's limit, a failure, analysis still running.
+  repeated Unknown unknowns = 11;
 }
 
 message DecompileOptions {

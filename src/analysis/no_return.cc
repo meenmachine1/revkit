@@ -24,12 +24,12 @@ struct Call {
 class Evidence {
  public:
   Evidence(const ProgramInfo &info, const FunctionList &list, std::vector<facts::Ref<FlowGraph>> flows,
-           detail::ByteReader &bytes)
-      : info_(info), list_(list), flows_(std::move(flows)), bytes_(bytes) {
+           detail::ByteReader &bytes, std::set<std::uint64_t> returns)
+      : info_(info), list_(list), flows_(std::move(flows)), bytes_(bytes), returns_(std::move(returns)) {
     x86_ = info.language.starts_with("x86:");
     for (const FunctionInfo &f : list.functions) {
       entries_.insert(f.entry.offset);
-      if (f.no_return == NoReturnReason::named) named_.insert(f.entry.offset);
+      if (f.no_return == NoReturnReason::named || f.no_return == NoReturnReason::user) named_.insert(f.entry.offset);
     }
     for (std::size_t k = 0; k < list.functions.size(); ++k) by_entry_[list.functions[k].entry.offset] = k;
     // Every call that falls through, once per address (shared code is in
@@ -37,7 +37,8 @@ class Evidence {
     std::map<std::uint64_t, Call> calls;
     for (const auto &g : flows_)
       for (const FlowInsn &i : g->insns)
-        if (i.kind == FlowKind::call && i.falls_through && !i.tail_call && i.targets.size() == 1)
+        if (i.kind == FlowKind::call && i.falls_through && !i.tail_call && i.targets.size() == 1 &&
+            candidate(i.targets[0]))
           calls.try_emplace(i.address, Call{i.address, info.code_address(i.targets[0]), g.get()});
     for (auto &[a, c] : calls) {
       c.index = calls_.size();
@@ -54,6 +55,17 @@ class Evidence {
   }
 
  private:
+  // Whether a call's target can be judged here: code of this program that
+  // the user hasn't said returns. A target outside the program's code (an
+  // address no block maps: a DS overlay calling main, firmware calling ROM
+  // it doesn't have) returns unless something says otherwise; what follows
+  // its calls says nothing about code that isn't here. The user's
+  // SetNoReturn(false) is over the evidence, as it is over the names.
+  bool candidate(std::uint64_t target) const {
+    const std::uint64_t a = info_.code_address(target);
+    return info_.is_code(a) && !returns_.contains(target) && !returns_.contains(a);
+  }
+
   // FindNoReturnFunctionsAnalyzer.detectNoReturn; true if some target was
   // suspicious without enough evidence.
   bool detect(std::set<std::uint64_t> &found) {
@@ -131,7 +143,7 @@ class Evidence {
     return it != g.literals.begin() && std::prev(it)->last >= a;
   }
   bool no_return(std::uint64_t target, const std::set<std::uint64_t> &found) const {
-    return found.contains(target) || named_.contains(target);
+    return (found.contains(target) || named_.contains(target)) && !returns_.contains(target);
   }
 
   // targetOnlyCallsNoReturn: every path through the target ends in a call
@@ -205,6 +217,7 @@ class Evidence {
   detail::ByteReader &bytes_;
   bool x86_ = false;
   std::set<std::uint64_t> entries_, named_;
+  std::set<std::uint64_t> returns_;  // the user said these return (FactKind::NoReturn 0)
   std::unordered_map<std::uint64_t, std::size_t> by_entry_;
   std::vector<Call> calls_;
   static constexpr std::int8_t kUnknown = -1;
@@ -221,7 +234,14 @@ std::vector<std::uint64_t> NoReturnEvidence::compute(facts::QueryContext &ctx, c
   keys.reserve(list->functions.size());
   for (const FunctionInfo &f : list->functions) keys.push_back({key, f.flow_key()});
   detail::ByteReader bytes(ctx, *info);
-  return Evidence(*info, *list, ctx.get_all<Flow>(keys), bytes).run();
+  std::set<std::uint64_t> returns;
+  for (const facts::FactKey &k :
+       facts::asserted_keys(ctx, facts::FactKind::NoReturn, {info->space, 0}, {info->space, ~std::uint64_t{0}})) {
+    if (!k.sub.empty()) continue;
+    auto v = ctx.get<facts::AssertedFact>(k);
+    if (const auto *i = std::get_if<std::int64_t>(&*v); i && *i == 0) returns.insert(k.addr.offset);
+  }
+  return Evidence(*info, *list, ctx.get_all<Flow>(keys), bytes, std::move(returns)).run();
 }
 
 }  // namespace revkit::analysis

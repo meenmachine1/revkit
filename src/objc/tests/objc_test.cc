@@ -142,7 +142,7 @@ TEST(Objc, NamesMethodsAsClangDoes) {
 // A hand-built arm64 image: a class with a relative method list, and Swift
 // descriptors: a struct with a field, a class with a vtable.
 struct Synthetic {
-  std::shared_ptr<loader::Bytes> bytes = std::make_shared<loader::Bytes>(0x3000);
+  std::shared_ptr<loader::Bytes> bytes;
   loader::Image img;
 
   void put(std::uint64_t a, std::uint64_t v, unsigned n) {
@@ -160,7 +160,9 @@ struct Synthetic {
     img.sections.push_back(s);
   }
 
-  Synthetic() {
+  // `extra`: bytes past 0x3000, in one more data region, for the hostile
+  // tests.
+  explicit Synthetic(std::uint64_t extra = 0) : bytes(std::make_shared<loader::Bytes>(0x3000 + extra)) {
     img.format = loader::Format::macho;
     img.bits = 64;
     img.machine = 0x0100000c;
@@ -209,6 +211,7 @@ struct Synthetic {
     img.memory = loader::Memory(bytes);
     img.memory.add({0x1000, 0x1000, 0x1000, 0x1000, {true, false, true}});
     img.memory.add({0x2000, 0x1000, 0x2000, 0x1000, {true, true, false}});
+    if (bytes->size() > 0x3000) img.memory.add({0x3000, bytes->size() - 0x3000, 0x3000, bytes->size() - 0x3000, {true, true, false}});
     section("__objc_classlist", 0x2a00, 8);
     section("__objc_selrefs", 0x2900, 8);
     section("__swift5_types", 0x2b00, 8);
@@ -257,6 +260,44 @@ TEST(Objc, ReadsRelativeMethodListsAndSwiftTypes) {
     return d.address == 0x2208 && mk.store.get(d.type).as<types::AggregateType>() &&
            mk.store.get(d.type).as<types::AggregateType>()->name == "method_small_t";
   }));
+}
+
+// Bug scrub part 3: records naming one descriptor, and methods naming one
+// long string, don't multiply what is read.
+TEST(Objc, AliasesAreReadOnce) {
+  {
+    Synthetic s;
+    // Sixteen type records, all to the struct's descriptor.
+    for (std::uint64_t e = 0x2b00; e < 0x2b40; e += 4) s.rel(e, 0x2c00);
+    s.img.sections.back().size = 0x40;
+    const Metadata m = scan(s.img);
+    ASSERT_EQ(m.swift_types.size(), 1u);
+    EXPECT_EQ(m.swift_types[0].name, "S");
+  }
+  // 65,536 relative methods whose types are one 4,000-byte string, in each
+  // of four classes' lists (the same list): 1 GiB of copies unbounded.
+  Synthetic s(0x110000);
+  std::string types(4000, 'v');
+  s.str(0x3000, types.c_str());
+  const std::uint64_t list = 0x4000;
+  s.put(list, 0x8000000c, 4);
+  s.put(list + 4, 65536, 4);
+  for (std::uint64_t i = 0; i < 65536; ++i) {
+    const std::uint64_t e = list + 8 + 12 * i;
+    s.rel(e, 0x2900);
+    s.rel(e + 4, 0x3000);
+    s.rel(e + 8, 0x1010);
+  }
+  s.put(0x2100 + 32, list, 8);
+  for (std::uint64_t k = 0; k < 4; ++k) s.put(0x2a00 + 8 * k, 0x2000, 8);
+  for (loader::Section &sec : s.img.sections)
+    if (sec.name == "__objc_classlist") sec.size = 32;
+  const Metadata m = scan(s.img);
+  std::uint64_t bytes = 0;
+  for (const Class &c : m.classes)
+    if (c.instance_methods)
+      for (const Method &x : c.instance_methods->methods) bytes += x.types.size() + x.selector.size();
+  EXPECT_LE(bytes, (128u << 20) + 8192);
 }
 
 TEST(Objc, NothingForOtherFormats) {

@@ -11,7 +11,9 @@
 // should see). Exit status 125, with "rk-sandbox: ..." on stderr, when the
 // helper can't confine itself or start the program.
 #include "revkit/providers/sandbox.h"
+#ifndef REVKIT_SANDBOX_STANDALONE
 #include "revkit/runtime/runtime.h"
+#endif
 
 #include <unistd.h>
 
@@ -52,7 +54,11 @@ int main(int argc, char **argv) {
       return argv[++i];
     };
     if (a == "--version") {
+#ifdef REVKIT_SANDBOX_STANDALONE
+      std::printf("rk-sandbox %s (uninstrumented, for a sanitizer build)\n", REVKIT_SANDBOX_VERSION);
+#else
       std::printf("%s\n", revkit::runtime::version_string("rk-sandbox").c_str());
+#endif
       return 0;
     }
     if (a == "--probe") {

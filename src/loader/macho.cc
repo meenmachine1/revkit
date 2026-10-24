@@ -907,6 +907,7 @@ class MachoParser {
     std::set<std::uint64_t> visited;
     // Depth-first over (node offset, name so far).
     std::vector<std::pair<std::uint64_t, std::string>> stack{{0, {}}};
+    std::uint64_t trie_bytes = 0;
     while (!stack.empty()) {
       auto [node, prefix] = std::move(stack.back());
       stack.pop_back();
@@ -941,6 +942,15 @@ class MachoParser {
         std::string edge = c.cstring();
         const std::uint64_t child = c.uleb();
         if (prefix.size() + edge.size() > kMaxNameLength) fail("export name too long");
+        // Each child's name is its own copy: a long chain of nodes makes
+        // names whose sum grows with the square of its length (bug scrub
+        // part 3), so they share the file's name budget.
+        trie_bytes += prefix.size() + edge.size();
+        if (trie_bytes > kMaxNameBytes) {
+          warn("Mach-O: export names over " + std::to_string(kMaxNameBytes >> 20) + " MiB; the rest are dropped");
+          stack.clear();
+          break;
+        }
         stack.emplace_back(child, prefix + edge);
       }
     }
@@ -1005,8 +1015,18 @@ class MachoParser {
     return wide_ ? a : a & 0xffffffffULL;
   }
 
+  // A fixup patches a pointer the file holds, so there are at most as many
+  // as the slice has pointers (with room for odd layouts): one
+  // DO_BIND_ULEB_TIMES_SKIPPING over a large zero-fill segment made 16M
+  // binds, each with its own copy of the symbol's name, from 20 KB
+  // (fuzz_macho, bug scrub part 3). The names fixups and imports copy share
+  // the name budget.
+  std::uint64_t fixup_cap() const { return std::min<std::uint64_t>(kMaxFixups, slice_size_ / (wide_ ? 8 : 4) + (1u << 16)); }
   void add_fixup(Relocation r) {
-    if (img_.relocations.size() >= kMaxFixups) fail("over " + std::to_string(kMaxFixups) + " fixups");
+    const std::uint64_t cap = fixup_cap();
+    if (img_.relocations.size() >= cap) fail("over " + std::to_string(cap) + " fixups for a file of this size");
+    fixup_name_bytes_ += r.symbol.size();
+    if (fixup_name_bytes_ > kMaxNameBytes) fail("fixups' names over " + std::to_string(kMaxNameBytes >> 20) + " MiB");
     img_.relocations.push_back(std::move(r));
   }
 
@@ -1022,6 +1042,8 @@ class MachoParser {
     if (!name.empty()) {
       Import imp;
       imp.library = library(ordinal);
+      fixup_name_bytes_ += name.size() + imp.library.size();
+      if (fixup_name_bytes_ > kMaxNameBytes) fail("imports' names over " + std::to_string(kMaxNameBytes >> 20) + " MiB");
       imp.name = name;
       imp.iat_address = addr;
       img_.imports.push_back(std::move(imp));
@@ -1111,7 +1133,12 @@ class MachoParser {
     auto bind = [&] {
       if (!have_seg) fail("bind before a segment is set");
       if (threaded) {
-        if (ordinals.size() >= kMaxFixups) fail("absurd threaded bind table");
+        // As fixups: an entry per pointer the file can hold, its name
+        // charged to the name budget (fuzz_macho, bug scrub part 3: 16M
+        // copies of a name, 671 MB reserved by one ULEB).
+        if (ordinals.size() >= fixup_cap()) fail("absurd threaded bind table");
+        fixup_name_bytes_ += name.size();
+        if (fixup_name_bytes_ > kMaxNameBytes) fail("threaded binds' names over " + std::to_string(kMaxNameBytes >> 20) + " MiB");
         ordinals.emplace_back(name, ordinal);
         return;
       }
@@ -1154,7 +1181,7 @@ class MachoParser {
         case 0xd0:  // THREADED
           if (imm == 0x00) {  // SET_BIND_ORDINAL_TABLE_SIZE_ULEB
             const std::uint64_t n = l.uleb();
-            if (n > kMaxFixups) fail("absurd threaded bind table");
+            if (n > fixup_cap()) fail("absurd threaded bind table");
             ordinals.clear();
             ordinals.reserve(static_cast<std::size_t>(n));
             threaded = true;
@@ -1298,6 +1325,7 @@ class MachoParser {
     if (symbols_off > size) fail("symbols start past the fixups");
     std::vector<ChainImport> imports;
     imports.reserve(imports_count);
+    std::uint64_t import_bytes = 0;
     for (std::uint32_t i = 0; i < imports_count; ++i) {
       const std::uint64_t e = h + imports_off + std::uint64_t{i} * isize;
       ChainImport ci;
@@ -1315,9 +1343,14 @@ class MachoParser {
         name_off = v >> 9;
         if (imports_format == 2) ci.addend = static_cast<std::int32_t>(r_.u32(e + 4));
       }
-      if (name_off < size - symbols_off)
+      if (name_off < size - symbols_off && import_bytes <= kMaxNameBytes) {
         ci.name = r_.cstring(h + symbols_off + name_off, std::min<std::uint64_t>(size - symbols_off - name_off, kMaxNameLength),
                              "chained import name");
+        // Imports may all name one long string (bug scrub part 3).
+        import_bytes += ci.name.size();
+        if (import_bytes > kMaxNameBytes)
+          warn("Mach-O: chained import names over " + std::to_string(kMaxNameBytes >> 20) + " MiB; the rest are unnamed");
+      }
       imports.push_back(std::move(ci));
     }
 
@@ -1448,6 +1481,7 @@ class MachoParser {
 
   std::uint64_t slice_off_ = 0;
   std::uint64_t slice_size_ = 0;
+  std::uint64_t fixup_name_bytes_ = 0;
   bool wide_ = false;
   std::uint32_t ncmds_ = 0;
   std::uint32_t sizeofcmds_ = 0;

@@ -23,7 +23,7 @@ bool crt_function(std::string_view name) {
   return names.contains(name);
 }
 
-const LibraryFunction *LibraryPrototypes::find(std::string_view name) const {
+const LibraryFunction *LibraryPrototypes::find(std::string_view name, bool underscore) const {
   auto get = [&](std::string_view n) -> const LibraryFunction * {
     if (n.empty()) return nullptr;
     auto it = functions.find(n);
@@ -36,7 +36,7 @@ const LibraryFunction *LibraryPrototypes::find(std::string_view name) const {
     base = base.substr(0, at);
     if (const auto *f = get(base)) return f;
   }
-  if (base.size() > 1 && base[0] == '_') return get(base.substr(1));
+  if (underscore && base.size() > 1 && base[0] == '_') return get(base.substr(1));
   return nullptr;
 }
 

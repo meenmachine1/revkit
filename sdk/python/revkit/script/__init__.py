@@ -428,10 +428,13 @@ def comment(addr: AddressLike, text: str, kind: str = "eol") -> None:
         comment=assertion_pb2.Comment(address=address(a), kind=_COMMENT_KINDS[kind], text=text)))
 
 
-def set_function(entry: AddressLike, body: Sequence[tuple] = ()) -> None:
-    """Declares a function at ``entry`` (``body``: inclusive ranges; empty: discovered)."""
+def set_function(entry: AddressLike, body: Sequence[tuple] = (), isa: Optional[str] = None) -> None:
+    """Declares a function at ``entry`` (``body``: inclusive ranges; empty: discovered; ``isa``: "arm",
+    "thumb", or None for the mode the entry already has)."""
     a = _a(entry)
-    b = assertion_pb2.SetFunctionBounds(entry=address(a), body=[address_range(*r) for r in body])
+    from ..client import _INSTRUCTION_SETS, _choice
+    b = assertion_pb2.SetFunctionBounds(entry=address(a), body=[address_range(*r) for r in body],
+                                        instruction_set=_choice(_INSTRUCTION_SETS, isa, "isa"))
     current().edits.add(f"function at 0x{a:x}", assertion_pb2.AssertionBody(function_bounds=b))
 
 

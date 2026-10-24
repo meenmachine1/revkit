@@ -686,7 +686,11 @@ void Discovery::read_assertions() {
   for (const facts::FactKey &k : facts::asserted_keys(ctx_, facts::FactKind::NoReturn, {space, 0}, {space, ~std::uint64_t{0}})) {
     if (!k.sub.empty()) continue;
     auto v = ctx_.get<facts::AssertedFact>(k);
-    if (const auto *i = std::get_if<std::int64_t>(&*v)) user_no_return_[k.addr.offset] = *i != 0;
+    if (const auto *i = std::get_if<std::int64_t>(&*v)) {
+      // Keyed at the entry; a Thumb function's flow key is tagged.
+      user_no_return_[k.addr.offset] = *i != 0;
+      if (!info_.isa_context.empty()) user_no_return_[info_.code_key(k.addr.offset, true)] = *i != 0;
+    }
   }
 }
 

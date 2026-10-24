@@ -51,7 +51,7 @@ class Scanner {
         if (cats.insert(a).second) category(a);
       });
     each_pointer("__objc_selrefs", [&](std::uint64_t slot, std::uint64_t a) {
-      if (auto s = r_.cstr(a, 1024)) out_.selector_refs[slot] = *s;
+      if (auto s = cstr(a, 1024)) out_.selector_refs[slot] = *s;
     });
     for (const char *refs : {"__objc_classrefs", "__objc_superrefs"})
       for (const loader::Section *s : r_.sections(refs))
@@ -72,7 +72,18 @@ class Scanner {
   }
 
  private:
-  bool budget() { return ++records_ <= kMaxRecords; }
+  // Records, and the bytes of the names they copy: many records may name
+  // one long string (bug scrub part 3: 1M methods of one 4 KiB name made
+  // 5 GiB), so both are budgeted.
+  bool budget() { return ++records_ <= kMaxRecords && bytes_ <= kMaxBytes; }
+  std::optional<std::string> cstr(std::uint64_t a, std::size_t max) {
+    if (bytes_ > kMaxBytes) return std::nullopt;
+    std::optional<std::string> s = r_.cstr(a, max);
+    if (s) bytes_ += s->size();
+    return s;
+  }
+  std::uint64_t bytes_ = 0;
+  static constexpr std::uint64_t kMaxBytes = 128u << 20;
 
   // Each pointer of every section named `name` (null ones skipped).
   template <class F>
@@ -90,7 +101,7 @@ class Scanner {
   std::string str(std::uint64_t field) {
     auto a = r_.ptr(field);
     if (!a || *a == 0) return {};
-    return r_.cstr(*a, 4096).value_or("");
+    return cstr(*a, 4096).value_or("");
   }
 
   std::optional<MethodList> methods(std::uint64_t list, bool class_methods) {
@@ -114,9 +125,9 @@ class Scanner {
         // name: to a selector reference (whose pointer is the name); types:
         // to the string; imp: to the code.
         if (auto sel = r_.relative(e)) {
-          if (auto n = r_.ptr(*sel); n && *n != 0) x.selector = r_.cstr(*n, 1024).value_or("");
+          if (auto n = r_.ptr(*sel); n && *n != 0) x.selector = cstr(*n, 1024).value_or("");
         }
-        if (auto t = r_.relative(e + 4)) x.types = r_.cstr(*t, 4096).value_or("");
+        if (auto t = r_.relative(e + 4)) x.types = cstr(*t, 4096).value_or("");
         if (auto imp = r_.relative(e + 8)) x.imp = *imp;
       } else {
         x.selector = str(e);
@@ -154,7 +165,7 @@ class Scanner {
       if (auto it = protocol_names_.find(*a); it != protocol_names_.end()) out.push_back(it->second);
       else if (const std::string b = r_.bound(slot); !b.empty()) out.push_back(b);
       else if (*a != 0)
-        if (auto n = r_.ptr(*a + p_); n && *n) out.push_back(r_.cstr(*n, 1024).value_or(""));
+        if (auto n = r_.ptr(*a + p_); n && *n) out.push_back(cstr(*n, 1024).value_or(""));
     }
     return out;
   }

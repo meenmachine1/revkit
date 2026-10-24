@@ -9,7 +9,11 @@
 
 #include <sys/types.h>
 
+#include <cstdint>
 #include <filesystem>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace revkit::backend {
 
@@ -24,5 +28,16 @@ int OpenBeneath(int dirfd, const std::filesystem::path &rel, int flags, mode_t m
 // daemon's own configuration, such as a --browse-root), then `rel` below
 // it as OpenBeneath does.
 int OpenBeneath(const std::filesystem::path &root, const std::filesystem::path &rel, int flags, mode_t mode = 0);
+
+// Reads the regular file at `canonical` (absolute and canonical: checked
+// by the caller, read here without trusting it again), at most
+// `max_bytes`. With `roots` (--browse-root directories), it must lie below
+// one and is opened from it with OpenBeneath, so no link is followed on the
+// way; without, its last component isn't followed. Opened O_NONBLOCK, so
+// a FIFO doesn't block, and anything but a regular file is refused (a
+// device, a FIFO, a directory). nullopt with `why` ("missing", "not a
+// regular file", "too large", "outside the browse roots", "unreadable").
+std::optional<std::string> ReadRegularFile(const std::filesystem::path &canonical, const std::vector<std::string> &roots,
+                                           std::uint64_t max_bytes, std::string *why = nullptr);
 
 }  // namespace revkit::backend

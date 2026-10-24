@@ -74,6 +74,36 @@ class FileSystemServiceStub:
                 request_serializer=revkit_dot_v1_dot_filesystem__pb2.ListFileSystemsRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_filesystem__pb2.ListFileSystemsResponse.FromString,
                 _registered_method=True)
+        self.GetAndroidPackage = channel.unary_unary(
+                '/revkit.v1.FileSystemService/GetAndroidPackage',
+                request_serializer=revkit_dot_v1_dot_filesystem__pb2.GetAndroidPackageRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_filesystem__pb2.GetAndroidPackageResponse.FromString,
+                _registered_method=True)
+        self.DecodeAndroidXml = channel.unary_unary(
+                '/revkit.v1.FileSystemService/DecodeAndroidXml',
+                request_serializer=revkit_dot_v1_dot_filesystem__pb2.DecodeAndroidXmlRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_filesystem__pb2.DecodeAndroidXmlResponse.FromString,
+                _registered_method=True)
+        self.ListAndroidResources = channel.unary_unary(
+                '/revkit.v1.FileSystemService/ListAndroidResources',
+                request_serializer=revkit_dot_v1_dot_filesystem__pb2.ListAndroidResourcesRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_filesystem__pb2.ListAndroidResourcesResponse.FromString,
+                _registered_method=True)
+        self.GetAppleBundle = channel.unary_unary(
+                '/revkit.v1.FileSystemService/GetAppleBundle',
+                request_serializer=revkit_dot_v1_dot_filesystem__pb2.GetAppleBundleRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_filesystem__pb2.GetAppleBundleResponse.FromString,
+                _registered_method=True)
+        self.ReadPropertyList = channel.unary_unary(
+                '/revkit.v1.FileSystemService/ReadPropertyList',
+                request_serializer=revkit_dot_v1_dot_filesystem__pb2.ReadPropertyListRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_filesystem__pb2.ReadPropertyListResponse.FromString,
+                _registered_method=True)
+        self.ListUiActions = channel.unary_unary(
+                '/revkit.v1.FileSystemService/ListUiActions',
+                request_serializer=revkit_dot_v1_dot_filesystem__pb2.ListUiActionsRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_filesystem__pb2.ListUiActionsResponse.FromString,
+                _registered_method=True)
 
 
 class FileSystemServiceServicer:
@@ -144,6 +174,63 @@ class FileSystemServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetAndroidPackage(self, request, context):
+        """Android packages (api_minor 98, feature "android"; docs/android.md).
+        An APK in a session: its manifest (as XML text and as fields), its
+        resource table's summary, its native libraries by ABI with their JNI
+        exports, the DEX files' native methods linked to those exports, and a
+        Flutter app's Dart snapshot hash. Viewer, and the session's owner.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DecodeAndroidXml(self, request, context):
+        """A compiled XML file of an APK (a layout, res/xml/...) as XML text,
+        references named from the package's resources.arsc. Viewer.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListAndroidResources(self, request, context):
+        """The entries of an APK's resources.arsc (the strings table, or any
+        type), filtered and paged. Viewer.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetAppleBundle(self, request, context):
+        """An Apple bundle (api_minor 100, feature "apple-bundles";
+        docs/apple-apps.md): an .app, a framework, an app extension, or an .ipa
+        (its Payload/*.app): its layout, Info.plist, main executable and its
+        code signature (read, not verified), the bundles inside it, its
+        Interface Builder files and provisioning profile. Viewer.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReadPropertyList(self, request, context):
+        """A property list as a tree: an XML or binary plist, or a provisioning
+        profile's (api_minor 100, feature "apple-bundles"). Viewer.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListUiActions(self, request, context):
+        """Interface Builder's UI wiring (api_minor 101, feature "ui-actions";
+        docs/apple-apps.md): the compiled nibs and storyboards of a bundle (or
+        one nib or storyboard), their objects and connections, and each
+        control's action traced to the Objective-C method that runs it in a
+        program's metadata. Viewer (of the program's project, when named).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_FileSystemServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -186,6 +273,36 @@ def add_FileSystemServiceServicer_to_server(servicer, server):
                     servicer.ListFileSystems,
                     request_deserializer=revkit_dot_v1_dot_filesystem__pb2.ListFileSystemsRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_filesystem__pb2.ListFileSystemsResponse.SerializeToString,
+            ),
+            'GetAndroidPackage': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetAndroidPackage,
+                    request_deserializer=revkit_dot_v1_dot_filesystem__pb2.GetAndroidPackageRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_filesystem__pb2.GetAndroidPackageResponse.SerializeToString,
+            ),
+            'DecodeAndroidXml': grpc.unary_unary_rpc_method_handler(
+                    servicer.DecodeAndroidXml,
+                    request_deserializer=revkit_dot_v1_dot_filesystem__pb2.DecodeAndroidXmlRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_filesystem__pb2.DecodeAndroidXmlResponse.SerializeToString,
+            ),
+            'ListAndroidResources': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListAndroidResources,
+                    request_deserializer=revkit_dot_v1_dot_filesystem__pb2.ListAndroidResourcesRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_filesystem__pb2.ListAndroidResourcesResponse.SerializeToString,
+            ),
+            'GetAppleBundle': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetAppleBundle,
+                    request_deserializer=revkit_dot_v1_dot_filesystem__pb2.GetAppleBundleRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_filesystem__pb2.GetAppleBundleResponse.SerializeToString,
+            ),
+            'ReadPropertyList': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReadPropertyList,
+                    request_deserializer=revkit_dot_v1_dot_filesystem__pb2.ReadPropertyListRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_filesystem__pb2.ReadPropertyListResponse.SerializeToString,
+            ),
+            'ListUiActions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListUiActions,
+                    request_deserializer=revkit_dot_v1_dot_filesystem__pb2.ListUiActionsRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_filesystem__pb2.ListUiActionsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -404,6 +521,168 @@ class FileSystemService:
             '/revkit.v1.FileSystemService/ListFileSystems',
             revkit_dot_v1_dot_filesystem__pb2.ListFileSystemsRequest.SerializeToString,
             revkit_dot_v1_dot_filesystem__pb2.ListFileSystemsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetAndroidPackage(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.FileSystemService/GetAndroidPackage',
+            revkit_dot_v1_dot_filesystem__pb2.GetAndroidPackageRequest.SerializeToString,
+            revkit_dot_v1_dot_filesystem__pb2.GetAndroidPackageResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DecodeAndroidXml(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.FileSystemService/DecodeAndroidXml',
+            revkit_dot_v1_dot_filesystem__pb2.DecodeAndroidXmlRequest.SerializeToString,
+            revkit_dot_v1_dot_filesystem__pb2.DecodeAndroidXmlResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListAndroidResources(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.FileSystemService/ListAndroidResources',
+            revkit_dot_v1_dot_filesystem__pb2.ListAndroidResourcesRequest.SerializeToString,
+            revkit_dot_v1_dot_filesystem__pb2.ListAndroidResourcesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetAppleBundle(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.FileSystemService/GetAppleBundle',
+            revkit_dot_v1_dot_filesystem__pb2.GetAppleBundleRequest.SerializeToString,
+            revkit_dot_v1_dot_filesystem__pb2.GetAppleBundleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReadPropertyList(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.FileSystemService/ReadPropertyList',
+            revkit_dot_v1_dot_filesystem__pb2.ReadPropertyListRequest.SerializeToString,
+            revkit_dot_v1_dot_filesystem__pb2.ReadPropertyListResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListUiActions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.FileSystemService/ListUiActions',
+            revkit_dot_v1_dot_filesystem__pb2.ListUiActionsRequest.SerializeToString,
+            revkit_dot_v1_dot_filesystem__pb2.ListUiActionsResponse.FromString,
             options,
             channel_credentials,
             insecure,

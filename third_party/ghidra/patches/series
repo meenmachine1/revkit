@@ -10,3 +10,7 @@
 0009-SLEIGH-an-unimplemented-delay-slot-instruction-leave.patch
 0010-SLEIGH-an-operand-whose-constructor-exports-nothing-.patch
 0011-SLEIGH-expose-a-decision-node-s-field.patch
+0012-Decompiler-an-option-to-type-a-loaded-value-by-its-i.patch
+0013-Decompiler-an-option-to-print-comparisons-with-the-c.patch
+0014-Decompiler-an-option-to-fold-a-signed-flag-test-of-a.patch
+0015-Decompiler-an-option-to-print-only-C-a-compiler-acce.patch

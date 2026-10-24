@@ -176,6 +176,19 @@ bool hex_line(std::span<const std::byte> b, char lead) {
   return digits >= 8 && digits % 2 == 0;
 }
 
+// A DS ROM's header: its CRC-16 over 0x000-0x15D holds, and the ARM9 is
+// after the header (the logo's checksum alone isn't enough: it is the same
+// in every ROM).
+bool nds_header(std::span<const std::byte> b) {
+  if (b.size() < 0x180) return false;
+  std::uint16_t crc = 0xffff;
+  for (std::size_t i = 0; i < 0x15e; ++i) {
+    crc ^= static_cast<std::uint8_t>(b[i]);
+    for (int k = 0; k < 8; ++k) crc = (crc & 1) ? static_cast<std::uint16_t>((crc >> 1) ^ 0xa001) : static_cast<std::uint16_t>(crc >> 1);
+  }
+  return crc == le16(b.data() + 0x15e) && le32(b.data() + 0x20) >= 0x180 && le32(b.data() + 0x2c) != 0;
+}
+
 const std::map<std::string, std::string> &format_kinds() {
   static const std::map<std::string, std::string> m = {
       {"zip", "zip archive"},          {"tar", "tar archive"},
@@ -188,10 +201,16 @@ const std::map<std::string, std::string> &format_kinds() {
       {"fat", "FAT file system"},      {"uimage", "U-Boot image"},
       {"android-boot", "Android boot image"}, {"uf2", "UF2 firmware"},
       {"partitions", "partitioned disk image"},
+      {"jffs2", "JFFS2 file system"},  {"ubi", "UBI image"},
+      {"ubifs", "UBIFS file system"},  {"yaffs2", "YAFFS2 file system"},
+      {"trx", "TRX firmware"},         {"android-sparse", "Android sparse image"},
+      {"dtb", "device tree blob"},     {"ihex", "Intel HEX"},
+      {"srec", "Motorola S-record"},   {"carve", "embedded data"},
       {"asar", "Electron asar archive"},  {"pyinstaller", "PyInstaller archive"},
       {"pyz", "PyInstaller PYZ archive"}, {"lua-chunks", "Lua chunks"},
       {"node-sea", "Node.js single executable"}, {"pkg", "pkg executable"},
       {"nexe", "nexe executable"},        {"bun", "Bun executable"},
+      {"nds", "Nintendo DS ROM"},         {"narc", "NARC archive"},
   };
   return m;
 }
@@ -245,8 +264,12 @@ std::string identify_payload(const Source &src, const std::function<bool()> &can
       if (appended_zip(src)) return "zip";
       return "";
     }
-    // Data with Lua chunks in it; not a chunk (or other bytecode) itself.
+    // Intel HEX and S-records: raw images to load, and containers of
+    // their address ranges.
     const auto h = src.head(4096);
+    if (hex_line(h, ':')) return "ihex";
+    if (hex_line(h, 'S')) return "srec";
+    // Data with Lua chunks in it; not a chunk (or other bytecode) itself.
     if (bytecode_guess(h, src.size())) return "";
     if (lua_chunks_payload(src, cancelled)) return "lua-chunks";
   } catch (const Error &) {
@@ -268,12 +291,20 @@ std::string identify_head(std::span<const std::byte> b, std::uint64_t size) {
       at(b, 0, "\x71\xc7"))
     return "cpio";
   if (at(b, 0, "!<arch>\n")) return "ar";
+  if (at(b, 0, "NARC") && b.size() >= 16 && le16(b.data() + 4) == 0xfffe) return "narc";
+  if (nds_header(b)) return "nds";
   if (at(b, 0, "\x45\x3d\xcd\x28") || at(b, 0, "\x28\xcd\x3d\x45")) return "cramfs";
   if (b.size() >= 516 && (at(b, 512, "\x45\x3d\xcd\x28") || at(b, 512, "\x28\xcd\x3d\x45"))) return "cramfs";
-  if (at(b, 0, "ANDROID!")) return "android-boot";
+  if (at(b, 0, "ANDROID!") || at(b, 0, "VNDRBOOT")) return "android-boot";
   if (at(b, 0, "UF2\n") && at(b, 4, "\x57\x51\x5d\x9e") && b.size() >= 512 && at(b, 508, "\x30\x6f\xb1\x0a"))
     return "uf2";
   if (uimage_header(b)) return "uimage";
+  if (jffs2_header(b)) return "jffs2";
+  if (ubi_header(b)) return "ubi";
+  if (ubifs_header(b)) return "ubifs";
+  if (trx_header(b)) return "trx";
+  if (sparse_header(b)) return "android-sparse";
+  if (dtb_header(b, size)) return "dtb";
   if (tar_header(b)) return "tar";
   if (b.size() >= 1082 && le16(b.data() + 1080) == 0xef53) {
     // The superblock's log block size and inode counts must be sane.
@@ -287,6 +318,7 @@ std::string identify_head(std::span<const std::byte> b, std::uint64_t size) {
   if (lzma_alone(b, size)) return "lzma";
   if (asar_header(b, size)) return "asar";
   if (pyz_header(b)) return "pyz";
+  if (yaffs2_header(b)) return "yaffs2";
   return "";
 }
 
@@ -366,6 +398,7 @@ Guess guess(std::span<const std::byte> b, std::uint64_t size, std::string_view c
       g.content_kind = zip_content_kind(b);
       if (g.content_kind == "apk") g.description += " (Android package)";
       else if (g.content_kind == "jar") g.description += " (Java archive)";
+      else if (g.content_kind == "ipa") g.description += " (iOS app)";
     }
     if (g.format == "uimage" && b.size() >= 64) {
       static const std::map<unsigned, const char *> arch = {
@@ -431,6 +464,8 @@ Guess guess(std::span<const std::byte> b, std::uint64_t size, std::string_view c
   // and LuaJIT chunks, Java classes (0xcafebabe that isn't a universal
   // Mach-O), DEX, WebAssembly, Hermes, V8 code caches, ...
   if (auto bc = bytecode_guess(b, size); bc) return *bc;
+  // Property lists, nibs, provisioning profiles (api_minor 100).
+  if (auto a = apple_guess(b); a) return *a;
   struct Simple {
     std::string_view magic;
     const char *format, *description, *kind;
@@ -503,10 +538,14 @@ std::shared_ptr<FileSystem> open_format(const std::string &format, std::shared_p
       {"ar", open_ar},            {"iso9660", open_iso9660}, {"squashfs", open_squashfs},
       {"ext", open_ext},          {"cramfs", open_cramfs},   {"fat", open_fat},
       {"uimage", open_uimage},    {"android-boot", open_android_boot}, {"uf2", open_uf2},
-      {"partitions", open_partitions},
+      {"partitions", open_partitions}, {"jffs2", open_jffs2},
+      {"ubi", open_ubi},          {"ubifs", open_ubifs},     {"yaffs2", open_yaffs2},
+      {"trx", open_trx},          {"android-sparse", open_android_sparse}, {"dtb", open_dtb},
+      {"ihex", open_ihex},        {"srec", open_srec},
       {"asar", open_asar},        {"pyinstaller", open_pyinstaller}, {"pyz", open_pyz},
       {"lua-chunks", open_lua_chunks}, {"node-sea", open_node_sea}, {"pkg", open_pkg},
       {"nexe", open_nexe},        {"bun", open_bun},
+      {"nds", open_nds},          {"narc", open_narc},
   };
   static const std::map<std::string, Codec, std::less<>> codecs = {
       {"gzip", Codec::gzip}, {"bzip2", Codec::bzip2}, {"xz", Codec::xz},
@@ -526,8 +565,8 @@ std::shared_ptr<FileSystem> open_container(std::shared_ptr<const Source> src, st
 
 std::vector<std::string> formats() {
   return {"zip", "tar", "cpio", "ar", "iso9660", "gzip", "bzip2", "xz", "lzma", "zstd", "lz4", "squashfs",
-          "ext", "cramfs", "fat", "uimage", "android-boot", "uf2", "partitions", "asar", "pyinstaller", "pyz",
-          "lua-chunks", "node-sea", "pkg", "nexe", "bun"};
+          "ext", "cramfs", "fat", "uimage", "android-boot", "uf2", "partitions", "jffs2", "ubi", "ubifs", "yaffs2", "trx", "android-sparse", "dtb", "ihex", "srec", "asar", "pyinstaller", "pyz",
+          "lua-chunks", "node-sea", "pkg", "nexe", "bun", "nds", "narc"};
 }
 
 }  // namespace revkit::container

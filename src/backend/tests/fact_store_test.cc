@@ -15,6 +15,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -360,19 +361,21 @@ TEST_F(FactStoreTest, InferredPrototypesReachTheDecompiler) {
     req.mutable_address()->set_offset(fns.at("checksum"));
     pb::GetFunctionResponse resp;
     ASSERT_TRUE(with->GetFunction(ctx_, req, resp).ok());
-    EXPECT_EQ(NoSpace(resp.function().prototype()), "uintchecksum(char*param_1,intparam_2)");
+    EXPECT_EQ(NoSpace(resp.function().prototype()), "uintchecksum(uchar*param_1,intparam_2)");
     EXPECT_EQ(resp.function().prototype_origin().derived().rule(), "infer.prototypes");
   }
   const std::string inferred = NoSpace(Decompile(*with, a, fns.at("checksum")).prototype().c_declaration());
   const std::string local = NoSpace(Decompile(*without, b, fns.at("checksum")).prototype().c_declaration());
   // The decompiler alone sees a byte pointer; inference, from the callers
-  // and the signature priors, the C type.
+  // and the signature priors, the C type: the source's `unsigned char *`,
+  // its loads typed by their movzx as the daemon's decompiler types them
+  // (docs/infer.md, "Load types"; with Ghidra's use-based types, `char *`).
   EXPECT_EQ(local, "uintchecksum(byte*param_1,intparam_2)");
-  EXPECT_EQ(inferred, "uintchecksum(char*param_1,intparam_2)");
+  EXPECT_EQ(inferred, "uintchecksum(uchar*param_1,intparam_2)");
   EXPECT_FALSE(Decompile(*with, a, fns.at("checksum")).prototype().origin().has_asserted());
   // Its caller passes what the inferred prototype says.
   const std::string twice = Text(Decompile(*with, a, fns.at("twice")));
-  EXPECT_NE(twice.find("checksum((char *)"), std::string::npos) << twice;
+  EXPECT_NE(twice.find("checksum((uchar *)"), std::string::npos) << twice;
 }
 
 // Inference's structures (docs/infer.md, "Structures"): a pointer passed
@@ -492,6 +495,91 @@ int main(int argc, char **argv) {
   c = Text(Decompile(*b, id, fns.at("node_mark")));
   EXPECT_EQ(c.find("astruct_1"), std::string::npos) << c;
   EXPECT_NE(c.find("undefined1 *param_1"), std::string::npos) << c;
+}
+
+// Readers and a writer while inference publishes its structures in the
+// background (bug scrub part 3, for TSan): prototypes, the program's types
+// and decompilations read from three threads, renames from a fourth, from
+// the import until the analysis settles.
+TEST_F(FactStoreTest, ReadersAndAWriterWhileInferencePublishes) {
+  const fs::path exe = testing::scratch_dir("fact-store-publish") / "nodes";
+  ASSERT_TRUE(testing::compile(REVKIT_TEST_CC, R"(
+#include <stdio.h>
+#include <stdlib.h>
+struct node { int val; double w; struct node *next; unsigned char flag; };
+__attribute__((noinline)) double node_sum(struct node *p) {
+  double s = 0;
+  for (; p; p = p->next) s += p->val * p->w + p->flag;
+  return s;
+}
+__attribute__((noinline)) void node_mark(struct node *p, int v) {
+  p->val = v;
+  p->flag = 1;
+  p->w = node_sum(p);
+}
+int main(int argc, char **argv) {
+  struct node *n = calloc(1, sizeof *n);
+  node_mark(n, argc);
+  printf("%f\n", node_sum(n));
+  return 0;
+}
+)", "-O1", exe));
+  ImageBackendOptions o;
+  o.ghidra_root = REVKIT_GHIDRA_ROOT;
+  o.infer_prototypes = InferMode::automatic;
+  auto b = MakeImageBackend(o);
+  const std::string id = Import(*b, exe);
+  const auto fns = Functions(*b, id);
+  ASSERT_TRUE(fns.contains("node_sum") && fns.contains("node_mark"));
+  std::atomic<bool> stop{false};
+  std::atomic<int> reads{0};
+  std::vector<std::thread> threads;
+  for (int k = 0; k < 3; ++k)
+    threads.emplace_back([&, k] {
+      CallContext ctx;
+      while (!stop) {
+        pb::GetFunctionRequest fr;
+        fr.set_program_id(id);
+        fr.mutable_address()->set_offset(fns.at(k == 0 ? "node_sum" : "node_mark"));
+        pb::GetFunctionResponse fresp;
+        EXPECT_TRUE(b->GetFunction(ctx, fr, fresp).ok());
+        pb::FindTypesRequest tr;
+        tr.set_program_id(id);
+        tr.set_name_contains("astruct");
+        pb::FindTypesResponse tresp;
+        EXPECT_TRUE(b->FindTypes(ctx, tr, tresp).ok());
+        pb::DecompileRequest dr;
+        dr.set_program_id(id);
+        dr.mutable_function()->set_offset(fns.at(k == 1 ? "node_sum" : "node_mark"));
+        pb::DecompileResponse dresp;
+        EXPECT_TRUE(b->Decompile(ctx, dr, dresp).ok());
+        ++reads;
+      }
+    });
+  threads.emplace_back([&] {
+    for (int i = 0; !stop; ++i) {
+      pb::AppendAssertionsRequest req;
+      req.set_program_id(id);
+      req.mutable_provenance()->set_kind(pb::PROVENANCE_KIND_USER);
+      req.mutable_provenance()->set_id("alice");
+      *req.add_assertions()->mutable_body() = Rename(fns.at("main"), "main_" + std::to_string(i % 4));
+      pb::AppendAssertionsResponse resp;
+      CallContext ctx;
+      EXPECT_TRUE(b->AppendAssertions(ctx, req, resp).ok());
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+  });
+  Settle(*b, id);
+  const int settled = reads;
+  while (reads < settled + 6) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  stop = true;
+  for (std::thread &t : threads) t.join();
+  pb::GetFunctionRequest fr;
+  fr.set_program_id(id);
+  fr.mutable_address()->set_offset(fns.at("node_sum"));
+  pb::GetFunctionResponse fresp;
+  ASSERT_TRUE(b->GetFunction(ctx_, fr, fresp).ok());
+  EXPECT_NE(fresp.function().prototype().find("astruct_1 *"), std::string::npos) << fresp.function().prototype();
 }
 
 // Inference reads the memory map (docs/memory-map.md): a constant a

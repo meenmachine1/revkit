@@ -91,6 +91,7 @@ import { archText, compareFolders, comparePrograms, dateText, dateTimeText, form
 import { icon } from "./icons";
 import { LIBRARIES_FEATURE, librariesSummary, showLibrariesDialog } from "./libraries";
 import { BUILD_INFO_FEATURE, buildInfoSummary, showBuildInfoDialog } from "./buildinfo";
+import { APPLE_BUNDLES_FEATURE, showCodeSignatureDialog, signatureSummary } from "./apple";
 import { ask, choose, toast } from "./dialogs";
 import { h, overlayRoot, prefs, typing } from "./dom";
 import { showMenu, showMenuAt, type MenuItem } from "./menu";
@@ -263,6 +264,8 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
   const fsOn = new Set(o.features ?? []).has(FILESYSTEMS_FEATURE);
   const libsOn = new Set(o.features ?? []).has(LIBRARIES_FEATURE);
   const buildInfoOn = new Set(o.features ?? []).has(BUILD_INFO_FEATURE);
+  // A Mach-O's code signature in a line (api_minor 100, feature "apple-bundles").
+  const appleOn = new Set(o.features ?? []).has(APPLE_BUNDLES_FEATURE);
   // A universal Mach-O's slices (feature "macho", api_minor 90): the one
   // imported, the others a click away (ImportProgram.program_file).
   const machoOn = new Set(o.features ?? []).has("macho");
@@ -802,7 +805,7 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
   const openPayload = async (projectId: string, programId: string) => {
     try {
       const s = await openFileSystem(rk, projectId, { programId });
-      showFileSystemBrowser({ rk, projectId, features: new Set(o.features ?? []), pauseStreams: o.pauseStreams, onOpenProgram: (id) => open(id) }, s);
+      showFileSystemBrowser({ rk, projectId, features: new Set(o.features ?? []), pauseStreams: o.pauseStreams, onOpenProgram: (id, address) => open(id, address) }, s);
     } catch (e) {
       toast(`Could not open it as a file system: ${errText(e)}`, { kind: "error" });
     }
@@ -812,7 +815,7 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
     if (!s) return;
     fsSession = undefined;
     fsBtn.hidden = true;
-    showFileSystemBrowser({ rk, projectId: s.projectId, features: new Set(o.features ?? []), pauseStreams: o.pauseStreams, onOpenProgram: (id) => open(id) }, s);
+    showFileSystemBrowser({ rk, projectId: s.projectId, features: new Set(o.features ?? []), pauseStreams: o.pauseStreams, onOpenProgram: (id, address) => open(id, address) }, s);
   });
   // Where an import goes: the folder picked in the tree when the import section opened.
   let importInto: { folderId: string; path: string } | null = null;
@@ -1620,6 +1623,18 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
     }
     if (!closed) paintDetails();
   };
+  // Each Mach-O's code signature in a line (GetProgramSummary), once asked.
+  const signatureSummaries = new Map<string, string>();
+  const loadSignatureSummary = async (id: string) => {
+    signatureSummaries.set(id, "…");
+    try {
+      const m = (await rk.projects.getProgramSummary({ programId: id })).summary?.macho;
+      signatureSummaries.set(id, m?.codeSignature ? signatureSummary(m.codeSignature) : "not signed");
+    } catch (e) {
+      signatureSummaries.set(id, errText(e));
+    }
+    if (!closed) paintDetails();
+  };
   const paintDetails = () => {
     if (view !== "programs") return;
     const row = rows[active];
@@ -1696,6 +1711,13 @@ export function showOpenDialog(rk: Revkit, o: OpenOptions) {
           text: "Libraries…",
         });
         items.push(...detail("Libraries", h("span", { class: "od-libs-line" }, text, btn), { testid: "open-detail-libraries" }));
+      }
+      // A Mach-O's code signature: read, not verified.
+      if (appleOn && !p.deleted && p.format === "macho") {
+        const known = signatureSummaries.get(p.programId);
+        if (known === undefined) void loadSignatureSummary(p.programId);
+        const btn = h("button", { class: "btn small", type: "button", "data-testid": "open-signature", title: "Its code signature and entitlements, as the file says (not verified)", onclick: () => void showCodeSignatureDialog(rk, { programId: p.programId, programName: p.name }), text: "Signature…" });
+        items.push(...detail("Signed", h("span", { class: "od-libs-line" }, h("span", { class: "od-libs-text" }, known ?? "…"), btn), { testid: "open-detail-signature" }));
       }
       // Go's or Rust's build metadata, when the file has some (nothing shown otherwise).
       const known = buildInfoOn && !p.deleted ? buildSummaries.get(p.programId) : "none";

@@ -4,7 +4,7 @@
 ``revkit.Client`` is a thin wrapper over them. See docs/api.md.
 """
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 from revkit.client import (  # noqa: E402
     Aborted,
@@ -51,6 +51,7 @@ from revkit.client import (  # noqa: E402
     data_settings,
     data_settings_body,
     operand_display_body,
+    plist_value,
     provenance,
     preview_lines,
     reference_body,
@@ -60,9 +61,15 @@ from revkit.client import (  # noqa: E402
 from revkit.daemon import Daemon  # noqa: E402
 from revkit.diff import DiffSession, tier_name  # noqa: E402
 from revkit import patching  # noqa: E402
+from revkit import evidence  # noqa: E402
+from revkit.evidence import source, source_tier, unknown_dict  # noqa: E402
 
 __all__ = [
     "patching",
+    "evidence",
+    "source",
+    "source_tier",
+    "unknown_dict",
     "Aborted",
     "Client",
     "Daemon",
@@ -109,6 +116,7 @@ __all__ = [
     "data_settings",
     "data_settings_body",
     "operand_display_body",
+    "plist_value",
     "provenance",
     "preview_lines",
     "reference_body",

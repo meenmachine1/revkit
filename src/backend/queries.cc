@@ -1229,8 +1229,17 @@ Decompile::Value Decompile::compute(QueryContext &ctx, const Key &key) {
     return out;
   }
   auto image = ctx.get<InputsImage>(program);
+  // The program's decompiler settings (decompiler.h), or revkit's.
+  lift::SourceShape shape = lift::SourceShape::own();
+  {
+    auto v = ctx.get<AssertedFact>(
+        facts::FactKey{FactKind::Note, facts::Address{l.source->ram_space, 0}, std::string(kDecompilerSettingsTag)});
+    pb::DecompilerSettings settings;
+    if (const std::string *text = String(*v); text != nullptr && !text->empty() && settings.ParseFromString(*text))
+      shape = ShapeFromSettings(settings);
+  }
   QueryLookup lookup(ctx, program, entry);
-  DecompileOutput out = l.program.decompiler().Decompile(*inputs, *image, lookup);
+  DecompileOutput out = l.program.decompiler().Decompile(*inputs, *image, lookup, shape);
   for (const std::string &w : lookup.warnings()) out.function.add_warnings(w);
   if (!lookup.needs_found()) return out;
   // A variable's type needs what this decompilation found (the parameters
@@ -1242,7 +1251,7 @@ Decompile::Value Decompile::compute(QueryContext &ctx, const Key &key) {
   if (!found.params && found.hashes.empty()) return out;
   QueryLookup again(ctx, program, entry);
   again.commit_found(std::move(found));
-  DecompileOutput typed = l.program.decompiler().Decompile(*inputs, *image, again);
+  DecompileOutput typed = l.program.decompiler().Decompile(*inputs, *image, again, shape);
   for (const std::string &w : again.warnings()) typed.function.add_warnings(w);
   typed.touched.insert(typed.touched.end(), out.touched.begin(), out.touched.end());
   std::sort(typed.touched.begin(), typed.touched.end());

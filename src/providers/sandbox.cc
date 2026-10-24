@@ -81,6 +81,21 @@ std::uint64_t size_of(const fs::path &p) {
   return !p.empty() && ::stat(p.c_str(), &st) == 0 ? static_cast<std::uint64_t>(st.st_size) : 0;
 }
 
+// Whether the run wrote too much: the output directory and stdout over the
+// output cap, or (bug scrub part 3: RLIMIT_FSIZE bounds one file, not how
+// many) its other writable directories, the home and temporary ones, over
+// four times that or as many entries as the output may have.
+bool over_output(const SandboxSpec &spec) {
+  const SandboxLimits &lim = spec.limits;
+  std::uint64_t bytes = size_of(spec.stdout_file), entries = 0;
+  if (!spec.output_dir.empty()) measure(spec.output_dir, bytes, entries, lim.output_files);
+  if ((lim.output_bytes && bytes > lim.output_bytes) || entries > lim.output_files) return true;
+  std::uint64_t scratch = 0, scratch_entries = 0;
+  for (const fs::path &p : spec.write_paths)
+    if (p != spec.output_dir) measure(p, scratch, scratch_entries, lim.output_files);
+  return (lim.output_bytes && scratch > 4 * lim.output_bytes) || scratch_entries > lim.output_files;
+}
+
 // Kills every process in the group. One signal is enough: the kernel
 // delivers it to the whole group at once, and a process forking at that
 // moment can't make a child that misses it (fork fails with a fatal signal
@@ -288,9 +303,7 @@ RunOutcome run_sandboxed(const SandboxSpec &spec) {
       else if (spec.cancelled && spec.cancelled()) stop = Stop::cancelled;
       else if (now >= next_measure) {
         next_measure = now + std::chrono::milliseconds(250);
-        std::uint64_t bytes = size_of(spec.stdout_file), entries = 0;
-        if (!spec.output_dir.empty()) measure(spec.output_dir, bytes, entries, lim.output_files);
-        if ((lim.output_bytes && bytes > lim.output_bytes) || entries > lim.output_files) stop = Stop::output;
+        if (over_output(spec)) stop = Stop::output;
       }
       if (stop != Stop::none) kill_group(pid);
     }
@@ -307,9 +320,7 @@ RunOutcome run_sandboxed(const SandboxSpec &spec) {
 
   // A final measure: a tool may exit right after writing too much.
   if (stop == Stop::none && WIFEXITED(st)) {
-    std::uint64_t bytes = size_of(spec.stdout_file), entries = 0;
-    if (!spec.output_dir.empty()) measure(spec.output_dir, bytes, entries, lim.output_files);
-    if ((lim.output_bytes && bytes > lim.output_bytes) || entries > lim.output_files) stop = Stop::output;
+    if (over_output(spec)) stop = Stop::output;
   }
   std::ostringstream cap;
   switch (stop) {

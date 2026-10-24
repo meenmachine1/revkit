@@ -170,6 +170,11 @@ class QueryServiceStub:
                 request_serializer=revkit_dot_v1_dot_query__pb2.ExportCRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_query__pb2.ExportCResponse.FromString,
                 _registered_method=True)
+        self.ExportDecompScratch = channel.unary_unary(
+                '/revkit.v1.QueryService/ExportDecompScratch',
+                request_serializer=revkit_dot_v1_dot_query__pb2.ExportDecompScratchRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_query__pb2.ExportDecompScratchResponse.FromString,
+                _registered_method=True)
         self.FindBytes = channel.unary_unary(
                 '/revkit.v1.QueryService/FindBytes',
                 request_serializer=revkit_dot_v1_dot_query__pb2.FindBytesRequest.SerializeToString,
@@ -475,6 +480,19 @@ class QueryServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ExportDecompScratch(self, request, context):
+        """One function as a starting scratch for a matching decompilation
+        (api_minor 103, feature "nds"; docs/nds.md, "From revkit to a
+        scratch"): a `// PROBE: <mangled> <module> <address>` line, Ghidra's
+        built-in type names, the named types the function uses, the callees'
+        prototypes and the globals' declarations it refers to (from linked DS
+        modules too), then its decompiled C. For a decomp.me scratch's context
+        and source, or a probe file.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def FindBytes(self, request, context):
         """Finds a byte pattern, with an optional bit mask, in the program's
         initialized memory (as patched), in address order.
@@ -712,6 +730,11 @@ def add_QueryServiceServicer_to_server(servicer, server):
                     servicer.ExportC,
                     request_deserializer=revkit_dot_v1_dot_query__pb2.ExportCRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_query__pb2.ExportCResponse.SerializeToString,
+            ),
+            'ExportDecompScratch': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExportDecompScratch,
+                    request_deserializer=revkit_dot_v1_dot_query__pb2.ExportDecompScratchRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_query__pb2.ExportDecompScratchResponse.SerializeToString,
             ),
             'FindBytes': grpc.unary_unary_rpc_method_handler(
                     servicer.FindBytes,
@@ -1494,6 +1517,33 @@ class QueryService:
             '/revkit.v1.QueryService/ExportC',
             revkit_dot_v1_dot_query__pb2.ExportCRequest.SerializeToString,
             revkit_dot_v1_dot_query__pb2.ExportCResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExportDecompScratch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.QueryService/ExportDecompScratch',
+            revkit_dot_v1_dot_query__pb2.ExportDecompScratchRequest.SerializeToString,
+            revkit_dot_v1_dot_query__pb2.ExportDecompScratchResponse.FromString,
             options,
             channel_credentials,
             insecure,

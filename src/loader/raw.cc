@@ -6,7 +6,9 @@
 #include "reader.hh"
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
+#include <span>
 #include <vector>
 
 namespace revkit::loader {
@@ -221,12 +223,43 @@ Runs gather(std::vector<Record> records) {
 
 }  // namespace
 
+std::optional<Bytes> decode_hex_text(std::span<const std::byte> file) {
+  std::string_view text(reinterpret_cast<const char *>(file.data()), file.size());
+  auto blank = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
+  std::size_t i = 0;
+  while (i < text.size() && blank(text[i])) ++i;
+  if (text.substr(i, 2) == "0x" || text.substr(i, 2) == "0X") i += 2;
+  Bytes out;
+  out.reserve(text.size() / 2);
+  int hi = -1;
+  for (; i < text.size(); ++i) {
+    const char c = text[i];
+    if (blank(c)) {
+      if (hi >= 0) return std::nullopt;  // a digit pair split by a blank
+      continue;
+    }
+    const int d = hex_digit(c);
+    if (d < 0) return std::nullopt;
+    if (hi < 0) {
+      hi = d;
+    } else {
+      out.push_back(static_cast<std::byte>(hi << 4 | d));
+      hi = -1;
+    }
+  }
+  if (hi >= 0 || out.empty()) return std::nullopt;
+  return out;
+}
+
 RawContainer detect_raw_container(std::span<const std::byte> file) {
   if (file.empty()) return RawContainer::binary;
   const char first = static_cast<char>(file[0]);
   std::string error;
   if (first == ':' && parse_ihex(file, error)) return RawContainer::ihex;
   if (first == 'S' && parse_srec(file, error)) return RawContainer::srec;
+  // Hex text: "0x6080..." or bare digits, at least four bytes' worth.
+  if (std::isxdigit(static_cast<unsigned char>(first)) && file.size() >= 8)
+    if (auto bytes = decode_hex_text(file); bytes && bytes->size() >= 4) return RawContainer::hexbytes;
   return RawContainer::binary;
 }
 
@@ -236,12 +269,14 @@ std::string_view to_string(RawContainer c) {
     case RawContainer::binary: return "binary";
     case RawContainer::ihex: return "ihex";
     case RawContainer::srec: return "srec";
+    case RawContainer::hexbytes: return "hexbytes";
   }
   return "binary";
 }
 
 std::optional<RawContainer> raw_container_from_string(std::string_view name) {
-  for (RawContainer c : {RawContainer::detect, RawContainer::binary, RawContainer::ihex, RawContainer::srec})
+  for (RawContainer c : {RawContainer::detect, RawContainer::binary, RawContainer::ihex, RawContainer::srec,
+                         RawContainer::hexbytes})
     if (to_string(c) == name) return c;
   if (name == "hex") return RawContainer::ihex;
   if (name == "bin" || name.empty()) return name.empty() ? RawContainer::detect : RawContainer::binary;
@@ -273,6 +308,15 @@ RawRegion parse_raw_region(std::string_view spec) {
 
 Image parse_raw(std::shared_ptr<const Bytes> file, const RawOptions &options) {
   if (!file) fail("no input");
+  // Hex text (an EVM contract's bytecode as solc and block explorers print
+  // it): the bytes it spells, then as a binary file.
+  RawContainer given = options.container;
+  if (given == RawContainer::detect) given = detect_raw_container(*file);
+  if (given == RawContainer::hexbytes) {
+    std::optional<Bytes> decoded = decode_hex_text(*file);
+    if (!decoded) fail("raw: the file isn't hex text");
+    file = std::make_shared<const Bytes>(std::move(*decoded));
+  }
   std::string language = options.language;
   auto parts = split(language, ':');
   if (parts.size() < 4 || parts.size() > 5)
@@ -304,8 +348,7 @@ Image parse_raw(std::shared_ptr<const Bytes> file, const RawOptions &options) {
   known_space(options.space);
   for (const RawRegion &r : options.regions) known_space(r.space);
 
-  RawContainer container = options.container;
-  if (container == RawContainer::detect) container = detect_raw_container(*file);
+  RawContainer container = given == RawContainer::hexbytes ? RawContainer::binary : given;
 
   struct Pending {
     Block block;
@@ -397,6 +440,11 @@ Image parse_raw(std::shared_ptr<const Bytes> file, const RawOptions &options) {
   if (lm) apply_language_memory(img, *lm, true);
   img.image_base = img.file_base =
       image_block ? space_key(img, options.space, options.base).value_or(options.base) : img.blocks.front().start;
+  if (!options.symbols.empty()) {
+    img.symbols = options.symbols;
+    for (Symbol &sym : img.symbols) sym.source = SymbolSource::symtab;
+    if (language.starts_with("ARM:")) img.machine = 40;  // EM_ARM: odd function symbols are Thumb
+  }
   std::optional<std::uint64_t> entry;
   if (options.entry) entry = space_key(img, options.space, *options.entry);
   else if (file_entry) entry = space_key(img, options.space, *file_entry);
@@ -405,6 +453,73 @@ Image parse_raw(std::shared_ptr<const Bytes> file, const RawOptions &options) {
     else img.warnings.push_back("the entry point " + hex(*entry) + " is outside every block");
   }
   return img;
+}
+
+namespace {
+
+struct PresetRegion {
+  const char *name;
+  std::uint64_t start, size;
+};
+
+// GBATEK, "DS Memory Maps": the ARM9's and ARM7's shared WRAM windows (the
+// 16 or 32 KiB given to the CPU, mirrored through the window; 0x037F8000 is
+// the mirror programs use) and I/O ports (the ARM7's wireless ports are at
+// 0x04800000, in the same window). The last 4 KiB of main memory
+// (0x027FF000, through the 0x027xxxxx mirror) is what both CPUs and the
+// SDK's start-up code share: the cartridge header copy at 0x027FFE00
+// (GBATEK, "DS Cartridge Header"), the VBlank counter and IPC words.
+constexpr PresetRegion kNdsArm9[] = {
+    {"main_shared", 0x027FF000, 0x1000},
+    {"shared_wram", 0x03000000, 0x01000000},
+    {"io", 0x04000000, 0x01000000},
+};
+constexpr PresetRegion kNdsArm7[] = {
+    {"main_shared", 0x027FF000, 0x1000},
+    {"shared_wram", 0x03000000, 0x00800000},
+    {"io", 0x04000000, 0x01000000},
+};
+
+}  // namespace
+
+std::vector<std::string> platform_presets() { return {"nds-arm9", "nds-arm7"}; }
+
+std::optional<std::vector<RawRegion>> platform_regions(std::string_view preset,
+                                                       const std::vector<std::pair<std::uint64_t, std::uint64_t>> &taken) {
+  std::span<const PresetRegion> regions;
+  if (preset == "nds-arm9") regions = kNdsArm9;
+  else if (preset == "nds-arm7") regions = kNdsArm7;
+  else return std::nullopt;
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> busy(taken.begin(), taken.end());
+  std::sort(busy.begin(), busy.end());
+  std::vector<RawRegion> out;
+  for (const PresetRegion &pr : regions) {
+    // [first, last] minus every taken range, piece by piece.
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> pieces{{pr.start, pr.start + (pr.size - 1)}};
+    for (const auto &[tf, tl] : busy) {
+      std::vector<std::pair<std::uint64_t, std::uint64_t>> next;
+      for (const auto &[f, l] : pieces) {
+        if (tl < f || tf > l) {
+          next.emplace_back(f, l);
+          continue;
+        }
+        if (tf > f) next.emplace_back(f, tf - 1);
+        if (tl < l) next.emplace_back(tl + 1, l);
+      }
+      pieces = std::move(next);
+    }
+    for (std::size_t i = 0; i < pieces.size(); ++i) {
+      RawRegion r;
+      r.name = i == 0 ? std::string(pr.name) : std::string(pr.name) + "_" + std::to_string(i);
+      r.start = pieces[i].first;
+      r.size = pieces[i].second - pieces[i].first + 1;
+      r.perms = {true, true, false};
+      r.initialized = false;
+      r.is_volatile = true;
+      out.push_back(std::move(r));
+    }
+  }
+  return out;
 }
 
 }  // namespace revkit::loader

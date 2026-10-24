@@ -115,6 +115,11 @@ for image in $images; do
     case $out in "$t $version "*) ;; *) fail "$t --version printed: $out" ;; esac
     if x ldd "$bin/$t" | grep -q "not found"; then x ldd "$bin/$t"; fail "$t: missing libraries"; fi
   done
+  # rk-sleigh is Ghidra's SLEIGH compiler (no --version): present, linked, and
+  # the processors it compiled (EVM) installed.
+  x test -x "$bin/rk-sleigh" || fail "rk-sleigh missing"
+  if x ldd "$bin/rk-sleigh" | grep -q "not found"; then x ldd "$bin/rk-sleigh"; fail "rk-sleigh: missing libraries"; fi
+  x sh -c "find /opt/$name/share/revkit/processors -name '*.sla' | grep -q ." || fail "revkit's processors (EVM) missing"
   echo "   $(x "$bin/rk-daemon" --version); every binary runs, every library found"
 
   step "rk-decomp and rk-lift with the bundled Ghidra specs"

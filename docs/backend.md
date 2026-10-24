@@ -347,6 +347,51 @@ the renamed function up without being among the static callers the
 benchmark re-decompiled after the rename, so their stored memos were stale
 and recomputed, as they should.
 
+## Compaction
+
+`api_minor` 104, feature `compact`. `src/backend/compact.{h,cc}`,
+`facts::Storage::compact` (`lmdb_storage.cc`).
+
+LMDB keeps its file at its high-water mark: a memo replaced or deleted
+frees pages inside the file for later writes, but the file never shrinks,
+and memos nothing reads again stay forever (a rule whose version changed,
+a decompilation of an option set no longer asked for, a program deleted).
+A project that decompiled everything a few times over takes far more disk
+than its log and bytes.
+
+```sh
+rk-daemon compact ~/rk                              # every project; the daemon stopped
+rk-daemon compact ~/rk --project default --dry-run  # what it would drop, by rule
+rk-daemon compact ~/rk --drop-caches                # every memo: the smallest store
+rk-daemon compact ~/rk --cache-limit-mb 512         # the memos used last, up to 512 MiB
+```
+
+- **What goes.** Always the memos of rules this build doesn't register or
+  whose version changed (they can only be recomputed); with
+  `--drop-caches` every memo (each recomputes on first use, as after an
+  import); with `--cache-limit-mb` the memos beyond that size, those used
+  longest ago first (a memo's revision of last use). The log (every
+  assertion and retraction: history, undo, blame and replication read it),
+  the programs' stored files and the meta table are never touched.
+- **The rewrite.** The deletions, then `mdb_env_copy2(MDB_CP_COMPACT)` (as
+  `mdb_copy -c`) into `<store>/.compact/`, renamed over `data.mdb`: a crash
+  leaves the old store or the new one. Reads and writes of the store wait
+  while it runs (a shared lock around the environment, which the rewrite
+  replaces).
+- **When.** `rk-daemon compact <dir>` takes the directory's lock, so it
+  runs while no daemon uses the directory. A running daemon has
+  `ProjectService.CompactProject{project_id, drop_caches,
+  cache_limit_bytes, dry_run}` (admin) for a closed project
+  (`FAILED_PRECONDITION` while open: `CloseProject` first, `OpenProject`
+  after); the response has the file's size before and after, the log's and
+  the bytes' share, and each rule's memos (`CompactRule`). Python:
+  `Client.compact_project`.
+- **A limit as projects open.** `rk-daemon --cache-limit-mb <MiB>`
+  (`ImageBackendOptions::persisted_cache_limit`) drops each project's
+  stored memos beyond the limit when it opens, without the rewrite: LMDB
+  reuses the freed pages, so the store stops growing past about the limit
+  plus a session's work. Off by default.
+
 ## Project archives
 
 `api_minor` 37, feature `project-archive` ([api.md](api.md#queries),

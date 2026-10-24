@@ -726,7 +726,9 @@ class Assembler {
     auto apply = [&](lift::FunctionFacts &f, const std::string &name, bool external) {
       if (!external && crt_function(name)) return;  // library.h
       if (lib)
-        if (const LibraryFunction *d = lib->find(name); d != nullptr && apply_own(f, *d)) return;
+        if (const LibraryFunction *d = lib->find(name, LibraryPrototypes::underscore_names(image_));
+            d != nullptr && apply_own(f, *d))
+          return;
       if (external)
         if (const auto *d = def_for(name)) apply_ghidra(f, *d);
     };

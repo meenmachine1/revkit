@@ -165,6 +165,7 @@ class LiftBundleBuilder {
 
   void set_naming(bool default_names, bool default_labels, bool default_extrapop);
   void set_format_strings(bool on) { lift_.format_strings = on; }
+  void set_shape(const lift::SourceShape &shape) { lift_.shape = shape; }
   void set_hooks(std::map<std::uint64_t, std::vector<std::uint64_t>> jump_tables,
                  std::vector<std::pair<std::uint64_t, std::string>> flow_overrides,
                  std::vector<lift::CommentFacts> comments);

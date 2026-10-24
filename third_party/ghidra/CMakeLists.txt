@@ -113,9 +113,17 @@ if(REVKIT_BUILD_TESTS)
           COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} sh "${CMAKE_CURRENT_SOURCE_DIR}/repro/replay.sh"
                   $<TARGET_FILE:rk-decompd> "${GHIDRA_ROOT}" "${CMAKE_CURRENT_SOURCE_DIR}/repro/${n}.bundle")
       else()
+        # A <decompilertest> (upstream's datatests format, its checks
+        # inside) runs in ghidra_test; a savefile in the console.
+        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/repro/${n}.xml" _head LIMIT 64)
+        if(_head MATCHES "<decompilertest>")
+          set(_runner ghidra_test)
+        else()
+          set(_runner ghidra_decomp_dbg)
+        endif()
         add_test(NAME ghidra_repro_${n}
           COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} sh "${CMAKE_CURRENT_SOURCE_DIR}/repro/replay.sh"
-                  $<TARGET_FILE:ghidra_decomp_dbg> "${GHIDRA_ROOT}" "${CMAKE_CURRENT_SOURCE_DIR}/repro/${n}.xml")
+                  $<TARGET_FILE:${_runner}> "${GHIDRA_ROOT}" "${CMAKE_CURRENT_SOURCE_DIR}/repro/${n}.xml")
       endif()
     endforeach()
   endif()

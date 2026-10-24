@@ -93,6 +93,20 @@ lists; docs/build-info.md) is a C++ port of parts of rea
 own `debug/buildinfo` (BSD-3-Clause, Copyright The Go Authors) was the format
 reference; none of its code is copied. rea's license ships as `licenses/rea-MIT.txt`.
 
+`src/apple` and `src/backend/apple_bundles.cc` (Apple applications;
+docs/apple-apps.md) read property lists, code signatures, CMS and
+provisioning profiles from their public descriptions (CoreFoundation's
+open-source property list sources and DTD, Apple's open-source Security
+framework, RFC 5652, RFC 5280, X.690); no code is copied from them. The
+bundle roles and the dyld path expansion follow rea's documentation
+(https://github.com/morluto/rea: `docs/apple-application-analysis.md`), and
+`src/apple/ib.cc` (compiled nibs and keyed archives) is a C++ port of parts
+of rea's `src/artifacts/apple/NibArchive.ts`,
+`src/artifacts/apple/InterfaceBuilderAnalysis.ts` and
+`src/domain/apple/interfaceBuilderKeyedArchive.ts` (the NIBArchive layout
+and checks, the connections' key names), MIT License, Copyright (c) 2026
+morluto; its license ships as `licenses/rea-MIT.txt`.
+
 `src/loader/gopclntab.cc` (Go's function table; docs/go.md) reads the
 pclntab layouts as Go's `runtime/symtab.go`, `runtime/runtime2.go` and
 `debug/gosym` (BSD-3-Clause, Copyright The Go Authors) define them, and
@@ -173,7 +187,10 @@ Python 3 as the Ghidra compatibility corpus
 Ghidra's licence header with a notice of the change), and the UI's and
 SDKs' development dependencies (TypeScript, Vite, esbuild, tsx, Playwright,
 buf, grpcio-tools, pytest) are used to build and test revkit and are not
-part of any package.
+part of any package. The EVM tests' contracts (`tests/data/evm`) are
+OpenZeppelin Contracts 4.9.6's compiled `ERC20` and `ERC721` (the npm
+package's `build/contracts`; MIT, Copyright (c) 2016-2023 zOS Global
+Limited and contributors), as hex text.
 
 ## Web UI (npm)
 

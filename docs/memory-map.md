@@ -49,6 +49,13 @@ change is on the tab's undo stack (`Ctrl+Z`), and every tab and client
 reloads (the edit's event invalidates the program). Clicking a row goes to
 its start in the listing.
 
+**Platform presets.** A raw import can take a platform's map at import
+instead (`ImportOptions.memory_preset`, `api_minor` 104): `"nds-arm9"`,
+`"nds-arm7"` add the Nintendo DS's I/O ports, shared WRAM and main
+memory's shared area as volatile blocks, cut around the image and the
+regions given ([nds.md](nds.md#memory-map); the DS imports add them
+themselves). They are the image's blocks, edited like any other.
+
 **Python** (`revkit.Program`):
 
 ```python

@@ -1,8 +1,9 @@
 // Container file systems: archives (zip, tar, cpio, ar, ISO 9660),
 // single-file compression (gzip, xz, bzip2, lz4, zstd, lzma), file system
-// images (squashfs, ext2/3/4, cramfs, FAT) and firmware packages (uImage,
-// Android boot images, UF2), browsed as trees of files, nested to any depth
-// (docs/filesystems.md).
+// images (squashfs, ext2/3/4, cramfs, FAT, and the flash file systems JFFS2,
+// UBI/UBIFS and YAFFS2) and firmware packages (uImage, Android boot and
+// sparse images, UF2, TRX, device trees and FIT, Intel HEX and S-records),
+// browsed as trees of files, nested to any depth (docs/filesystems.md).
 //
 // Everything here reads hostile input. Every parser is bounds-checked and
 // throws container::Error on malformed data; decompression is bounded by

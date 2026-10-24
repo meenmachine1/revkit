@@ -8,7 +8,9 @@ them, see what each file is, read and describe files, import the programs
 in them (one, or a whole tree at once), and extract files to the daemon's
 host. `api_minor` 48, feature `filesystems`; packed executables
 (PyInstaller, Electron asar, pkg, nexe, Node SEA, Bun) and Lua chunks in
-firmware from `api_minor` 96, feature `packed-executables`.
+firmware from `api_minor` 96, feature `packed-executables`; Apple bundles,
+property lists and code signatures from `api_minor` 100, feature
+`apple-bundles` ([apple-apps.md](apple-apps.md)).
 
 - [Formats](#formats)
 - [Packed executables](#packed-executables)
@@ -55,9 +57,19 @@ Every format is recognised by its magic, never by its name
 | cramfs | `28 cd 3d 45` either byte order, at 0 or after 512 bytes | both byte orders, zlib blocks of 4 KiB, holes, extended block pointers (direct and uncompressed blocks) |
 | FAT12/16/32 | a boot sector with a sane BPB and `55 aa` | the type from the cluster count, long names (checked against their short entry), 8.3 names with the lowercase flags, DOS times, cluster chains (loops and short chains refused) |
 | uImage | `27 05 19 56` and a header CRC that matches | U-Boot legacy images: one member (decompressed when gzip, bzip2, lzma, lz4 or zstd), or a multi-file image's parts; the data CRC checked (a warning); the header's processor (as a language where its byte order is settled: ARM, AArch64, x86, x86-64, PowerPC) and load address on the member |
-| Android boot image | `ANDROID!` | v0 to v4: kernel, ramdisk, second stage, recovery DTBO, DTB, the boot signature; v0-v2 load addresses on the members |
+| Android boot image | `ANDROID!`, `VNDRBOOT` | v0 to v4: kernel, ramdisk, second stage, recovery DTBO, DTB, the boot signature; v0-v2 load addresses on the members. Vendor boot images v3 and v4: the vendor ramdisk (v4: each ramdisk its table names, with its type), the DTB and the bootconfig, with the header's load addresses |
+| JFFS2 | a node header (`0x1985`, either byte order) at the start whose CRC holds | read-only, both byte orders: every node at a 4-byte boundary whose CRCs hold (others are counted and skipped); directory entries and inodes by version, the newest winning (an entry whose inode is 0 deletes its name); data nodes laid over each other oldest first and cut to the size each gives (truncation); data stored, zeros (holes), zlib, rtime or LZO (rubin, dynrubin and LZMA nodes named, not read); symlinks, devices, hard links |
+| UBI | an erase-count header (`UBI#`) at the start whose CRC holds | the erase block size from where the next erase-count header is; volume-ID headers (`UBI!`), the newest copy of each logical block by sequence number; the volume table's names, types and sizes (volumes named by number without one); each volume a file (`rootfs`), its blocks in order, unmapped ones read as zeros, static volumes cut to their data; blocks of another image (another `image_seq`) skipped |
+| UBIFS | a superblock node (`0x06101831`, type 6) whose CRC holds | in a UBI volume or by itself (mkfs.ubifs's output): the superblock, the newest master node, the index B-tree to its leaves (each node's CRC checked), inodes, directory entries and data nodes; 4 KiB blocks stored or compressed with LZO, zlib or zstd, holes as zeros; symlinks, devices, hard links; fscrypt-encrypted files listed, not read; an authenticated UBIFS refused; the journal's uncommitted nodes are not replayed |
+| YAFFS2 | an object header in the first chunk at a common page geometry (no magic) | the geometry guessed: 2 KiB pages + 64-byte spare, 4 KiB + 128, 224 or 256, 8 KiB + 256, 448 or 640, 16 KiB + 1280, 512 + 16, 1 KiB + 32, and inband tags (no spare) on 512 B to 16 KiB pages; the packed tags at the spare's start or after a 2-byte bad-block marker; either byte order; scored over the first 256 chunks. Of each chunk the copy with the highest sequence number wins; an object's newest header gives its name, parent, type, mode, owner, time and size; files, directories, symlinks, hard links, devices; objects in lost+found shown there, deleted ones counted |
+| TRX | `HDR0` and version 1 or 2 | Broadcom's firmware images: the partitions by their offsets, named as Linux names them (`loader` when there are three, `linux`, `rootfs`); the CRC checked (a warning) |
+| Android sparse image | `0xed26ff3a`, version 1 | the raw image it expands to (`system.raw.img` from `system.simg`): raw chunks map onto the file, fills repeat their word, "don't care" reads as zeros, CRC chunks skipped; mapped, not copied |
+| device tree blob | `0xd00dfeed`, version 16 or later, sizes that fit | the tree as directories (one per node) of property files holding each value (a string's text in the entry's note), as Linux's `/proc/device-tree` shows it, and `devicetree.dts`, the tree as source (dtc compiles it back to the same blob; content kind `dts-source`). A U-Boot FIT image is a device tree: each image's `data` (inline, or external by `data-offset` or `data-position`) is a file, with its `load` address and `arch`'s language when it isn't compressed |
+| Intel HEX, Motorola S-records | `:` and hex digits, `S<digit>` and hex digits (a raw program that is also a container, as the [packed executables](#packed-executables) are) | the records decoded (checksums checked, a warning), every address form (HEX's extended segment and linear addresses; S1, S2, S3), one flat image per address range (gaps under 64 KiB read as erased flash, 0xff), named `<file>@<address>.bin` with its load address; the entry point and an S0 header in the description |
 | UF2 | `UF2\n` and the block magics | blocks for the main flash, grouped by family (or by file name in a file container), one flat image per contiguous range (gaps under 64 KiB read as erased flash, 0xff), named `<family>@<address>.bin`, with the family's language (RP2040, RP2350, SAMD, nRF52, STM32, ESP32, i.MX RT, LPC55, GD32V) and the load address |
 | partition tables | an MBR with sane entries, or `EFI PART` at 512 or 4096 | MBR primary and logical partitions (a loop in the chain refused), GPT entries with their names; each partition a file (`p1.img`, `p1-rootfs.img`), cut at the image's end |
+| Nintendo DS ROM | a `.nds` header whose CRC-16 over 0x000-0x15D holds, the ARM9 after the header | laid out as ds-rom extracts a ROM: `header.bin`, `arm9.bin` (BLZ-decompressed when its module parameters say so, with the ARM9's language `ARM:LE:32:v5t` and load address, so it imports as a raw program), `arm7.bin` (`v4t`), the overlay tables `y9.bin` and `y7.bin`, `overlay/overlay_NNNN.bin` (decompressed when flagged, with their load addresses), `banner.bin`, and `files/`: NitroFS, the ROM's own file system (FNT directories and names, FAT ranges; ds-rom's extract layout). A file whose bytes are LZ10, LZ11, Huffman or RLE data throughout shows decompressed, its note saying so ([nds.md](nds.md)) |
+| NARC | `NARC`, byte-order mark `fffe` | the BTAF, BTNF and GMIF blocks: files by their names (directories too), by index when the archive has none; DS compressions decompressed as in a ROM |
 | Electron asar | the size pickle (4), sizes that agree, `{"files":` | the JSON header's files, directories, links (from the archive's root) and executable bits; `unpacked` files read from `<archive>.unpacked/` beside it when the archive is inside a container or a host directory (else listed, unreadable); `.js` members `js-source` |
 | PyInstaller | its cookie (`MEI\014\013\012\013\016`) at the end of the ELF section `pydata`, or in the file's last MiB (appended: Windows, macOS, older Linux builds) | the CArchive's table of contents: scripts and bootstrap modules as `.pyc` files with the header restored (the PYZ's magic number, else the release's of the cookie's Python version; modules that kept their own header, PyInstaller 5.2 and older, left as they are), binaries, data files, zips, splash resources, links; runtime options counted; the 24-byte cookie of 2.0 too |
 | PyInstaller PYZ | `PYZ\0` and a known pyc magic | the marshalled table of contents (a list, or 2.x's dict), each module as `a/b.pyc` and each package as `a/b/__init__.pyc` with its header restored, namespace packages as directories; entries encrypted with `--key` (before 6.0) listed, not read |
@@ -68,9 +80,10 @@ Every format is recognised by its magic, never by its name
 | a zip appended to an executable | an end record in the last 64 KiB of an ELF, PE or Mach-O, its central directory in the file | as zip, the prefix skipped (py2exe's library, self-extracting archives) |
 | Lua chunks | a file no other format names, with a `\x1bLua` or `\x1bLJ` header that parses and functions that walk to their end in its first 256 MiB | each chunk as `<kind>@<offset>.luac` (`lua-5.4@0x1a2b0.luac`), cut to its exact length (Lua 5.5: to the next chunk, as its dump isn't walked); LuaJIT prototypes checked against their own sizes |
 
-Intel HEX and Motorola S-records are loaders already (`ImportOptions.raw_format`):
-the browser shows them as `Intel HEX` and `Motorola S-record` and imports
-them as raw images.
+Intel HEX and Motorola S-records are loaders too (`ImportOptions.raw_format`):
+the browser shows them as `Intel HEX` and `Motorola S-record`, imports
+them as raw images, and opens them in place as the address ranges they
+hold.
 
 ## Packed executables
 
@@ -171,13 +184,28 @@ compressed member is decompressed only that far) and says:
   floats)`), a Java class (`Java class (Java 21, class file 65.0)`), DEX,
   WebAssembly, Hermes, a V8 code cache, Ruby `YARB`, PHP opcache, Erlang
   BEAM, a JerryScript snapshot, each with its [content kind](#content-kinds);
-- `text` (a script's `#!` line shown), `data` (a device tree, images and
-  documents are named), `empty`.
+- `text` (a script's `#!` line shown), `data` (images and documents are
+  named), `empty`. A device tree blob is a `container` (`device tree
+  blob`); Intel HEX and S-records stay `raw`, with their
+  `container_format` (`ihex`, `srec`) to open them in place.
+
+Apple's files (`api_minor` 100; [apple-apps.md](apple-apps.md)): a binary
+property list (`binary property list`, or `... (NSKeyedArchiver
+archive)`), an XML one (kind `text`), a compiled nib (`compiled nib
+(NIBArchive, 23 objects)`, `compiled nib (NSKeyedArchiver archive)`), a
+provisioning profile (`provisioning profile (CMS signed property list)`),
+a code signature SuperBlob; a zip whose first members are
+`Payload/<name>.app/` is `zip archive (iOS app)`. A directory that is an
+Apple bundle (an `.app`, `.framework`, `.appex`, ... holding an
+`Info.plist`, `Contents/`, `Versions/` or `Resources/`) has its
+`bundle_kind` in every listing, and `GetAppleBundle` describes it.
 
 A PE's description says when it is a .NET assembly (`PE x86 DLL, .NET
 assembly (IL-only, metadata v4.0.30319)`), and a zip's when its first
 members make it a Java archive or an Android package (`zip archive
-(Android package)`).
+(Android package)`). An APK's manifest, resources, native libraries and
+Flutter facts are read by `GetAndroidPackage` and its siblings
+(`api_minor` 98; [android.md](android.md)).
 
 Detection stops after about two seconds per listing
 (`detect_incomplete`); `GetFileSystemFileInfo` describes any one file, with
@@ -204,6 +232,7 @@ member's name or role (an asar's `.js` files, a packer's main script).
 | `dex:<version>`, `odex:<version>` | Dalvik bytecode (`dex:035` to `dex:041`) | `dex\n` and three digits |
 | `wasm`, `wasm-component` | a WebAssembly module, a component | `\0asm` and the version |
 | `hermes:<version>` | Hermes bytecode, React Native (`hermes:96`) | the 8-byte magic (the delta one too) and the version |
+| `evm` | Ethereum Virtual Machine bytecode as solc writes it, binary or hex text (api_minor 99; revkit imports it with its own processor: [evm.md](evm.md)) | `6080604052` (or `6060604052`, before solc 0.4.22) first, as bytes or as hex digits after an optional `0x` |
 | `v8-cache` | a V8 code cache: `vm.Script`'s cached data, bytenode's `.jsc` | the `0xC0DE....` magic and a payload length that fills the file |
 | `dotnet:il`, `dotnet:mixed` | a .NET assembly, IL-only or mixed-mode | the PE's CLR header |
 | `yarb:<major>.<minor>`, `php-opcache`, `beam`, `jerryscript:<version>` | Ruby instruction sequences, PHP opcache files, Erlang BEAM modules, JerryScript snapshots | their magics |
@@ -211,6 +240,11 @@ member's name or role (an asar's `.js` files, a packer's main script).
 | `js-source`, `ts-source` | a packer's script: an asar's, pkg's, nexe's, a SEA's or Bun's `.js` (`.mjs`, `.cjs`) and `.ts` members | the container |
 | `v8-snapshot` | a SEA's startup snapshot | the container |
 | `jsc-bytecode` | Bun's JavaScriptCore bytecode cache | the container |
+| `plist:xml`, `plist:binary` | an Apple property list (api_minor 100; [apple-apps.md](apple-apps.md#property-lists)) | `<plist` in an XML head (UTF-8 or UTF-16), `bplist00` |
+| `keyed-archive` | an NSKeyedArchiver archive (a plist) | `NSKeyedArchiver` in the plist's head |
+| `nib:archive`, `nib:keyed` | a compiled nib: iOS's NIBArchive, macOS's keyed archive | `NIBArchive` and format 1; a keyed archive with `IB.objectdata` |
+| `mobileprovision` | a provisioning profile: CMS signed data around a plist | the SignedData OID and a plist in the head |
+| `ipa` | an iOS app archive | a zip whose first members are `Payload/<name>.app/` |
 
 Not named, because their headers aren't reliable: QuickJS bytecode (its
 first byte is a version number), Lua 5.0 and modified Lua VMs (a format
@@ -320,15 +354,19 @@ normalized inside their container and marked.
 - **Python SDK**: `Client.open_filesystem(project, host_path=... |
   program_id=... | file=...)` returns a `FileSystem` with `list`,
   `entries`, `walk`, `read`, `info`, `import_` (also `import_files`),
-  `extract` and `close` (a context manager); `Client.filesystems()` lists
-  the caller's sessions.
+  `extract` and `close` (a context manager), and for Apple apps
+  `apple_bundle` and `property_list`; `Client.filesystems()` lists the
+  caller's sessions.
 - **TypeScript SDK**: `openFileSystem(rk, project, source)` returns a
   `FileSystemSession` (`list`, `entries`, `read`, `info`, `import`,
-  `extract`, `close`); path helpers `encodeName`, `displayPath`,
+  `extract`, `close`, `appleBundle`, `propertyList`); path helpers `encodeName`, `displayPath`,
   `joinPath`, `parentPath`, `pathLayers`; `looksLikeContainer` for a
   client's own magic check.
 - **MCP**: `open_filesystem`, `list_filesystem`, `read_filesystem_file`,
-  `filesystem_file_info`, `import_from_filesystem`, `close_filesystem`.
+  `filesystem_file_info`, `import_from_filesystem`, `close_filesystem`;
+  for an APK `android_package`, `android_resources`, `android_xml`
+  ([android.md](android.md)); for an Apple app `apple_bundle`,
+  `read_property_list` ([apple-apps.md](apple-apps.md)).
 - **`revkit.script`**: `open_filesystem(...)` (the current program's
   stored file by default) and `import_from_filesystem(fs, paths, ...)`,
   which imports with the run's provenance.
@@ -352,6 +390,12 @@ squashfs's root, say), in order
    `include` (`/etc/ld.so.conf.d/*.conf`);
 5. `/lib` and `/usr/lib` with their multiarch (`arm-linux-gnueabihf`) and
    `lib64`/`lib32` forms, and `/usr/local/lib`.
+
+A Mach-O's `@executable_path`, `@loader_path` and `@rpath` install names
+(an app's frameworks: `@rpath/Greeter.framework/Greeter` with the rpath
+`@executable_path/Frameworks`) are expanded as dyld expands them, inside
+the layer, before the steps above (`api_minor` 100;
+[apple-apps.md](apple-apps.md#libraries-in-a-bundle)).
 
 The first file of the name whose header has the program's format, word
 size and machine (and byte order, for ELF) is imported from its bytes,
@@ -377,7 +421,9 @@ from the system and carried in the bundle's `lib/revkit` like zlib
 library already carries (the system's `libzstd` in a build without
 plugins); LZ4 (frame, legacy and block) and LZO1X
 are decoded by revkit's own code (`src/container/decompress.cc`, from the
-formats' public descriptions), as no library for them is on the `.deb`'s
+formats' public descriptions), the DS compressions (LZ10, LZ11, Huffman,
+RLE and the ARM9's backwards BLZ; codecs `nds-lz`, `nds-blz`) by
+`revkit::nds` (`src/nds/compress.cc`, from GBATEK), as no library for them is on the `.deb`'s
 promise. Their licenses are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 
 ## Tests and fuzzing
@@ -400,6 +446,22 @@ promise. Their licenses are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.m
   archives and file system images (squashfs, ext4, cramfs, ISO, cpio:
   truncations and 200 flipped bytes each), a host directory whose symlinks
   point out.
+- `revkit_container_tests` `ContainerJffs2.*`, `ContainerUbi.*`,
+  `ContainerYaffs2.*`, `ContainerTrx.*`, `ContainerAndroidSparse.*`,
+  `ContainerAndroidBoot.*`, `ContainerDeviceTree.*`, `ContainerHexImages.*`
+  (`src/container/tests/flash_test.cc`): JFFS2 from `mkfs.jffs2` in both
+  byte orders with zlib, rtime, LZO and no compression, and newer nodes
+  appended by `tests/data/firmware/make_flash.py` (an overwrite, a
+  deletion, a truncation, a new file, a stale node and a corrupt one);
+  UBIFS from `mkfs.ubifs` with LZO, zlib, zstd and none, by itself and in
+  a UBI image from `ubinize` beside a static volume; YAFFS2 at six
+  geometries (spare and inband tags, both byte orders, a hard link, a file
+  rewritten in a later block) and TRX, sparse and vendor boot images, all
+  from `make_flash.py`, as no tool here writes them; device trees from
+  `dtc` (the source revkit writes compiles back to the same blob), FIT
+  images with inline and external data; Intel HEX and S-records from
+  `objcopy`, three ranges in one file; truncations and flipped bytes of
+  each, and random data that must not pass for YAFFS2.
 - `revkit_container_tests` `ContainerPackers.*` (`src/container/tests/packers_test.cc`):
   every packer's container, on the formats as
   `tests/data/bytecode/make_packed.py` writes them onto a copy of
@@ -421,6 +483,8 @@ promise. Their licenses are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.m
   length, and truncations refused) and on headers written by the test
   otherwise (the pyc magic table from 2.7 to 3.15, Lua's sizes, DEX, wasm,
   Hermes, YARB, BEAM, opcache).
+- Apple applications (an .ipa and a macOS .app made at test time; their
+  bundles, plists, signatures and frameworks): [apple-apps.md](apple-apps.md#tests-and-fuzzing).
 - `python_sdk` (`sdk/python/tests/test_filesystems.py`): the service end to
   end, MCP, `revkit.script`, extraction, the roles, and a batch import
   descending into a squashfs inside a zip and taking a UF2 image as a raw
@@ -431,21 +495,32 @@ promise. Their licenses are in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.m
   dialog; batch import with preview and cap.
 - **Fuzzing** (with `-DREVKIT_FUZZ=ON` and clang; the bug scrub,
   [roadmap.md](roadmap.md)): `container_<format>_fuzzer` for every format,
-  `container_codecs_fuzzer` for the LZ4 and LZO1X block decoders, and
+  `container_codecs_fuzzer` for the LZ4 and LZO1X block decoders (the
+  flash file systems and wrappers too: `container_jffs2_fuzzer`, `_ubi_`,
+  `_ubifs_`, `_yaffs2_`, `_trx_`, `_android_sparse_`, `_dtb_`, `_ihex_`,
+  `_srec_`), and
   `container_bytecode_fuzzer` for the bytecode headers (guess, a PE's CLR
   header, a Lua chunk's header and walk); the packers' formats each have
   theirs (`container_asar_fuzzer`, `_pyinstaller_`, `_pyz_` (with the
   marshal reader), `_lua_chunks_`, `_node_sea_`, `_pkg_` (with the JSON
-  reader), `_nexe_`, `_bun_`).
+  reader), `_nexe_`, `_bun_`); the DS formats `container_nds_fuzzer` and
+  `container_narc_fuzzer`, with `src/nds/fuzz`'s ROM, compression, NARC
+  and dsd text harnesses.
 
 ## Known gaps
 
-- Formats not read: 7z, rar, cab, dmg, HFS+, NTFS, YAFFS2, UBI/UBIFS,
-  JFFS2, romfs, Android sparse images, FIT images, TRX, UEFI volumes;
-  squashfs before 4.0; zip's own LZMA and deflate64; tar's GNU sparse
-  members; encrypted zip members and fscrypt files; uImage LZO (lzop)
-  payloads. cramfs is read with 4 KiB blocks (an image made with another
-  `-b` fails to decompress).
+- Formats not read: 7z, rar, cab, dmg, HFS+, APFS, NTFS, romfs, UEFI
+  volumes, YAFFS1; squashfs before 4.0 (versions 1 to 3, little- and
+  big-endian, and the vendors' LZMA variants: their inodes are bit
+  fields laid out per byte order, and no tool here writes them to test
+  with); zip's own LZMA and deflate64; tar's GNU sparse members; encrypted
+  zip members and fscrypt files; uImage LZO (lzop) payloads; JFFS2's
+  rubin and LZMA nodes, its xattrs and summaries (skipped). cramfs is read
+  with 4 KiB blocks (an image made with another `-b` fails to decompress).
+- UBIFS: the journal is not replayed (an image dumped from a live device
+  may lack its newest writes), and an authenticated image is refused.
+  YAFFS2 geometries outside the list above, and ECC-laid-out spares
+  (tags spread over the free bytes) aren't found.
 - ext: the journal is not replayed.
 - Packers not read yet: Deno executables, py2exe's `PYTHONSCRIPT`,
   Nuitka onefile, AutoIt and AutoHotkey scripts, .NET bundles

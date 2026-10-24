@@ -2,7 +2,8 @@
 // docs/debugger.md). One session model whatever runs the code: revkit's
 // p-code emulator, a live process or board behind a GDB remote stub
 // (gdbserver, QEMU, OpenOCD, J-Link), a process the daemon launches, or a
-// saved trace replayed. Every stop is recorded on the session's timeline,
+// saved trace replayed, or a crash dump (an ELF core file, a Windows
+// minidump; api_minor 102). Every stop is recorded on the session's timeline,
 // which the state, register and memory calls can read at any snapshot.
 //
 // Like EmulatorService, a session is the caller's state, not a fact about
@@ -101,6 +102,12 @@ service DebugService {
   // run goes on. The Python SDK's hook_function and the like.
   rpc SetDebugHooks(SetDebugHooksRequest) returns (SetDebugHooksResponse);
   rpc AnswerDebugHook(AnswerDebugHookRequest) returns (AnswerDebugHookResponse);
+  // A crash dump session's summary (api_minor 102, feature "crash-dumps";
+  // docs/crash-dumps.md): the signal or exception, where it happened (the
+  // faulting module and offset, the function, the instruction), the
+  // crashed thread's backtrace, the threads and modules. A session on
+  // another target is FAILED_PRECONDITION.
+  rpc GetDebugCrash(GetDebugCrashRequest) returns (GetDebugCrashResponse);
 }
 
 // --- Targets ---
@@ -157,6 +164,24 @@ message DebugLaunchTarget {
 // nothing runs.
 message DebugTraceTarget {
   string name = 1;
+}
+
+// A crash dump (api_minor 102, feature "crash-dumps"; docs/crash-dumps.md):
+// an ELF core file or a Windows minidump, shown stopped where it crashed and
+// read-only: its threads and registers, memory as dumped, the modules and
+// memory map. Code the dump leaves out is read from the session's program,
+// the project programs its modules are, or (an ELF core's mapped files)
+// the files themselves under --browse-root. Nothing runs or changes.
+message DebugCrashTarget {
+  oneof source {
+    // A dump imported as a program of the project (an ELF core imports
+    // with its segments as memory blocks; ProgramInfo.crash_dump).
+    string dump_program_id = 1;
+    // A file on the daemon's host (admin).
+    string host_path = 2;
+    // An upload (ProjectService.UploadChunk; admin).
+    string upload_id = 3;
+  }
 }
 
 message DebugTimelineLimits {
@@ -395,6 +420,11 @@ message CreateDebugSessionRequest {
     DebugRemoteTarget remote = 3;
     DebugLaunchTarget launch = 4;
     DebugTraceTarget trace = 5;
+    // api_minor 102: a crash dump. The session's program is program_id
+    // (the crashed executable, best: its code and symbols); the response's
+    // crash.main_program_id names the project's program of the dump's
+    // executable when program_id isn't it.
+    DebugCrashTarget crash = 10;
   }
   repeated DebugBreakpointSpec breakpoints = 6;
   DebugTimelineLimits timeline = 7;
@@ -414,6 +444,7 @@ message CreateDebugSessionResponse {
   DebugState state = 8;
   DebugTimelineLimits timeline = 9;  // the bounds in force
   EmulatorMachineInfo machine = 10;  // an emulator target with a machine
+  DebugCrash crash = 11;             // a crash dump target (api_minor 102)
 }
 
 message CloseDebugSessionRequest {
@@ -1027,4 +1058,95 @@ message GetDebugMachineResponse {
   repeated EmulatorException events = 2;
   uint64 first_event = 3;
   uint64 event_count = 4;
+}
+
+// --- Crash dumps (api_minor 102, feature "crash-dumps"; docs/crash-dumps.md) ---
+
+message DebugCrashThread {
+  string id = 1;  // the LWP or thread id, as SelectDebugThread takes it
+  string name = 2;
+  bool crashed = 3;
+  DebugLocation pc = 4;
+  uint64 sp = 5;
+  // Its innermost frame's function ("lib_store+0x0", "libc.so.6+0x98e51").
+  string where = 6;
+}
+
+message DebugCrashModule {
+  string name = 1;
+  string path = 2;
+  uint64 base = 3;
+  uint64 size = 4;
+  bool main = 5;
+  // The project program the module is (a library the session's program
+  // links, else a program of its name), when one is.
+  string program_id = 6;
+  // A minidump's: the image's version, timestamp and CodeView record (the
+  // PDB's name and its symbol-server GUID+age), or an ELF build ID.
+  string version = 7;
+  uint32 timestamp = 8;
+  string pdb_name = 9;
+  string pdb_guid = 10;
+  string build_id = 11;
+}
+
+message DebugCrash {
+  string format = 1;  // "elf-core", "minidump"
+  string arch = 2;    // "x86-64", "AArch64", ...
+  // "SIGSEGV (SEGV_MAPERR) at 0x0", "EXCEPTION_ACCESS_VIOLATION (write of
+  // 0x0) at 0x140001480".
+  string reason = 3;
+  // An ELF core's signal (NT_SIGINFO, else the first NT_PRSTATUS) and code.
+  int32 signal = 4;
+  string signal_name = 5;
+  int32 signal_code = 6;
+  string code_name = 7;
+  // A minidump's exception.
+  uint32 exception_code = 8;
+  string exception_name = 9;
+  // An access violation's "read", "write" or "execute".
+  string access = 10;
+  // The faulting address (the data address an access tried; SIGSEGV's,
+  // SIGBUS's, an access violation's), when the dump says.
+  optional uint64 fault_address = 11;
+  string crashed_thread = 12;
+  // Where it happened: the crashed thread's pc (in the program, or a
+  // module and offset, and a library program's function), and the
+  // faulting instruction as the program's language decodes it (its bytes
+  // from the dump, else from the program or library).
+  DebugLocation pc = 13;
+  string module = 14;
+  uint64 module_offset = 15;
+  string function = 16;  // "lib_store", "crash_here+0x8"
+  string instruction = 17;
+  bytes instruction_bytes = 18;
+  // The crashed thread's call stack (GetDebugBacktrace's).
+  repeated DebugFrame backtrace = 19;
+  repeated DebugCrashThread threads = 20;
+  repeated DebugCrashModule modules = 21;
+  // The process and system.
+  int64 pid = 22;
+  string command = 23;
+  string args = 24;
+  string os = 25;
+  string cpu = 26;
+  // Memory the dump holds: ranges and bytes.
+  uint32 segments = 27;
+  uint64 dumped_bytes = 28;
+  // The project's program of the dump's executable (by its name), when it
+  // isn't the session's program.
+  string main_program_id = 29;
+  // The whole report as text: the reason, where, the backtrace, the threads.
+  string summary = 30;
+  repeated string comments = 31;
+  repeated string warnings = 32;
+}
+
+message GetDebugCrashRequest {
+  string session_id = 1;
+  uint32 max_frames = 2;  // the backtrace's (0: 64, at most 256)
+}
+
+message GetDebugCrashResponse {
+  DebugCrash crash = 1;
 }

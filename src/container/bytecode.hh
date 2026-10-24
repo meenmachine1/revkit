@@ -32,6 +32,12 @@ std::vector<std::byte> pyc_header(std::uint16_t magic);
 // with its content kind ("pyc:3.12", "lua:5.4", "java-class:21", ...).
 std::optional<Guess> bytecode_guess(std::span<const std::byte> head, std::uint64_t size);
 
+// Apple's data formats (container/apple.cc, docs/apple-apps.md): a
+// property list ("plist:xml", "plist:binary"), an NSKeyedArchiver archive
+// ("keyed-archive"), a compiled nib ("nib:archive", "nib:keyed"), a
+// provisioning profile ("mobileprovision"), a code signature SuperBlob.
+std::optional<Guess> apple_guess(std::span<const std::byte> head);
+
 // A PE's CLR header, when the head holds it: " .NET assembly (IL-only,
 // metadata v4.0.30319)" to append to the PE's description, and the content
 // kind ("dotnet:il" or "dotnet:mixed"). Empty when it has none.
@@ -42,7 +48,8 @@ struct DotNetHead {
 std::optional<DotNetHead> dotnet_head(std::span<const std::byte> head, std::uint32_t pe_offset);
 
 // A zip's first members (the local headers the head holds): "apk" for an
-// Android package, "jar" for a Java archive, "" otherwise.
+// Android package, "jar" for a Java archive, "ipa" for an iOS app archive
+// (Payload/<name>.app/), "" otherwise.
 std::string zip_content_kind(std::span<const std::byte> head);
 
 // A Lua or LuaJIT chunk's header at `at` (docs/filesystems.md, the carver):

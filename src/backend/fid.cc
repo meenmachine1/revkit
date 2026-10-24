@@ -182,7 +182,7 @@ void FidCatalog::SetUser(const std::string &caller, const FidSettings &settings)
 
 fid::ProgramHashes HashSnapshot(const facts::Snapshot &snap, const analysis::ProgramKey &key,
                                 const loader::Image &image, facts::SpaceId space, const std::atomic<bool> *cancel,
-                                const std::function<void(std::size_t, std::size_t)> &progress) {
+                                const std::function<void(std::size_t, std::size_t)> &progress, int min_code_units) {
   auto info = snap.get<analysis::Program>(key);
   auto list = snap.get<analysis::Functions>(key);
   auto evidence = snap.get<analysis::NoReturnEvidence>(key);
@@ -208,6 +208,7 @@ fid::ProgramHashes HashSnapshot(const facts::Snapshot &snap, const analysis::Pro
   src.scalar_references = image.format != loader::Format::elf;
   src.cancel = cancel;
   src.progress = progress;
+  src.min_code_units = min_code_units;
   return fid::hash_program(src);
 }
 

@@ -57,6 +57,14 @@ std::optional<std::filesystem::path> share_dir();
 // build's own (source builds); nullopt when none of them is a directory.
 std::optional<std::filesystem::path> typeinfo_dir();
 
+// revkit's own processors (docs/processors.md, "revkit's own processors":
+// EVM), SLEIGH specs the build compiles with rk-sleigh, laid out as Ghidra's
+// are (<dir>/<processor>/data/languages): $REVKIT_PROCESSORS_DIR, else
+// <executable>/../share/revkit/processors, else the build's own (source
+// builds); nullopt when none of them is a directory. lift::initialize adds
+// them to Ghidra's.
+std::optional<std::filesystem::path> processors_dir();
+
 class GhidraNotFound : public std::runtime_error {
  public:
   using std::runtime_error::runtime_error;

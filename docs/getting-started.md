@@ -133,6 +133,10 @@ mkdir -p ~/.config/revkit
 echo "ghidra = $HOME/ghidra/ghidra_12.1.4_PUBLIC" > ~/.config/revkit/revkit.conf
 ```
 
+revkit's own processors (EVM) come with revkit, not Ghidra: the packages'
+`share/revkit/processors` (or `$REVKIT_PROCESSORS_DIR`), added to whichever
+Ghidra is found ([processors.md](processors.md#revkits-own-processors)).
+
 A directory named in 1 to 3 that doesn't hold the specs is an error, not
 skipped; when nothing is found, the message lists every place tried and
 how to fix it:

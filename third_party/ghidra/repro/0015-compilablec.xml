@@ -1,0 +1,58 @@
+<decompilertest>
+<!--
+  mid():   mov eax,[0x10002]; ret  reads 4 bytes inside glob (a struct of
+           shorts): glob._2_4_
+  wide():  mov rax,[0x10010]; ret  reads 8 bytes of a 4-byte int: _small
+  below(p,n): cmp rdi,rsi; setb al; movzx eax,al; ret
+                                   compares a pointer with an integer: no cast
+  With compilablec: an lvalue C accepts for each, and the cast.
+-->
+<binaryimage arch="x86:LE:64:default:gcc">
+<bytechunk space="ram" offset="0x1000" readonly="true">
+8b042502000100c30000000000000000
+488b042510000100c300000000000000
+4839f70f92c00fb6c0c3
+</bytechunk>
+<bytechunk space="ram" offset="0x10000">
+00000000000000000000000000000000
+00000000000000000000000000000000
+</bytechunk>
+</binaryimage>
+<script>
+  <com>parse line struct rec { int2 a; int2 b; int2 c; int2 d; };</com>
+  <com>map addr r0x10000 rec glob</com>
+  <com>map addr r0x10010 int4 small</com>
+  <com>map fun r0x1000 mid</com>
+  <com>map fun r0x1010 wide</com>
+  <com>map fun r0x1020 below</com>
+  <com>parse line extern int4 mid(void);</com>
+  <com>parse line extern int8 wide(void);</com>
+  <com>parse line extern int4 below(char *p,uint8 n);</com>
+  <com>lo fu mid</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>lo fu wide</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>lo fu below</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>option compilablec on</com>
+  <com>lo fu mid</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>lo fu wide</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>lo fu below</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>quit</com>
+</script>
+<stringmatch name="Off: piece" min="1" max="1">return glob\._2_4_;</stringmatch>
+<stringmatch name="Off: mismatch" min="1" max="1">return _small;</stringmatch>
+<stringmatch name="Off: no cast" min="1" max="1">return \(int4\)\(p &lt; n\);</stringmatch>
+<stringmatch name="On: bytes at an offset" min="1" max="1">return \*\(\w+ \*\)\(\(char \*\)&amp;glob \+ 2\);</stringmatch>
+<stringmatch name="On: wide read" min="1" max="1">return \*\(\w+ \*\)&amp;small;</stringmatch>
+<stringmatch name="On: cast" min="1" max="1">return \(int4\)\(\(\w+\)p &lt; n\);|return \(int4\)\(p &lt; \(char \*\)n\);</stringmatch>
+</decompilertest>

@@ -256,7 +256,9 @@ bool named_no_return(facts::QueryContext &ctx, const ProgramKey &program, const 
                      std::uint64_t target) {
   for (int depth = 0; depth < 4; ++depth) {
     // The user's word first (FactKind::NoReturn on the function's entry).
-    auto said = ctx.get<facts::AssertedFact>(facts::FactKey{facts::FactKind::NoReturn, {info.space, target}, {}});
+    // (Keyed at the function's entry: a Thumb function's untagged address.)
+    auto said = ctx.get<facts::AssertedFact>(
+        facts::FactKey{facts::FactKind::NoReturn, {info.space, info.code_address(target)}, {}});
     if (const auto *i = std::get_if<std::int64_t>(&*said)) return *i != 0;
     if (const Seed *s = info.seed_at(info.code_address(target)); s && s->named_by_symbol)
       return is_known_no_return(s->name, info.macho);

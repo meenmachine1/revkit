@@ -41,6 +41,7 @@ struct DataOrg {
   unsigned long_double = 8;          // as the spec says
   unsigned long_double_aligned = 8;  // its aligned length
   int extrapop = 0;                  // the default prototype's, for function types
+  bool big_endian = false;           // where a bitfield's least significant bit is
 };
 DataOrg data_org(const loader::Image &image, const std::string &language_id);
 

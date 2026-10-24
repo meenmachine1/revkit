@@ -7,7 +7,7 @@ every row with its evidence. When an item starts, move it to the roadmap;
 when it lands, strike it here.
 
 <!-- survey-summary:wishlist -->
-Of 741 Ghidra features: revkit has 340, has part of 185, lacks 216, and 0 are being built (counted by `scripts/survey_summary.py` from the survey's rows).
+Of 745 Ghidra features: revkit has 345, has part of 189, lacks 211, and 0 are being built (counted by `scripts/survey_summary.py` from the survey's rows).
 <!-- /survey-summary:wishlist -->
 
 Value is to a reverse engineer doing real work; effort is S (a day or
@@ -49,7 +49,7 @@ What is left, ranked by value to someone doing real work, then by effort.
 | ~~Emulator callbacks~~ | *Done* (`api_minor` 68, feature `debugger-hooks`; [debugger.md](debugger.md#hooks)): ~~Python or plugin handlers for stubs, syscalls, MMIO and userops~~ | M |
 | ~~Conditional breakpoints~~ | *Done* (`api_minor` 64, feature `debugger-conditions`; [debugger.md](debugger.md#breakpoints)): ~~an expression on hit (emulator and live) and an ignore count; a breakpoint table~~ | M |
 | Map libraries to project programs | ~~At runtime~~ *done* (`api_minor` 70, feature `program-libraries`; [debugger.md](debugger.md#libraries)); an offer to import a missing module from the debugger is left (the Open dialog's "Also import the libraries it needs" and Analyze → Libraries… do it from the program) | M |
-| Mach-O | ~~The loader~~ *done* (`api_minor` 90, feature `macho`; [macho.md](macho.md)), universal files' slices too; ~~Objective-C and Swift metadata~~ *done* (`api_minor` 91, feature `objc`). Left: DWARF and dSYM, Swift demangling, message sends resolved to methods, then Apple containers (dyld cache, kernelcache) | L |
+| Mach-O | ~~The loader~~ *done* (`api_minor` 90, feature `macho`; [macho.md](macho.md)), universal files' slices too; ~~Objective-C and Swift metadata~~ *done* (`api_minor` 91, feature `objc`); ~~app bundles (`.ipa`, `.app`), Info.plist, property lists, code signatures and entitlements, provisioning profiles, frameworks by `@rpath`~~ *done* (`api_minor` 100, feature `apple-bundles`; [apple-apps.md](apple-apps.md)). ~~Interface Builder nibs and their UI actions~~ *done* (`api_minor` 101, feature `ui-actions`). Left: DWARF and dSYM, Swift demangling, message sends resolved to methods, then Apple containers (dyld cache, kernelcache) | L |
 | Go binaries | ~~Build info: Go version, modules, settings~~ *done* (`api_minor` 88, feature `build-info`; [build-info.md](build-info.md)). ~~Function names and source lines from pclntab, Go's calling conventions (Ghidra's golang cspecs) and no-return list~~ *done* (`api_minor` 93, feature `go-pclntab`; [go.md](go.md)). Next: strings (pointer and length), runtime types from `typelinks`, signatures (Ghidra's `GoFunctionFixup`), Duff's device entries | M |
 | Windows debugging | A dbgeng/WinDbg target or a bridge | L |
 
@@ -67,9 +67,14 @@ What is left, ranked by value to someone doing real work, then by effort.
 | Key bindings | Rebind a single action, import and export bindings (the Ghidra, IDA Pro and Binary Ninja presets are done) | S |
 | Tables | Copy, CSV and sorting on every table (the search results table has them), and filter modes | S |
 | SARIF | Export program features and import results with apply actions | M |
+| Matching decompilation (Nintendo DS first) | ~~dsd projects and ROMs as module programs linked across modules, names back to symbols.txt, decomp scratches~~ *done* (`api_minor` 103, feature `nds`; [nds.md](nds.md)); ~~a decomp knowledge base (finished decomps applied to a new game: exact and near matches with their source)~~ *done* (`api_minor` 105, feature `decomp-kb`; [decomp-kb.md](decomp-kb.md)); ~~C shaped as the instructions encode it (load signedness, comparison constants, loop guards, bitfields, compilable C)~~ *done* (`api_minor` 106, feature `decompiler-settings`; [decompiler-inputs.md](decompiler-inputs.md#source-shape)). Left: references back across modules, mangling new names, class layouts for mwcc C++ | L |
 
 ## Done since the survey
 
+- ~~What a DS matching run needed: no-return evidence for the program's own code only, the DS's I/O volatile, Thumb-keeping bounds, per-body refusals, import name conflicts, store compaction (api_minor 104), [nds.md](nds.md#what-a-matching-run-needed)~~
+- ~~Nintendo DS games: ds-decomp projects and .nds ROMs, linked modules, symbols.txt export, decomp scratches (api_minor 103), [nds.md](nds.md)~~
+- ~~Results that state their evidence: source tiers, unknowns, limits, target content (api_minor 97), [api.md](api.md#result-evidence)~~
+- ~~EVM contracts: revkit's own SLEIGH processor, the SLEIGH compiler `rk-sleigh` (api_minor 99), [evm.md](evm.md)~~
 - ~~Search UI (api_minor 41), [ui.md](ui.md#search)~~
 - ~~Equates and operand display (api_minor 39), [api.md](api.md#equates-and-user-references)~~
 - ~~User references (api_minor 39), [api.md](api.md#equates-and-user-references)~~
@@ -127,9 +132,9 @@ Memory and import:
 - ~~linking dependent libraries~~ (api_minor 70, [api.md](api.md#libraries));
 - COFF/.o relocations;
 - ~~external debug files (build-id, debuglink, debuginfod)~~ (done: api_minor 86, feature `debug-files`, [backend.md](backend.md#external-debug-files)); source lines;
-- crash dumps (minidump, ELF core);
+- ~~crash dumps (minidump, ELF core)~~ (done as debug sessions: `api_minor` 102, feature `crash-dumps`, [crash-dumps.md](crash-dumps.md); minidumps as programs left);
 - device trees suggesting the memory map;
-- Android DEX/APK and boot images (DEX/APK and other bytecode: [bytecode-lifting.md](bytecode-lifting.md); ~~decompiling them~~ through jadx and the other external decompilers: [providers.md](providers.md); loaders still to come; ~~bytecode named and packers' scripts extracted~~ done: [filesystems.md](filesystems.md#packed-executables); Deno executables, py2exe's `PYTHONSCRIPT` and Nuitka next).
+- Android DEX/APK and boot images (DEX/APK and other bytecode: [bytecode-lifting.md](bytecode-lifting.md); ~~decompiling them~~ through jadx and the other external decompilers: [providers.md](providers.md); ~~the manifest, resources, JNI libraries and native methods, Flutter's snapshot hash~~ done (`api_minor` 98, feature `android`: [android.md](android.md)); loaders still to come; ~~bytecode named and packers' scripts extracted~~ done: [filesystems.md](filesystems.md#packed-executables); Deno executables, py2exe's `PYTHONSCRIPT` and Nuitka next).
 
 Types:
 - ~~data settings (format, endianness, charset)~~ (done: api_minor 84, feature `data-settings`, [listing-edit.md](listing-edit.md#data-settings));
@@ -189,5 +194,5 @@ Framework:
 - charsets beyond UTF-8/16/32;
 - OIDC/SSO and client-certificate auth;
 - version history in the UI (browse, diff, revert);
-- a SLEIGH compiler in C++ (`rk-sleigh`), for custom processors without Java (the fork's compiler builds Ghidra's specs byte for byte: [bytecode-lifting.md](bytecode-lifting.md#e6-the-vendored-sleigh-compiler));
+- ~~a SLEIGH compiler in C++ (`rk-sleigh`), for custom processors without Java~~ *done* (with revkit's own processors directory and the EVM processor: [processors.md](processors.md#revkits-own-processors), [evm.md](evm.md));
 - a wildcard assembler, and "find instructions like this".

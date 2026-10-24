@@ -57,6 +57,20 @@ class Storage {
   // Applies the whole batch atomically. Safe to call from several threads.
   virtual void write(const WriteBatch &batch) = 0;
   virtual StorageStats stats() const = 0;
+
+  // Deletes `drop` (keys of `table`), then rewrites the store without its
+  // free pages, as LMDB's `mdb_copy -c` does, so the file shrinks to what
+  // it holds. Reads and writes wait while it runs. nullopt where the
+  // backend has no file (memory).
+  struct CompactResult {
+    std::uint64_t file_before = 0, file_after = 0;  // bytes on disk
+    std::uint64_t dropped = 0;                      // of `drop`, the keys there were
+  };
+  virtual std::optional<CompactResult> compact(Table table, const std::vector<std::string> &drop) {
+    (void)table;
+    (void)drop;
+    return std::nullopt;
+  }
 };
 
 std::unique_ptr<Storage> make_memory_storage();

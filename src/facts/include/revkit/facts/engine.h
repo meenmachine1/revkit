@@ -486,6 +486,18 @@ class Engine {
   Revision revision() const;
   Snapshot snapshot();
 
+  // The registered rules: what a stored memo's query id and version are
+  // checked against (a store's compaction drops the memos of rules that
+  // are gone or changed).
+  struct RuleInfo {
+    QueryId id;
+    std::string name;
+    std::uint32_t version;
+    bool derived;     // a query (memos), not an input
+    bool persistent;  // its memos are written to storage
+  };
+  std::vector<RuleInfo> rules() const;
+
   // Input partitions: every input key belongs to one of 64 (a bit), and the
   // engine records the last revision a key of each changed. A memo knows
   // the partitions it read transitively, so when none of them changed

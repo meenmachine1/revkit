@@ -746,7 +746,10 @@ ToolStatus Service::resolve(const Definition &d, const Settings &s) {
       }
       t.path = jar.string();
       t.launcher = rt.java.string();
-      t.read_paths.push_back(jar.parent_path());
+      // The jar alone, not its directory: a jar kept in $HOME would have
+      // granted the tool all of it (bug scrub part 3). Every provider's
+      // jar is self-contained (jadx's is its -all.jar).
+      t.read_paths.push_back(jar);
       if (!is_system_dir(rt.java_home)) t.read_paths.push_back(rt.java_home);
       break;
     }

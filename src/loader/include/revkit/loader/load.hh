@@ -48,8 +48,12 @@ Image load_raw_file(const std::filesystem::path &path, const RawOptions &options
 RawRegion parse_raw_region(std::string_view spec);
 
 // What a file holds, by content (RawContainer::detect's rule): ihex or
-// srec when every line is a well-formed record of that format, else binary.
+// srec when every line is a well-formed record of that format, hexbytes
+// when it is all hex digit pairs (an optional "0x" first; whitespace between
+// pairs), else binary.
 RawContainer detect_raw_container(std::span<const std::byte> file);
+// The bytes hex text spells (hexbytes), or nullopt when it isn't hex text.
+std::optional<Bytes> decode_hex_text(std::span<const std::byte> file);
 // "binary", "ihex", "srec", "detect", and back (nullopt: unknown name).
 std::string_view to_string(RawContainer c);
 std::optional<RawContainer> raw_container_from_string(std::string_view name);

@@ -58,6 +58,7 @@ std::map<std::uint64_t, std::string> decompile_all(const facts::Snapshot &snapsh
     DecompilerPool::Lease d = img->pool->acquire();
     RunOptions o;
     o.want_c = true;
+    o.load_extension = img->options.load_extension;  // as its observations
     Observation r = d->run(entries[i], env, o);
     out[i] = r.ok ? r.c : "/* error: " + r.error + " */";
   };

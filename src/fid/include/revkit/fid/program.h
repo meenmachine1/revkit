@@ -29,6 +29,10 @@ struct ProgramFunction {
   // object file's external calls): the symbol named, for creating databases.
   std::vector<std::string> external_callees;
   bool has_terminator = false;  // a return or other terminal flow (FunctionRecord's HAS_TERMINATOR)
+  // Instructions hashed (Function ID needs 4), and the calls in the body:
+  // (call instruction, target address), by instruction.
+  std::uint32_t instructions = 0;
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> calls;
 };
 
 struct ProgramHashes {
@@ -64,6 +68,9 @@ struct ProgramSource {
   std::map<std::uint64_t, std::string> names;
   const std::atomic<bool> *cancel = nullptr;
   std::function<void(std::size_t done, std::size_t total)> progress;
+  // HashOptions::min_code_units: Function ID's 4 unless a caller wants
+  // shorter functions hashed too.
+  int min_code_units = 4;
 };
 
 // Hashes every function. Throws FidError when cancelled.

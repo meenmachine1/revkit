@@ -1034,6 +1034,65 @@ built with a dependency replaced by a local directory; the dialog's
 version, main module, settings and the replaced dependency, the filter,
 and the Open dialog's Built with line and its button.
 
+### Nintendo DS
+
+`api_minor` 103, feature `nds` ([nds.md](nds.md); `src/ui/nds.ts`).
+
+- **File → Import ds-decomp project…** (with feature `host-files`): the
+  daemon host's browser picks a ds-decomp `config.yaml`
+  (`config/<version>/arm9/config.yaml`); the import makes one program per
+  module in the game's folder and shows them: module, address and size,
+  functions (symbols; Thumb ones, decompressed, warnings), the modules it
+  is linked to, and **Open** for each.
+- **File → Import DS ROM…**: the same from a `.nds` file on the host.
+- **Following into another module**: in an overlay's listing a call into
+  `main` or an autoload shows main's name; following it (double-click,
+  Enter) opens that module's program there (`ListingToken.target_program_id`).
+  The decompiler shows the same names and main's prototypes.
+- **File → Export ds-decomp symbols…**: each module's `symbols.txt`
+  changes (renamed, added, skipped and why) and the unified diff; **Copy
+  patch** copies all of it; **Write files** writes them, each backed up as
+  `symbols.txt.bak-<time>` first, and says how many were written.
+- **Copy as decomp scratch** (the decompiler's right-click menu and Edit):
+  the function as a matching scratch on the clipboard: its `// PROBE:`
+  line, Ghidra's type names, the types, callee prototypes and globals it
+  uses, and its C.
+
+Tests: `ui_e2e` (`e2e/nds.ts`, when clang, ld.lld and python3 are there):
+the synthetic project imported through the File menu and the host
+browser, the overlay's decompilation naming main's functions, the scratch
+on the clipboard, a rename in main shown as a diff and written.
+
+### Decomp knowledge base
+
+`api_minor` 105, feature `decomp-kb` ([decomp-kb.md](decomp-kb.md);
+`src/ui/decompkb.ts`).
+
+- **File → Apply decomp knowledge base…** (with feature `host-files`, a
+  program open): the host browser picks the KB's folder (**Use this
+  folder**); the dialog matches the program, or every program of its
+  folder (a game's modules: the default when it has one), against it, with
+  **Near matches (BSim)** on by default (**Match** runs it again).
+- The matches are listed by kind, each a collapsible group with its count:
+  **Exact**, **Through their callers**, **Candidates**, **Near (BSim)** and
+  **Ambiguous**; each row has the address, the current name, the KB
+  function (its demangled name; "(source)" for an anonymous one), its unit
+  or, for a near match, the similarity, and **Go** (opens the program
+  there).
+- Selecting a row (click, Enter) shows its KB function: game, module,
+  address, unit, compiler and flags, status, why it isn't applied, the
+  verbatim source and, for a near match, the similarity, confidence and
+  the instruction diff (`-` the KB function's, `+` this one's).
+- **Apply names** names the exact and through-caller matches with
+  placeholder names (and adds the plate comments) in one undoable revision
+  per program; **Export…** picks a folder on the host and writes the
+  symbols.txt changes, the matched sources in their units and the near
+  matches' scratches there, then says what it wrote.
+
+Tests: `ui_e2e` (`e2e/nds.ts`): a KB built from the imported project,
+game 3's ROM imported, the dialog's summary, the exact and near groups, a
+near match's diff, and Apply names naming `SceneBase::Update`.
+
 ### Resizable dialogs
 
 Every modal dialog can be resized: the Open dialog (`Ctrl+O`, and the one
@@ -2350,6 +2409,7 @@ API 48, feature `filesystems` ([filesystems.md](filesystems.md)).
   selection. On bytecode (a jar, an APK, a DEX, a `.class`, a `.pyc`, a
   Lua chunk, a wasm module, a .NET assembly, a `.js`), **Decompile with
   jadx…** and the other external decompilers that take it ([below](#external-decompilers)).
+  On an APK, **Android package…** ([below](#android-packages)).
 - **Import programs below…** (batch): the selected folders and containers,
   or everything. Options: subfolders, look inside archives and images
   found, raw detection on other data (slow), recreate the folders in the
@@ -2365,11 +2425,122 @@ API 48, feature `filesystems` ([filesystems.md](filesystems.md)).
   opens the program. Each records its container path, which the program's
   `ProgramInfo.container_path` keeps.
 - **Closing** the browser (Close, Escape, the backdrop) closes the session.
+- **Apple bundles** ([below](#apple-bundles)): a bundle's badge, **Apple
+  bundle…** and **Property list…** in the menu.
 - **Older daemons.** Without `filesystems` the File menu's item is
   disabled and the Open dialog never offers it.
 - **Not yet.** A directory shows at most 2,000 entries; no text or hex
   preview pane (Info shows the first bytes); drag and drop from the tree
   into the project window.
+
+## Crash dumps
+
+API 102, feature `crash-dumps` ([crash-dumps.md](crash-dumps.md)).
+`src/debug/panel.ts`, `src/app.ts` (the picker); checks in `e2e/crash.ts`.
+
+- **Opening.** The Debugger view's target picker has **Crash dump…**; Start
+  asks where the dump is: a dump program of the project (an imported ELF
+  core), a file on the daemon host (the host browser), or one from this
+  computer (uploaded). The dump is seen through the tab's program: open it
+  from the crashed executable's tab.
+- **The crash box** above the registers: the reason ("SIGSEGV (SEGV_MAPERR)
+  at 0x0"), where (`at 0x… in lib_store (libcrash.so+0x111d) · thread …`),
+  the faulting instruction, a line with the dump's format, architecture,
+  OS, process and counts, **Copy report** (the summary as text), and **Open
+  the executable** when the dump's program is another one in the project
+  (a new tab).
+- **The rest of the view** reads the dump as any stop: the registers of the
+  thread selected in **Threads**, the **Stack** through the program and its
+  libraries, **Modules**, **Memory**, **Disassembly** (the pc's, also in a
+  library), watches and value hovers. Continue, the steps and Back are
+  disabled.
+
+## Android packages
+
+API 98, feature `android` ([android.md](android.md)).
+`src/ui/android.ts`; checks in `e2e/android.ts`.
+
+- **Opening.** In the file system browser, **Android…** in the head when
+  the file system is an APK (an `AndroidManifest.xml` at its root), or
+  **Android package…** in the menu of an APK inside another container
+  (content kind `apk`).
+- **Manifest.** The package, version and code, the SDK levels (min,
+  target, compile), the application class and label, the flags that
+  matter to a reviewer (debuggable, allowBackup, usesCleartextTraffic,
+  marked when they open the app up; "not set" with Android's default when
+  the manifest doesn't say), the network security config (**Show**
+  decodes its XML file), permissions used and declared, the components
+  (kind, ★ for the launcher, name, exported: yes, yes (implied) by an
+  intent filter, or no; marked when exported without a permission; the
+  permission; the intent filters' actions and data as
+  `https://example.com/open`), meta-data, and the package's warnings.
+- **XML.** `AndroidManifest.xml` as text, references named
+  (`@string/app_name`) or, with **Resolve references**, their default
+  values; **Copy**.
+- **Resources.** `resources.arsc` by type (the strings first) and
+  configuration (default, `fr`, `night`, every one), filtered by name or
+  value; a bag shows its parent and items; the count of matches.
+- **Native.** The libraries by ABI (machine, size, exports, `Java_`
+  exports and `JNI_OnLoad`, Flutter's engine and app); a library's name
+  imports it with the libraries it needs from the same directory, linked,
+  and **Import <abi>** imports the whole directory. The native methods the
+  DEX declares, each with its JNI name and the library exporting it, or
+  "registered at run time" when none does.
+- **Flutter** (a Flutter app): the Dart snapshot hash the ABIs agree on,
+  and per ABI the hash, the snapshot's features and kind, the engine's
+  build ID, the Dart version and toolchain strings.
+
+## Apple bundles
+
+API 100, feature `apple-bundles` ([apple-apps.md](apple-apps.md)).
+`src/ui/apple.ts` (the bundle view, the plist tree, the signature view);
+checks in `e2e/apple.ts`.
+
+- **In the file system browser** a directory that is a bundle has a badge
+  with its kind (`app`, `framework`, `appex`, `storyboardc`, ...), and
+  Apple's files say what they are (`binary property list`, `compiled nib
+  (NIBArchive, 23 objects)`, `provisioning profile`, an .ipa's `zip
+  archive (iOS app)`) with their content-kind badge.
+- **Apple bundle…** (the menu of a bundle or an .ipa): the bundle's name,
+  kind, platform and layout; identifier, version and build, minimum OS,
+  devices, executable (with what it is), its signature in a line, URL
+  schemes and the ones it queries, background modes, extension point,
+  principal class, main storyboard or nib, required capabilities, App
+  Transport Security, the SDK and Xcode it was built with; **Privacy
+  usage descriptions** (each key and the text the app shows), **Documents
+  and types**, **Bundles inside** (role, identifier, version; click, or
+  Enter, opens one in the same view), **Interface Builder files**, the
+  **main executable's code signature** (identifier, team, flags, hashes,
+  CDHash, executable segment, signer, the requirements as text, the
+  entitlements as a tree) under a line saying it was read and not
+  verified, the **provisioning profile** (name, kind, app id, team,
+  platforms, devices, validity, signer; its entitlements), and the whole
+  **Info.plist** as a tree. **Import main executable** imports it with the
+  frameworks it loads (`@rpath`, `@executable_path`, `@loader_path`
+  resolved inside the bundle); **Import with frameworks and extensions**
+  adds every nested bundle's executable. The browser's status and toast
+  say what came in, with **Open**.
+- **UI actions** (API 101, feature `ui-actions`), in the bundle view below
+  its Interface Builder files: one row per control's action in the
+  storyboards and nibs: the control (its class and label), the events
+  that send it (`touchUpInside`, `valueChanged`), the selector, the target
+  (`File's Owner (ViewController)`, `First Responder`, an object's class)
+  and the method it runs, resolved in the program imported from the
+  main executable (`-[ViewController buttonTapped:]`; click to open the
+  program there), or why not (`external`, `ambiguous` with the
+  candidates, `unresolved`; before the import, a hint to import it).
+  The section's title counts them and how many resolved.
+- **Property list…** (the menu of a plist, a keyed archive, a macOS nib or
+  a provisioning profile): its format, value count and the tree;
+  dictionaries and arrays fold (`<details>`), data shows its size and
+  first bytes, dates ISO 8601, a keyed archive's references `CF$UID n`.
+- **A program's signature.** The Open dialog's details have a **Signed**
+  line for a Mach-O (`com.example.demo · team ABCDE12345 · hardened
+  runtime · 5 entitlements`, `ad hoc`, `not signed`) with **Signature…**,
+  and the palette's **Code signature and entitlements…** shows the open
+  program's.
+- **Not yet.** A nib's object tree (the API has it: `include_documents`);
+  segues and gesture recognizers' actions; no copying of a plist as XML.
 
 ## External decompilers
 

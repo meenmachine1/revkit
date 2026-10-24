@@ -291,7 +291,7 @@ XREF_DIRECTION_FROM: XrefDirection
 XREF_DIRECTION_BOTH: XrefDirection
 
 class Function(_message.Message):
-    __slots__ = ("entry", "name", "name_origin", "body", "bounds_origin", "prototype", "prototype_origin", "calling_convention", "no_return", "thunk", "thunk_target", "external", "instruction_count", "caller_count", "size", "xref_count", "decompile_failed", "demangled")
+    __slots__ = ("entry", "name", "name_origin", "body", "bounds_origin", "prototype", "prototype_origin", "calling_convention", "no_return", "thunk", "thunk_target", "external", "instruction_count", "caller_count", "size", "xref_count", "decompile_failed", "demangled", "unknowns")
     ENTRY_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
     NAME_ORIGIN_FIELD_NUMBER: _ClassVar[int]
@@ -310,6 +310,7 @@ class Function(_message.Message):
     XREF_COUNT_FIELD_NUMBER: _ClassVar[int]
     DECOMPILE_FAILED_FIELD_NUMBER: _ClassVar[int]
     DEMANGLED_FIELD_NUMBER: _ClassVar[int]
+    UNKNOWNS_FIELD_NUMBER: _ClassVar[int]
     entry: _common_pb2.Address
     name: str
     name_origin: _common_pb2.FactOrigin
@@ -328,7 +329,8 @@ class Function(_message.Message):
     xref_count: int
     decompile_failed: bool
     demangled: _common_pb2.DemangledName
-    def __init__(self, entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., name: _Optional[str] = ..., name_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., body: _Optional[_Iterable[_Union[_common_pb2.AddressRange, _Mapping]]] = ..., bounds_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., prototype: _Optional[str] = ..., prototype_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., calling_convention: _Optional[str] = ..., no_return: _Optional[bool] = ..., thunk: _Optional[bool] = ..., thunk_target: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., external: _Optional[bool] = ..., instruction_count: _Optional[int] = ..., caller_count: _Optional[int] = ..., size: _Optional[int] = ..., xref_count: _Optional[int] = ..., decompile_failed: _Optional[bool] = ..., demangled: _Optional[_Union[_common_pb2.DemangledName, _Mapping]] = ...) -> None: ...
+    unknowns: _containers.RepeatedCompositeFieldContainer[_common_pb2.Unknown]
+    def __init__(self, entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., name: _Optional[str] = ..., name_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., body: _Optional[_Iterable[_Union[_common_pb2.AddressRange, _Mapping]]] = ..., bounds_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., prototype: _Optional[str] = ..., prototype_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., calling_convention: _Optional[str] = ..., no_return: _Optional[bool] = ..., thunk: _Optional[bool] = ..., thunk_target: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., external: _Optional[bool] = ..., instruction_count: _Optional[int] = ..., caller_count: _Optional[int] = ..., size: _Optional[int] = ..., xref_count: _Optional[int] = ..., decompile_failed: _Optional[bool] = ..., demangled: _Optional[_Union[_common_pb2.DemangledName, _Mapping]] = ..., unknowns: _Optional[_Iterable[_Union[_common_pb2.Unknown, _Mapping]]] = ...) -> None: ...
 
 class Symbol(_message.Message):
     __slots__ = ("address", "name", "kind", "origin", "demangled")
@@ -359,7 +361,7 @@ class ListingHeader(_message.Message):
     def __init__(self, kind: _Optional[_Union[ListingHeaderKind, str]] = ..., text: _Optional[str] = ..., line: _Optional[int] = ..., origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., demangled: _Optional[_Union[_common_pb2.DemangledName, _Mapping]] = ...) -> None: ...
 
 class ListingToken(_message.Message):
-    __slots__ = ("kind", "text", "operand_index", "target", "value", "register_varnode", "scalar_bits", "display_origin", "reference_origin", "demangled")
+    __slots__ = ("kind", "text", "operand_index", "target", "value", "register_varnode", "scalar_bits", "display_origin", "reference_origin", "demangled", "target_program_id")
     KIND_FIELD_NUMBER: _ClassVar[int]
     TEXT_FIELD_NUMBER: _ClassVar[int]
     OPERAND_INDEX_FIELD_NUMBER: _ClassVar[int]
@@ -370,6 +372,7 @@ class ListingToken(_message.Message):
     DISPLAY_ORIGIN_FIELD_NUMBER: _ClassVar[int]
     REFERENCE_ORIGIN_FIELD_NUMBER: _ClassVar[int]
     DEMANGLED_FIELD_NUMBER: _ClassVar[int]
+    TARGET_PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
     kind: ListingTokenKind
     text: str
     operand_index: int
@@ -380,7 +383,8 @@ class ListingToken(_message.Message):
     display_origin: _common_pb2.FactOrigin
     reference_origin: _common_pb2.FactOrigin
     demangled: _common_pb2.DemangledName
-    def __init__(self, kind: _Optional[_Union[ListingTokenKind, str]] = ..., text: _Optional[str] = ..., operand_index: _Optional[int] = ..., target: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., value: _Optional[int] = ..., register_varnode: _Optional[_Union[_common_pb2.Varnode, _Mapping]] = ..., scalar_bits: _Optional[int] = ..., display_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., reference_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., demangled: _Optional[_Union[_common_pb2.DemangledName, _Mapping]] = ...) -> None: ...
+    target_program_id: str
+    def __init__(self, kind: _Optional[_Union[ListingTokenKind, str]] = ..., text: _Optional[str] = ..., operand_index: _Optional[int] = ..., target: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., value: _Optional[int] = ..., register_varnode: _Optional[_Union[_common_pb2.Varnode, _Mapping]] = ..., scalar_bits: _Optional[int] = ..., display_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., reference_origin: _Optional[_Union[_common_pb2.FactOrigin, _Mapping]] = ..., demangled: _Optional[_Union[_common_pb2.DemangledName, _Mapping]] = ..., target_program_id: _Optional[str] = ...) -> None: ...
 
 class CommentView(_message.Message):
     __slots__ = ("kind", "text", "origin")

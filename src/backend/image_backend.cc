@@ -4,14 +4,21 @@
 #include "revkit/lift/abi.hh"
 
 #include "revkit/demangle/demangle.h"
+#include "revkit/inputs/demangled.h"
 
 #include "revkit/api/host_files.h"
 
 #include "api_util.h"
 #include "debug_files.h"
 #include "debug_import.h"
+#include "evm_import.h"
+#include "revkit/evm/evm.h"
 #include "go_import.h"
 #include "msvc_import.h"
+#include "compact.h"
+#include "decomp_kb.h"
+#include "nds_import.h"
+#include "open_beneath.h"
 #include "revkit/objc/objc.h"
 #include "symbol_server.h"
 #include "define_type.h"
@@ -30,6 +37,11 @@
 #include "auto_struct.h"
 #include "bsim_catalog.h"
 #include "fid.h"
+#include "android_api.h"
+#include "apple_bundles.h"
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include "filesystems.h"
 #include "raw_detect.h"
 #include "rebase.h"
@@ -116,6 +128,9 @@ constexpr std::string_view kInferredCategory = "/inferred";
 infer::Options DecompilerInferOptions() {
   infer::Options o;
   o.keep_return_width = true;
+  // Loads typed as revkit's default decompiler settings type them; a
+  // program's own SetDecompilerSettings don't infer again.
+  o.load_extension = lift::SourceShape::own().extension;
   return o;
 }
 
@@ -129,7 +144,7 @@ using facts::FactValue;
 using facts::Seq;
 using google::protobuf::util::TimeUtil;
 
-constexpr std::uint32_t kApiMinor = 96;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language"); 74: SetProgramLanguageRequest.progress_id, followed with GetImportProgress (feature "language-progress"); 76: BSimService.ApplyBSimMatches, PortedFrom.bsim_database and bsim_executable (feature "bsim-apply"); 77: QueryService.ListComments (feature "comment-table"); 78: QueryService.ListRelocations (feature "relocation-table"); 79: libraries from the program's own root file system (ImportOptions.library_root, ImportProgramResponse.library_root, ImportFromFileSystem with import_libraries: FileSystemImport.library_of, libraries_not_found, library_warnings; feature "library-roots"); 80: QueryService.ExportC (feature "export-c"); 81: QueryService.ListLibraryImporters (references back from a library; feature "library-importers"); 82: QueryService.ListSymbolTree (feature "symbol-tree"); 83: QueryService.PlanClearFlow (feature "clear-flow"); 84: SetDataSettings assertions, ListingRow.data_settings (feature "data-settings"); 85: SetFallthrough assertions (FACT_KIND_FALLTHROUGH, ListingRow and InstructionDetail fallthrough_override, XREF_KIND_FALLTHROUGH; feature "fallthrough-override"); 86: ProjectService.LoadDebugFile, SymbolSettings debug_dirs and debuginfod, ProgramSummary build_id, debuglink, debug_file (feature "debug-files"); 87: SetRegisterValue assertions (FACT_KIND_REGISTER_VALUE), QueryService.ListRegisterValues, ListingRow.register_values, analysis's MIPS gp and PowerPC TOC (feature "register-values"); 88: QueryService.GetBuildInfo (feature "build-info"); 89: QueryService.TraceValue (feature "value-trace"); 90: Mach-O (format "macho": ImportOptions.macho_slice, ImportProgramRequest.program_file, ProgramInfo.macho_slice and macho_slices, ProgramSummary.macho; feature "macho"); 91: Objective-C and Swift metadata at import (analysis:objc, analysis:swift, import:objc assertions), QueryService.ListObjcClasses (feature "objc"); 92: ProviderService (external decompilers: ListProviders, DecompileExternal, ReadProviderOutput, GetProviderSettings, SetProviderSettings; feature "external-decompilers"); 93: Go function names, files and lines from the pclntab at import (analysis:go assertions), the golang compiler spec for Go programs, GetBuildInfoResponse.go_pclntab (feature "go-pclntab"); 94: .NET assemblies recognised by their CLR header, IL-only ones imported without code analysis (ProgramInfo.dotnet; feature "dotnet"); 95: bytecode and script formats named in file system listings (FileSystemEntry.content_kind, detected_kind "bytecode"; feature "content-kinds"); 96: packed executables and Lua in firmware as file systems (formats asar, pyinstaller, pyz, node-sea, pkg, nexe, bun, lua-chunks, an appended zip; FileSystemEntry.container_format on programs that carry one, ProgramInfo.payload_format; feature "packed-executables")
+constexpr std::uint32_t kApiMinor = 106;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language"); 74: SetProgramLanguageRequest.progress_id, followed with GetImportProgress (feature "language-progress"); 76: BSimService.ApplyBSimMatches, PortedFrom.bsim_database and bsim_executable (feature "bsim-apply"); 77: QueryService.ListComments (feature "comment-table"); 78: QueryService.ListRelocations (feature "relocation-table"); 79: libraries from the program's own root file system (ImportOptions.library_root, ImportProgramResponse.library_root, ImportFromFileSystem with import_libraries: FileSystemImport.library_of, libraries_not_found, library_warnings; feature "library-roots"); 80: QueryService.ExportC (feature "export-c"); 81: QueryService.ListLibraryImporters (references back from a library; feature "library-importers"); 82: QueryService.ListSymbolTree (feature "symbol-tree"); 83: QueryService.PlanClearFlow (feature "clear-flow"); 84: SetDataSettings assertions, ListingRow.data_settings (feature "data-settings"); 85: SetFallthrough assertions (FACT_KIND_FALLTHROUGH, ListingRow and InstructionDetail fallthrough_override, XREF_KIND_FALLTHROUGH; feature "fallthrough-override"); 86: ProjectService.LoadDebugFile, SymbolSettings debug_dirs and debuginfod, ProgramSummary build_id, debuglink, debug_file (feature "debug-files"); 87: SetRegisterValue assertions (FACT_KIND_REGISTER_VALUE), QueryService.ListRegisterValues, ListingRow.register_values, analysis's MIPS gp and PowerPC TOC (feature "register-values"); 88: QueryService.GetBuildInfo (feature "build-info"); 89: QueryService.TraceValue (feature "value-trace"); 90: Mach-O (format "macho": ImportOptions.macho_slice, ImportProgramRequest.program_file, ProgramInfo.macho_slice and macho_slices, ProgramSummary.macho; feature "macho"); 91: Objective-C and Swift metadata at import (analysis:objc, analysis:swift, import:objc assertions), QueryService.ListObjcClasses (feature "objc"); 92: ProviderService (external decompilers: ListProviders, DecompileExternal, ReadProviderOutput, GetProviderSettings, SetProviderSettings; feature "external-decompilers"); 93: Go function names, files and lines from the pclntab at import (analysis:go assertions), the golang compiler spec for Go programs, GetBuildInfoResponse.go_pclntab (feature "go-pclntab"); 94: .NET assemblies recognised by their CLR header, IL-only ones imported without code analysis (ProgramInfo.dotnet; feature "dotnet"); 95: bytecode and script formats named in file system listings (FileSystemEntry.content_kind, detected_kind "bytecode"; feature "content-kinds"); 96: packed executables and Lua in firmware as file systems (formats asar, pyinstaller, pyz, node-sea, pkg, nexe, bun, lua-chunks, an appended zip; FileSystemEntry.container_format on programs that carry one, ProgramInfo.payload_format; feature "packed-executables"); 97: result evidence (FactOrigin.tier, SourceTier, Unknown, DecompiledFunction.unknowns, Function.unknowns from GetFunction; feature "result-evidence"); 98: Android packages (FileSystemService.GetAndroidPackage, DecodeAndroidXml, ListAndroidResources; feature "android"); 99: EVM bytecode with revkit's own SLEIGH processor (format "evm", raw_format "hexbytes", ProgramSummary.evm, analysis:evm functions, labels and jump references; feature "evm"); 100: Apple bundles, property lists and code signatures (FileSystemService.GetAppleBundle, ReadPropertyList, FileSystemEntry.bundle_kind, MachoSummary.code_signature, Apple content kinds; feature "apple-bundles"); 101: Interface Builder nibs and storyboards and their UI actions resolved to Objective-C methods (FileSystemService.ListUiActions, ReadPropertyListRequest.resolve_keyed_archive; feature "ui-actions"); 102: crash dumps (DebugCrashTarget, DebugService.GetDebugCrash, ProgramInfo.crash_dump; feature "crash-dumps"); 103: Nintendo DS games (ProjectService.ImportDsdProject, ImportNdsRom, ExportDsdSymbols; loader::RawOptions.symbols; module links across programs; feature "nds"); 104: what a DS matching run needed (AppendAssertionsRequest.skip_invalid, AppendAssertionsResponse.refused: feature "assertion-refusals"; SetFunctionBounds.instruction_set: "bounds-isa"; ImportOptions.memory_preset and the DS imports' volatile I/O: "memory-preset"; NameConflict on the imports: "import-conflict"; ProjectService.CompactProject: "compact"); 105: the decomp knowledge base (ProjectService.BuildDecompKb, ApplyDecompKb, DecompKbFunction, DecompKbCall, DecompKbMatch, DecompKbExport, the revkit:dsd.symbol note; ImportNdsRom asserts functions at other modules' call targets; feature "decomp-kb"); 106: SetDecompilerSettings assertions (DecompilerSettings, ComparisonForm), the source-shape options by default, CodeToken.target on volatile registers and string literals, bitfields printed as fields (feature "decompiler-settings")
 
 // The type names Ghidra's decompiler prints that C lacks, for ExportC's
 // files (Ghidra's C exporter writes the same).
@@ -202,7 +217,7 @@ constexpr std::string_view kProgramFolderSub = "revkit:program.folder";
 constexpr std::string_view kProgramLibrarySubPrefix = "revkit:program.library:";
 bool IsProgramMetaSub(std::string_view sub) {
   return sub == kProgramNameSub || sub == kProgramDeletedSub || sub == kProgramFolderSub ||
-         sub.starts_with(kProgramLibrarySubPrefix);
+         sub.starts_with(kProgramLibrarySubPrefix) || sub == backend::kDsdSub;
 }
 // Folders (api_minor 37, docs/api.md "Folders"): NOTE keys in the project
 // space at kFolderAddress, sub "revkit:folder:<id>", value "<parent
@@ -820,6 +835,7 @@ class View {
     o.mutable_asserted()->set_seq(op.seq);
     *o.mutable_asserted()->mutable_provenance() = MetaOf(op).provenance();
     *o.mutable_asserted()->mutable_id() = ToPbId(op.id);
+    o.set_tier(TierOf(o.asserted().provenance()));
     return o;
   }
 
@@ -862,16 +878,61 @@ class View {
   pb::FactOrigin NameOrigin(std::uint64_t addr) {
     if (!Text(Key(FactKind::Name, addr)).empty())
       if (auto w = Winner(Key(FactKind::Name, addr))) return Origin(*w);
-    if (const Func *f = functions().at(addr))
-      return Derived(!f->mangled.empty()       ? "analysis.demangler"
-                     : f->name.starts_with("FUN_") ? "names.default"
-                                                   : "analysis.functions",
-                     revision());
+    if (const Func *f = functions().at(addr)) {
+      pb::FactOrigin o = Derived(!f->mangled.empty()       ? "analysis.demangler"
+                                 : f->name.starts_with("FUN_") ? "names.default"
+                                                               : "analysis.functions",
+                                 revision());
+      // A function's own name comes from the file: a symbol, an import, a
+      // thunk's target (api_minor 97).
+      if (!f->name.starts_with("FUN_")) o.set_tier(pb::SOURCE_TIER_SYMBOL);
+      return o;
+    }
     if (const Label *l = defaults().find(addr); l && !l->mangled.empty()) return Derived("analysis.demangler", revision());
     if (const Label *l = defaults().find(addr);
         l && !l->name.starts_with("LAB_") && !l->name.starts_with("DAT_") && !l->name.starts_with("FUN_"))
       return Derived("names.loader", revision());
     return Derived("names.default", revision());
+  }
+
+  // The name a linked module program gives an address this program
+  // doesn't map (a DS module's call into main: nds_import.h, the
+  // revkit:program.dsd record): its effective name there, when exactly one
+  // linked module maps it.
+  struct LinkedName {
+    std::string name, program_id;
+  };
+  std::optional<LinkedName> LinkedSymbol(std::uint64_t addr) {
+    if (!links_) {
+      links_.emplace();
+      const std::string rec = Text(ProgramKey(std::string(kDsdSub)));
+      if (!rec.empty()) {
+        auto programs = snap_.get<q::Programs>(0);
+        for (const auto &[module, pid] : DsdRecord::decode(rec).links)
+          if (pid != id_ && std::find(programs->begin(), programs->end(), pid) != programs->end()) links_->push_back(pid);
+      }
+    }
+    if (links_->empty() || program().image().memory.is_mapped(addr)) return std::nullopt;
+    std::optional<LinkedName> hit;
+    for (const std::string &pid : *links_) {
+      auto src = snap_.get<q::Source>(pid);
+      if (!src->program || !src->program->image().memory.is_mapped(addr)) continue;
+      if (hit) return std::nullopt;  // overlays sharing the address: neither
+      std::string name;
+      auto asserted = snap_.get<facts::AssertedFact>(FactKeyAt(FactKind::Name, src->ram_space, addr));
+      if (const auto *t = std::get_if<std::string>(&*asserted)) name = *t;
+      if (name.empty()) {
+        auto funcs = snap_.get<q::Functions>(pid);
+        if (const Func *f = funcs->at(addr)) name = f->name;
+      }
+      if (name.empty()) {
+        auto labels = snap_.get<q::DefaultNames>(pid);
+        if (const Label *l = labels->find(addr)) name = l->name;
+      }
+      hit = LinkedName{std::move(name), pid};
+    }
+    if (hit && hit->name.empty()) return std::nullopt;
+    return hit;
   }
 
   std::vector<pb::CommentView> Comments(std::uint64_t addr) {
@@ -957,6 +1018,7 @@ class View {
   std::string id_;
   mutable std::shared_ptr<const Program> effective_;
   std::optional<facts::Shift> shift_;
+  std::optional<std::vector<std::string>> links_;  // LinkedSymbol's program ids
   facts::Ref<FunctionTable> functions_;
   facts::Ref<LabelMap> defaults_;
   facts::Ref<XrefTable> xrefs_;
@@ -1016,6 +1078,11 @@ void RenderTokens(View &v, std::uint64_t addr, const std::vector<lift::Token> &t
   auto symbol_token = [&](pb::ListingToken *o, std::uint64_t to, bool keep_text = true) {
     *o->mutable_target() = A(to);
     std::string name = v.Symbol(to);
+    if (name.empty())
+      if (auto l = v.LinkedSymbol(to)) {
+        name = std::move(l->name);
+        o->set_target_program_id(l->program_id);
+      }
     if (name.empty()) {
       o->set_kind(pb::LISTING_TOKEN_KIND_ADDRESS);
       if (!keep_text) {
@@ -1242,6 +1309,10 @@ void FillRow(View &v, const StaticRow &r, std::int64_t index, bool omit_bytes, p
         t->set_kind(pb::LISTING_TOKEN_KIND_SYMBOL);
         t->set_text(name);
         if (auto d = v.Demangled(*r.data_target)) *t->mutable_demangled() = std::move(*d);
+      } else if (auto l = v.LinkedSymbol(*r.data_target)) {
+        t->set_kind(pb::LISTING_TOKEN_KIND_SYMBOL);
+        t->set_text(l->name);
+        t->set_target_program_id(l->program_id);
       } else {
         char buf[32];
         std::snprintf(buf, sizeof buf, "%08llx", static_cast<unsigned long long>(*r.data_target));
@@ -1672,7 +1743,35 @@ std::string KeyFor(View &v, const pb::AssertionBody &body,
     case pb::AssertionBody::kFunctionBounds: {
       const auto &b = body.function_bounds();
       if (auto e = check_addr(b.entry()); !e.empty()) return e;
-      if (!b.remove() && !p.instruction(b.entry().offset())) return "no instruction at entry 0x" + Hex(b.entry().offset());
+      std::uint64_t entry_key = b.entry().offset();
+      if (b.instruction_set() != pb::INSTRUCTION_SET_UNSPECIFIED && b.instruction_set() != pb::INSTRUCTION_SET_ARM &&
+          b.instruction_set() != pb::INSTRUCTION_SET_THUMB)
+        return "function_bounds.instruction_set is unknown";
+      auto info = v.snapshot().get<analysis::Program>(AnalysisKey(v.id()));
+      if (info->isa_context.empty()) {
+        if (b.instruction_set() != pb::INSTRUCTION_SET_UNSPECIFIED)
+          return "function_bounds.instruction_set: the program's language has one instruction set";
+        if (!b.remove() && !p.instruction(entry_key)) return "no instruction at entry 0x" + Hex(entry_key);
+      } else {
+        // ARM and Thumb (docs/api.md, "Function bounds"): a Thumb function's
+        // key is its flow key (ProgramInfo::code_key: tagged unless symbols
+        // or context already mark the code Thumb). The instruction set is
+        // the request's, else the entry's bit 0, else the one the function
+        // or the code already there has, so an untagged entry never turns a
+        // Thumb function into ARM.
+        const std::uint64_t at = entry_key & ~std::uint64_t{1};
+        const bool tagged = (entry_key & 1) != 0;
+        if (tagged && b.instruction_set() == pb::INSTRUCTION_SET_ARM)
+          return "entry 0x" + Hex(entry_key) + " has bit 0 set (Thumb) but instruction_set is ARM";
+        bool thumb = false;
+        if (b.instruction_set() == pb::INSTRUCTION_SET_THUMB || tagged) thumb = true;
+        else if (b.instruction_set() == pb::INSTRUCTION_SET_ARM) thumb = false;
+        else if (const Func *f = v.functions().at(at); f && f->entry == at) thumb = (f->flags & analysis::kFunctionThumb) != 0;
+        else thumb = v.code().thumb_at(at) || info->thumb(at);
+        entry_key = info->code_key(at, thumb);
+        if (!b.remove() && !p.instruction(at, thumb))
+          return "no " + std::string(thumb ? "Thumb" : "ARM") + " instruction at entry 0x" + Hex(at);
+      }
       facts::AddressSet set;
       for (const auto &r : b.body()) {
         if (r.first().offset() > r.last().offset()) return "body range first > last";
@@ -1680,7 +1779,7 @@ std::string KeyFor(View &v, const pb::AssertionBody &body,
         if (auto e = check_addr(r.last()); !e.empty()) return e;
         set.add(facts::AddressRange{{v.space(), r.first().offset()}, {v.space(), r.last().offset()}});
       }
-      key = v.Key(FactKind::FunctionBounds, b.entry().offset());
+      key = v.Key(FactKind::FunctionBounds, entry_key);
       if (b.remove()) value = kRemovedFunction;
       else value = std::move(set);
       return {};
@@ -1762,6 +1861,7 @@ std::string KeyFor(View &v, const pb::AssertionBody &body,
       if (auto e = check_addr(n.address()); !e.empty()) return e;
       if (IsProgramMetaSub(n.tag())) return "note tag " + n.tag() + " is reserved (RenameProgram, DeleteProgram)";
       if (IsDataSettingsTag(n.tag())) return "note tag " + n.tag().substr(0, 64) + " is reserved (SetDataSettings)";
+      if (n.tag() == kDecompilerSettingsTag) return "note tag " + n.tag() + " is reserved (SetDecompilerSettings)";
       key = v.Key(FactKind::Note, n.address().offset(), n.tag());
       value = n.text();
       return {};
@@ -1833,6 +1933,16 @@ std::string KeyFor(View &v, const pb::AssertionBody &body,
         key = v.Key(FactKind::Note, d.address().offset(), DataSettingsTag(d.field()));
       }
       value = settings->encode();  // "" removes
+      return {};
+    }
+    case pb::AssertionBody::kDecompilerSettings: {
+      // How the decompiler shapes the program's C (decompiler.h): a NOTE
+      // with a reserved tag at 0. Empty settings (all revkit's) remove it.
+      const pb::DecompilerSettings &s = body.decompiler_settings().settings();
+      if (!pb::ComparisonForm_IsValid(s.comparison_form())) return "decompiler_settings.comparison_form is not a form";
+      if (!pb::LoadTypes_IsValid(s.load_types())) return "decompiler_settings.load_types is not a mode";
+      key = v.Key(FactKind::Note, 0, std::string(kDecompilerSettingsTag));
+      value = s.SerializeAsString();
       return {};
     }
     case pb::AssertionBody::kDefineType: return "define_type is keyed by DefineTypes";
@@ -2073,7 +2183,10 @@ void Effects(const FunctionTable &before, const FunctionTable &after, const Xref
     case FactKind::Note:
       // Data settings (data_settings.h): the item's rows (its fields and
       // elements, at most kMaxDataBytes on), or every row of a type.
-      if (key.sub.starts_with(kDataTypeSettingsPrefix)) {
+      // Decompiler settings: every decompilation.
+      if (key.sub == kDecompilerSettingsTag) {
+        add(pb::QUERY_KIND_DECOMPILE);
+      } else if (key.sub.starts_with(kDataTypeSettingsPrefix)) {
         add(pb::QUERY_KIND_LISTING);
       } else if (IsDataSettingsTag(key.sub)) {
         const std::uint64_t last = a + (kMaxDataBytes - 1) < a ? ~std::uint64_t{0} : a + (kMaxDataBytes - 1);
@@ -2831,11 +2944,22 @@ class ImageBackend final : public api::Backend {
     resp.add_features("dotnet");
     resp.add_features("content-kinds");
     resp.add_features("packed-executables");
+    resp.add_features("android");
+    resp.add_features("apple-bundles");
+    resp.add_features("ui-actions");
+    resp.add_features("crash-dumps");
     resp.add_features("register-values");
     resp.add_features("build-info");
     resp.add_features("external-decompilers");
     resp.add_features("value-trace");
+    resp.add_features("result-evidence");
+    resp.add_features("evm");
     resp.add_features("go-pclntab");
+    resp.add_features("nds");
+    for (const char *f : {"assertion-refusals", "bounds-isa", "memory-preset", "import-conflict", "compact"})
+      resp.add_features(f);
+    resp.add_features("decomp-kb");
+    resp.add_features("decompiler-settings");
     if (core_->options.plugins) resp.add_features("plugins");
     if (core_->options.plugins) resp.add_features("plugin-facts-invalidation");
     if (core_->options.plugins && plugins::Host::available()) resp.add_features("peripheral-plugins");
@@ -2902,6 +3026,56 @@ class ImageBackend final : public api::Backend {
     return Status::Ok();
   }
 
+  // ProjectService.CompactProject (compact.h): a closed project's store,
+  // pruned and rewritten while nothing writes to it.
+  Status CompactProject(const CallContext &, const pb::CompactProjectRequest &req,
+                        pb::CompactProjectResponse &resp) override {
+    Project *p = nullptr;
+    {
+      std::lock_guard lock(core_->mu);
+      auto it = core_->projects.find(req.project_id());
+      if (it == core_->projects.end()) return Error(StatusCode::kNotFound, "no project " + req.project_id());
+      p = it->second.get();
+    }
+    if (!p->persistent())
+      return Error(StatusCode::kFailedPrecondition, "project " + p->id + " isn't on disk (rk-daemon --project-dir)");
+    std::lock_guard write(p->write_mu);
+    {
+      std::lock_guard lock(core_->mu);
+      if (p->open)
+        return Error(StatusCode::kFailedPrecondition, "project " + p->id + " is open: CloseProject first");
+    }
+    p->db->engine().flush();
+    CompactOptions o;
+    o.drop_caches = req.drop_caches();
+    o.cache_limit = req.cache_limit_bytes();
+    o.dry_run = req.dry_run();
+    CompactReport rep;
+    std::string error;
+    if (!CompactStore(*p->db->engine().storage(), p->db->engine().rules(), o, rep, &error))
+      return Error(StatusCode::kFailedPrecondition, error);
+    resp.set_file_bytes_before(rep.file_before);
+    resp.set_file_bytes_after(rep.file_after);
+    resp.set_log_records(rep.log_records);
+    resp.set_log_bytes(rep.log_bytes);
+    resp.set_program_bytes(rep.file_bytes);
+    resp.set_memo_records(rep.memo_records);
+    resp.set_memo_bytes(rep.memo_bytes);
+    resp.set_dropped_records(rep.dropped_records);
+    resp.set_dropped_bytes(rep.dropped_bytes);
+    resp.set_dropped_stale(rep.dropped_stale);
+    std::vector<std::pair<std::string, CompactReport::Rule>> rules(rep.rules.begin(), rep.rules.end());
+    std::sort(rules.begin(), rules.end(), [](const auto &a, const auto &b) { return a.second.bytes > b.second.bytes; });
+    for (const auto &[name, r] : rules) {
+      pb::CompactRule *x = resp.add_rules();
+      x->set_name(name);
+      x->set_records(r.records);
+      x->set_bytes(r.bytes);
+      x->set_dropped(r.dropped);
+    }
+    return Status::Ok();
+  }
+
   Status CloseProject(const CallContext &, const pb::CloseProjectRequest &req, pb::CloseProjectResponse &) override {
     Project *p = nullptr;
     {
@@ -2958,12 +3132,51 @@ class ImageBackend final : public api::Backend {
     }
     if (st.ok() && !req.folder_id().empty() && PlaceInFolder(req, resp.program().program_id(), resp))
       RefillProgram(resp.program().program_id(), resp.mutable_program());
+    // NAME_CONFLICT_REPLACE: the program that had the name goes (deleted,
+    // undoable) and this one shows the name.
+    if (st.ok() && req.on_conflict() == pb::NAME_CONFLICT_REPLACE && !resp.name_taken_by().empty())
+      ReplaceProgram(resp.name_taken_by(), resp.program().program_id(), req.provenance(), resp);
     if (st.ok() && req.options().import_libraries()) ImportLibraries(ctx, req, library_root, resp);
     if (st.ok())
       progress->Finish("Imported " + resp.program().name() + ": " + Thousands(progress->functions()) + " functions");
     else
       progress->Fail(st.message);
     return st;
+  }
+
+  // NAME_CONFLICT_REPLACE: `old_id` is deleted if it is live, and `new_id`
+  // shows the name asked for (the old id's).
+  void ReplaceProgram(const std::string &old_id, const std::string &new_id, const pb::Provenance &asked,
+                      pb::ImportProgramResponse &resp) {
+    pb::Provenance prov = asked;
+    if (prov.kind() == pb::PROVENANCE_KIND_UNSPECIFIED) prov.set_kind(pb::PROVENANCE_KIND_USER);
+    std::string name = old_id.substr(old_id.find('/') + 1);
+    Project *p = nullptr;
+    if (FindProgramProject(old_id, p).ok()) {
+      std::shared_ptr<const ProgramEntry> entry;
+      {
+        std::lock_guard lock(core_->mu);
+        if (auto it = p->programs.find(old_id); it != p->programs.end()) entry = it->second;
+      }
+      if (entry) {
+        const ProgramState state = StateOf(*p, *entry, p->log().size());
+        std::uint64_t revision = 0;
+        pb::Assertion a;
+        if (!state.deleted) {
+          if (auto st = AssertProgramState(old_id, kProgramDeletedSub, "deleted", prov, revision, a); st.ok())
+            resp.set_replaced_program_id(old_id);
+          else
+            resp.add_warnings("not replaced: " + st.message);
+        }
+      }
+    }
+    std::uint64_t revision = 0;
+    pb::Assertion a;
+    if (auto st = AssertProgramState(new_id, kProgramNameSub, name, prov, revision, a); !st.ok())
+      resp.add_warnings("not renamed to " + name + ": " + st.message);
+    else
+      resp.mutable_snapshot()->set_revision(revision), resp.mutable_snapshot()->set_head_revision(revision);
+    RefillProgram(new_id, resp.mutable_program());
   }
 
   Status GetImportProgress(const CallContext &ctx, const pb::GetImportProgressRequest &req,
@@ -3065,6 +3278,11 @@ class ImageBackend final : public api::Backend {
     // The bytes are those of the request's host path, read by the caller
     // (a library under a root, read without following a link out of it).
     bool host_file = false;
+    // A raw image laid out by the caller (format "raw"): regions with file
+    // bytes, symbols (a DS module: nds_import.h), instead of the request's
+    // raw options; and assertions to stage with the import.
+    const loader::RawOptions *raw = nullptr;
+    std::vector<AnalysisFacts> facts;
   };
 
   Status ImportProgramImpl(const pb::ImportProgramRequest &req, pb::ImportProgramResponse &resp,
@@ -3133,15 +3351,27 @@ class ImageBackend final : public api::Backend {
     const auto &o = req.options();
     if (o.format() == "raw" && !o.macho_slice().empty())
       return Error(StatusCode::kInvalidArgument, "macho_slice is for Mach-O files, not format \"raw\"");
+    // EVM bytecode (api_minor 99, feature "evm"; docs/evm.md): format "evm",
+    // or a file with no format or language asked for that starts as solc's
+    // contracts do. It loads as a raw image of revkit's EVM processor.
+    std::optional<loader::RawOptions> evm_raw;
+    if (o.format() == "evm" || (o.format().empty() && o.language_id().empty())) {
+      evm_raw = EvmRawOptions(*bytes);
+      if (!evm_raw && o.format() == "evm")
+        return Error(StatusCode::kInvalidArgument,
+                     "format \"evm\": the file isn't EVM bytecode as solc writes it (binary or hex text starting "
+                     "6080604052); import it as format \"raw\" with language_id " + std::string(evm::kLanguage));
+    }
     // A format other than the built-in ones names a loader plugin.
     std::shared_ptr<const plugins::Plugin> loader_plugin;
-    const bool raw = o.format() == "raw";
-    if (raw && o.language_id().empty())
+    const bool raw = o.format() == "raw" || evm_raw;
+    if (o.format() == "raw" && o.language_id().empty())
       return Error(StatusCode::kInvalidArgument, "format \"raw\" needs options.language_id");
     if (!raw && (o.raw_offset() || o.raw_length() || !o.raw_permissions().empty() || o.has_entry_point() ||
                  o.regions_size()))
       return Error(StatusCode::kInvalidArgument, "raw_* options, entry_point and regions are for format \"raw\"");
-    if (!o.format().empty() && o.format() != "elf" && o.format() != "pe" && o.format() != "macho" && !raw) {
+    if (!o.format().empty() && o.format() != "elf" && o.format() != "pe" && o.format() != "macho" && !raw &&
+        o.format() != "evm") {
       loader_plugin = FindLoader(o.format());
       if (!loader_plugin)
         return Error(StatusCode::kInvalidArgument,
@@ -3167,7 +3397,19 @@ class ImageBackend final : public api::Backend {
         return core_->program_project.count(id) ||
                std::any_of(p->missing.begin(), p->missing.end(), [&](const auto &m) { return m.second.id == id; });
       };
+      // The name taken (ImportProgramRequest.on_conflict): refused, or the
+      // next free one, said in the response; ImportProgram replaces.
+      if (taken(src.id)) {
+        if (req.on_conflict() == pb::NAME_CONFLICT_REFUSE)
+          return Error(StatusCode::kAlreadyExists, "a program named \"" + name + "\" is already in " +
+                                                       req.project_id() + " (" + src.id +
+                                                       "); on_conflict KEEP_BOTH or REPLACE imports it anyway");
+        resp.set_name_taken_by(src.id);
+      }
       for (int n = 2; taken(src.id); ++n) src.id = req.project_id() + "/" + name + "-" + std::to_string(n);
+      if (!resp.name_taken_by().empty())
+        resp.add_warnings("the name " + name + " is taken (" + resp.name_taken_by() + "): imported as " +
+                          src.id.substr(req.project_id().size() + 1));
       core_->program_project[src.id] = req.project_id();
       src.ordinal = AllocateOrdinalLocked(*p, src.id, src.sha256);
     }
@@ -3181,11 +3423,42 @@ class ImageBackend final : public api::Backend {
     src.compiler_spec_id = o.compiler_spec_id();
     if (o.has_image_base()) src.image_base = o.image_base();
     src.macho_slice = o.macho_slice();
-    if (raw) {
+    if (evm_raw) {
+      src.raw = *evm_raw;
+      src.language_id = evm::kLanguage;
+      // Creation code's segment (the raw base is the program's image base).
+      if (evm_raw->base) src.image_base = evm_raw->base;
+    } else if (raw && pre && pre->raw) {
+      src.raw = *pre->raw;
+    } else if (raw) {
       if (auto st = RawOptionsOf(o, src.raw.emplace()); !st.ok()) {
         Unreserve(src.id, *p, src.ordinal);
         return st;
       }
+    }
+    // A platform's memory map (ImportOptions.memory_preset): its I/O as
+    // volatile regions, cut around the image and the regions given.
+    if (!o.memory_preset().empty()) {
+      if (!src.raw) {
+        Unreserve(src.id, *p, src.ordinal);
+        return Error(StatusCode::kInvalidArgument, "memory_preset is for format \"raw\"");
+      }
+      std::vector<std::pair<std::uint64_t, std::uint64_t>> taken;
+      for (const loader::RawRegion &r : src.raw->regions)
+        if (r.size && r.space.empty()) taken.emplace_back(r.start, r.start + (r.size - 1));
+      const std::uint64_t base = src.image_base.value_or(0);
+      const std::uint64_t avail = bytes->size() > src.raw->offset ? bytes->size() - src.raw->offset : 0;
+      const std::uint64_t n = src.raw->length ? std::min(*src.raw->length, avail) : avail;
+      if (n && src.raw->space.empty()) taken.emplace_back(base, base + (n - 1));
+      auto regions = loader::platform_regions(o.memory_preset(), taken);
+      if (!regions) {
+        Unreserve(src.id, *p, src.ordinal);
+        std::string names;
+        for (const std::string &n : loader::platform_presets()) names += (names.empty() ? "" : ", ") + n;
+        return Error(StatusCode::kInvalidArgument,
+                     "memory_preset \"" + o.memory_preset().substr(0, 64) + "\" is not a preset (" + names + ")");
+      }
+      for (loader::RawRegion &r : *regions) src.raw->regions.push_back(std::move(r));
     }
     src.file_size = bytes->size();
     if (req.has_path() && (!pre || pre->host_file)) src.path = fs::absolute(req.path()).string();
@@ -3196,7 +3469,8 @@ class ImageBackend final : public api::Backend {
     std::vector<AnalysisFacts> pe_analysis;
     analysis::ProgramInfo info;
     progress.Enter(pb::IMPORT_PHASE_LOADING,
-                   raw ? "Loading the raw image as " + o.language_id()
+                   evm_raw ? std::string("Loading the EVM contract")
+                   : raw   ? "Loading the raw image as " + o.language_id()
                        : "Loading " + name + ": sections and symbols");
     // Once parsed: the code's and the debug info's size, so the estimates
     // of what follows are this file's; then the debug info is read.
@@ -3252,6 +3526,12 @@ class ImageBackend final : public api::Backend {
       // A Go program's function table (docs/go.md).
       if (core_->options.import_pe_analysis)
         if (auto g = CollectGoAnalysis(*src.program, debug)) pe_analysis.push_back(std::move(*g));
+      // An EVM contract's functions, labels and jump targets (docs/evm.md).
+      if (auto e = CollectEvmAnalysis(*src.program)) pe_analysis.push_back(std::move(*e));
+      // The caller's (a DS module's translation units: nds_import.h).
+      if (pre)
+        for (const AnalysisFacts &a : pre->facts)
+          if (!a.assertions.empty()) pe_analysis.push_back(a);
     } catch (const loader::LoadError &e) {
       Unreserve(src.id, *p, src.ordinal);
       // Bytecode or a compiled script (api_minor 95): say what it is
@@ -5619,6 +5899,33 @@ class ImageBackend final : public api::Backend {
       if (m.header_flags & bit) out->add_flags(name);
   }
 
+  // MachoSummary.code_signature (api_minor 100; docs/apple-apps.md): the
+  // stored file's LC_CODE_SIGNATURE data, read and not verified.
+  void FillProgramCodeSignature(Read &r, pb::MachoSummary *out) {
+    const ProgramSource &src = r.program->source;
+    const std::shared_ptr<const loader::Bytes> &file = r.program->program().file();
+    auto read = [&](std::uint64_t off, std::size_t n) -> std::vector<std::byte> {
+      if (file) {
+        if (off >= file->size()) return {};
+        const std::size_t take = static_cast<std::size_t>(std::min<std::uint64_t>(n, file->size() - off));
+        return std::vector<std::byte>(file->begin() + static_cast<std::ptrdiff_t>(off),
+                                      file->begin() + static_cast<std::ptrdiff_t>(off + take));
+      }
+      if (off >= src.file_size) return {};
+      auto bytes = ReadStoredBytes(*r.snapshot, src.file_space, off, std::min<std::uint64_t>(n, src.file_size - off));
+      if (!bytes) return {};
+      const auto *p = reinterpret_cast<const std::byte *>(bytes->data());
+      return std::vector<std::byte>(p, p + bytes->size());
+    };
+    const std::uint64_t size = file ? file->size() : src.file_size;
+    apple::SignatureRange where;
+    if (auto sig = ReadCodeSignature(read, size, &where)) {
+      FillCodeSignature(*sig, out->mutable_code_signature());
+      out->mutable_code_signature()->set_offset(where.offset);
+      out->mutable_code_signature()->set_size(where.size);
+    }
+  }
+
   Status GetProgramSummary(const CallContext &ctx, const pb::GetProgramSummaryRequest &req,
                            pb::GetProgramSummaryResponse &resp) override {
     Read r;
@@ -5643,7 +5950,13 @@ class ImageBackend final : public api::Backend {
     s->set_build_id(image.build_id);
     if (auto link = ReadDebugLink(image)) s->set_debuglink(link->name);
     s->set_debug_file(p.debug_file().string());
-    if (image.macho) FillMachoSummary(*image.macho, s->mutable_macho());
+    if (image.macho) {
+      FillMachoSummary(*image.macho, s->mutable_macho());
+      // Its code signature (api_minor 100), read from the stored file.
+      if (image.macho->code_signature) FillProgramCodeSignature(r, s->mutable_macho());
+    }
+    // An EVM contract (api_minor 99).
+    if (IsEvm(p)) FillEvmSummary(p, s->mutable_evm());
     if (image.entry) {
       auto *e = s->add_entry_points();
       *e->mutable_address() = A(*image.entry);
@@ -5716,6 +6029,9 @@ class ImageBackend final : public api::Backend {
     Read r;
     if (auto st = ResolveProgram(ctx, req.program_id(), {}, {}, r); !st.ok()) return st;
     View v(r);
+    // Each refused body's reason, by index (AppendAssertionsRequest.skip_invalid
+    // commits the rest; otherwise any refusal refuses the batch, naming each).
+    std::map<int, std::string> refused;
     std::map<std::uint64_t, std::optional<std::set<std::string>>> locals;
     for (const auto &in : req.assertions()) {
       const pb::Target *t = in.body().has_rename()   ? &in.body().rename().target()
@@ -5771,6 +6087,7 @@ class ImageBackend final : public api::Backend {
     };
     std::map<int, DisplayKey> displays;
     std::vector<DisplayKey> display_extras;
+    std::vector<int> display_extra_origin;  // by display_extras' index: the body it came from
 
     // bind_type_name bodies as stored: an assertion_index replaced by its hash.
     std::map<int, pb::AssertionBody> bound;
@@ -5825,20 +6142,33 @@ class ImageBackend final : public api::Backend {
     // assertions); text that doesn't parse is kept as text, as before.
     std::map<int, pb::AssertionBody> parsed_retypes;
     std::map<std::string, ParsedRetype::Def> retype_types;
+    std::map<std::string, std::set<int>> type_origins;  // which bodies need each of retype_types
+    // One parser for the batch's C declarations (a batch of prototypes is
+    // thousands of them).
+    std::optional<facts::Ref<NamedTypes>> retype_names;
+    std::optional<ParseCContext> retype_context;
+    std::optional<RetypeParser> retype_parser;
+    auto parse_retype = [&](const std::string &decl, bool function) {
+      if (!retype_parser) {
+        retype_names = r.snapshot->get<q::TypeNames>(v.id());
+        retype_context.emplace(ParseCContext{v.program(), **retype_names,
+                                             [&](const std::string &hash) { return TypeClosureOf(r, v, hash); },
+                                             core_->options.browse_roots});
+        retype_parser.emplace(*retype_context);
+      }
+      return retype_parser->parse(decl, function);
+    };
     for (int i = 0; i < req.assertions_size(); ++i) {
       const auto &body = req.assertions(i).body();
       if (body.has_call_signature() && body.call_signature().signature().has_c_declaration()) {
         // A call's signature override: a function prototype, which must
         // parse (it is stored by hash only).
-        auto names = r.snapshot->get<q::TypeNames>(v.id());
-        ParseCContext c{v.program(), *names, [&](const std::string &hash) { return TypeClosureOf(r, v, hash); },
-                        core_->options.browse_roots};
         const std::string &decl = body.call_signature().signature().c_declaration();
-        std::optional<ParsedRetype> parsed = decl.empty() ? std::nullopt : ParseRetype(c, decl, true);
-        if (!parsed)
-          return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) +
-                                                         "]: call_signature.signature: not a function prototype C can parse: " +
-                                                         decl.substr(0, 200));
+        std::optional<ParsedRetype> parsed = decl.empty() ? std::nullopt : parse_retype(decl, true);
+        if (!parsed) {
+          refused.emplace(i, "call_signature.signature: not a function prototype C can parse: " + decl.substr(0, 200));
+          continue;
+        }
         pb::AssertionBody hashed = body;
         hashed.mutable_call_signature()->mutable_signature()->set_type_hash(parsed->hash);
         parsed_retypes[i] = std::move(hashed);
@@ -5846,6 +6176,7 @@ class ImageBackend final : public api::Backend {
           batch_types.insert(hash);
           if (v.Asserted(TypeDefKey(v.space(), hash)) || r.snapshot->get<q::Library>(v.id())->record(hash)) continue;
           retype_types.emplace(hash, std::move(def));
+          type_origins[hash].insert(i);
         }
         continue;
       }
@@ -5854,10 +6185,7 @@ class ImageBackend final : public api::Backend {
         continue;
       const pb::Target &t = body.retype().target();
       const bool function = t.has_address() && IsDefaultSpace(t.address()) && v.functions().at(t.address().offset());
-      auto names = r.snapshot->get<q::TypeNames>(v.id());
-      ParseCContext c{v.program(), *names, [&](const std::string &hash) { return TypeClosureOf(r, v, hash); },
-                      core_->options.browse_roots};
-      std::optional<ParsedRetype> parsed = ParseRetype(c, body.retype().type().c_declaration(), function);
+      std::optional<ParsedRetype> parsed = parse_retype(body.retype().type().c_declaration(), function);
       if (!parsed) continue;
       pb::AssertionBody hashed = body;
       hashed.mutable_retype()->mutable_type()->set_type_hash(parsed->hash);
@@ -5868,6 +6196,7 @@ class ImageBackend final : public api::Backend {
             r.snapshot->get<q::Library>(v.id())->record(hash))
           continue;
         retype_types.emplace(hash, std::move(def));
+        type_origins[hash].insert(i);
       }
     }
     // Listing edits: Clear, Disassemble here and Define data at an address
@@ -5913,7 +6242,10 @@ class ImageBackend final : public api::Backend {
       } else {
         err = ResolveMutability(v.program(), body.mutability(), k);
       }
-      if (!err.empty()) return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: " + err);
+      if (!err.empty()) {
+        refused.emplace(i, err);
+        continue;
+      }
       for (auto &[hash, def] : k.types) {
         if (std::find(defined.hash.begin(), defined.hash.end(), hash) != defined.hash.end()) continue;
         batch_types.insert(hash);
@@ -5921,9 +6253,36 @@ class ImageBackend final : public api::Backend {
             r.snapshot->get<q::Library>(v.id())->record(hash))
           continue;
         retype_types.emplace(hash, def);
+        type_origins[hash].insert(i);
       }
       k.types.clear();
       listing_edits.emplace(i, std::move(k));
+    }
+    // Function bounds after a Disassemble in the same request: the
+    // instruction set the Disassemble gives the code there, unless the
+    // bounds say one (KeyFor otherwise goes by what is there at head).
+    {
+      std::map<std::uint64_t, std::vector<int>> edits_at;  // listing edits by address, in request order
+      for (const auto &[j, k] : listing_edits)
+        if (req.assertions(j).body().has_listing_edit())
+          edits_at[req.assertions(j).body().listing_edit().address().offset()].push_back(j);
+      for (int i = 0; i < req.assertions_size() && !edits_at.empty(); ++i) {
+        const auto &body = req.assertions(i).body();
+        if (!body.has_function_bounds() || body.function_bounds().instruction_set() != pb::INSTRUCTION_SET_UNSPECIFIED ||
+            (body.function_bounds().entry().offset() & 1) || parsed_retypes.contains(i))
+          continue;
+        auto it = edits_at.find(body.function_bounds().entry().offset());
+        if (it == edits_at.end()) continue;
+        // The last edit there before the bounds.
+        auto j = std::lower_bound(it->second.begin(), it->second.end(), i);
+        if (j == it->second.begin()) continue;
+        const pb::ListingEdit &e = req.assertions(*std::prev(j)).body().listing_edit();
+        if (e.has_disassemble() && e.disassemble().instruction_set() != pb::INSTRUCTION_SET_UNSPECIFIED) {
+          pb::AssertionBody b = body;
+          b.mutable_function_bounds()->set_instruction_set(e.disassemble().instruction_set());
+          parsed_retypes[i] = std::move(b);
+        }
+      }
     }
     // Operand displays (docs/api.md, "Equates and user references"): each
     // placed on the operand holding its value, and with apply_to, on every
@@ -5944,13 +6303,11 @@ class ImageBackend final : public api::Backend {
           if (t.kind == lift::Token::Kind::scalar && t.operand >= 0) out.push_back(&t);
         return out;
       };
-      for (int i = 0; i < req.assertions_size(); ++i) {
+      // One operand display: "" or why it is refused.
+      auto display_one = [&](int i) -> std::string {
         const auto &body = req.assertions(i).body();
-        if (!body.has_operand_display()) continue;
         const pb::OperandDisplay &d = body.operand_display();
-        auto fail = [&](const std::string &e) {
-          return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: " + e);
-        };
+        auto fail = [](const std::string &e) { return e; };
         if (!IsDefaultSpace(d.address())) return fail("only the default space is supported");
         const std::uint64_t at = d.address().offset();
         if (!prog.block_containing(at)) return fail("address 0x" + Hex(at) + " is not in memory");
@@ -6089,6 +6446,18 @@ class ImageBackend final : public api::Backend {
         // (An enum member's name is the enum's, not the program's: two
         // enums may share one.)
         if (disp.equate() && disp.enum_type.empty()) mine.emplace_back(i, &displays[i]);
+        return {};
+      };
+      for (int i = 0; i < req.assertions_size(); ++i) {
+        if (!req.assertions(i).body().has_operand_display()) continue;
+        const std::size_t extras = display_extras.size();
+        if (std::string e = display_one(i); !e.empty()) {
+          refused.emplace(i, std::move(e));
+          displays.erase(i);
+          display_extras.resize(extras);
+          continue;
+        }
+        display_extra_origin.resize(display_extras.size(), i);
       }
       // One name, one value.
       if (!mine.empty()) {
@@ -6104,10 +6473,13 @@ class ImageBackend final : public api::Backend {
         for (const auto &[i, dk] : mine) {
           auto disp = analysis::parse_operand_display(dk->value);
           auto [it, inserted] = names.try_emplace(disp->name, value_of(dk->key), dk->key.addr.offset);
-          if (!inserted && it->second.first != value_of(dk->key))
-            return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: equate " + disp->name +
-                                                           " already has the value 0x" + Hex(it->second.first) +
-                                                           " (at 0x" + Hex(it->second.second) + ")");
+          if (!inserted && it->second.first != value_of(dk->key)) {
+            refused.emplace(i, "equate " + disp->name + " already has the value 0x" + Hex(it->second.first) +
+                                   " (at 0x" + Hex(it->second.second) + ")");
+            displays.erase(i);
+            for (std::size_t x = 0; x < display_extras.size(); ++x)
+              if (display_extra_origin[x] == i) display_extra_origin[x] = -1;  // dropped below
+          }
         }
       }
     }
@@ -6115,6 +6487,14 @@ class ImageBackend final : public api::Backend {
     for (int i = 0; i < req.assertions_size(); ++i) {
       const auto &in = req.assertions(i);
       Staged s{{}, {}, in.depends_on_seq()};
+      if (refused.contains(i)) {
+        staged.push_back(std::move(s));  // left out below
+        continue;
+      }
+      auto refuse = [&](std::string e) {
+        refused.emplace(i, std::move(e));
+        staged.push_back({});
+      };
       const pb::AssertionBody &key_body =
           parsed_retypes.contains(i) ? parsed_retypes.at(i) : in.body();
       if (in.body().has_define_type()) {
@@ -6128,28 +6508,82 @@ class ImageBackend final : public api::Backend {
         s.key = dk->second.key;
         s.value = dk->second.value;
       } else if (in.body().has_bind_type_name()) {
-        if (auto err = bind_key(i, s); !err.empty())
-          return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: " + err);
+        if (auto err = bind_key(i, s); !err.empty()) {
+          refuse(std::move(err));
+          continue;
+        }
+        const pb::TypeNodeRef &ref = in.body().bind_type_name().type();
+        if (ref.kind_case() == pb::TypeNodeRef::kAssertionIndex && refused.contains(static_cast<int>(ref.assertion_index()))) {
+          refuse("it binds assertions[" + std::to_string(ref.assertion_index()) + "], which was refused");
+          continue;
+        }
       } else if (auto err = KeyFor(v, key_body, local_keys, batch_types, s.key, s.value); !err.empty()) {
-        return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: " + err);
+        refuse(std::move(err));
+        continue;
       }
       // A project-scope request's types are the project's.
       if (req.project_scope() && s.key.kind == FactKind::TypeDef) s.key.addr = {kProjectSpace, archive::kProjectTypesAddress};
       if (s.depends_on) {
         auto dep = r.project->log().op(s.depends_on);
-        if (!dep || dep->kind != facts::OpKind::Assert)
-          return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: depends_on_seq is not an assertion");
+        if (!dep || dep->kind != facts::OpKind::Assert) {
+          refuse("depends_on_seq is not an assertion");
+          continue;
+        }
       }
       staged.push_back(std::move(s));
     }
+    // Refused bodies: the batch, unless skip_invalid leaves them out.
+    if (!refused.empty() && !req.skip_invalid()) {
+      std::string msg;
+      std::size_t n = 0;
+      for (const auto &[i, e] : refused) {
+        if (++n > 20) {
+          msg += "; and " + std::to_string(refused.size() - 20) + " more";
+          break;
+        }
+        msg += (msg.empty() ? "" : "; ") + ("assertions[" + std::to_string(i) + "]: " + e);
+      }
+      if (refused.size() > 1) msg += " (" + std::to_string(refused.size()) + " refused; skip_invalid applies the rest)";
+      return Error(StatusCode::kInvalidArgument, msg);
+    }
+    for (const auto &[i, e] : refused) {
+      pb::RefusedAssertion *x = resp.add_refused();
+      x->set_index(static_cast<std::uint32_t>(i));
+      x->set_reason(e);
+    }
+    // What is committed: the request's bodies that weren't refused, then
+    // what they bring (types parsed from C, the operands an equate applies
+    // to, demoted primary references).
+    std::vector<int> kept;  // request indexes, in order
+    for (int i = 0; i < req.assertions_size(); ++i)
+      if (!refused.contains(i)) kept.push_back(i);
+    if (kept.empty()) {
+      // Nothing left to commit: no revision.
+      std::lock_guard lock(core_->mu);
+      SetHeadSnapshot(*r.project, resp.mutable_snapshot());
+      return Status::Ok();
+    }
     std::vector<const pb::AssertionBody *> extra_bodies;
+    std::vector<Staged> extras;
     for (auto &[hash, def] : retype_types) {
-      staged.push_back({TypeDefKey(v.space(), hash), def.record, 0});
+      const auto &from = type_origins[hash];
+      if (!from.empty() && std::all_of(from.begin(), from.end(), [&](int i) { return refused.contains(i); })) continue;
+      extras.push_back({TypeDefKey(v.space(), hash), def.record, 0});
       extra_bodies.push_back(&def.body);
     }
-    for (DisplayKey &dk : display_extras) {
-      staged.push_back({dk.key, dk.value, 0});
+    for (std::size_t x = 0; x < display_extras.size(); ++x) {
+      if (x < display_extra_origin.size() && (display_extra_origin[x] < 0 || refused.contains(display_extra_origin[x])))
+        continue;
+      DisplayKey &dk = display_extras[x];
+      extras.push_back({dk.key, dk.value, 0});
       extra_bodies.push_back(&dk.stored);
+    }
+    {
+      std::vector<Staged> all;
+      all.reserve(kept.size() + extras.size());
+      for (int i : kept) all.push_back(std::move(staged[static_cast<std::size_t>(i)]));
+      for (Staged &e : extras) all.push_back(std::move(e));
+      staged = std::move(all);
     }
     // A primary user reference: an operand has one, so the operand's other
     // primary user references stop being primary in the same revision
@@ -6157,8 +6591,8 @@ class ImageBackend final : public api::Backend {
     std::vector<pb::AssertionBody> demoted;
     {
       std::set<facts::FactKey> keyed;
-      for (std::size_t i = 0; i < static_cast<std::size_t>(req.assertions_size()); ++i) keyed.insert(staged[i].key);
-      for (int i = 0; i < req.assertions_size(); ++i) {
+      for (std::size_t i = 0; i < kept.size(); ++i) keyed.insert(staged[i].key);
+      for (int i : kept) {
         const pb::AssertionBody &body = req.assertions(i).body();
         if (!body.has_reference() || !body.reference().primary() || body.reference().remove()) continue;
         const pb::UserReference &u = body.reference();
@@ -6182,8 +6616,8 @@ class ImageBackend final : public api::Backend {
       for (const pb::AssertionBody &b : demoted) extra_bodies.push_back(&b);
     }
     auto body_of = [&](std::size_t i) -> const pb::AssertionBody * {
-      if (i < static_cast<std::size_t>(req.assertions_size())) return &stored_body(static_cast<int>(i));
-      return extra_bodies[i - static_cast<std::size_t>(req.assertions_size())];
+      if (i < kept.size()) return &stored_body(kept[i]);
+      return extra_bodies[i - kept.size()];
     };
 
     Project &p = *r.project;
@@ -6192,11 +6626,11 @@ class ImageBackend final : public api::Backend {
     if (req.validate_only()) {
       std::lock_guard lock(core_->mu);
       SetHeadSnapshot(p, resp.mutable_snapshot());
-      for (int i = 0; i < req.assertions_size(); ++i) {
+      for (std::size_t k = 0; k < kept.size(); ++k) {
         pb::Assertion a;
         a.set_op(pb::ASSERTION_OP_ASSERT);
-        *a.mutable_key() = ToPbKey(*p.spaces, staged[static_cast<std::size_t>(i)].key);
-        *a.mutable_body() = stored_body(i);
+        *a.mutable_key() = ToPbKey(*p.spaces, staged[k].key);
+        *a.mutable_body() = stored_body(kept[k]);
         *a.mutable_provenance() = req.provenance();
         *resp.add_assertions() = std::move(a);
       }
@@ -6210,7 +6644,8 @@ class ImageBackend final : public api::Backend {
         tx.assert_fact(who, staged[i].key, std::move(staged[i].value), staged[i].depends_on,
                        Meta(req.provenance(), body_of(i), rev));
       } catch (const std::invalid_argument &e) {
-        return Error(StatusCode::kInvalidArgument, "assertions[" + std::to_string(i) + "]: " + e.what());
+        const std::string at = i < kept.size() ? "assertions[" + std::to_string(kept[i]) + "]: " : std::string();
+        return Error(StatusCode::kInvalidArgument, at + e.what());
       }
     }
     pb::RevisionEvent ev;
@@ -6951,6 +7386,14 @@ class ImageBackend final : public api::Backend {
                    std::string("no function ") + (req.containing() ? "containing" : "at") + " 0x" + Hex(a));
     SetSnapshot(r, resp.mutable_snapshot());
     FillFunction(v, *f, resp.mutable_function());
+    // What analysis couldn't determine about it (api_minor 97).
+    FlowUnknowns(v, *f, nullptr, resp.mutable_function()->mutable_unknowns());
+    if (resp.function().decompile_failed()) {
+      pb::Unknown *u = resp.mutable_function()->add_unknowns();
+      u->set_kind(pb::UNKNOWN_KIND_DECOMPILE_FAILED);
+      u->set_detail("the decompiler failed on this function (decompile says how)");
+    }
+    AnalysisUnknowns(req.program_id(), resp.mutable_function()->mutable_unknowns());
     return Status::Ok();
   }
 
@@ -7698,6 +8141,7 @@ class ImageBackend final : public api::Backend {
           d->set_rule("analysis.register_values:" + p.origin);
           d->set_confidence(1.0f);
           d->set_computed_at_revision(v.revision());
+          x.mutable_origin()->set_tier(pb::SOURCE_TIER_INFERRED);
         }
         out.push_back(std::move(x));
       }
@@ -7963,6 +8407,7 @@ class ImageBackend final : public api::Backend {
     SetSnapshot(r, resp.mutable_snapshot());
     Overlay(v, *f, use, req.options().include_text(), resp.mutable_function(), req.options().include_dataflow());
     if (use.failure) FillFailure(use, escalated != nullptr, req.options().include_bundle(), resp.mutable_failure());
+    DecompileUnknowns(v, *f, use, req.program_id(), resp.mutable_function());
     return Status::Ok();
   }
 
@@ -8400,6 +8845,7 @@ class ImageBackend final : public api::Backend {
             v.program().NoteDecompileFailure(f->entry, use.failure.has_value());
             Overlay(v, *f, use, req.options().include_text(), m.mutable_function(), req.options().include_dataflow());
             if (use.failure) FillFailure(use, escalated != nullptr, false, m.mutable_failure());
+            DecompileUnknowns(v, *f, use, req.program_id(), m.mutable_function());
           } catch (const DecompileStoppedError &e) {
             if (ctx.cancelled()) {
               stop = true;
@@ -10786,6 +11232,7 @@ class ImageBackend final : public api::Backend {
       d->set_rule("plugin:" + row.plugin->id());
       d->set_confidence(1);
       d->set_computed_at_revision(r.revision);
+      f->mutable_origin()->set_tier(pb::SOURCE_TIER_AGENT);
     }
     return Status::Ok();
   }
@@ -10844,7 +11291,7 @@ class ImageBackend final : public api::Backend {
     if (o.has_entry_point()) out.entry = o.entry_point();
     out.space = o.raw_space();
     if (auto c = loader::raw_container_from_string(o.raw_format())) out.container = *c;
-    else return Error(StatusCode::kInvalidArgument, "raw_format must be binary, ihex, srec or empty");
+    else return Error(StatusCode::kInvalidArgument, "raw_format must be binary, ihex, srec, hexbytes or empty");
     for (int i = 0; i < o.regions_size(); ++i) {
       const pb::MemoryRegion &r = o.regions(i);
       if (r.name().empty() || r.size() == 0)
@@ -11181,6 +11628,8 @@ class ImageBackend final : public api::Backend {
     if (src.raw) {
       po.raw = src.raw;
       po.raw->base = src.image_base.value_or(0);
+      // An EVM contract: revkit's own processor, its own format name.
+      if (src.language_id.starts_with("EVM:")) po.format = "evm";
     }
     po.decompilers = core_->options.decompilers_per_program;
     po.decompile_workers = core_->workers;
@@ -11292,6 +11741,15 @@ class ImageBackend final : public api::Backend {
       p.dir = fs::path(core_->options.project_dir) / id;
       fs::create_directories(p.dir);
       o.storage = facts::open_lmdb_storage(p.dir);
+      if (core_->options.persisted_cache_limit) {
+        CompactOptions co;
+        co.cache_limit = core_->options.persisted_cache_limit;
+        CompactReport rep;
+        if (const std::uint64_t n = PruneCaches(*o.storage, BackendRules(), co, rep))
+          std::fprintf(stderr, "rk-daemon: project %s: dropped %llu stored memos over the cache limit (%llu MB)\n",
+                       id.c_str(), static_cast<unsigned long long>(n),
+                       static_cast<unsigned long long>(core_->options.persisted_cache_limit >> 20));
+      }
       if (auto meta = o.storage->get(facts::Table::Meta, kProjectMetaKey)) {
         facts::Decoder d(*meta);
         p.name = std::string(d.bytes());
@@ -11713,6 +12171,1802 @@ class ImageBackend final : public api::Backend {
     return Status::Ok();
   }
 
+  // QueryService.ExportDecompScratch (api_minor 103, feature "nds";
+  // docs/nds.md): one function's decompiled C with the declarations it
+  // needs, as a matching decompilation's starting scratch.
+  Status ExportDecompScratch(const CallContext &ctx, const pb::ExportDecompScratchRequest &req,
+                             pb::ExportDecompScratchResponse &resp) override {
+    Read r;
+    if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
+    View v(r);
+    SetSnapshot(r, resp.mutable_snapshot());
+    const std::uint64_t entry = req.function().offset();
+    const Func *f = v.functions().at(entry);
+    if (!f) return Error(StatusCode::kNotFound, "no function at 0x" + Hex(entry));
+    const DsdRecord rec = DsdRecord::decode(v.Text(v.ProgramKey(std::string(kDsdSub))));
+    std::string module = req.module();
+    if (module.empty()) module = rec.module;
+    if (module.empty()) module = StateOf(*r.project, *r.program, r.log_size).name;
+    const std::string asserted = v.Text(v.Key(FactKind::Name, entry));
+    const std::string symbol = !asserted.empty() ? asserted : !f->mangled.empty() ? f->mangled : f->name;
+    char addr[24];
+    std::snprintf(addr, sizeof addr, "0x%08llx", static_cast<unsigned long long>(entry));
+    resp.set_probe("// PROBE: " + symbol + " " + module + " " + addr);
+    resp.set_function_name(v.Symbol(entry));
+    resp.set_symbol(symbol);
+    resp.set_module(module);
+    pb::DecompileRequest dr;
+    dr.set_program_id(req.program_id());
+    *dr.mutable_function() = req.function();
+    dr.mutable_read()->set_revision(resp.snapshot().revision());
+    dr.mutable_options()->set_include_text(true);
+    if (req.timeout_ms()) dr.mutable_options()->set_timeout_ms(req.timeout_ms());
+    pb::DecompileResponse dres;
+    if (auto st = Decompile(ctx, dr, dres); !st.ok()) return st;
+    if (dres.has_failure()) *resp.mutable_failure() = dres.failure();
+    const pb::DecompiledFunction &df = dres.function();
+    // What it uses: named types, callees (in order of first use), globals.
+    std::set<std::string> hashes;
+    std::vector<std::uint64_t> callees;
+    std::set<std::uint64_t> seen_callee;
+    for (const pb::CodeLine &line : df.lines())
+      for (const pb::CodeToken &t : line.tokens()) {
+        if (!t.type_hash().empty()) hashes.insert(t.type_hash());
+        if (!t.parent_type_hash().empty()) hashes.insert(t.parent_type_hash());
+        if (t.kind() == pb::CODE_TOKEN_KIND_FUNCTION_NAME && t.has_target() && t.target().offset() != entry &&
+            seen_callee.insert(t.target().offset()).second)
+          callees.push_back(t.target().offset());
+      }
+    std::vector<std::string> globals;
+    for (const pb::Variable &var : df.variables()) {
+      if (!var.type().hash().empty()) hashes.insert(var.type().hash());
+      if (var.kind() == pb::VARIABLE_KIND_GLOBAL && !var.name().empty()) {
+        std::string ty = var.type().display().empty() ? std::string("undefined") : var.type().display();
+        // "undefined1 [16]": the array's bounds go after the name.
+        std::string bounds;
+        if (const std::size_t br = ty.find('['); br != std::string::npos) {
+          bounds = ty.substr(br);
+          ty = ty.substr(0, br);
+          while (!ty.empty() && ty.back() == ' ') ty.pop_back();
+        }
+        std::string decl = "extern " + ty + (ty.ends_with('*') ? "" : " ") + var.name() + bounds + ";";
+        if (var.has_address()) {
+          char b[24];
+          std::snprintf(b, sizeof b, "0x%08llx", static_cast<unsigned long long>(var.address().offset()));
+          decl += " /* " + std::string(b) + " */";
+        }
+        globals.push_back(std::move(decl));
+      }
+    }
+    if (!df.prototype().return_type().hash().empty()) hashes.insert(df.prototype().return_type().hash());
+    std::string context;
+    context += "/* " + resp.function_name() + " from " + req.program_id() + ", decompiled by revkit at revision " +
+               std::to_string(resp.snapshot().revision()) +
+               ": a starting point to rewrite until it matches, not source that compiles to the same code. */\n\n";
+    context += std::string(kGhidraBuiltinTypedefs) + "\n";
+    if (!hashes.empty()) {
+      pb::ExportTypeArchiveRequest tr;
+      tr.set_program_id(req.program_id());
+      tr.set_scope(pb::TYPE_ARCHIVE_SCOPE_SELECTED);
+      for (const std::string &h : hashes) tr.add_hashes(h);
+      tr.set_name("scratch");
+      tr.mutable_read()->set_revision(resp.snapshot().revision());
+      pb::ExportTypeArchiveResponse types;
+      if (auto ts = ExportTypeArchive(ctx, tr, types); ts.ok()) {
+        resp.set_types(static_cast<std::uint32_t>(types.archive().types_size()));
+        if (types.archive().types_size()) context += "/* Types */\n" + types.header() + "\n";
+        for (const std::string &n : types.notes()) resp.add_notes(n);
+      } else if (ts.code != StatusCode::kFailedPrecondition && ts.code != StatusCode::kNotFound) {
+        resp.add_notes("types not declared: " + ts.message);
+      }
+    }
+    std::string decls;
+    for (std::uint64_t c : callees) {
+      std::string program = req.program_id(), where;
+      std::string name = v.Symbol(c);
+      if (name.empty())
+        if (auto l = v.LinkedSymbol(c)) {
+          program = l->program_id;
+          name = l->name;
+          const std::string pname = program.substr(program.find('/') + 1);
+          where = " /* " + pname + " */";
+        }
+      pb::GetFunctionRequest gr;
+      gr.set_program_id(program);
+      gr.mutable_address()->set_offset(c);
+      gr.mutable_read()->set_revision(resp.snapshot().revision());
+      pb::GetFunctionResponse gf;
+      std::string proto;
+      if (GetFunction(ctx, gr, gf).ok()) {
+        proto = gf.function().prototype();
+        if (name.empty()) name = gf.function().name();
+      }
+      // Nothing asserted or inferred: the callee's own decompilation's.
+      if (proto.empty() && gf.has_function()) {
+        pb::DecompileRequest cr;
+        cr.set_program_id(program);
+        cr.mutable_function()->set_offset(c);
+        cr.mutable_read()->set_revision(resp.snapshot().revision());
+        if (req.timeout_ms()) cr.mutable_options()->set_timeout_ms(req.timeout_ms());
+        pb::DecompileResponse cd;
+        if (Decompile(ctx, cr, cd).ok() && !cd.has_failure()) proto = cd.function().prototype().c_declaration();
+      }
+      if (proto.empty()) {
+        decls += "/* " + (name.empty() ? "FUN_" + Hex(c) : name) + ": no prototype known */" + where + "\n";
+        resp.add_notes((name.empty() ? Hex(c) : name) + ": no prototype known");
+        continue;
+      }
+      decls += proto + ";" + where + "\n";
+      resp.set_callees(resp.callees() + 1);
+    }
+    if (!decls.empty()) context += "/* Callees */\n" + decls + "\n";
+    if (!globals.empty()) {
+      context += "/* Globals */\n";
+      for (const std::string &g : globals) context += g + "\n";
+      context += "\n";
+      resp.set_globals(static_cast<std::uint32_t>(globals.size()));
+    }
+    std::string source = resp.probe() + "\n" + df.text();
+    if (!source.empty() && source.back() != '\n') source += '\n';
+    resp.set_context(context);
+    resp.set_source(source);
+    resp.set_text(resp.probe() + "\n" + context + df.text() + (df.text().ends_with('\n') ? "" : "\n"));
+    return Status::Ok();
+  }
+
+  // ---- The decomp knowledge base (api_minor 105, feature "decomp-kb"; decomp_kb.h) ----
+
+  // The programs a call names: `ids`, else those in `folder` and below, else the project's.
+  Status ProgramsOf(const CallContext &ctx, const std::string &project, const std::string &folder,
+                    std::vector<std::string> &ids) {
+    if (!ids.empty()) return Status::Ok();
+    pb::ListProgramsRequest lr;
+    lr.set_project_id(project);
+    pb::ListProgramsResponse lp;
+    if (auto st = ListPrograms(ctx, lr, lp); !st.ok()) return st;
+    std::set<std::string> under;
+    if (!folder.empty()) {
+      under.insert(folder);
+      for (bool grew = true; grew;) {
+        grew = false;
+        for (const pb::ProjectFolder &f : lp.folders())
+          if (under.contains(f.parent_id()) && under.insert(f.folder_id()).second) grew = true;
+      }
+    }
+    for (const pb::ProgramInfo &pi : lp.programs())
+      if (folder.empty() || under.contains(pi.folder_id())) ids.push_back(pi.program_id());
+    return Status::Ok();
+  }
+
+  // A host path under a --browse-root (it may not exist yet): canonical.
+  Status UnderRoots(const std::string &path, const char *what, std::string &out) {
+    const std::vector<std::string> &roots = core_->options.browse_roots;
+    if (roots.empty())
+      return Error(StatusCode::kFailedPrecondition, std::string(what) + " is on the daemon's host: start rk-daemon with --browse-root <dir>");
+    if (path.empty() || !fs::path(path).is_absolute())
+      return Error(StatusCode::kInvalidArgument, std::string(what) + " must be an absolute path");
+    std::error_code ec;
+    out = fs::weakly_canonical(path, ec).string();
+    if (ec || !UnderBrowseRoot(out, roots))
+      return Error(StatusCode::kPermissionDenied, path + " is not under a --browse-root directory");
+    return Status::Ok();
+  }
+
+  // Writes `text` at `rel` (relative, no "..") below `root`, making the
+  // directories on the way, without following a link anywhere below root.
+  static bool WriteBeneath(const fs::path &root, const fs::path &rel, const std::string &text, std::string *why) {
+    const fs::path norm = rel.lexically_normal();
+    if (norm.empty() || norm.is_absolute() || norm.begin()->string() == "..") {
+      if (why) *why = rel.string() + ": not a relative path below the directory";
+      return false;
+    }
+    fs::path dir;
+    for (auto it = norm.begin(); it != norm.end();) {
+      const fs::path comp = *it;
+      if (++it == norm.end()) break;
+      if (comp == "..") {
+        if (why) *why = rel.string() + ": not a relative path below the directory";
+        return false;
+      }
+      const int fd = OpenBeneath(root, dir, O_RDONLY | O_DIRECTORY);
+      if (fd < 0) {
+        if (why) *why = (root / dir).string() + ": " + std::strerror(errno);
+        return false;
+      }
+      const int made = ::mkdirat(fd, comp.c_str(), 0755);
+      const int err = errno;
+      ::close(fd);
+      if (made != 0 && err != EEXIST) {
+        if (why) *why = (root / dir / comp).string() + ": " + std::strerror(err);
+        return false;
+      }
+      dir /= comp;
+    }
+    const int fd = OpenBeneath(root, norm, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+      if (why) *why = (root / norm).string() + ": " + std::strerror(errno);
+      return false;
+    }
+    std::size_t done = 0;
+    while (done < text.size()) {
+      const ssize_t n = ::write(fd, text.data() + done, text.size() - done);
+      if (n < 0 && errno == EINTR) continue;
+      if (n <= 0) {
+        if (why) *why = (root / norm).string() + ": " + std::strerror(errno);
+        ::close(fd);
+        return false;
+      }
+      done += static_cast<std::size_t>(n);
+    }
+    ::close(fd);
+    return true;
+  }
+
+  // A ds-decomp project's root from its config.yaml's path: the directory
+  // above config/ (config/<version>/arm9/config.yaml or config/arm9/...).
+  static fs::path DsdRootOf(const fs::path &config) {
+    fs::path dir = config.parent_path();
+    if (dir.filename() == "arm9") dir = dir.parent_path();
+    if (dir.parent_path().filename() == "config") return dir.parent_path().parent_path();
+    if (dir.filename() == "config") return dir.parent_path();
+    return dir;
+  }
+
+  static bool PlaceholderName(const std::string &n) {
+    return n.empty() || n == "entry" || nds::generated_name(n) || n.starts_with("FUN_") || n.starts_with("func_");
+  }
+
+  // A function's instructions as text for a near match's diff: addresses
+  // (call and branch targets, literal-pool references) as <addr>, so the
+  // same code at another address reads the same.
+  std::vector<std::string> KbInstructions(View &v, const Func &f, std::size_t limit = 2000) {
+    std::vector<std::string> out;
+    const Program &p = v.program();
+    const CodeMap &code = v.code();
+    SnapshotPatches patches(v.snapshot(), v.space());
+    for (auto [lo, hi] : f.body) {
+      auto it = std::upper_bound(code.spans.begin(), code.spans.end(), lo,
+                                 [](std::uint64_t a, const ListingSpan &s) { return a < s.start; });
+      if (it != code.spans.begin()) --it;
+      for (; it != code.spans.end() && it->start <= hi; ++it) {
+        if (!it->code || it->end <= lo) continue;
+        for (std::uint32_t row : it->rows) {
+          if (row & ListingSpan::kUndefined) continue;
+          const std::uint64_t a = it->start + (row & ListingSpan::kOffsetMask);
+          if (a < lo) continue;
+          if (a > hi) break;
+          auto d = p.instruction(a, it->thumb, &patches);
+          if (!d) continue;
+          std::string line;
+          if (d->insn.tokens.empty()) {
+            line = d->insn.text;
+          } else {
+            for (const lift::Token &t : d->insn.tokens) line += t.kind == lift::Token::Kind::address ? std::string("<addr>") : t.text;
+          }
+          out.push_back(std::move(line));
+          if (out.size() >= limit) return out;
+        }
+      }
+    }
+    return out;
+  }
+
+  Status BuildDecompKb(const CallContext &ctx, const pb::BuildDecompKbRequest &req, pb::BuildDecompKbResponse &resp) override {
+    if (auto st = OpenProjectNamed(req.project_id()); !st.ok()) return st;
+    std::string kb_dir;
+    if (auto st = UnderRoots(req.kb_path(), "kb_path", kb_dir); !st.ok()) return st;
+    const std::vector<std::string> &roots = core_->options.browse_roots;
+    std::string error;
+    std::optional<DecompKb> kb = ReadDecompKb(kb_dir, &error);
+    if (!kb) return Error(StatusCode::kInvalidArgument, error);
+    {
+      std::error_code ec;
+      fs::create_directories(kb_dir, ec);
+      if (ec) return Error(StatusCode::kInternal, "cannot make " + kb_dir + ": " + ec.message());
+    }
+    std::map<std::pair<std::string, std::uint64_t>, ManifestEntry> manifest;
+    if (!req.manifest_path().empty()) {
+      std::string mp;
+      if (auto st = UnderRoots(req.manifest_path(), "manifest_path", mp); !st.ok()) return st;
+      std::string why;
+      std::optional<std::string> text = ReadRegularFile(mp, roots, 1ull << 30, &why);
+      if (!text) return Error(StatusCode::kNotFound, "cannot read " + mp + ": " + why);
+      std::size_t bad = 0;
+      manifest = ReadManifest(*text, &bad);
+      if (bad) resp.add_warnings(std::to_string(bad) + " manifest lines without an address skipped");
+    }
+    std::vector<std::string> ids(req.program_ids().begin(), req.program_ids().end());
+    if (auto st = ProgramsOf(ctx, req.project_id(), req.folder_id(), ids); !st.ok()) return st;
+    std::string game = req.game();
+    if (game.empty() && !req.folder_id().empty()) {
+      pb::ListProgramsRequest lr;
+      lr.set_project_id(req.project_id());
+      pb::ListProgramsResponse lp;
+      if (ListPrograms(ctx, lr, lp).ok())
+        for (const pb::ProjectFolder &f : lp.folders())
+          if (f.folder_id() == req.folder_id()) game = f.name();
+    }
+    if (game.empty()) game = "game";
+    for (char &c : game)
+      if (c == '/' || c == '\\' || static_cast<unsigned char>(c) < 0x20) c = '_';
+    if (game == "." || game == "..") game = "game";
+    resp.set_game(game);
+    resp.set_kb_path(kb_dir);
+    std::erase_if(kb->functions, [&](const pb::DecompKbFunction &f) { return f.game() == game; });
+    if (std::find(kb->games.begin(), kb->games.end(), game) == kb->games.end()) kb->games.push_back(game);
+    if (kb->name.empty()) kb->name = fs::path(kb_dir).filename().string();
+    // A new KB takes the language most of the programs have (a DS game's
+    // ARM9 modules, not its ARM7's).
+    if (kb->language.empty()) {
+      std::map<std::string, std::size_t> langs;
+      for (const std::string &id : ids) {
+        Read r;
+        if (ResolveProgram(ctx, id, {}, {}, r).ok()) ++langs[BaseLanguage(r.program->source.program->language().id())];
+      }
+      std::size_t best = 0;
+      for (const auto &[l, n] : langs)
+        if (n > best) best = n, kb->language = l;
+    }
+    // The near index beside the KB: this game's executables replaced.
+    std::shared_ptr<BsimEntry> near;
+    const std::string near_path = (fs::path(kb_dir) / "near.rkbsim").string();
+    bool near_cleared = false;
+    std::set<std::string> copied;
+    std::map<std::string, std::unique_ptr<Read>> linked;  // linked programs read, by id
+    for (const std::string &id : ids) {
+      if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+      Read r;
+      if (auto st = ResolveProgram(ctx, id, {}, {}, r); !st.ok()) return st;
+      View v(r);
+      const ProgramSource &src = r.program->source;
+      const std::string lang = BaseLanguage(src.program->language().id());
+      if (kb->language.empty()) kb->language = lang;
+      if (lang != kb->language) {
+        resp.add_warnings(id + " is " + lang + ", the KB " + kb->language + ": left out");
+        continue;
+      }
+      const DsdRecord rec = DsdRecord::decode(v.Text(v.ProgramKey(std::string(kDsdSub))));
+      const std::string module = rec.module.empty() ? StateOf(*r.project, *r.program, r.log_size).name : rec.module;
+      // The module's translation units (delinks.txt) and the source root.
+      nds::DsdDelinks delinks;
+      fs::path root = req.source_root();
+      if (!rec.config.empty()) {
+        const fs::path config(rec.config);
+        std::error_code ec;
+        const fs::path cfg_canon = fs::weakly_canonical(config, ec);
+        std::optional<std::string> text = ec ? std::nullopt : ReadRegularFile(cfg_canon, roots, 16u << 20);
+        std::string e;
+        if (text)
+          if (std::optional<nds::DsdConfig> cfg = nds::parse_dsd_config(*text, &e))
+            if (const nds::DsdModuleConfig *mc = cfg->find(module); mc && !mc->delinks.empty()) {
+              const fs::path dl = fs::weakly_canonical(config.parent_path() / mc->delinks, ec);
+              if (std::optional<std::string> d = ec ? std::nullopt : ReadRegularFile(dl, roots, 64u << 20))
+                delinks = nds::parse_dsd_delinks(*d);
+            }
+        if (root.empty()) root = DsdRootOf(config);
+      }
+      auto unit_of = [&](std::uint64_t a) -> const nds::DsdDelinkFile * {
+        for (const nds::DsdDelinkFile &f : delinks.files)
+          for (const nds::DsdSection &s : f.sections)
+            if (s.name == ".text" && a >= s.start && a < s.end) return &f;
+        return nullptr;
+      };
+      fid::ProgramHashes h;
+      try {
+        h = HashSnapshot(*r.snapshot, AnalysisKey(id), src.program->image(), src.ram_space, nullptr, {}, 1);
+      } catch (const std::exception &e) {
+        return Error(StatusCode::kInternal, std::string("hashing ") + id + ": " + e.what());
+      }
+      // A function's name as the linker spells it.
+      auto linker_symbol = [&](const Func &f) {
+        const std::string asserted = v.Text(v.Key(FactKind::Name, f.entry));
+        const std::string note = v.Text(v.Key(FactKind::Note, f.entry, std::string(kDsdSymbolSub)));
+        return !asserted.empty() ? (note.empty() ? asserted : note) : !f.mangled.empty() ? f.mangled : f.name;
+      };
+      // A function of a linked module (an overlay's call into main): its
+      // linker spelling, when exactly one linked program has a function there.
+      auto linked_symbol = [&](std::uint64_t to) -> std::string {
+        std::string hit;
+        for (const auto &[mod, pid] : rec.links) {
+          auto it = linked.find(pid);
+          if (it == linked.end()) {
+            auto lr = std::make_unique<Read>();
+            if (!ResolveProgram(ctx, pid, {}, {}, *lr).ok()) lr.reset();
+            it = linked.emplace(pid, std::move(lr)).first;
+          }
+          if (!it->second) continue;
+          View lv(*it->second);
+          const Func *cf = lv.functions().at(to);
+          if (!cf) continue;
+          const std::string asserted = lv.Text(lv.Key(FactKind::Name, cf->entry));
+          const std::string note = lv.Text(lv.Key(FactKind::Note, cf->entry, std::string(kDsdSymbolSub)));
+          const std::string sym = !asserted.empty() ? (note.empty() ? asserted : note) : !cf->mangled.empty() ? cf->mangled : cf->name;
+          if (!hit.empty() && hit != sym) return {};  // overlays sharing the address
+          hit = sym;
+        }
+        return hit;
+      };
+      std::map<std::string, std::optional<std::string>> unit_text;  // unit -> its source, once
+      std::vector<std::uint64_t> sign;                             // the records' entries, for the near index
+      std::map<std::uint64_t, std::pair<std::string, bool>> sign_names;  // entry -> (name, anonymous)
+      for (const Func &f : v.functions().funcs) {
+        std::string symbol = linker_symbol(f);
+        const ManifestEntry *m = nullptr;
+        if (auto it = manifest.find({module, f.entry}); it != manifest.end()) m = &it->second;
+        // A pipeline's manifest may name what the program doesn't.
+        if (PlaceholderName(symbol) && m && !PlaceholderName(m->symbol)) symbol = m->symbol;
+        const bool anonymous = PlaceholderName(symbol);
+        const fid::ProgramFunction *pf = h.find(f.entry);
+        if (!pf || !pf->hash || pf->thunk) {
+          resp.set_unnamed(resp.unnamed() + 1);
+          continue;
+        }
+        const bool small = pf->instructions < static_cast<std::uint32_t>(fid::kShortHashCodeUnits);
+        pb::DecompKbFunction rec_fn;
+        rec_fn.set_game(game);
+        rec_fn.set_module(module);
+        rec_fn.set_address(f.entry);
+        std::uint64_t last = f.entry;
+        for (const auto &rg : f.body) last = std::max<std::uint64_t>(last, rg.second);
+        rec_fn.set_size(last + 1 - f.entry);
+        rec_fn.set_mode((f.flags & analysis::kFunctionThumb) ? "thumb" : "arm");
+        if (symbol.empty()) symbol = "func_" + Hex(f.entry);
+        rec_fn.set_symbol(symbol);
+        // The name its text is found by and a match shows: revkit's, or the
+        // manifest's when that names what the program doesn't.
+        const std::string shown = v.Symbol(f.entry);
+        rec_fn.set_name(PlaceholderName(shown) && !anonymous ? inputs::demangled_name(symbol).value_or(symbol) : shown);
+        rec_fn.set_anonymous(anonymous);
+        rec_fn.set_small(small);
+        for (const auto &[from, to] : pf->calls) {
+          if (from < f.entry) continue;
+          std::string callee;
+          if (const Func *cf = v.functions().at(to)) callee = linker_symbol(*cf);
+          else callee = linked_symbol(to);  // another module's, through the module links
+          if (PlaceholderName(callee)) continue;
+          pb::DecompKbCall *c = rec_fn.add_calls();
+          c->set_offset(static_cast<std::uint32_t>(from - f.entry));
+          c->set_symbol(callee);
+          c->set_address(to);
+        }
+        {
+          pb::Function pfn;
+          FillFunction(v, f, &pfn);
+          rec_fn.set_prototype(pfn.prototype());
+        }
+        char hb[24];
+        std::snprintf(hb, sizeof hb, "%016llx", static_cast<unsigned long long>(pf->hash->full));
+        rec_fn.set_full_hash(hb);
+        std::snprintf(hb, sizeof hb, "%016llx", static_cast<unsigned long long>(pf->hash->specific));
+        rec_fn.set_specific_hash(hb);
+        rec_fn.set_code_units(pf->hash->code_units);
+        rec_fn.set_specific_extra(pf->hash->specific_extra);
+        rec_fn.set_language(lang);
+        rec_fn.set_compiler(req.compiler());
+        rec_fn.set_flags(req.flags());
+        std::string unit;
+        if (const nds::DsdDelinkFile *u = unit_of(f.entry)) {
+          unit = u->name;
+          rec_fn.set_status(u->complete ? "matching" : "");
+        }
+        if (m) {
+          if (!m->compiler.empty()) rec_fn.set_compiler(m->compiler);
+          if (!m->flags.empty()) rec_fn.set_flags(m->flags);
+          if (!m->status.empty()) rec_fn.set_status(m->status);
+          if (!m->source.empty()) unit = m->source;
+          if (!m->masked_hash.empty()) rec_fn.set_manifest_hash(m->masked_hash);
+          rec_fn.set_fuzzy(m->fuzzy);
+          rec_fn.set_library(m->library);
+          rec_fn.set_object(m->object);
+          rec_fn.set_variant(m->variant);
+          rec_fn.set_relocations(m->relocations);
+          resp.set_from_manifest(resp.from_manifest() + 1);
+        }
+        rec_fn.set_unit(unit);
+        if (!unit.empty() && !root.empty()) {
+          auto [it, fresh] = unit_text.try_emplace(unit);
+          if (fresh) {
+            std::error_code ec;
+            const fs::path file = fs::weakly_canonical(root / unit, ec);
+            const fs::path rel = fs::path("sources") / game / fs::path(unit).lexically_normal();
+            const bool inside = !fs::path(unit).is_absolute() && !fs::path(unit).lexically_normal().string().starts_with("..");
+            if (!ec && inside) it->second = ReadRegularFile(file, roots, 64u << 20);
+            if (it->second) {
+              std::string why;
+              if (WriteBeneath(kb_dir, rel, *it->second, &why)) {
+                if (copied.insert(game + "/" + unit).second) resp.set_units(resp.units() + 1);
+              } else {
+                resp.add_warnings("cannot copy " + unit + ": " + why);
+                it->second.reset();
+              }
+            }
+          }
+          if (it->second) {
+            rec_fn.set_source("sources/" + game + "/" + fs::path(unit).lexically_normal().string());
+            if (std::optional<std::string> t = ExtractFunctionText(*it->second, rec_fn.name())) {
+              rec_fn.set_text(*t);
+              resp.set_with_source(resp.with_source() + 1);
+            }
+          }
+        }
+        // A placeholder name is worth keeping only for its source.
+        if (anonymous && !m && rec_fn.text().empty()) {
+          resp.set_unnamed(resp.unnamed() + 1);
+          continue;
+        }
+        if (anonymous) resp.set_anonymous(resp.anonymous() + 1);
+        if (small) resp.set_too_short(resp.too_short() + 1);
+        for (std::string &line : KbInstructions(v, f)) rec_fn.add_instructions(std::move(line));
+        if (!small) sign.push_back(f.entry);
+        sign_names[f.entry] = {rec_fn.name(), anonymous};
+        kb->functions.push_back(std::move(rec_fn));
+        resp.set_functions(resp.functions() + 1);
+      }
+      if (req.skip_near_index() || sign.empty()) continue;
+      // Sign the records into the near index.
+      try {
+        if (!near) {
+          if (bsim::Database::looks_like(near_path)) {
+            near = Bsim().Open(near_path);
+          } else {
+            bsim::DatabaseInfo info;
+            info.name = kb->name + " near matches";
+            info.description = "the decomp knowledge base's near index (docs/decomp-kb.md)";
+            info.weights = bsim::template_for_language(lang);
+            near = Bsim().Create(near_path, info);
+          }
+        }
+      } catch (const bsim::BsimError &x) {
+        resp.add_warnings(std::string("no near index: ") + x.what());
+        continue;
+      }
+      bsim::DatabaseInfo info;
+      {
+        std::lock_guard use(near->mu);
+        info = near->db.info();
+        if (!near_cleared) {
+          std::vector<std::string> old;
+          for (const bsim::Executable *x : near->db.executables())
+            if (auto g = x->categories.find("game"); g != x->categories.end() && g->second == game) old.push_back(x->id);
+          for (const std::string &x : old) near->db.remove(x);
+          near_cleared = true;
+        }
+      }
+      const std::uint32_t own = decompd::default_signature_settings(src.program->language().id());
+      SignatureJob::Options so;
+      so.threads = req.threads() != 0 ? std::min(req.threads(), 16u)
+                                      : std::max(1u, std::min(4u, std::thread::hardware_concurrency() / 2));
+      so.settings = info.settings == own ? 0 : info.settings;
+      std::map<std::uint64_t, decompd::FunctionSignature> sigs;
+      try {
+        SignatureJob job(*r.snapshot, r.program->id(), sign, so);
+        sigs = job.wait();
+      } catch (const std::exception &x) {
+        resp.add_warnings(std::string("signing ") + id + " for the near index: " + x.what());
+        continue;
+      }
+      std::vector<bsim::FunctionRecord> records;
+      for (const auto &[entry, sig] : sigs) {
+        if (!sig.ok() || sig.features.empty()) continue;
+        bsim::FunctionRecord fr;
+        fr.entry = entry;
+        fr.name = sign_names[entry].first;
+        if (sign_names[entry].second) fr.flags |= bsim::kDefaultName;
+        fr.features = sig.features;
+        records.push_back(std::move(fr));
+      }
+      pb::ProgramInfo pi;
+      FillProgramInfo(*r.project, *r.program, r.log_size, TreeOf(*r.project, r.log_size), &pi);
+      bsim::Executable exe;
+      exe.id = Sha256Hex(game + "\n" + module + "\n" + pi.sha256());
+      exe.name = game + "/" + module;
+      exe.path = !pi.container_path().empty() ? pi.container_path() : src.path;
+      exe.language = lang;
+      exe.compiler = pi.compiler_spec_id();
+      exe.source = "decomp-kb:" + id;
+      exe.categories = {{"game", game}, {"module", module}};
+      try {
+        std::lock_guard use(near->mu);
+        auto added = near->db.add(exe, std::move(records));
+        resp.set_near_indexed(resp.near_indexed() + static_cast<std::uint32_t>(added.functions));
+      } catch (const bsim::BsimError &x) {
+        resp.add_warnings(std::string("near index: ") + x.what());
+      }
+    }
+    if (!WriteDecompKb(kb_dir, *kb, &error)) return Error(StatusCode::kInternal, error);
+    resp.set_total(static_cast<std::uint32_t>(kb->functions.size()));
+    return Status::Ok();
+  }
+
+  // A KB function's provenance as a plate comment.
+  static std::string KbPlate(const pb::DecompKbFunction &kf, const char *what) {
+    std::string plate = std::string(what) + ": " + kf.game() + " " + kf.module() + " 0x" + Hex(kf.address()) + " " + kf.symbol();
+    if (!kf.unit().empty()) plate += "\n" + kf.unit() + (kf.status().empty() ? "" : " (" + kf.status() + ")");
+    if (!kf.compiler().empty() || !kf.flags().empty())
+      plate += "\nmatches with " + (kf.compiler().empty() ? std::string("its compiler") : kf.compiler()) +
+               (kf.flags().empty() ? "" : ", " + kf.flags());
+    return plate;
+  }
+
+  Status ApplyDecompKb(const CallContext &ctx, const pb::ApplyDecompKbRequest &req, pb::ApplyDecompKbResponse &resp) override {
+    if (auto st = OpenProjectNamed(req.project_id()); !st.ok()) return st;
+    if (req.apply() && req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required to apply");
+    std::string kb_dir;
+    if (auto st = UnderRoots(req.kb_path(), "kb_path", kb_dir); !st.ok()) return st;
+    std::string out_dir;
+    if (!req.export_dir().empty())
+      if (auto st = UnderRoots(req.export_dir(), "export_dir", out_dir); !st.ok()) return st;
+    const std::vector<std::string> &roots = core_->options.browse_roots;
+    std::string error;
+    std::optional<DecompKb> kb = ReadDecompKb(kb_dir, &error);
+    if (!kb) return Error(StatusCode::kInvalidArgument, error);
+    if (kb->functions.empty()) return Error(StatusCode::kNotFound, "no knowledge base at " + kb_dir + " (BuildDecompKb makes one)");
+    // By (full, specific, code units), by full hash alone, and by where it was.
+    std::map<std::tuple<std::string, std::string, std::uint32_t>, std::vector<std::size_t>> exact;
+    std::map<std::string, std::vector<std::size_t>> full;
+    std::map<std::tuple<std::string, std::string, std::uint64_t>, std::size_t> by_place;
+    std::multimap<std::pair<std::string, std::uint64_t>, std::size_t> by_address;  // (game, address): any module
+    for (std::size_t i = 0; i < kb->functions.size(); ++i) {
+      const pb::DecompKbFunction &f = kb->functions[i];
+      if (!f.small()) {
+        exact[{f.full_hash(), f.specific_hash(), f.code_units()}].push_back(i);
+        full[f.full_hash()].push_back(i);
+      }
+      by_place[{f.game(), f.module(), f.address()}] = i;
+      by_address.emplace(std::make_pair(f.game(), f.address()), i);
+    }
+    std::shared_ptr<BsimEntry> near_db;
+    if (req.near()) {
+      const std::string near_path = (fs::path(kb_dir) / "near.rkbsim").string();
+      if (!bsim::Database::looks_like(near_path)) {
+        resp.add_warnings("the KB has no near index (BuildDecompKb makes one unless skip_near_index)");
+      } else {
+        try {
+          near_db = Bsim().Open(near_path);
+        } catch (const bsim::BsimError &x) {
+          resp.add_warnings(std::string("the near index: ") + x.what());
+        }
+      }
+    }
+    const double min_similarity = req.has_min_similarity() ? std::clamp(req.min_similarity(), 0.0, 1.0) : 0.7;
+    const std::size_t max_near = req.max_near() == 0 ? 1 : std::min<std::uint32_t>(req.max_near(), 10);
+    std::vector<std::string> ids(req.program_ids().begin(), req.program_ids().end());
+    if (auto st = ProgramsOf(ctx, req.project_id(), req.folder_id(), ids); !st.ok()) return st;
+    auto hex16 = [](std::uint64_t x) {
+      char b[24];
+      std::snprintf(b, sizeof b, "%016llx", static_cast<unsigned long long>(x));
+      return std::string(b);
+    };
+    struct Found {
+      std::string verdict;            // "exact", "candidate", "call"
+      std::vector<std::size_t> hits;  // KB functions, named ones first
+      std::set<std::string> names;    // their distinct names (anonymous ones left out)
+      std::string via;                // how a "call" match or a settled ambiguity was found
+    };
+    struct Prog {
+      std::string id, module;
+      Read r;
+      fid::ProgramHashes h;
+      std::vector<std::string> links;  // linked programs' ids
+      std::map<std::uint64_t, Found> found;
+    };
+    std::vector<std::unique_ptr<Prog>> progs;
+    std::map<std::string, std::size_t> prog_of;
+    std::vector<std::string> dsd_ids;                 // the programs with a symbols.txt, for the export
+    std::map<std::string, std::string> module_of_id;  // program -> module
+    const auto big = [](const fid::ProgramFunction &pf) {
+      return pf.hash && !pf.thunk && pf.instructions >= static_cast<std::uint32_t>(fid::kShortHashCodeUnits);
+    };
+    // 1. Each program's functions by their hashes: exact (Function ID's
+    // size or more), candidate (the full hash only), or nothing yet.
+    for (const std::string &id : ids) {
+      if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+      auto p = std::make_unique<Prog>();
+      p->id = id;
+      if (auto st = ResolveProgram(ctx, id, {}, {}, p->r); !st.ok()) return st;
+      View v(p->r);
+      const ProgramSource &src = p->r.program->source;
+      const std::string lang = BaseLanguage(src.program->language().id());
+      if (lang != kb->language) {
+        resp.add_warnings(id + " is " + lang + ", the KB " + kb->language + ": not matched");
+        continue;
+      }
+      const DsdRecord rec = DsdRecord::decode(v.Text(v.ProgramKey(std::string(kDsdSub))));
+      p->module = rec.module.empty() ? StateOf(*p->r.project, *p->r.program, p->r.log_size).name : rec.module;
+      module_of_id[id] = p->module;
+      for (const auto &[mod, pid] : rec.links) p->links.push_back(pid);
+      if (!rec.symbols.empty()) dsd_ids.push_back(id);
+      if (!resp.has_snapshot()) SetSnapshot(p->r, resp.mutable_snapshot());
+      try {
+        p->h = HashSnapshot(*p->r.snapshot, AnalysisKey(id), src.program->image(), src.ram_space, nullptr, {}, 1);
+      } catch (const std::exception &e) {
+        return Error(StatusCode::kInternal, std::string("hashing ") + id + ": " + e.what());
+      }
+      for (const fid::ProgramFunction &pf : p->h.functions) {
+        if (!big(pf)) continue;  // short ones only through their callers
+        resp.set_hashed(resp.hashed() + 1);
+        const std::string fb = hex16(pf.hash->full), sb = hex16(pf.hash->specific);
+        Found fd;
+        if (auto it = exact.find({fb, sb, pf.hash->code_units}); it != exact.end()) {
+          fd.verdict = "exact";
+          fd.hits = it->second;
+        } else if (auto jt = full.find(fb); jt != full.end()) {
+          fd.verdict = "candidate";
+          fd.hits = jt->second;
+        }
+        if (fd.hits.empty()) continue;
+        std::stable_sort(fd.hits.begin(), fd.hits.end(), [&](std::size_t x, std::size_t y) {
+          return !kb->functions[x].anonymous() && kb->functions[y].anonymous();
+        });
+        for (std::size_t i : fd.hits)
+          if (!kb->functions[i].anonymous()) fd.names.insert(kb->functions[i].symbol());
+        p->found[pf.entry] = std::move(fd);
+      }
+      prog_of[id] = progs.size();
+      progs.push_back(std::move(p));
+    }
+    // 2. Through the calls, across the programs: a function matched to one
+    // KB function has its code, so each call sits where the KB function's
+    // does, and calls what that one calls there (in its own program or a
+    // linked one: another module of the game). The callee's own hashes,
+    // short ones too, must agree, and every matched caller must. An exact
+    // match several KB names share is settled by its callees the same way.
+    using Key = std::pair<std::size_t, std::uint64_t>;  // program, entry
+    // Where a call from program `pi` to `t` goes: that program, else the one
+    // linked program with a function there.
+    auto target_of = [&](std::size_t pi, std::uint64_t t) -> std::optional<std::size_t> {
+      if (progs[pi]->h.find(t)) return pi;
+      std::optional<std::size_t> hit;
+      for (const std::string &l : progs[pi]->links) {
+        auto it = prog_of.find(l);
+        if (it == prog_of.end() || !progs[it->second]->h.find(t)) continue;
+        if (hit && *hit != it->second) return std::nullopt;  // overlays sharing the address
+        hit = it->second;
+      }
+      return hit;
+    };
+    // The KB function a KB call goes to: by the callee's address in the
+    // same game, the symbol (or its demangled name) agreeing.
+    auto kb_callee = [&](const pb::DecompKbFunction &caller, const pb::DecompKbCall &c) -> std::optional<std::size_t> {
+      if (auto kp = by_place.find({caller.game(), caller.module(), c.address()}); kp != by_place.end()) {
+        const pb::DecompKbFunction &kc = kb->functions[kp->second];
+        if (kc.symbol() == c.symbol() || kc.name() == c.symbol()) return kp->second;
+      }
+      auto [lo, hi] = by_address.equal_range({caller.game(), c.address()});
+      std::optional<std::size_t> hit;
+      for (auto it = lo; it != hi; ++it) {
+        const pb::DecompKbFunction &kc = kb->functions[it->second];
+        if (kc.symbol() != c.symbol() && kc.name() != c.symbol()) continue;
+        if (hit) return std::nullopt;
+        hit = it->second;
+      }
+      return hit;
+    };
+    // The callee a matched function's call at `c` reaches, with its KB
+    // function when the hashes agree.
+    struct Reach {
+      Key at;
+      std::size_t kb;
+      bool agrees = false;  // the callee's hashes are the KB callee's
+    };
+    auto reach_any = [&](const Key &from, const pb::DecompKbFunction &kf, const pb::DecompKbCall &c) -> std::optional<Reach> {
+      const fid::ProgramFunction *pf = progs[from.first]->h.find(from.second);
+      if (!pf) return std::nullopt;
+      const std::uint64_t at = from.second + c.offset();
+      auto mine = std::find_if(pf->calls.begin(), pf->calls.end(), [&](const auto &x) { return x.first == at; });
+      if (mine == pf->calls.end()) return std::nullopt;
+      const std::uint64_t t = mine->second;
+      const std::optional<std::size_t> q = target_of(from.first, t);
+      if (!q) return std::nullopt;
+      const fid::ProgramFunction *tf = progs[*q]->h.find(t);
+      if (!tf || tf->thunk || !tf->hash) return std::nullopt;
+      const std::optional<std::size_t> k = kb_callee(kf, c);
+      if (!k) return std::nullopt;
+      const pb::DecompKbFunction &kc = kb->functions[*k];
+      return Reach{{*q, t}, *k, kc.full_hash() == hex16(tf->hash->full) && kc.specific_hash() == hex16(tf->hash->specific)};
+    };
+    auto reach = [&](const Key &from, const pb::DecompKbFunction &kf, const pb::DecompKbCall &c) -> std::optional<Reach> {
+      std::optional<Reach> r = reach_any(from, kf, c);
+      if (r && !r->agrees) return std::nullopt;
+      return r;
+    };
+    auto known = [&](const Key &k) -> const Found * {
+      auto it = progs[k.first]->found.find(k.second);
+      if (it == progs[k.first]->found.end() || it->second.verdict == "candidate" || it->second.names.size() > 1) return nullptr;
+      return &it->second;
+    };
+    std::vector<std::pair<Key, std::size_t>> frontier;  // (function, its KB function)
+    for (std::size_t pi = 0; pi < progs.size(); ++pi)
+      for (const auto &[e, fd] : progs[pi]->found)
+        if (fd.verdict == "exact" && fd.names.size() <= 1) frontier.push_back({{pi, e}, fd.hits.front()});
+    for (int round = 0; round < 64; ++round) {
+      std::map<Key, std::map<std::string, std::pair<std::size_t, std::size_t>>> proposed;  // callee -> symbol -> (KB, caller's KB)
+      for (const auto &[key, k] : frontier) {
+        const pb::DecompKbFunction &kf = kb->functions[k];
+        for (const pb::DecompKbCall &c : kf.calls()) {
+          const std::optional<Reach> to = reach(key, kf, c);
+          if (!to || known(to->at)) continue;
+          const pb::DecompKbFunction &kc = kb->functions[to->kb];
+          if (kc.anonymous()) continue;
+          proposed[to->at].try_emplace(kc.symbol(), to->kb, k);
+        }
+      }
+      frontier.clear();
+      for (const auto &[t, by_symbol] : proposed) {
+        if (by_symbol.size() != 1) continue;  // callers disagree
+        const auto &[symbol, kv] = *by_symbol.begin();
+        Found fd;
+        fd.verdict = "call";
+        fd.hits = {kv.first};
+        fd.names = {symbol};
+        fd.via = "called where the KB's " + kb->functions[kv.second].name() + " calls it";
+        auto &slot = progs[t.first]->found;
+        // An ambiguous exact match the call settles keeps its other candidates listed.
+        if (auto it = slot.find(t.second); it != slot.end() && it->second.names.contains(symbol)) {
+          fd.verdict = "exact";
+          fd.via = "settled by its caller, the KB's " + kb->functions[kv.second].name();
+          for (std::size_t i : it->second.hits)
+            if (i != kv.first) fd.hits.push_back(i);
+        }
+        slot[t.second] = std::move(fd);
+        frontier.push_back({t, kv.first});
+      }
+      // Ambiguous exact matches settled by their callees: the one KB
+      // function whose calls reach callees known by those names.
+      for (std::size_t pi = 0; pi < progs.size(); ++pi)
+        for (auto &[e, fd] : progs[pi]->found) {
+          if (fd.verdict != "exact" || fd.names.size() < 2) continue;
+          // Each KB candidate's calls: +1 for a callee whose hashes agree,
+          // -1 for one whose don't.
+          std::size_t best = 0, ties = 0;
+          long best_score = 0;
+          for (std::size_t k : fd.hits) {
+            const pb::DecompKbFunction &kf = kb->functions[k];
+            if (kf.anonymous()) continue;
+            long score = 0;
+            for (const pb::DecompKbCall &c : kf.calls())
+              if (const std::optional<Reach> to = reach_any({pi, e}, kf, c)) score += to->agrees ? 1 : -1;
+            if (score > best_score) best = k, best_score = score, ties = 0;
+            else if (score == best_score && score > 0) ++ties;
+          }
+          if (best_score <= 0 || ties) {
+            // Else by elimination: the one candidate name no other function
+            // of this program has taken (identical code under two names, one
+            // of them found through its caller).
+            std::set<std::string> taken;
+            for (const auto &[e2, fd2] : progs[pi]->found)
+              if (e2 != e && fd2.verdict != "candidate" && fd2.names.size() == 1) taken.insert(*fd2.names.begin());
+            std::vector<std::size_t> left;
+            for (std::size_t k : fd.hits)
+              if (!kb->functions[k].anonymous() && !taken.contains(kb->functions[k].symbol())) left.push_back(k);
+            std::set<std::string> left_names;
+            for (std::size_t k : left) left_names.insert(kb->functions[k].symbol());
+            if (left_names.size() != 1 || left_names.size() == fd.names.size()) continue;
+            best = left.front();
+            fd.via = "the other candidates' names are taken here";
+          } else {
+            fd.via = "settled by its callees";
+          }
+          std::vector<std::size_t> rest;
+          for (std::size_t k : fd.hits)
+            if (k != best) rest.push_back(k);
+          fd.hits = {best};
+          fd.hits.insert(fd.hits.end(), rest.begin(), rest.end());
+          fd.names = {kb->functions[best].symbol()};
+          frontier.push_back({{pi, e}, best});
+        }
+      if (frontier.empty()) break;
+    }
+    // 3. The matches, and with apply the names and plate comments, one
+    // revision per program; then near matches for what is left.
+    for (const std::unique_ptr<Prog> &pp : progs) {
+      Prog &p = *pp;
+      View v(p.r);
+      const std::string &id = p.id;
+      pb::AppendAssertionsRequest edits;
+      edits.set_program_id(id);
+      *edits.mutable_provenance() = req.provenance();
+      std::vector<std::size_t> applying;  // indexes into resp.matches
+      for (const auto &[entry, fd] : p.found) {
+        pb::DecompKbMatch *m = resp.add_matches();
+        m->set_program_id(id);
+        m->mutable_address()->set_offset(entry);
+        m->set_current_name(v.Symbol(entry));
+        m->set_verdict(fd.verdict);
+        for (std::size_t i : fd.hits)
+          if (m->functions_size() < 16) *m->add_functions() = kb->functions[i];
+        if (fd.verdict == "exact") resp.set_exact(resp.exact() + 1);
+        else if (fd.verdict == "call") resp.set_by_call(resp.by_call() + 1);
+        else resp.set_candidates(resp.candidates() + 1);
+        if (req.include_unit_source() && !m->functions(0).source().empty()) {
+          if (std::optional<std::string> t = ReadRegularFile(fs::path(kb_dir) / m->functions(0).source(), roots, 64u << 20))
+            m->set_unit_source(std::move(*t));
+        }
+        if (fd.verdict == "candidate") {
+          m->set_reason("the instructions match, the constants differ: a candidate source, not applied");
+          continue;
+        }
+        if (fd.names.size() > 1) {
+          resp.set_ambiguous(resp.ambiguous() + 1);
+          m->set_reason("several KB functions with other names share this code");
+          continue;
+        }
+        const pb::DecompKbFunction &kf = m->functions(0);
+        const std::string current = v.Symbol(entry);
+        const bool rename = !fd.names.empty() && (req.overwrite() || PlaceholderName(current));
+        if (fd.names.empty()) m->set_reason("the KB function has no name of its own: its source, and a plate comment with apply");
+        else if (!rename) m->set_reason("it has a name of its own (overwrite renames it)");
+        else if (!fd.via.empty()) m->set_reason(fd.via);
+        if (!req.apply()) continue;
+        if (rename) {
+          const std::string display = inputs::demangled_name(kf.symbol()).value_or(kf.symbol());
+          auto *ren = edits.add_assertions()->mutable_body()->mutable_rename();
+          ren->mutable_target()->mutable_address()->set_offset(entry);
+          ren->set_name(display);
+          if (display != kf.symbol()) {
+            auto *note = edits.add_assertions()->mutable_body()->mutable_note();
+            note->mutable_address()->set_offset(entry);
+            note->set_tag(std::string(kDsdSymbolSub));
+            note->set_text(kf.symbol());
+          }
+        }
+        auto *c = edits.add_assertions()->mutable_body()->mutable_comment();
+        c->mutable_address()->set_offset(entry);
+        c->set_kind(pb::COMMENT_KIND_PLATE);
+        c->set_text(KbPlate(kf, fd.verdict == "call" ? "decomp KB (through its caller)" : "decomp KB"));
+        applying.push_back(static_cast<std::size_t>(resp.matches_size() - 1));
+      }
+      if (!applying.empty()) {
+        pb::AppendAssertionsResponse ar;
+        if (auto st = AppendAssertions(ctx, edits, ar); !st.ok()) {
+          resp.add_warnings(id + ": not applied: " + st.message);
+        } else {
+          for (std::size_t i : applying) resp.mutable_matches(static_cast<int>(i))->set_applied(true);
+          resp.set_applied(resp.applied() + static_cast<std::uint32_t>(applying.size()));
+          SetSnapshot(p.r, resp.mutable_snapshot());
+          resp.mutable_snapshot()->set_revision(ar.snapshot().revision());
+          resp.mutable_snapshot()->set_head_revision(ar.snapshot().head_revision());
+        }
+      }
+      // Near matches for the rest: BSim's closest KB functions.
+      std::vector<std::uint64_t> unmatched;
+      for (const fid::ProgramFunction &pf : p.h.functions)
+        if (big(pf) && !p.found.contains(pf.entry)) unmatched.push_back(pf.entry);
+      if (!near_db || unmatched.empty()) continue;
+      if (ctx.cancelled()) return Error(StatusCode::kCancelled, "cancelled");
+      bsim::DatabaseInfo info;
+      {
+        std::lock_guard use(near_db->mu);
+        info = near_db->db.info();
+      }
+      const ProgramSource &src = p.r.program->source;
+      const std::uint32_t own = decompd::default_signature_settings(src.program->language().id());
+      SignatureJob::Options so;
+      so.threads = req.threads() != 0 ? std::min(req.threads(), 16u)
+                                      : std::max(1u, std::min(4u, std::thread::hardware_concurrency() / 2));
+      so.settings = info.settings == own ? 0 : info.settings;
+      std::map<std::uint64_t, decompd::FunctionSignature> sigs;
+      try {
+        SignatureJob job(*p.r.snapshot, p.r.program->id(), unmatched, so);
+        sigs = job.wait();
+      } catch (const std::exception &x) {
+        resp.add_warnings(std::string("signing ") + id + " for near matches: " + x.what());
+        continue;
+      }
+      bsim::SearchOptions o;
+      o.min_similarity = min_similarity;
+      o.max_matches = max_near;
+      o.exhaustive_below = 50000;
+      std::lock_guard use(near_db->mu);
+      for (const std::uint64_t entry : unmatched) {
+        auto it = sigs.find(entry);
+        if (it == sigs.end() || !it->second.ok() || it->second.features.empty()) continue;
+        const std::vector<bsim::Match> hits = near_db->db.search(it->second.features, o);
+        pb::DecompKbMatch *m = nullptr;
+        for (const bsim::Match &hit : hits) {
+          auto g = hit.executable->categories.find("game");
+          auto md = hit.executable->categories.find("module");
+          if (g == hit.executable->categories.end() || md == hit.executable->categories.end()) continue;
+          auto at = by_place.find({g->second, md->second, hit.function->entry});
+          if (at == by_place.end()) continue;  // ingested again since
+          const pb::DecompKbFunction &kf = kb->functions[at->second];
+          if (!m) {
+            m = resp.add_matches();
+            m->set_program_id(id);
+            m->mutable_address()->set_offset(entry);
+            m->set_current_name(v.Symbol(entry));
+            m->set_verdict("near");
+            m->set_similarity(hit.similarity);
+            m->set_confidence(hit.confidence);
+            std::vector<std::string> mine;
+            if (const Func *fn = v.functions().at(entry)) mine = KbInstructions(v, *fn);
+            m->set_diff(InstructionDiff({kf.instructions().begin(), kf.instructions().end()}, mine));
+            m->set_reason("a near match: its source is a starting scratch, not applied");
+            resp.set_near(resp.near() + 1);
+          }
+          *m->add_functions() = kf;
+        }
+      }
+    }
+    // Instructions and calls are the KB's own business: the responses leave them out.
+    for (pb::DecompKbMatch &m : *resp.mutable_matches())
+      for (pb::DecompKbFunction &f : *m.mutable_functions()) {
+        f.clear_instructions();
+        f.clear_calls();
+      }
+    if (!out_dir.empty()) {
+      if (auto st = ExportDecompKbMatches(ctx, req, *kb, kb_dir, out_dir, dsd_ids, module_of_id, resp); !st.ok()) return st;
+    }
+    return Status::Ok();
+  }
+
+  // ApplyDecompKb's export_dir: the matches as files for a decomp project.
+  Status ExportDecompKbMatches(const CallContext &ctx, const pb::ApplyDecompKbRequest &req, const DecompKb &kb,
+                               const std::string &kb_dir, const std::string &out_dir, const std::vector<std::string> &dsd_ids,
+                               const std::map<std::string, std::string> &module_of_id, pb::ApplyDecompKbResponse &resp) {
+    const std::vector<std::string> &roots = core_->options.browse_roots;
+    std::error_code ec;
+    fs::create_directories(out_dir, ec);
+    if (ec) return Error(StatusCode::kInternal, "cannot make " + out_dir + ": " + ec.message());
+    pb::DecompKbExport &ex = *resp.mutable_exported();
+    ex.set_dir(out_dir);
+    auto write = [&](const fs::path &rel, const std::string &text) {
+      std::string why;
+      if (WriteBeneath(out_dir, rel, text, &why)) ex.add_files(rel.lexically_normal().string());
+      else resp.add_warnings("export: " + why);
+    };
+    // The exact matches' source, in their units: each unit's preprocessor
+    // lines, then the matched functions in the KB's address order.
+    struct UnitOut {
+      std::string game, source;
+      std::vector<const pb::DecompKbFunction *> fns;
+    };
+    std::map<std::string, UnitOut> units;
+    for (const pb::DecompKbMatch &m : resp.matches()) {
+      if ((m.verdict() != "exact" && m.verdict() != "call") || m.functions().empty() || m.reason().starts_with("several"))
+        continue;
+      const pb::DecompKbFunction &kf = m.functions(0);
+      if (kf.unit().empty()) continue;
+      const fs::path unit = fs::path(kf.unit()).lexically_normal();
+      if (unit.is_absolute() || unit.string().starts_with("..")) continue;
+      UnitOut &u = units[unit.string()];
+      u.game = kf.game();
+      u.source = kf.source();
+      if (std::none_of(u.fns.begin(), u.fns.end(), [&](const pb::DecompKbFunction *f) {
+            return f->game() == kf.game() && f->module() == kf.module() && f->address() == kf.address();
+          }))
+        u.fns.push_back(&kf);
+    }
+    for (auto &[unit, u] : units) {
+      std::sort(u.fns.begin(), u.fns.end(), [](const pb::DecompKbFunction *a, const pb::DecompKbFunction *b) {
+        return std::make_tuple(a->game(), a->module(), a->address()) < std::make_tuple(b->game(), b->module(), b->address());
+      });
+      std::string text = "// " + unit + ": " + std::to_string(u.fns.size()) + " function" + (u.fns.size() == 1 ? "" : "s") +
+                         " matched from the decomp knowledge base " + kb.name + " (" + u.game + ")\n";
+      const pb::DecompKbFunction &first = *u.fns.front();
+      if (!first.compiler().empty() || !first.flags().empty())
+        text += "// matches with " + first.compiler() + (first.flags().empty() ? "" : ", " + first.flags()) + "\n";
+      if (!u.source.empty())
+        if (std::optional<std::string> whole = ReadRegularFile(fs::path(kb_dir) / u.source, roots, 64u << 20)) {
+          // The unit's own preprocessor lines (includes, pragmas), up to its first definition.
+          std::string pre;
+          std::size_t at = 0;
+          while (at < whole->size()) {
+            std::size_t e = whole->find('\n', at);
+            if (e == std::string::npos) e = whole->size();
+            std::string_view line(whole->data() + at, e - at);
+            const std::size_t s = line.find_first_not_of(" \t\r");
+            if (s != std::string_view::npos && line[s] == '#') pre += std::string(line) + "\n";
+            at = e + 1;
+            if (s != std::string_view::npos && line[s] != '#' && line.substr(s, 2) != "//") break;
+          }
+          if (!pre.empty()) text += "\n" + pre;
+        }
+      for (const pb::DecompKbFunction *f : u.fns) {
+        text += "\n";
+        if (f->text().empty()) text += "// " + f->symbol() + " (0x" + Hex(f->address()) + "): no source text in the KB\n";
+        else text += f->text() + (f->text().ends_with("\n") ? "" : "\n");
+      }
+      write(unit, text);
+      ex.set_sources(ex.sources() + 1);
+    }
+    // Near matches: a scratch each, the KB function's source with the diff.
+    for (const pb::DecompKbMatch &m : resp.matches()) {
+      if (m.verdict() != "near" || m.functions().empty()) continue;
+      const pb::DecompKbFunction &kf = m.functions(0);
+      std::string name = m.current_name().empty() ? "func_" + Hex(m.address().offset()) : m.current_name();
+      for (char &c : name)
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '.' && c != '-') c = '_';
+      auto mod = module_of_id.find(m.program_id());
+      const std::string module = mod != module_of_id.end() && !mod->second.empty() ? mod->second : "program";
+      std::string safe_module = module;
+      for (char &c : safe_module)
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '.' && c != '-') c = '_';
+      char sim[64];
+      std::snprintf(sim, sizeof sim, "similarity %.3f, confidence %.1f", m.similarity(), m.confidence());
+      std::string text = "// Near match for " + m.current_name() + " (" + module + " 0x" + Hex(m.address().offset()) + "): " +
+                         kf.name() + " in " + kf.game() + " " + kf.module() + " 0x" + Hex(kf.address()) + ", " + sim + "\n";
+      if (!kf.unit().empty()) text += "// from " + kf.unit() + "\n";
+      if (!kf.compiler().empty() || !kf.flags().empty())
+        text += "// matches there with " + kf.compiler() + (kf.flags().empty() ? "" : ", " + kf.flags()) + "\n";
+      text += "//\n// Instructions, the KB function's (-) to this one's (+):\n";
+      std::size_t at = 0;
+      int lines = 0;
+      while (at < m.diff().size() && lines < 400) {
+        std::size_t e = m.diff().find('\n', at);
+        if (e == std::string::npos) e = m.diff().size();
+        text += "// " + m.diff().substr(at, e - at) + "\n";
+        at = e + 1;
+        ++lines;
+      }
+      text += "\n" + (kf.text().empty() ? "// (no source text in the KB)\n" : kf.text() + "\n");
+      write(fs::path("scratch") / safe_module / (name + ".c"), text);
+      ex.set_scratches(ex.scratches() + 1);
+    }
+    // symbols.txt, as ExportDsdSymbols writes it.
+    if (!dsd_ids.empty()) {
+      if (!req.apply()) resp.add_warnings("export: symbols.txt only has the names once applied (apply)");
+      pb::ExportDsdSymbolsRequest er;
+      er.set_project_id(req.project_id());
+      for (const std::string &id : dsd_ids) er.add_program_ids(id);
+      er.set_include_text(true);
+      pb::ExportDsdSymbolsResponse eo;
+      if (auto st = ExportDsdSymbols(ctx, er, eo); !st.ok()) {
+        resp.add_warnings("export: symbols.txt: " + st.message);
+      } else {
+        for (const pb::DsdSymbolsExport &mx : eo.modules()) {
+          if (mx.diff().empty() || mx.text().empty()) continue;
+          // Its path in the project: below the dsd root, else config/<module>/.
+          Read r;
+          fs::path rel;
+          if (ResolveProgram(ctx, mx.program_id(), {}, {}, r).ok()) {
+            View v(r);
+            const DsdRecord rec = DsdRecord::decode(v.Text(v.ProgramKey(std::string(kDsdSub))));
+            if (!rec.config.empty()) {
+              std::error_code ec2;
+              rel = fs::weakly_canonical(mx.path(), ec2).lexically_relative(fs::weakly_canonical(DsdRootOf(rec.config), ec2));
+            }
+          }
+          if (rel.empty() || rel.is_absolute() || rel.string().starts_with(".."))
+            rel = fs::path("config") / mx.module() / "symbols.txt";
+          write(rel, mx.text());
+          ex.set_symbols_files(ex.symbols_files() + 1);
+        }
+        ex.set_patch(eo.patch());
+        if (!eo.patch().empty()) write("symbols.patch", eo.patch());
+      }
+    }
+    return Status::Ok();
+  }
+
+  // ---- Nintendo DS games (api_minor 103, feature "nds"; nds_import.h) ----
+
+  Status ImportDsdProject(const CallContext &ctx, const pb::ImportDsdProjectRequest &req,
+                          pb::ImportDsdProjectResponse &resp) override {
+    if (auto st = OpenProjectNamed(req.project_id()); !st.ok()) return st;
+    if (req.config_path().empty()) return Error(StatusCode::kInvalidArgument, "config_path is required");
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    const std::vector<std::string> &roots = core_->options.browse_roots;
+    if (roots.empty())
+      return Error(StatusCode::kFailedPrecondition,
+                   "importing a ds-decomp project reads the daemon's files: start rk-daemon with --browse-root <dir>");
+    std::error_code ec;
+    const std::string canon = fs::weakly_canonical(fs::absolute(req.config_path()), ec).string();
+    if (ec || !fs::is_regular_file(canon, ec)) return Error(StatusCode::kNotFound, "no file " + req.config_path());
+    if (!UnderBrowseRoot(canon, roots))
+      return Error(StatusCode::kPermissionDenied, req.config_path() + " is not under a --browse-root directory");
+    NdsPlanOptions po;
+    po.arm7 = !req.skip_arm7();
+    po.only.insert(req.modules().begin(), req.modules().end());
+    po.allowed = [&roots](const std::string &c) { return UnderBrowseRoot(c, roots); };
+    po.roots = roots;
+    std::string error;
+    std::optional<NdsProjectPlan> plan = PlanDsdProject(canon, po, &error);
+    if (!plan) return Error(StatusCode::kInvalidArgument, error);
+    return ImportNdsPlan(ctx, *plan, req.project_id(), req.folder_id(), req.folder_name(), req.analyze(),
+                         req.provenance(), req.on_conflict(), resp);
+  }
+
+  Status ImportNdsRom(const CallContext &ctx, const pb::ImportNdsRomRequest &req, pb::ImportNdsRomResponse &resp) override {
+    if (auto st = OpenProjectNamed(req.project_id()); !st.ok()) return st;
+    if (req.provenance().kind() == pb::PROVENANCE_KIND_UNSPECIFIED)
+      return Error(StatusCode::kInvalidArgument, "provenance.kind is required");
+    std::shared_ptr<loader::Bytes> bytes = std::make_shared<loader::Bytes>();
+    std::string path;
+    switch (req.source_case()) {
+      case pb::ImportNdsRomRequest::kPath: {
+        const std::vector<std::string> &roots = core_->options.browse_roots;
+        if (roots.empty())
+          return Error(StatusCode::kFailedPrecondition,
+                       "importing a ROM by path reads the daemon's files: start rk-daemon with --browse-root <dir>");
+        std::error_code ec;
+        path = fs::weakly_canonical(fs::absolute(req.path()), ec).string();
+        if (ec || !fs::is_regular_file(path, ec)) return Error(StatusCode::kNotFound, "no file " + req.path());
+        if (!UnderBrowseRoot(path, roots))
+          return Error(StatusCode::kPermissionDenied, req.path() + " is not under a --browse-root directory");
+        // Opened below its root without following links, as a regular
+        // file (a FIFO would block), at most 1 GiB.
+        std::string why;
+        std::optional<std::string> read = ReadRegularFile(path, roots, std::uint64_t{1} << 30, &why);
+        if (!read)
+          return Error(why == "too large" ? StatusCode::kResourceExhausted : StatusCode::kNotFound,
+                       why == "too large" ? std::string("the ROM is over 1 GiB") : req.path() + ": " + why);
+        const std::string &data = *read;
+        bytes->resize(data.size());
+        std::memcpy(bytes->data(), data.data(), data.size());
+        break;
+      }
+      case pb::ImportNdsRomRequest::kContent:
+        bytes->resize(req.content().size());
+        std::memcpy(bytes->data(), req.content().data(), req.content().size());
+        path = "upload.nds";
+        break;
+      case pb::ImportNdsRomRequest::kProgramFile: {
+        std::lock_guard lock(core_->mu);
+        auto pit = core_->program_project.find(req.program_file());
+        auto it = pit == core_->program_project.end() ? core_->projects.end() : core_->projects.find(pit->second);
+        if (it == core_->projects.end() || pit->second != req.project_id() ||
+            !it->second->programs.contains(req.program_file()))
+          return Error(StatusCode::kNotFound, "no program " + req.program_file() + " in project " + req.project_id());
+        auto file = it->second->programs.at(req.program_file())->program().image().file;
+        if (!file) return Error(StatusCode::kFailedPrecondition, "program " + req.program_file() + " keeps no file");
+        *bytes = *file;
+        path = req.program_file();
+        break;
+      }
+      default: return Error(StatusCode::kInvalidArgument, "path, content or program_file is required");
+    }
+    NdsPlanOptions po;
+    po.arm7 = !req.skip_arm7();
+    po.only.insert(req.modules().begin(), req.modules().end());
+    std::string error;
+    std::optional<NdsProjectPlan> plan = PlanNdsRom(path, bytes, po, &error);
+    if (!plan) return Error(StatusCode::kInvalidArgument, "not a DS ROM: " + error);
+    // The two responses are the same message under two names.
+    pb::ImportDsdProjectResponse same;
+    Status st = ImportNdsPlan(ctx, *plan, req.project_id(), req.folder_id(), req.folder_name(), req.analyze(),
+                              req.provenance(), req.on_conflict(), same);
+    if (st.ok() && !resp.ParseFromString(same.SerializeAsString()))
+      return Error(StatusCode::kInternal, "the import's response doesn't convert");
+    return st;
+  }
+
+  // ProjectService.ExportDsdSymbols: each module program's names as its
+  // symbols.txt would have them (nds::export_dsd_symbols), as a diff and,
+  // with write, the files themselves (backed up first).
+  Status ExportDsdSymbols(const CallContext &ctx, const pb::ExportDsdSymbolsRequest &req,
+                          pb::ExportDsdSymbolsResponse &resp) override {
+    if (auto st = OpenProjectNamed(req.project_id()); !st.ok()) return st;
+    std::vector<std::string> ids(req.program_ids().begin(), req.program_ids().end());
+    if (ids.empty()) {
+      pb::ListProgramsRequest lr;
+      lr.set_project_id(req.project_id());
+      pb::ListProgramsResponse lp;
+      if (auto st = ListPrograms(ctx, lr, lp); !st.ok()) return st;
+      std::set<std::string> under;
+      if (!req.folder_id().empty()) {
+        under.insert(req.folder_id());
+        for (bool grew = true; grew;) {
+          grew = false;
+          for (const pb::ProjectFolder &f : lp.folders())
+            if (under.contains(f.parent_id()) && under.insert(f.folder_id()).second) grew = true;
+        }
+      }
+      for (const pb::ProgramInfo &pi : lp.programs())
+        if (req.folder_id().empty() || under.contains(pi.folder_id())) ids.push_back(pi.program_id());
+    }
+    const std::vector<std::string> &roots = core_->options.browse_roots;
+    if (req.write() && roots.empty())
+      return Error(StatusCode::kFailedPrecondition,
+                   "writing symbols.txt needs rk-daemon --browse-root <dir> over the project's files");
+    const std::string stamp = [] {
+      std::time_t t = std::time(nullptr);
+      std::tm tm{};
+      gmtime_r(&t, &tm);
+      char b[32];
+      std::strftime(b, sizeof b, "%Y%m%dT%H%M%SZ", &tm);
+      return std::string(b);
+    }();
+    bool any = false;
+    for (const std::string &id : ids) {
+      Read r;
+      if (auto st = ResolveProgram(ctx, id, req.read(), {}, r); !st.ok()) {
+        if (!req.program_ids().empty()) return st;
+        continue;
+      }
+      View v(r);
+      const DsdRecord rec = DsdRecord::decode(v.Text(v.ProgramKey(std::string(kDsdSub))));
+      if (rec.source != "dsd") {
+        if (!req.program_ids().empty())
+          return Error(StatusCode::kFailedPrecondition, id + " isn't a ds-decomp module (ImportDsdProject makes them)");
+        continue;
+      }
+      // The ARM7's modules come from the extract alone: dsd has no
+      // symbols.txt for them.
+      if (rec.symbols.empty()) {
+        if (!req.program_ids().empty())
+          return Error(StatusCode::kFailedPrecondition, id + " had no symbols.txt at import (dsd covers the ARM9 only)");
+        continue;
+      }
+      any = true;
+      if (!resp.has_snapshot()) SetSnapshot(r, resp.mutable_snapshot());
+      pb::DsdSymbolsExport *out = resp.add_modules();
+      out->set_program_id(id);
+      out->set_module(rec.module);
+      out->set_path(rec.symbols);
+      // The symbols.txt the import read: under a --browse-root when there
+      // are any, opened below it without following links, a regular file
+      // of at most the import's limit (a viewer's call: never another file
+      // of the host's, a FIFO or a device).
+      std::error_code cec;
+      const std::string canon = fs::weakly_canonical(rec.symbols, cec).string();
+      if (cec || !fs::path(rec.symbols).is_absolute() || (!roots.empty() && !UnderBrowseRoot(canon, roots))) {
+        out->add_warnings(rec.symbols + " is not under a --browse-root directory: not read");
+        continue;
+      }
+      std::string why;
+      std::optional<std::string> read = ReadRegularFile(canon, roots, NdsPlanOptions{}.max_file, &why);
+      if (!read) {
+        out->add_warnings("cannot read " + rec.symbols + " (" + why + ")");
+        continue;
+      }
+      const std::string old = std::move(*read);
+      const nds::DsdSymbols listed = nds::parse_dsd_symbols(old);
+      std::vector<nds::ExportSymbol> syms = DsdExportSymbols(v, listed);
+      nds::ExportOptions eo;
+      eo.add_new = !req.no_new_symbols();
+      eo.rename = !req.no_renames();
+      auto same = [](void *, std::string_view dsd, std::string_view rk) {
+        if (std::optional<std::string> d = inputs::demangled_name(dsd); d && *d == rk) return true;
+        if (std::optional<demangle::Demangled> d = demangle::parse(dsd); d && (d->name == rk || d->full == rk))
+          return true;
+        return false;
+      };
+      nds::SymbolsExport ex = nds::export_dsd_symbols(old, syms, same, nullptr, eo);
+      out->set_renamed(static_cast<std::uint32_t>(ex.renamed));
+      out->set_added(static_cast<std::uint32_t>(ex.added));
+      out->set_skipped(static_cast<std::uint32_t>(ex.skipped));
+      resp.set_renamed(resp.renamed() + out->renamed());
+      resp.set_added(resp.added() + out->added());
+      resp.set_skipped(resp.skipped() + out->skipped());
+      for (const nds::SymbolChange &c : ex.changes) {
+        pb::DsdSymbolChange *pc = out->add_changes();
+        pc->set_kind(c.kind == nds::SymbolChange::Kind::renamed ? "renamed"
+                     : c.kind == nds::SymbolChange::Kind::added ? "added"
+                                                                 : "skipped");
+        pc->mutable_address()->set_offset(c.addr);
+        pc->set_old_name(c.old_name);
+        pc->set_new_name(c.new_name);
+        pc->set_line(static_cast<std::uint32_t>(c.line));
+        pc->set_reason(c.reason);
+      }
+      out->set_diff(nds::unified_diff(old, ex.text, rec.symbols, rec.symbols));
+      resp.mutable_patch()->append(out->diff());
+      if (req.include_text()) out->set_text(ex.text);
+      if (!req.write() || ex.text == old) continue;
+      if (!UnderBrowseRoot(canon, roots)) {
+        out->add_warnings(rec.symbols + " is not under a --browse-root directory: not written");
+        continue;
+      }
+      // The backup and the new file are created next to it, in its
+      // directory opened below the root without following links, with
+      // O_EXCL: a link planted at a predictable name is never followed.
+      std::string werr;
+      const std::optional<std::string> backup = WriteBeside(canon, roots, ".bak-" + stamp, old, false, &werr);
+      if (!backup) {
+        out->add_warnings("no backup (" + werr + "): not written");
+        continue;
+      }
+      out->set_backup_path(*backup);
+      if (!WriteBeside(canon, roots, ".tmp-" + stamp, ex.text, true, &werr)) {
+        out->add_warnings("cannot replace " + canon + ": " + werr);
+        continue;
+      }
+      out->set_written(true);
+      resp.set_written(resp.written() + 1);
+    }
+    if (!any) return Error(StatusCode::kNotFound, "no ds-decomp module programs to export (ImportDsdProject makes them)");
+    return Status::Ok();
+  }
+
+  // Writes `text` to a new file beside `canonical` (under one of `roots`),
+  // named after it plus `suffix` (and "-1".. when that exists): the
+  // directory is opened below the root without following links and the
+  // file created O_EXCL | O_NOFOLLOW. With `replace`, it is then renamed
+  // over `canonical` in the same directory. Returns the new file's path
+  // (before any rename), or nullopt with `error`.
+  static std::optional<std::string> WriteBeside(const std::string &canonical, const std::vector<std::string> &roots,
+                                                const std::string &suffix, const std::string &text, bool replace,
+                                                std::string *error) {
+    const fs::path target(canonical);
+    int dfd = -1;
+    for (const std::string &r : roots) {
+      std::error_code ec;
+      const fs::path root = fs::canonical(r, ec);
+      if (ec) continue;
+      const fs::path rel = target.parent_path().lexically_relative(root);
+      if (rel.empty() || *rel.begin() == "..") continue;
+      dfd = OpenBeneath(root, rel, O_RDONLY | O_DIRECTORY);
+      if (dfd >= 0) break;
+    }
+    if (dfd < 0) {
+      *error = "its directory can't be opened below a --browse-root";
+      return std::nullopt;
+    }
+    const std::string base = target.filename().string();
+    std::string name;
+    int fd = -1;
+    for (int i = 0; i < 100 && fd < 0; ++i) {
+      name = base + suffix + (i ? "-" + std::to_string(i) : "");
+      fd = ::openat(dfd, name.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+      if (fd < 0 && errno != EEXIST) break;
+    }
+    if (fd < 0) {
+      *error = std::string("cannot create ") + name + ": " + std::strerror(errno);
+      ::close(dfd);
+      return std::nullopt;
+    }
+    std::size_t done = 0;
+    bool ok = true;
+    while (done < text.size()) {
+      const ssize_t n = ::write(fd, text.data() + done, text.size() - done);
+      if (n < 0 && errno == EINTR) continue;
+      if (n <= 0) {
+        ok = false;
+        break;
+      }
+      done += static_cast<std::size_t>(n);
+    }
+    ok = ::fsync(fd) == 0 && ok;
+    ok = ::close(fd) == 0 && ok;
+    if (ok && replace) ok = ::renameat(dfd, name.c_str(), dfd, base.c_str()) == 0;
+    if (!ok) {
+      *error = std::string("cannot write ") + name + ": " + std::strerror(errno);
+      ::unlinkat(dfd, name.c_str(), 0);
+      ::close(dfd);
+      return std::nullopt;
+    }
+    ::close(dfd);
+    return (target.parent_path() / name).string();
+  }
+
+  // What revkit has at each named address of a module program, for the
+  // export: functions (the user's name, else the file's spelling), and
+  // the user's names elsewhere (data, bss, code labels).
+  std::vector<nds::ExportSymbol> DsdExportSymbols(View &v, const nds::DsdSymbols &listed) {
+    std::vector<nds::ExportSymbol> out;
+    const FunctionTable &ft = v.functions();
+    // Where each function can end: the next function or listed symbol, or
+    // its block's end (a dsd function's size takes in its literal pool).
+    std::set<std::uint64_t> starts;
+    for (const Func &f : ft.funcs) starts.insert(f.entry);
+    for (const nds::DsdSymbol &s : listed.symbols)
+      if (s.kind == nds::DsdSymbolKind::function) starts.insert(s.addr);
+    const auto &blocks = v.program().image().blocks;
+    auto block_of = [&](std::uint64_t a) -> const loader::Block * {
+      for (const loader::Block &b : blocks)
+        if (a >= b.start && a - b.start < b.size) return &b;
+      return nullptr;
+    };
+    for (const Func &f : ft.funcs) {
+      nds::ExportSymbol e;
+      e.addr = static_cast<std::uint32_t>(f.entry);
+      const std::string asserted = v.Text(v.Key(FactKind::Name, f.entry));
+      e.name = !asserted.empty() ? asserted : !f.mangled.empty() ? f.mangled : f.name;
+      // A name given in its demangled form with the linker's spelling noted
+      // (the decomp knowledge base's): that spelling.
+      if (!asserted.empty())
+        if (std::string note = v.Text(v.Key(FactKind::Note, f.entry, std::string(kDsdSymbolSub))); !note.empty())
+          if (note == asserted || inputs::demangled_name(note).value_or("") == asserted) e.name = note;
+      e.kind = nds::DsdSymbolKind::function;
+      e.mode = (f.flags & analysis::kFunctionThumb) ? nds::DsdMode::thumb : nds::DsdMode::arm;
+      std::uint64_t last = f.entry;
+      for (const auto &rg : f.body) last = std::max<std::uint64_t>(last, rg.second);
+      std::uint64_t end = last + 1;
+      if (const loader::Block *b = block_of(f.entry)) {
+        std::uint64_t limit = b->start + b->size;
+        if (auto it = starts.upper_bound(f.entry); it != starts.end()) limit = std::min(limit, *it);
+        end = std::max(end, limit);
+      }
+      e.size = static_cast<std::uint32_t>(std::min<std::uint64_t>(end - f.entry, 0xffffffffu));
+      out.push_back(std::move(e));
+    }
+    for (const facts::FactKey &k : v.AllKeys(FactKind::Name)) {
+      const std::uint64_t a = k.addr.offset;
+      if (!k.sub.empty() || ft.at(a)) continue;
+      const std::string name = v.Text(k);
+      if (name.empty()) continue;
+      nds::ExportSymbol e;
+      e.addr = static_cast<std::uint32_t>(a);
+      e.name = name;
+      const loader::Block *b = block_of(a);
+      if (b && b->perms.exec && ft.containing(a)) {
+        e.kind = nds::DsdSymbolKind::label;
+        const Func *f = ft.containing(a);
+        e.mode = (f->flags & analysis::kFunctionThumb) ? nds::DsdMode::thumb : nds::DsdMode::arm;
+      } else {
+        e.kind = nds::DsdSymbolKind::data;
+        e.in_bss = b && !b->initialized;
+      }
+      out.push_back(std::move(e));
+    }
+    std::sort(out.begin(), out.end(), [](const nds::ExportSymbol &a, const nds::ExportSymbol &b) { return a.addr < b.addr; });
+    return out;
+  }
+
+  // Imports each planned module as a raw program in a new folder, then
+  // records on each which programs its linked modules are (kDsdSub).
+  Status ImportNdsPlan(const CallContext &ctx, NdsProjectPlan &plan, const std::string &project,
+                       const std::string &parent, const std::string &folder_name, bool analyze,
+                       const pb::Provenance &prov, pb::NameConflict on_conflict, pb::ImportDsdProjectResponse &resp) {
+    for (const std::string &w : plan.warnings) resp.add_warnings(w);
+    // The game's folder: the name asked for, else the game's, made unique.
+    std::string name = folder_name.empty() ? plan.game : folder_name;
+    for (char &c : name)
+      if (c == '/' || static_cast<unsigned char>(c) < 0x20) c = '_';
+    if (name.size() > 200) name.resize(200);
+    if (name.empty()) name = "nds";
+    // A folder of that name already there (on_conflict): refused, replaced
+    // (its programs deleted, the modules imported into it and shown with
+    // their names), or another folder beside it.
+    std::string existing;
+    {
+      Project *pp = nullptr;
+      {
+        std::lock_guard lock(core_->mu);
+        if (auto it = core_->projects.find(project); it != core_->projects.end()) pp = it->second.get();
+      }
+      if (pp) {
+        const FolderTree t = TreeOf(*pp, pp->log().size());
+        if (auto named = t.named(parent, name); !named.empty()) existing = named.front();
+        if (!existing.empty()) {
+          resp.set_folder_taken_by(existing);
+          if (on_conflict == pb::NAME_CONFLICT_REFUSE)
+            return Error(StatusCode::kAlreadyExists, "\"" + name + "\" already exists in " + t.path(parent) +
+                                                         "; on_conflict KEEP_BOTH or REPLACE imports the game anyway");
+          if (on_conflict == pb::NAME_CONFLICT_REPLACE) {
+            std::vector<std::shared_ptr<const ProgramEntry>> in_folder;
+            {
+              std::lock_guard lock(core_->mu);
+              for (const auto &[id, e] : pp->programs) in_folder.push_back(e);
+            }
+            for (const auto &e : in_folder) {
+              const ProgramState st = StateOf(*pp, *e, pp->log().size());
+              if (st.deleted || st.folder != existing) continue;
+              std::uint64_t rev = 0;
+              pb::Assertion a;
+              if (auto ds = AssertProgramState(e->source.id, kProgramDeletedSub, "deleted", prov, rev, a); ds.ok())
+                resp.add_replaced_program_ids(e->source.id);
+              else
+                resp.add_warnings(e->source.id + " not replaced: " + ds.message);
+            }
+            FillFolder(t.by_id.at(existing), resp.mutable_folder());
+          } else {
+            resp.add_warnings("a folder \"" + name + "\" is already in " + t.path(parent) + ": the game goes beside it");
+          }
+        }
+      }
+    }
+    const bool replace = on_conflict == pb::NAME_CONFLICT_REPLACE && !existing.empty();
+    pb::CreateFolderResponse cf;
+    if (replace) *cf.mutable_folder() = resp.folder();
+    for (int n = 1; !replace; ++n) {
+      pb::CreateFolderRequest cr;
+      cr.set_project_id(project);
+      cr.set_parent_id(parent);
+      cr.set_name(n == 1 ? name : name + " (" + std::to_string(n) + ")");
+      *cr.mutable_provenance() = prov;
+      Status st = CreateFolder(ctx, cr, cf);
+      if (st.ok()) break;
+      if (st.code != StatusCode::kAlreadyExists || n > 100) return st;
+    }
+    *resp.mutable_folder() = cf.folder();
+    const std::string folder = cf.folder().folder_id();
+    std::map<std::string, std::string> ids;  // module -> program id
+    std::vector<std::pair<std::size_t, pb::NdsModuleImport *>> done;
+    for (std::size_t i = 0; i < plan.modules.size(); ++i) {
+      NdsModulePlan &m = plan.modules[i];
+      pb::NdsModuleImport *out = resp.add_modules();
+      out->set_module(m.name);
+      out->set_kind(m.kind);
+      out->set_overlay_id(m.overlay_id);
+      out->set_language_id(m.language);
+      out->set_address(m.base);
+      out->set_size(m.size);
+      out->set_bss_size(m.bss);
+      out->set_symbols(static_cast<std::uint32_t>(m.symbols));
+      out->set_functions(static_cast<std::uint32_t>(m.functions));
+      out->set_thumb_functions(static_cast<std::uint32_t>(m.thumb_functions));
+      out->set_data_symbols(static_cast<std::uint32_t>(m.data));
+      out->set_relocations(static_cast<std::uint32_t>(m.relocs));
+      out->set_cross_module_relocations(static_cast<std::uint32_t>(m.cross_relocs));
+      out->set_ambiguous_relocations(static_cast<std::uint32_t>(m.ambiguous_relocs));
+      out->set_sections(static_cast<std::uint32_t>(m.sections));
+      out->set_units(static_cast<std::uint32_t>(m.units));
+      for (const std::string &l : m.links) out->add_links(l);
+      for (const std::string &w : m.warnings) {
+        if (w == "decompressed (BLZ)") out->set_compressed(true);
+        else out->add_warnings(w);
+      }
+      if (ctx.cancelled()) {
+        out->set_error("cancelled");
+        resp.set_failed(resp.failed() + 1);
+        continue;
+      }
+      pb::ImportProgramRequest in;
+      in.set_project_id(project);
+      in.set_name(m.name);
+      if (!m.binary_path.empty()) in.set_path(m.binary_path);
+      pb::ImportOptions *o = in.mutable_options();
+      o->set_format("raw");
+      o->set_language_id(m.language);
+      o->set_compiler_spec_id("default");
+      o->set_has_image_base(true);
+      o->set_image_base(m.base);
+      o->set_analyze(analyze);
+      *in.mutable_provenance() = prov;
+      PreloadedImport pre;
+      pre.bytes = m.bytes;
+      pre.host_file = !m.binary_path.empty();
+      if (plan.source == "nds") pre.container_path = "nds://" + fs::path(plan.path).filename().string() + "!/" + m.name;
+      pre.raw = &m.raw;
+      m.facts.source = "dsd";
+      m.facts.import = true;
+      if (!m.facts.assertions.empty()) pre.facts.push_back(m.facts);
+      auto progress = std::make_shared<ImportProgress>(ctx.caller, project, m.name);
+      pb::ImportProgramResponse ir;
+      Status is;
+      try {
+        is = ImportProgramImpl(in, ir, *progress, &pre, ctx.caller);
+      } catch (const std::exception &e) {
+        is = Error(StatusCode::kInternal, std::string("import failed: ") + e.what());
+      }
+      m.bytes.reset();
+      if (!is.ok()) {
+        out->set_error(is.message);
+        resp.set_failed(resp.failed() + 1);
+        continue;
+      }
+      for (const std::string &w : ir.warnings()) out->add_warnings(w);
+      pb::ProgramInfo prog = ir.program();
+      pb::MoveToFolderRequest mr;
+      mr.set_project_id(project);
+      mr.set_folder_id(folder);
+      mr.add_program_ids(prog.program_id());
+      *mr.mutable_provenance() = prov;
+      pb::MoveToFolderResponse mv;
+      if (auto st = MoveToFolder(ctx, mr, mv); !st.ok()) {
+        out->add_warnings("left at the root: " + st.message);
+      } else {
+        prog.set_folder_id(folder);
+        prog.set_folder_path(cf.folder().path());
+      }
+      // Replacing: shown with the module's name though its id has a suffix
+      // (the deleted program keeps its id).
+      if (replace && prog.program_id() != project + "/" + m.name) {
+        std::uint64_t rev = 0;
+        pb::Assertion a;
+        if (auto rs = AssertProgramState(prog.program_id(), kProgramNameSub, m.name, prov, rev, a); rs.ok())
+          prog.set_name(m.name);
+        else
+          out->add_warnings("not renamed to " + m.name + ": " + rs.message);
+      }
+      ids[m.name] = prog.program_id();
+      *out->mutable_program() = std::move(prog);
+      resp.set_imported(resp.imported() + 1);
+      done.emplace_back(i, out);
+    }
+    // Each program's record: where it came from and its linked modules.
+    std::uint64_t revision = 0;
+    for (const auto &[i, out] : done) {
+      const NdsModulePlan &m = plan.modules[i];
+      DsdRecord rec;
+      rec.source = plan.source;
+      (plan.source == "dsd" ? rec.config : rec.rom) = plan.path;
+      rec.module = m.name;
+      rec.symbols = m.symbols_path;
+      rec.cpu = m.arm7 ? "arm7" : "arm9";
+      for (const std::string &l : m.links)
+        if (auto it = ids.find(l); it != ids.end()) rec.links.emplace_back(l, it->second);
+      pb::Assertion a;
+      if (auto st = AssertProgramState(out->program().program_id(), kDsdSub, rec.encode(), prov, revision, a); !st.ok())
+        out->add_warnings("module links not recorded: " + st.message);
+    }
+    // A ROM has no symbols: the functions only other modules call (main's,
+    // called from overlays; the autoloads') start where those calls go.
+    if (plan.source == "nds") {
+      std::vector<std::string> pids;
+      for (const auto &[i, out] : done) pids.push_back(out->program().program_id());
+      const std::uint64_t r = SeedLinkedCalls(ctx, pids, prov);
+      if (r) revision = r;
+    }
+    if (revision) {
+      resp.mutable_snapshot()->set_revision(revision);
+      resp.mutable_snapshot()->set_head_revision(revision);
+    }
+    return Status::Ok();
+  }
+
+  // Functions at the targets of calls from one module program into
+  // another (by the module links, ARM or Thumb by the call: blx switches),
+  // asserted as "Disassemble here, a function" in the target's program; a
+  // few rounds, as each new function's calls may reach further. The last
+  // revision written, 0 for none.
+  std::uint64_t SeedLinkedCalls(const CallContext &ctx, const std::vector<std::string> &pids, const pb::Provenance &prov) {
+    std::uint64_t revision = 0;
+    for (int round = 0; round < 4; ++round) {
+      struct Mod {
+        std::string id;
+        std::unique_ptr<Read> r;
+        std::vector<std::string> links;
+      };
+      std::vector<Mod> mods;
+      for (const std::string &id : pids) {
+        Mod m;
+        m.id = id;
+        m.r = std::make_unique<Read>();
+        if (!ResolveProgram(ctx, id, {}, {}, *m.r).ok()) continue;
+        View v(*m.r);
+        const DsdRecord rec = DsdRecord::decode(v.Text(v.ProgramKey(std::string(kDsdSub))));
+        for (const auto &[mod, pid] : rec.links) m.links.push_back(pid);
+        mods.push_back(std::move(m));
+      }
+      std::map<std::string, std::size_t> index;
+      for (std::size_t i = 0; i < mods.size(); ++i) index[mods[i].id] = i;
+      std::map<std::size_t, std::map<std::uint64_t, bool>> seeds;  // program -> entry -> thumb
+      for (Mod &m : mods) {
+        if (ctx.cancelled()) return revision;
+        View v(*m.r);
+        const ProgramSource &src = m.r->program->source;
+        fid::ProgramHashes h;
+        try {
+          h = HashSnapshot(*m.r->snapshot, AnalysisKey(m.id), src.program->image(), src.ram_space, nullptr, {}, 1);
+        } catch (const std::exception &) {
+          continue;
+        }
+        for (const fid::ProgramFunction &pf : h.functions) {
+          const Func *f = v.functions().at(pf.entry);
+          const bool thumb = f && (f->flags & analysis::kFunctionThumb);
+          for (const auto &[from, to] : pf.calls) {
+            if (v.functions().at(to) || src.program->block_containing(to)) continue;  // its own
+            std::optional<std::size_t> q;
+            bool unique = true;
+            for (const std::string &l : m.links) {
+              auto it = index.find(l);
+              if (it == index.end() || !mods[it->second].r->program->source.program->executable(to)) continue;
+              if (q && *q != it->second) unique = false;
+              q = it->second;
+            }
+            if (!q || !unique) continue;
+            if (View(*mods[*q].r).functions().at(to)) continue;
+            // blx switches the instruction set; bl keeps it.
+            bool to_thumb = thumb;
+            if (auto d = src.program->instruction(from, thumb); d && d->insn.mnemonic.starts_with("blx")) to_thumb = !thumb;
+            seeds[*q].try_emplace(to, to_thumb);
+          }
+        }
+      }
+      if (seeds.empty()) break;
+      for (const auto &[q, entries] : seeds) {
+        pb::AppendAssertionsRequest edits;
+        edits.set_program_id(mods[q].id);
+        *edits.mutable_provenance() = prov;
+        if (edits.provenance().reason().empty()) edits.mutable_provenance()->set_reason("functions other modules call");
+        for (const auto &[entry, thumb] : entries) {
+          auto *le = edits.add_assertions()->mutable_body()->mutable_listing_edit();
+          le->mutable_address()->set_offset(entry);
+          le->mutable_disassemble()->set_instruction_set(thumb ? pb::INSTRUCTION_SET_THUMB : pb::INSTRUCTION_SET_ARM);
+          le->mutable_disassemble()->set_function(true);
+        }
+        pb::AppendAssertionsResponse ar;
+        if (AppendAssertions(ctx, edits, ar).ok()) revision = ar.snapshot().revision();
+      }
+    }
+    return revision;
+  }
+
   Status ResolveImport(const CallContext &ctx, const pb::ResolveImportRequest &req, pb::ResolveImportResponse &resp) override {
     Read r;
     if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
@@ -11880,6 +14134,11 @@ class ImageBackend final : public api::Backend {
     std::shared_ptr<ContainerLibraryRoot> container;  // the root, when it is a container's layer
     std::string origin;                               // the program's directory in the root
     std::string folder_id;                            // where its libraries go
+    // Mach-O (docs/apple-apps.md): @executable_path, the main executable's
+    // directory ("" until known), and the expanded LC_RPATHs of the images
+    // that loaded this one, nearest first; in the root, or on the host.
+    std::string exe_dir;
+    std::vector<std::string> rpaths;
   };
   struct LibraryImportJob {
     std::string project_id;
@@ -11947,12 +14206,40 @@ class ImageBackend final : public api::Backend {
         const bool host = !e->source.path.empty() && e->source.container_path.empty();
         host_dirs = libs::SearchDirs(job.search_paths, e->source.path, img, host);
       }
+      // dyld's @loader_path and @executable_path (a main executable's own
+      // directory is the latter), for a Mach-O's @rpath and @-relative loads.
+      std::string loader_dir = cur.at.root ? cur.at.origin : std::string();
+      if (!cur.at.root && !e->source.path.empty() && e->source.container_path.empty())
+        loader_dir = fs::path(e->source.path).parent_path().string();
+      std::string exe_dir = cur.at.exe_dir;
+      if (exe_dir.empty() && cur.depth == 1 && img.macho && img.macho->filetype == 2) exe_dir = loader_dir;
       for (auto &[n, target] : needs) {
         if (ctx.cancelled()) break;
         if (target.empty()) {
           if (missing.contains(n)) continue;
           std::optional<std::string> host_file, root_key;
-          if (imported < kMaxImported) {
+          if (imported < kMaxImported && img.format == loader::Format::macho && !loader_dir.empty() &&
+              n.starts_with("@")) {
+            for (const std::string &c : libs::MachoCandidates(n, img, loader_dir, exe_dir, cur.at.rpaths)) {
+              if (cur.at.root) {
+                if (auto key = cur.at.root->file(c)) {
+                  auto a = libs::PeekArchIn(*cur.at.root, *key);
+                  if (a && libs::Compatible(*a, img)) {
+                    root_key = key;
+                    break;
+                  }
+                }
+              } else {
+                std::error_code ec;
+                if (!fs::is_regular_file(c, ec)) continue;
+                if (auto a = libs::PeekArch(c); a && libs::Compatible(*a, img)) {
+                  host_file = c;
+                  break;
+                }
+              }
+            }
+          }
+          if (imported < kMaxImported && !host_file && !root_key) {
             if (auto f = libs::FindLibrary(n, host_dirs, img)) host_file = f->string();
             else if (cur.at.root) root_key = libs::FindLibraryIn(*cur.at.root, n, root_dirs, img);
           }
@@ -12027,6 +14314,10 @@ class ImageBackend final : public api::Backend {
             LibraryTop next = cur.at;
             next.program_id = target;
             next.origin = root_key ? cur.at.root->origin(*root_key) : std::string();
+            next.exe_dir = exe_dir;
+            next.rpaths = libs::ExpandedRpaths(img, loader_dir, exe_dir);
+            next.rpaths.insert(next.rpaths.end(), cur.at.rpaths.begin(), cur.at.rpaths.end());
+            if (next.rpaths.size() > 64) next.rpaths.resize(64);
             queue.push_back({std::move(next), cur.depth + 1});
           }
           continue;
@@ -12235,6 +14526,7 @@ class ImageBackend final : public api::Backend {
     o.mutable_asserted()->set_seq(op.seq);
     *o.mutable_asserted()->mutable_provenance() = MetaOf(op).provenance();
     *o.mutable_asserted()->mutable_id() = ToPbId(op.id);
+    o.set_tier(TierOf(o.asserted().provenance()));
     return o;
   }
 
@@ -12324,6 +14616,8 @@ class ImageBackend final : public api::Backend {
     }
     if (const auto &d = e.program().image().dotnet) FillDotNet(*d, out->mutable_dotnet());
     if (std::string pf = PayloadOf(e); !pf.empty()) out->set_payload_format(pf);
+    if (const loader::Image &img = e.program().image(); img.format == loader::Format::elf && img.elf_type == 4)
+      out->set_crash_dump("elf-core");
     *out->mutable_imported_at() = TimeUtil::SecondsToTimestamp(e.source.imported_at);
     out->set_deleted(st.deleted);
     if (st.deleted_op) *out->mutable_deleted_origin() = OriginOf(*st.deleted_op);
@@ -12395,7 +14689,8 @@ class ImageBackend final : public api::Backend {
     // The C runtime's own code (_init, _start, ...) takes none, as in the
     // decompiler's inputs (inputs::crt_function).
     if (inputs::crt_function(f.name) && (f.flags & analysis::kFunctionThunk) == 0) return {nullptr, nullptr};
-    const inputs::LibraryFunction *fn = ref->lib->find(f.name);
+    const inputs::LibraryFunction *fn =
+        ref->lib->find(f.name, inputs::LibraryPrototypes::underscore_names(v.loaded_program().image()));
     return {ref->lib, fn};
   }
 
@@ -12607,6 +14902,110 @@ class ImageBackend final : public api::Backend {
       if (t->kind() == pb::CODE_TOKEN_KIND_TYPE) t->set_type_hash(it->second);
       else t->set_parent_type_hash(it->second);
     }
+  }
+
+  // What analysis couldn't determine about a function's flow (Function and
+  // DecompiledFunction unknowns, api_minor 97, feature "result-evidence"):
+  // its indirect calls with no known target and computed jumps with no
+  // recovered destinations, and flow cut at the instruction limit. With
+  // `fn`, a decompilation of it: an indirect call it shows as a call of a
+  // named function (a constant pointer it followed) is resolved too.
+  static void FlowUnknowns(View &v, const Func &f, const pb::DecompiledFunction *fn,
+                           google::protobuf::RepeatedPtrField<pb::Unknown> *out) {
+    constexpr int kMaxListed = 64;
+    const auto key = AnalysisKey(v.id());
+    auto info = v.snapshot().get<analysis::Program>(key);
+    auto fi = v.snapshot().get<analysis::Function>(analysis::Location{key, f.entry});
+    auto flow = v.snapshot().get<analysis::Flow>(analysis::Location{key, fi->flow_key()});
+    std::set<std::uint64_t> named;  // instructions printed as a call of a named function
+    if (fn)
+      for (const auto &line : fn->lines())
+        for (const auto &t : line.tokens())
+          if (t.kind() == pb::CODE_TOKEN_KIND_FUNCTION_NAME && t.has_address() && t.has_target())
+            named.insert(t.address().offset());
+    std::set<std::uint64_t> ref_calls;
+    for (const auto &[insn, callee] : flow->ref_calls) ref_calls.insert(insn);
+    const bool thunk = (f.flags & analysis::kFunctionThunk) != 0;
+    int listed = 0, calls_over = 0, jumps_over = 0;
+    for (const analysis::FlowInsn &i : flow->insns) {
+      using K = analysis::FlowKind;
+      if (i.kind != K::call_indirect && i.kind != K::jump_indirect) continue;
+      if (i.resolved || i.no_return || !i.targets.empty()) continue;
+      const std::uint64_t a = info->code_address(i.address);
+      if (!f.contains(a)) continue;
+      bool known = false;
+      if (i.kind == K::call_indirect) {
+        // A reference someone added, a call the decompiler names, a call
+        // through an import slot (PE's IAT, -fno-plt's GOT).
+        known = ref_calls.count(i.address) > 0 || named.count(a) > 0;
+        for (const StaticXref *x : v.xrefs().from(a, a))
+          if (x->kind == pb::XREF_KIND_CALL || x->kind == pb::XREF_KIND_INDIRECT_CALL ||
+              (x->kind == pb::XREF_KIND_DATA_READ && info->import_at(x->to)))
+            known = true;
+      } else {
+        // A thunk's jump through its import slot goes where the thunk says.
+        known = thunk || i.tail_call;
+        for (const StaticXref *x : v.xrefs().from(a, a))
+          if (x->kind == pb::XREF_KIND_INDIRECT_JUMP) known = true;
+      }
+      if (known) continue;
+      if (listed >= kMaxListed) {
+        ++(i.kind == K::call_indirect ? calls_over : jumps_over);
+        continue;
+      }
+      ++listed;
+      pb::Unknown *u = out->Add();
+      *u->mutable_address() = A(a);
+      if (i.kind == K::call_indirect) {
+        u->set_kind(pb::UNKNOWN_KIND_INDIRECT_CALL);
+        u->set_detail("indirect call: its target isn't known (a function pointer, a virtual call); "
+                      "add_reference gives it one");
+      } else {
+        u->set_kind(pb::UNKNOWN_KIND_INDIRECT_JUMP);
+        u->set_detail("computed jump: its destinations weren't recovered (a switch table analysis couldn't "
+                      "read); code it reaches may be missing from the function");
+      }
+    }
+    if (calls_over + jumps_over > 0) {
+      pb::Unknown *u = out->Add();
+      u->set_kind(pb::UNKNOWN_KIND_BUDGET);
+      u->set_detail(std::to_string(calls_over) + " more indirect calls and " + std::to_string(jumps_over) +
+                    " more computed jumps with unknown targets (the first " + std::to_string(kMaxListed) +
+                    " are listed)");
+    }
+    if (flow->truncated) {
+      pb::Unknown *u = out->Add();
+      u->set_kind(pb::UNKNOWN_KIND_FLOW_TRUNCATED);
+      u->set_detail("analysis stopped following this function's flow at its instruction limit: its body may be "
+                    "longer than shown");
+    }
+  }
+
+  // A decompilation's unknowns (DecompiledFunction.unknowns, api_minor 97).
+  void DecompileUnknowns(View &v, const Func &f, const DecompileOutput &use, const std::string &program,
+                         pb::DecompiledFunction *fn) {
+    if (use.failure) {
+      pb::Unknown *u = fn->add_unknowns();
+      u->set_kind(pb::UNKNOWN_KIND_DECOMPILE_FAILED);
+      u->set_detail(std::string("the decompiler failed (") + decompd::failure_kind_name(use.failure->kind) +
+                    "): nothing it would have shown is known");
+    } else {
+      FlowUnknowns(v, f, fn, fn->mutable_unknowns());
+    }
+    AnalysisUnknowns(program, fn->mutable_unknowns());
+  }
+
+  // Background analysis still running on a program (api_minor 97).
+  void AnalysisUnknowns(const std::string &program, google::protobuf::RepeatedPtrField<pb::Unknown> *out) {
+    std::string what;
+    if (ParamIdBusy(program)) what = "parameter ID";
+    if (InferBusy(program)) what += std::string(what.empty() ? "" : ", ") + "type inference";
+    if (FidBusy(program)) what += std::string(what.empty() ? "" : ", ") + "Function ID";
+    if (what.empty()) return;
+    pb::Unknown *u = out->Add();
+    u->set_kind(pb::UNKNOWN_KIND_ANALYSIS_RUNNING);
+    u->set_detail(what + " still running on this program: prototypes, types and names may change; read again "
+                  "when analysis_status says it is idle");
   }
 
   static void Overlay(View &v, const Func &f, const DecompileOutput &raw, bool include_text, pb::DecompiledFunction *out,
@@ -12863,9 +15262,11 @@ class ImageBackend final : public api::Backend {
   Status PinLocked(Project &p, std::uint64_t want, Read &r) {
     auto h = p.history.find(want);
     if (h == p.history.end())
-      return Error(StatusCode::kFailedPrecondition, "REVISION_EXPIRED: revision " + std::to_string(want) +
-                                                        " is older than the oldest retained (" +
-                                                        std::to_string(p.history.begin()->first) + ")");
+      return Error(StatusCode::kFailedPrecondition,
+                   "REVISION_EXPIRED: revision " + std::to_string(want) +
+                       (want > p.history.begin()->first && want < p.head
+                            ? std::string(" was background analysis's, of which only the last few are kept")
+                            : " is older than the oldest retained (" + std::to_string(p.history.begin()->first) + ")"));
     r.project = &p;
     r.snapshot = h->second.snapshot;
     r.revision = want;
@@ -15284,6 +17685,25 @@ class ImageBackend final : public api::Backend {
     p.events[revision] = ev;
     while (p.history.size() > core_->options.retained_revisions) p.history.erase(p.history.begin());
     while (p.events.size() > core_->options.retained_revisions) p.events.erase(p.events.begin());
+    // Background analysis (Parameter ID's and inference's publishes, every
+    // few seconds while they run) keeps only its last few revisions
+    // readable: each retained revision pins the memos computed at it, and
+    // a pass over 16 programs makes hundreds (docs/memory.md, "Many
+    // programs and Parameter ID"). The events stay for subscribers.
+    {
+      constexpr std::size_t kAnalysisRevisions = 8;
+      std::size_t seen = 0;
+      for (auto it = p.history.rbegin(); it != p.history.rend();) {
+        const std::uint64_t r = it->first;
+        auto ev_it = p.events.find(r);
+        const bool analysis = ev_it != p.events.end() && ev_it->second.cause() == pb::CHANGE_CAUSE_ANALYSIS;
+        if (analysis && r != p.head && ++seen > kAnalysisRevisions) {
+          it = std::make_reverse_iterator(p.history.erase(std::next(it).base()));
+          continue;
+        }
+        ++it;
+      }
+    }
     // Old revisions' input versions and memos go once no pin needs them.
     if (++p.commits % 64 == 0) p.db->engine().collect_garbage();
     for (auto &s : p.subscribers) {
@@ -18592,7 +21012,10 @@ class ImageBackend final : public api::Backend {
       o->set_image_base(*src.image_base);
     }
     if (!src.loader.empty()) o->set_format(src.loader);
-    if (src.raw) {
+    if (src.raw && src.language_id.starts_with("EVM:")) {
+      o->set_format("evm");  // laid out again from the bytes (api_minor 99)
+      o->clear_language_id();
+    } else if (src.raw) {
       const loader::RawOptions &raw = *src.raw;
       o->set_format("raw");
       o->set_raw_offset(raw.offset);
@@ -18724,7 +21147,68 @@ class ImageBackend final : public api::Backend {
                             pb::CreateDebugSessionResponse &resp) override {
     DebugProgram p;
     if (auto st = DebugProgramFor(req.program_id(), p); !st.ok()) return st;
+    if (req.has_crash())
+      if (auto st = CrashSourceFor(ctx, req, p); !st.ok()) return st;
     return debugger_.Create(ctx, req, std::move(p), resp);
+  }
+  Status GetDebugCrash(const CallContext &ctx, const pb::GetDebugCrashRequest &req, pb::GetDebugCrashResponse &resp) override {
+    return debugger_.GetCrash(ctx, req, resp);
+  }
+
+  // A crash dump's bytes (api_minor 102, docs/crash-dumps.md): a program of
+  // the same project (its stored file), a host file or an upload (admin, by
+  // the policy), mapped read-only. An admin's session may read the dump's
+  // mapped files under --browse-root.
+  Status CrashSourceFor(const CallContext &ctx, const pb::CreateDebugSessionRequest &req, DebugProgram &p) {
+    auto src = std::make_shared<DebugCrashSource>();
+    const pb::DebugCrashTarget &c = req.crash();
+    auto map_file = [&](const std::filesystem::path &path) -> Status {
+      const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+      if (fd < 0) return Error(StatusCode::kNotFound, "can't open " + path.string() + ": " + std::strerror(errno));
+      struct stat st {};
+      if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
+        ::close(fd);
+        return Error(StatusCode::kInvalidArgument, path.string() + " is not a regular file with content");
+      }
+      const std::size_t size = static_cast<std::size_t>(st.st_size);
+      void *addr = ::mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+      ::close(fd);
+      if (addr == MAP_FAILED) return Error(StatusCode::kInternal, "can't map " + path.string() + ": " + std::strerror(errno));
+      src->keep = std::shared_ptr<void>(addr, [size](void *a) { ::munmap(a, size); });
+      src->bytes = std::span<const std::byte>(static_cast<const std::byte *>(addr), size);
+      src->name = path.filename().string();
+      return Status::Ok();
+    };
+    switch (c.source_case()) {
+      case pb::DebugCrashTarget::kDumpProgramId: {
+        Project *dump = nullptr, *prog = nullptr;
+        if (auto st = FindProgramProject(c.dump_program_id(), dump); !st.ok()) return st;
+        if (auto st = FindProgramProject(req.program_id(), prog); !st.ok()) return st;
+        if (dump != prog) return Error(StatusCode::kInvalidArgument, c.dump_program_id() + " isn't in " + req.program_id() + "'s project");
+        DebugProgram d;
+        if (auto st = DebugProgramFor(c.dump_program_id(), d, false); !st.ok()) return st;
+        auto file = d.program->file();
+        if (!file || file->empty()) return Error(StatusCode::kFailedPrecondition, "the dump program's file bytes aren't loaded");
+        src->keep = file;
+        src->bytes = std::span<const std::byte>(file->data(), file->size());
+        src->name = c.dump_program_id().substr(c.dump_program_id().find('/') + 1);
+        break;
+      }
+      case pb::DebugCrashTarget::kHostPath:
+        if (auto st = map_file(c.host_path()); !st.ok()) return st;
+        break;
+      case pb::DebugCrashTarget::kUploadId: {
+        std::filesystem::path path;
+        if (auto st = uploads_.Find(ctx.caller, c.upload_id(), path); !st.ok()) return st;
+        if (auto st = map_file(path); !st.ok()) return st;
+        src->name = "upload";
+        break;
+      }
+      default: return Error(StatusCode::kInvalidArgument, "crash: give a dump_program_id, host_path or upload_id");
+    }
+    if (ctx.caller_admin) src->host_roots = core_->options.browse_roots;
+    p.crash = std::move(src);
+    return Status::Ok();
   }
   Status CloseDebugSession(const CallContext &ctx, const pb::CloseDebugSessionRequest &req,
                            pb::CloseDebugSessionResponse &) override {
@@ -19180,6 +21664,79 @@ class ImageBackend final : public api::Backend {
   Status ListFileSystems(const CallContext &ctx, const pb::ListFileSystemsRequest &,
                          pb::ListFileSystemsResponse &resp) override {
     filesystems_.List(ctx, resp);
+    return Status::Ok();
+  }
+
+  // --- Android packages (api_minor 97; docs/android.md) ------------------------
+
+  Status GetAndroidPackage(const CallContext &ctx, const pb::GetAndroidPackageRequest &req,
+                           pb::GetAndroidPackageResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    return backend::GetAndroidPackage(*fss, ctx, req, resp);
+  }
+
+  Status DecodeAndroidXml(const CallContext &ctx, const pb::DecodeAndroidXmlRequest &req,
+                          pb::DecodeAndroidXmlResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    return backend::DecodeAndroidXml(*fss, ctx, req, resp);
+  }
+
+  Status ListAndroidResources(const CallContext &ctx, const pb::ListAndroidResourcesRequest &req,
+                              pb::ListAndroidResourcesResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    return backend::ListAndroidResources(*fss, ctx, req, resp);
+  }
+
+  // Apple bundles and property lists (api_minor 100, feature
+  // "apple-bundles"; docs/apple-apps.md).
+  Status GetAppleBundle(const CallContext &ctx, const pb::GetAppleBundleRequest &req,
+                        pb::GetAppleBundleResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    return backend::GetAppleBundle(*fss, ctx, req, resp);
+  }
+
+  Status ReadPropertyList(const CallContext &ctx, const pb::ReadPropertyListRequest &req,
+                          pb::ReadPropertyListResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    return backend::ReadPropertyList(*fss, ctx, req, resp);
+  }
+
+  // FileSystemService.ListUiActions (api_minor 101, feature "ui-actions";
+  // docs/apple-apps.md): the nibs' actions, resolved in the program's
+  // Objective-C metadata (the one named, else the one the session's
+  // project imported from the bundle's main executable).
+  Status ListUiActions(const CallContext &ctx, const pb::ListUiActionsRequest &req,
+                       pb::ListUiActionsResponse &resp) override {
+    std::shared_ptr<FsSession> fss;
+    if (auto st = filesystems_.Get(ctx, req.session_id(), fss); !st.ok()) return st;
+    InterfaceDocs docs;
+    if (auto st = CollectInterfaceDocs(*fss, ctx, req.path(), docs); !st.ok()) return st;
+    std::string program = req.program_id();
+    if (program.empty() && !docs.executable_container_path.empty()) {
+      Read pr;
+      if (ResolveProject(ctx, fss->project_id, {}, 0, pr).ok()) {
+        std::lock_guard lock(core_->mu);
+        for (const auto &[id, e] : pr.project->programs)
+          if (e->source.container_path == docs.executable_container_path && !StateOf(*pr.project, *e, pr.log_size).deleted)
+            program = id;
+      }
+    }
+    if (program.empty()) {
+      ResolveUiActions(docs, nullptr, {}, {}, req.include_documents(), resp);
+      return Status::Ok();
+    }
+    Read r;
+    if (auto st = ResolveProgram(ctx, program, {}, {}, r); !st.ok()) return st;
+    View v(r);
+    const objc::Metadata md = objc::scan(v.program().image());
+    resp.set_program_id(program);
+    ResolveUiActions(docs, &md, [&](std::uint64_t a) { return A(a); }, [&](std::uint64_t a) { return v.Symbol(a); },
+                     req.include_documents(), resp);
     return Status::Ok();
   }
 

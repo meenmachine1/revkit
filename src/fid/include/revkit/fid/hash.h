@@ -56,6 +56,10 @@ struct HashOptions {
   // Whether the instruction's operand has a reference to memory, which
   // makes Ghidra's operand type an address (InstructionDB.getOperandType).
   std::function<bool(std::uint64_t address, int operand, const lift::FidObject &scalar)> address_operand;
+  // Fewer instructions hash to nothing (Function ID's 4; the decomp
+  // knowledge base hashes shorter functions too, to check matches made
+  // through their callers).
+  int min_code_units = kShortHashCodeUnits;
 };
 
 // The x86 skipper's patterns (X86InstructionSkipper).
@@ -64,7 +68,7 @@ bool x86_skipped(std::span<const std::uint8_t> bytes);
 bool skips_x86_nops(const std::string &language);
 
 // FidHashQuad of a function from its instructions; nullopt when it has
-// fewer than kShortHashCodeUnits (after skipped ones).
+// fewer than options.min_code_units (after skipped ones).
 std::optional<HashQuad> hash_function(std::span<const HashUnit> units, const HashOptions &options);
 
 }  // namespace revkit::fid

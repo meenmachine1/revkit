@@ -667,6 +667,17 @@ void Engine::add_table(std::unique_ptr<detail::TableBase> t) {
   tables_.emplace(id, std::move(t));
 }
 
+std::vector<Engine::RuleInfo> Engine::rules() const {
+  std::vector<RuleInfo> out;
+  out.reserve(tables_.size());
+  for (const auto &[id, t] : tables_) {
+    const auto *d = dynamic_cast<const detail::DerivedTableBase *>(t.get());
+    out.push_back({id, t->name(), t->version(), d != nullptr, d != nullptr && d->persistent()});
+  }
+  std::sort(out.begin(), out.end(), [](const RuleInfo &a, const RuleInfo &b) { return a.id < b.id; });
+  return out;
+}
+
 detail::TableBase &Engine::table(QueryId id) const {
   auto it = tables_.find(id);
   if (it == tables_.end()) throw std::logic_error("query not registered");

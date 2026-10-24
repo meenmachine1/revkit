@@ -322,14 +322,40 @@ void infer_structures(const std::vector<std::pair<std::uint64_t, const Observati
   const Priors &pr = SigDb::priors(org);
   std::map<std::uint64_t, std::size_t> at;  // entry -> index in r.prototypes
   for (std::size_t i = 0; i < r.prototypes.size(); ++i) at.emplace(r.prototypes[i].first, i);
-  auto int_index = [&](const Slot &s) -> std::optional<std::size_t> {
-    auto pos = arg_position(abi, s);
-    if (!pos || pos->cls != 0) return std::nullopt;
-    return static_cast<std::size_t>(pos->index);
-  };
+  auto int_index = [&](const Slot &s) { return infer::int_index(abi, s); };
+  // Where ints and pointers are one size (32-bit targets), inference
+  // types a word a pointer only on evidence from values (a static
+  // address, a pointer passed in), and a struct pointer only ever used
+  // with offsets is an integer to the decompiler (`*(int *)(param_1 +
+  // 8)`). A word parameter its own code reads or writes through three or
+  // more times at two or more offsets is a pointer here: it joins a class
+  // like one, and gets the class's structure if the class makes one.
+  std::set<std::pair<std::size_t, std::size_t>> word_pointers;  // (proto, param)
+  if (ptr == 4)
+    for (const auto &[entry, o] : observations) {
+      auto fi = at.find(entry);
+      if (o == nullptr || !o->ok || fi == at.end()) continue;
+      const Prototype &proto = r.prototypes[fi->second].second;
+      for (const PointerUse &u : o->pointer_uses) {
+        if (u.param < 0 || static_cast<std::size_t>(u.param) >= o->params.size()) continue;
+        const auto p = int_index(o->params[u.param]);
+        if (!p || *p >= proto.params.size()) continue;
+        const VType &t = proto.params[*p];
+        if (t.size != ptr || (t.meta != Meta::int_ && t.meta != Meta::unknown)) continue;
+        std::set<std::int64_t> offsets;
+        std::size_t own = 0;
+        for (const PointerAccess &a : u.accesses)
+          if (a.kind != AccessKind::passed) {
+            ++own;
+            offsets.insert(a.offset);
+          }
+        if (own >= options.min_accesses && offsets.size() >= options.min_offsets) word_pointers.emplace(fi->second, *p);
+      }
+    }
   // A pointer parameter inference typed as a pointer of the target's size.
   auto pointer_param = [&](std::size_t f, std::size_t p) {
     const Prototype &proto = r.prototypes[f].second;
+    if (word_pointers.contains({f, p})) return true;
     return p < proto.params.size() && proto.params[p].is_pointer() && proto.params[p].size == ptr;
   };
 
@@ -357,7 +383,8 @@ void infer_structures(const std::vector<std::pair<std::uint64_t, const Observati
       n.kind = Node::Kind::param;
       n.proto = f;
       n.index = p;
-      if (typed_by_others(f, r.prototypes[f].second.params[p].target())) n.sum.library = true;
+      const VType &t = r.prototypes[f].second.params[p];
+      if (t.is_pointer() && typed_by_others(f, t.target())) n.sum.library = true;
     }
     return it->second;
   };
@@ -580,6 +607,15 @@ void infer_structures(const std::vector<std::pair<std::uint64_t, const Observati
       }
     }
     if (accesses + s.negative == 0) return out;
+    // Where pointers are word-sized like ints (32-bit), a field whose
+    // loaded value is read or written through is a pointer whatever the
+    // decompiler typed the load: words of which some are dereferenced are
+    // a structure (a queue's head, tail and items), not an array of ints.
+    if (ptr == 4)
+      for (const auto &[off, child] : cls.at(root).children) {
+        const Summary &c = cls.at(cls.find(child)).sum;
+        if (off >= 0 && c.accesses + c.negative > 0) groups.insert(1);
+      }
     if (sizes.size() == 1 && groups.size() <= 1 && aligned) {
       // An array of scalars (bytes, ints, pointers): the pointer to its
       // element is the type, as the decompiler indexes it.

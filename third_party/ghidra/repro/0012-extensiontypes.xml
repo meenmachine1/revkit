@@ -1,0 +1,41 @@
+<decompilertest>
+<!--
+  half_cw(p): p[0] = p[0] + 1 through ldrh/strh (unsigned: the instruction
+  zero-extends), p[1] = (short)p[1] >> 1 through ldrsh/strh (signed).
+    8068: ldrh r1,[r0]       806c: add r1,r1,#1      8070: strh r1,[r0]
+    8074: ldrsh r1,[r0,#2]   8078: mov r1,r1,asr #1  807c: strh r1,[r0,#2]
+    8080: bx lr
+  n_ret(p): ldrh r0,[r0]; bx lr returns the unsigned short.
+  Without extensiontypes the first is typed by its 2-byte add (short) and the
+  second returns an undefined 2-byte type; with it, both follow the instructions.
+-->
+<binaryimage arch="ARM:LE:32:v5t:default">
+<bytechunk space="ram" offset="0x8068" readonly="true">
+b010d0e1011081e2b010c0e1f210d0e1c110a0e1b210c0e11eff2fe1
+b000d0e11eff2fe1
+</bytechunk>
+</binaryimage>
+<script>
+  <com>map fun r0x8068 half_cw</com>
+  <com>map fun r0x8084 n_ret</com>
+  <com>lo fu half_cw</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>lo fu n_ret</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>option extensiontypes on</com>
+  <com>lo fu half_cw</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>lo fu n_ret</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>quit</com>
+</script>
+<stringmatch name="Off: signed from the add" min="1" max="1">void half_cw\(int2 \*param_1\)</stringmatch>
+<stringmatch name="Off: undefined return" min="1" max="1">xunknown2 n_ret\(</stringmatch>
+<stringmatch name="On: unsigned from ldrh" min="1" max="1">void half_cw\(uint2 \*param_1\)</stringmatch>
+<stringmatch name="On: signed from ldrsh" min="1" max="1">\(int2\)param_1\[1\] >> 1</stringmatch>
+<stringmatch name="On: unsigned return" min="1" max="1">uint2 n_ret\(uint2 \*param_1\)</stringmatch>
+</decompilertest>

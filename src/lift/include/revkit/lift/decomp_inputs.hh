@@ -27,6 +27,40 @@ class Funcdata;
 
 namespace revkit::lift {
 
+// Decompiler options of revkit's fork of Ghidra's (third_party/ghidra,
+// patches 0012-0015), each off in Ghidra: C shaped as the instructions
+// encode it, and C a compiler accepts.
+struct SourceShape {
+  // `extensiontypes`: a loaded value takes the signedness its
+  // instruction's extension gives it (ldrh unsigned, ldrsh signed); with
+  // `words`, but for zero-extended bytes (a signed char is loaded with
+  // movzx or ldrb where only its low bits matter, and the unsigned type
+  // would displace the char of a string or a buffer).
+  enum class Extension : std::uint8_t { off = 0, all = 1, words = 2 };
+  Extension extension = Extension::off;
+  // `encodedcompare`: comparisons against a constant print with the
+  // constant on the right (x > 8, not 8 < x; x >= 0, not -1 < x), and with
+  // `encoded` also with the constant the instruction compares against
+  // where the decompiler moved it (x <= 0, not x < 1; x >= 9, not 8 < x).
+  // GCC and LLVM rewrite x < 10 as x <= 9 themselves, so their
+  // instructions carry a constant their source doesn't: `right` for them,
+  // `encoded` for compilers that keep the source's (CodeWarrior).
+  enum class Compare : std::uint8_t { ghidra = 0, right = 1, encoded = 2 };
+  Compare compare = Compare::ghidra;
+  // `flagcompare`: a signed flag test of a decrement's result (subs; bgt)
+  // is one comparison of the result (n > 0), not two.
+  bool flag_compare = false;
+  // `compilablec`: casts and accesses a C compiler accepts (no x._0_2_,
+  // no label at the end of a block, pointer/integer conversions cast).
+  bool compilable = false;
+
+  // What revkit turns on for its own inputs.
+  static SourceShape own() { return {Extension::all, Compare::right, true, false}; }
+  bool any() const { return extension != Extension::off || compare != Compare::ghidra || flag_compare || compilable; }
+  friend bool operator==(const SourceShape &, const SourceShape &) = default;
+};
+
+
 class ImageArchitecture;
 
 // An element of the decompiler's own encoding (the XML Ghidra exchanges with

@@ -13,6 +13,20 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class ComparisonForm(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    COMPARISON_FORM_UNSPECIFIED: _ClassVar[ComparisonForm]
+    COMPARISON_FORM_GHIDRA: _ClassVar[ComparisonForm]
+    COMPARISON_FORM_RIGHT: _ClassVar[ComparisonForm]
+    COMPARISON_FORM_ENCODED: _ClassVar[ComparisonForm]
+
+class LoadTypes(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    LOAD_TYPES_UNSPECIFIED: _ClassVar[LoadTypes]
+    LOAD_TYPES_GHIDRA: _ClassVar[LoadTypes]
+    LOAD_TYPES_WORDS: _ClassVar[LoadTypes]
+    LOAD_TYPES_ALL: _ClassVar[LoadTypes]
+
 class ScalarFormat(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     SCALAR_FORMAT_UNSPECIFIED: _ClassVar[ScalarFormat]
@@ -142,6 +156,14 @@ class AssertionStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ASSERTION_STATUS_SHADOWED: _ClassVar[AssertionStatus]
     ASSERTION_STATUS_RETRACTED: _ClassVar[AssertionStatus]
     ASSERTION_STATUS_DEPENDENCY_DEAD: _ClassVar[AssertionStatus]
+COMPARISON_FORM_UNSPECIFIED: ComparisonForm
+COMPARISON_FORM_GHIDRA: ComparisonForm
+COMPARISON_FORM_RIGHT: ComparisonForm
+COMPARISON_FORM_ENCODED: ComparisonForm
+LOAD_TYPES_UNSPECIFIED: LoadTypes
+LOAD_TYPES_GHIDRA: LoadTypes
+LOAD_TYPES_WORDS: LoadTypes
+LOAD_TYPES_ALL: LoadTypes
 SCALAR_FORMAT_UNSPECIFIED: ScalarFormat
 SCALAR_FORMAT_HEX: ScalarFormat
 SCALAR_FORMAT_SIGNED_DECIMAL: ScalarFormat
@@ -223,7 +245,7 @@ ASSERTION_STATUS_RETRACTED: AssertionStatus
 ASSERTION_STATUS_DEPENDENCY_DEAD: AssertionStatus
 
 class AssertionBody(_message.Message):
-    __slots__ = ("rename", "retype", "comment", "function_bounds", "flow_override", "note", "define_type", "bind_type_name", "diff_match", "patch", "memory_region", "listing_edit", "mutability", "type_category", "operand_display", "reference", "image_base", "type_archive", "call_signature", "no_return", "language", "data_settings", "fallthrough", "register_value")
+    __slots__ = ("rename", "retype", "comment", "function_bounds", "flow_override", "note", "define_type", "bind_type_name", "diff_match", "patch", "memory_region", "listing_edit", "mutability", "type_category", "operand_display", "reference", "image_base", "type_archive", "call_signature", "no_return", "language", "data_settings", "fallthrough", "register_value", "decompiler_settings")
     RENAME_FIELD_NUMBER: _ClassVar[int]
     RETYPE_FIELD_NUMBER: _ClassVar[int]
     COMMENT_FIELD_NUMBER: _ClassVar[int]
@@ -248,6 +270,7 @@ class AssertionBody(_message.Message):
     DATA_SETTINGS_FIELD_NUMBER: _ClassVar[int]
     FALLTHROUGH_FIELD_NUMBER: _ClassVar[int]
     REGISTER_VALUE_FIELD_NUMBER: _ClassVar[int]
+    DECOMPILER_SETTINGS_FIELD_NUMBER: _ClassVar[int]
     rename: Rename
     retype: Retype
     comment: Comment
@@ -272,7 +295,26 @@ class AssertionBody(_message.Message):
     data_settings: SetDataSettings
     fallthrough: SetFallthrough
     register_value: SetRegisterValue
-    def __init__(self, rename: _Optional[_Union[Rename, _Mapping]] = ..., retype: _Optional[_Union[Retype, _Mapping]] = ..., comment: _Optional[_Union[Comment, _Mapping]] = ..., function_bounds: _Optional[_Union[SetFunctionBounds, _Mapping]] = ..., flow_override: _Optional[_Union[FlowOverride, _Mapping]] = ..., note: _Optional[_Union[Note, _Mapping]] = ..., define_type: _Optional[_Union[DefineType, _Mapping]] = ..., bind_type_name: _Optional[_Union[BindTypeName, _Mapping]] = ..., diff_match: _Optional[_Union[_diff_pb2.DiffMatchBody, _Mapping]] = ..., patch: _Optional[_Union[PatchBody, _Mapping]] = ..., memory_region: _Optional[_Union[MemoryRegionEdit, _Mapping]] = ..., listing_edit: _Optional[_Union[ListingEdit, _Mapping]] = ..., mutability: _Optional[_Union[SetMutability, _Mapping]] = ..., type_category: _Optional[_Union[SetTypeCategory, _Mapping]] = ..., operand_display: _Optional[_Union[OperandDisplay, _Mapping]] = ..., reference: _Optional[_Union[UserReference, _Mapping]] = ..., image_base: _Optional[_Union[ImageBaseBody, _Mapping]] = ..., type_archive: _Optional[_Union[TypeArchiveSetting, _Mapping]] = ..., call_signature: _Optional[_Union[CallSignatureOverride, _Mapping]] = ..., no_return: _Optional[_Union[SetNoReturn, _Mapping]] = ..., language: _Optional[_Union[ProgramLanguageBody, _Mapping]] = ..., data_settings: _Optional[_Union[SetDataSettings, _Mapping]] = ..., fallthrough: _Optional[_Union[SetFallthrough, _Mapping]] = ..., register_value: _Optional[_Union[SetRegisterValue, _Mapping]] = ...) -> None: ...
+    decompiler_settings: SetDecompilerSettings
+    def __init__(self, rename: _Optional[_Union[Rename, _Mapping]] = ..., retype: _Optional[_Union[Retype, _Mapping]] = ..., comment: _Optional[_Union[Comment, _Mapping]] = ..., function_bounds: _Optional[_Union[SetFunctionBounds, _Mapping]] = ..., flow_override: _Optional[_Union[FlowOverride, _Mapping]] = ..., note: _Optional[_Union[Note, _Mapping]] = ..., define_type: _Optional[_Union[DefineType, _Mapping]] = ..., bind_type_name: _Optional[_Union[BindTypeName, _Mapping]] = ..., diff_match: _Optional[_Union[_diff_pb2.DiffMatchBody, _Mapping]] = ..., patch: _Optional[_Union[PatchBody, _Mapping]] = ..., memory_region: _Optional[_Union[MemoryRegionEdit, _Mapping]] = ..., listing_edit: _Optional[_Union[ListingEdit, _Mapping]] = ..., mutability: _Optional[_Union[SetMutability, _Mapping]] = ..., type_category: _Optional[_Union[SetTypeCategory, _Mapping]] = ..., operand_display: _Optional[_Union[OperandDisplay, _Mapping]] = ..., reference: _Optional[_Union[UserReference, _Mapping]] = ..., image_base: _Optional[_Union[ImageBaseBody, _Mapping]] = ..., type_archive: _Optional[_Union[TypeArchiveSetting, _Mapping]] = ..., call_signature: _Optional[_Union[CallSignatureOverride, _Mapping]] = ..., no_return: _Optional[_Union[SetNoReturn, _Mapping]] = ..., language: _Optional[_Union[ProgramLanguageBody, _Mapping]] = ..., data_settings: _Optional[_Union[SetDataSettings, _Mapping]] = ..., fallthrough: _Optional[_Union[SetFallthrough, _Mapping]] = ..., register_value: _Optional[_Union[SetRegisterValue, _Mapping]] = ..., decompiler_settings: _Optional[_Union[SetDecompilerSettings, _Mapping]] = ...) -> None: ...
+
+class DecompilerSettings(_message.Message):
+    __slots__ = ("comparison_form", "compilable_c", "load_types", "ghidra_flag_tests")
+    COMPARISON_FORM_FIELD_NUMBER: _ClassVar[int]
+    COMPILABLE_C_FIELD_NUMBER: _ClassVar[int]
+    LOAD_TYPES_FIELD_NUMBER: _ClassVar[int]
+    GHIDRA_FLAG_TESTS_FIELD_NUMBER: _ClassVar[int]
+    comparison_form: ComparisonForm
+    compilable_c: bool
+    load_types: LoadTypes
+    ghidra_flag_tests: bool
+    def __init__(self, comparison_form: _Optional[_Union[ComparisonForm, str]] = ..., compilable_c: _Optional[bool] = ..., load_types: _Optional[_Union[LoadTypes, str]] = ..., ghidra_flag_tests: _Optional[bool] = ...) -> None: ...
+
+class SetDecompilerSettings(_message.Message):
+    __slots__ = ("settings",)
+    SETTINGS_FIELD_NUMBER: _ClassVar[int]
+    settings: DecompilerSettings
+    def __init__(self, settings: _Optional[_Union[DecompilerSettings, _Mapping]] = ...) -> None: ...
 
 class ProgramLanguageBody(_message.Message):
     __slots__ = ("language_id", "compiler_spec_id", "previous_language_id", "previous_compiler_spec_id")
@@ -568,14 +610,16 @@ class Comment(_message.Message):
     def __init__(self, address: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., kind: _Optional[_Union[CommentKind, str]] = ..., text: _Optional[str] = ...) -> None: ...
 
 class SetFunctionBounds(_message.Message):
-    __slots__ = ("entry", "body", "remove")
+    __slots__ = ("entry", "body", "remove", "instruction_set")
     ENTRY_FIELD_NUMBER: _ClassVar[int]
     BODY_FIELD_NUMBER: _ClassVar[int]
     REMOVE_FIELD_NUMBER: _ClassVar[int]
+    INSTRUCTION_SET_FIELD_NUMBER: _ClassVar[int]
     entry: _common_pb2.Address
     body: _containers.RepeatedCompositeFieldContainer[_common_pb2.AddressRange]
     remove: bool
-    def __init__(self, entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., body: _Optional[_Iterable[_Union[_common_pb2.AddressRange, _Mapping]]] = ..., remove: _Optional[bool] = ...) -> None: ...
+    instruction_set: InstructionSet
+    def __init__(self, entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., body: _Optional[_Iterable[_Union[_common_pb2.AddressRange, _Mapping]]] = ..., remove: _Optional[bool] = ..., instruction_set: _Optional[_Union[InstructionSet, str]] = ...) -> None: ...
 
 class FlowOverride(_message.Message):
     __slots__ = ("address", "kind")
@@ -678,30 +722,42 @@ class AssertionInput(_message.Message):
     def __init__(self, body: _Optional[_Union[AssertionBody, _Mapping]] = ..., depends_on_seq: _Optional[int] = ...) -> None: ...
 
 class AppendAssertionsRequest(_message.Message):
-    __slots__ = ("program_id", "assertions", "provenance", "expected_head_revision", "validate_only", "project_scope")
+    __slots__ = ("program_id", "assertions", "provenance", "expected_head_revision", "validate_only", "project_scope", "skip_invalid")
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
     ASSERTIONS_FIELD_NUMBER: _ClassVar[int]
     PROVENANCE_FIELD_NUMBER: _ClassVar[int]
     EXPECTED_HEAD_REVISION_FIELD_NUMBER: _ClassVar[int]
     VALIDATE_ONLY_FIELD_NUMBER: _ClassVar[int]
     PROJECT_SCOPE_FIELD_NUMBER: _ClassVar[int]
+    SKIP_INVALID_FIELD_NUMBER: _ClassVar[int]
     program_id: str
     assertions: _containers.RepeatedCompositeFieldContainer[AssertionInput]
     provenance: _common_pb2.Provenance
     expected_head_revision: int
     validate_only: bool
     project_scope: bool
-    def __init__(self, program_id: _Optional[str] = ..., assertions: _Optional[_Iterable[_Union[AssertionInput, _Mapping]]] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., expected_head_revision: _Optional[int] = ..., validate_only: _Optional[bool] = ..., project_scope: _Optional[bool] = ...) -> None: ...
+    skip_invalid: bool
+    def __init__(self, program_id: _Optional[str] = ..., assertions: _Optional[_Iterable[_Union[AssertionInput, _Mapping]]] = ..., provenance: _Optional[_Union[_common_pb2.Provenance, _Mapping]] = ..., expected_head_revision: _Optional[int] = ..., validate_only: _Optional[bool] = ..., project_scope: _Optional[bool] = ..., skip_invalid: _Optional[bool] = ...) -> None: ...
+
+class RefusedAssertion(_message.Message):
+    __slots__ = ("index", "reason")
+    INDEX_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    index: int
+    reason: str
+    def __init__(self, index: _Optional[int] = ..., reason: _Optional[str] = ...) -> None: ...
 
 class AppendAssertionsResponse(_message.Message):
-    __slots__ = ("snapshot", "assertions", "changed_keys")
+    __slots__ = ("snapshot", "assertions", "changed_keys", "refused")
     SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
     ASSERTIONS_FIELD_NUMBER: _ClassVar[int]
     CHANGED_KEYS_FIELD_NUMBER: _ClassVar[int]
+    REFUSED_FIELD_NUMBER: _ClassVar[int]
     snapshot: _common_pb2.Snapshot
     assertions: _containers.RepeatedCompositeFieldContainer[Assertion]
     changed_keys: _containers.RepeatedCompositeFieldContainer[_common_pb2.FactKey]
-    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., assertions: _Optional[_Iterable[_Union[Assertion, _Mapping]]] = ..., changed_keys: _Optional[_Iterable[_Union[_common_pb2.FactKey, _Mapping]]] = ...) -> None: ...
+    refused: _containers.RepeatedCompositeFieldContainer[RefusedAssertion]
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., assertions: _Optional[_Iterable[_Union[Assertion, _Mapping]]] = ..., changed_keys: _Optional[_Iterable[_Union[_common_pb2.FactKey, _Mapping]]] = ..., refused: _Optional[_Iterable[_Union[RefusedAssertion, _Mapping]]] = ...) -> None: ...
 
 class RetractAssertionsRequest(_message.Message):
     __slots__ = ("program_id", "seqs", "provenance", "expected_head_revision", "project_id")

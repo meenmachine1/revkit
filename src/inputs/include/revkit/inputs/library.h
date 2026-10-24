@@ -51,7 +51,12 @@ struct LibraryPrototypes {
   // A function by the name a binary gives it: exactly, else as the symbol
   // `_name` names `name` (and an x86 stdcall `_name@N`), else without a
   // symbol version (`printf@GLIBC_2.2.5`). Null if no archive declares it.
-  const LibraryFunction *find(std::string_view name) const;
+  // Without `underscore`, `_name` is not `name`: a raw image's symbols
+  // (a DS module's: CodeWarrior's soft-float `_fmul` is not C23's
+  // `fmul(double, double)`, docs/nds.md).
+  const LibraryFunction *find(std::string_view name, bool underscore = true) const;
+  // Whether `_name` may name `name` for this image (not a raw image's symbols).
+  static bool underscore_names(const loader::Image &image) { return image.format != loader::Format::raw; }
 };
 
 // The C runtime's start-up and tear-down code a program defines itself

@@ -42,6 +42,14 @@
 
 namespace revkit::backend {
 
+// A program's decompiler settings (AssertionBody.decompiler_settings): a
+// NOTE at address 0 with this sub, its value the serialized
+// pb::DecompilerSettings.
+inline constexpr std::string_view kDecompilerSettingsTag = "revkit:decompiler-settings";
+// The source-shape options they ask for (lift::SourceShape::own() but
+// where they say otherwise).
+lift::SourceShape ShapeFromSettings(const pb::DecompilerSettings &s);
+
 // What an instance's architecture is built with (inputs.image).
 struct ImageInputs {
   std::string address_prefix;
@@ -142,7 +150,8 @@ class DecompilerPool {
   // or ran out of memory, likewise, with DecompileOutput::failure set. A
   // failed lookup is rethrown; a cancelled run throws DecompileStoppedError.
   // `image` is what the program's architecture is built with.
-  DecompileOutput Decompile(const DecompileInputs &inputs, const ImageInputs &image, RunLookup &lookup);
+  DecompileOutput Decompile(const DecompileInputs &inputs, const ImageInputs &image, RunLookup &lookup,
+                            const lift::SourceShape &shape = lift::SourceShape::own());
 
   // Decompiles as Ghidra's Decompiler Parameter ID does (worker mode
   // param_id) and returns what it would commit (param_id.h). Failures are

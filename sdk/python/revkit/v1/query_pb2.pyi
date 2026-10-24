@@ -2075,3 +2075,47 @@ class ListObjcClassesResponse(_message.Message):
     protocols: _containers.RepeatedCompositeFieldContainer[ObjcProtocol]
     swift_types: _containers.RepeatedCompositeFieldContainer[SwiftType]
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., classes: _Optional[_Iterable[_Union[ObjcClass, _Mapping]]] = ..., protocols: _Optional[_Iterable[_Union[ObjcProtocol, _Mapping]]] = ..., swift_types: _Optional[_Iterable[_Union[SwiftType, _Mapping]]] = ...) -> None: ...
+
+class ExportDecompScratchRequest(_message.Message):
+    __slots__ = ("program_id", "function", "read", "module", "timeout_ms")
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
+    READ_FIELD_NUMBER: _ClassVar[int]
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
+    program_id: str
+    function: _common_pb2.Address
+    read: _common_pb2.ReadOptions
+    module: str
+    timeout_ms: int
+    def __init__(self, program_id: _Optional[str] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., module: _Optional[str] = ..., timeout_ms: _Optional[int] = ...) -> None: ...
+
+class ExportDecompScratchResponse(_message.Message):
+    __slots__ = ("snapshot", "text", "context", "source", "probe", "function_name", "symbol", "module", "types", "callees", "globals", "notes", "failure")
+    SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    PROBE_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_NAME_FIELD_NUMBER: _ClassVar[int]
+    SYMBOL_FIELD_NUMBER: _ClassVar[int]
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    TYPES_FIELD_NUMBER: _ClassVar[int]
+    CALLEES_FIELD_NUMBER: _ClassVar[int]
+    GLOBALS_FIELD_NUMBER: _ClassVar[int]
+    NOTES_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_FIELD_NUMBER: _ClassVar[int]
+    snapshot: _common_pb2.Snapshot
+    text: str
+    context: str
+    source: str
+    probe: str
+    function_name: str
+    symbol: str
+    module: str
+    types: int
+    callees: int
+    globals: int
+    notes: _containers.RepeatedScalarFieldContainer[str]
+    failure: _decompile_pb2.DecompileFailure
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., text: _Optional[str] = ..., context: _Optional[str] = ..., source: _Optional[str] = ..., probe: _Optional[str] = ..., function_name: _Optional[str] = ..., symbol: _Optional[str] = ..., module: _Optional[str] = ..., types: _Optional[int] = ..., callees: _Optional[int] = ..., globals: _Optional[int] = ..., notes: _Optional[_Iterable[str]] = ..., failure: _Optional[_Union[_decompile_pb2.DecompileFailure, _Mapping]] = ...) -> None: ...

@@ -472,8 +472,8 @@ struct ThunkInfo {
 // unconditional jump.
 struct Thunk {
   static constexpr std::string_view name = "analysis.thunk";
-  static constexpr std::uint32_t version = 6;  // 4: patches through patch.page; 5: the user's no-return marks;
-                                               // 6: fallthrough overrides
+  static constexpr std::uint32_t version = 7;  // 4: patches through patch.page; 5: the user's no-return marks;
+                                               // 6: fallthrough overrides; 7: no-return marks on Thumb entries
   using Key = Location;
   using Value = ThunkInfo;
   static Value compute(facts::QueryContext &ctx, const Key &addr);
@@ -614,7 +614,7 @@ struct FlowGraph {
 // decoded, or doesn't decode. Flow overrides change instructions' kinds.
 struct Flow {
   static constexpr std::string_view name = "analysis.flow";
-  static constexpr std::uint32_t version = 21;  // 5: interworking, computed targets, literals; 6: data refs;
+  static constexpr std::uint32_t version = 22;  // 5: interworking, computed targets, literals; 6: data refs;
                                                 // 7: computed targets on raw images, big-endian data refs;
                                                 // 8: fill (runs of one repeated byte) is not code;
                                                 // 9: calls to switch helpers; 10: far jumps; 11: shifts out;
@@ -629,7 +629,8 @@ struct Flow {
                                                 // memory varnodes as data references (x86-64's
                                                 // read-modify-write [rip+x]); 20: the user's
                                                 // fallthrough overrides (FactKind::Fallthrough);
-                                                // 21: register values over ranges
+                                                // 21: register values over ranges; 22: no-return
+                                                // marks on Thumb entries
                                                 // (register_values.h)
   using Key = Location;
   using Value = FlowGraph;
@@ -722,7 +723,7 @@ struct FunctionList {
 // call targets, and asserted bodies win (see "Assertions" above).
 struct Functions {
   static constexpr std::string_view name = "analysis.functions";
-  static constexpr std::uint32_t version = 22;  // 6: removals match Thumb entries; 7: on raw images, unproven
+  static constexpr std::uint32_t version = 23;  // 6: removals match Thumb entries; 7: on raw images, unproven
                                                // candidates must be credible code (not text, fill, random bytes);
                                                // 8: reach; 9: of ARM functions too; 10: switch helpers,
                                                // names from labelled patterns; 11: prologues in gaps, code
@@ -734,7 +735,8 @@ struct Functions {
                                                // data, search finds inside instructions dropped;
                                                // 18: patches through patch.page; 19: the listing's edits;
                                                // 20: shrink-wrapped guards count no delay slots (MIPS); 21: the user's no-return marks
-                                               // (FactKind::NoReturn); 22: fallthrough overrides
+                                               // (FactKind::NoReturn); 22: fallthrough overrides; 23: no-return
+                                               // marks on Thumb entries
   using Key = ProgramKey;
   using Value = FunctionList;
   static Value compute(facts::QueryContext &ctx, const Key &key);

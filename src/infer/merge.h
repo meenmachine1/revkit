@@ -31,6 +31,8 @@ struct Evidence {
   // The current prototype of the function at an address (a callee, or a
   // function whose address is passed or returned), if known.
   std::function<std::optional<Prototype>(std::uint64_t)> proto_of;
+  // Whether a function starts at an address (a Thumb pointer's too).
+  std::function<bool(std::uint64_t)> is_function;
   // The prototype shared by the functions of the function-pointer table
   // holding a data address, if known.
   std::function<std::optional<Prototype>(std::uint64_t)> table_proto;
@@ -64,7 +66,11 @@ std::optional<Prototype> family_vote(const Prototype &own, const std::vector<Pro
 // value of that size and kind most often has in the system headers
 // (Priors), and parameter integers, whose signedness the decompiler infers
 // from comparisons compilers choose freely, take the headers' commonest
-// integer of their size.
-Prototype finalize(const Prototype &p, const DataOrg &org, bool keep_return_width = false);
+// integer of their size. With `typed_loads` (Options::load_extension `all`: the
+// decompiler types every load by its instruction's extension, bytes too) a
+// byte pointee keeps the signedness its loads gave it and an unknown one
+// is `void`, so the C's loads print as their instructions encode them
+// (*(byte *)(p + 4) for an ldrb) rather than through a `char *`.
+Prototype finalize(const Prototype &p, const DataOrg &org, bool keep_return_width = false, bool typed_loads = false);
 
 }  // namespace revkit::infer

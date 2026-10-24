@@ -1,6 +1,7 @@
 #include "revkit/lift/lifter.hh"
 
 #include "revkit/loader/ghidra_loadimage.hh"
+#include "revkit/runtime/runtime.h"
 
 #include "ghidra_text.hh"
 
@@ -233,7 +234,17 @@ void initialize(const std::filesystem::path &ghidra_root) {
     throw LiftError("Ghidra root " + ghidra_root.string() + " is not a directory");
   {
     auto globals = lock_ghidra_globals();
-    ghidra::startDecompilerLibrary(ghidra_root.string().c_str());
+    // revkit's own processors (EVM) beside Ghidra's: each
+    // <dir>/<processor>/data/languages (runtime::processors_dir).
+    std::vector<std::string> own;
+    if (std::optional<std::filesystem::path> dir = runtime::processors_dir()) {
+      std::error_code ec;
+      for (const auto &p : std::filesystem::directory_iterator(*dir, ec))
+        if (std::filesystem::is_directory(p.path() / "data" / "languages", ec))
+          own.push_back((p.path() / "data" / "languages").string());
+      std::sort(own.begin(), own.end());
+    }
+    ghidra::startDecompilerLibrary(ghidra_root.string().c_str(), own);
     ghidra::SleighArchitecture::getDescriptions();  // scan the .ldefs now, not racily later
   }
   g_root = ghidra_root;

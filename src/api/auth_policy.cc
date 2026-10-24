@@ -108,6 +108,17 @@ const std::map<std::string, MethodPolicy, std::less<>> &Table() {
       {"revkit.v1.ProjectService/ListProgramLibraries", kViewProject},
       {"revkit.v1.ProjectService/LinkProgramLibrary", kEditProject},
       {"revkit.v1.ProjectService/ResolveImport", kViewProject},
+      // Nintendo DS (docs/nds.md): imports read the host or store bytes, as
+      // ImportProgram; the export reads, and writing it is admin (below).
+      {"revkit.v1.ProjectService/ImportDsdProject", kAdminProject},
+      {"revkit.v1.ProjectService/ImportNdsRom", kAdminProject},
+      {"revkit.v1.ProjectService/ExportDsdSymbols", kViewProject},
+      // Rewrites a project's store on the daemon's host (docs/backend.md).
+      {"revkit.v1.ProjectService/CompactProject", kAdminProject},
+      {"revkit.v1.QueryService/ExportDecompScratch", kViewProject},
+      // The decomp knowledge base: files on the daemon's host (docs/decomp-kb.md).
+      {"revkit.v1.ProjectService/BuildDecompKb", kAdminProject},
+      {"revkit.v1.ProjectService/ApplyDecompKb", kAdminProject},
 
       {"revkit.v1.AssertionService/AppendAssertions", kEditProject},
       {"revkit.v1.AssertionService/RetractAssertions", kEditProject},
@@ -254,6 +265,8 @@ const std::map<std::string, MethodPolicy, std::less<>> &Table() {
       {"revkit.v1.DebugService/GetDebugMachine", kView},
       // The call stack of the caller's own session (api_minor 59).
       {"revkit.v1.DebugService/GetDebugBacktrace", kView},
+      // A crash dump session's summary (api_minor 102).
+      {"revkit.v1.DebugService/GetDebugCrash", kView},
       {"revkit.v1.DebugService/EvaluateDebug", kView},
       {"revkit.v1.DebugService/DisassembleDebugMemory", kView},
       // Writes the session's program (a block, patches); a new program is an import (see Authorize).
@@ -322,6 +335,13 @@ const std::map<std::string, MethodPolicy, std::less<>> &Table() {
       {"revkit.v1.FileSystemService/ExtractFromFileSystem", kAdmin},
       {"revkit.v1.FileSystemService/CloseFileSystem", kView},
       {"revkit.v1.FileSystemService/ListFileSystems", kView},
+      {"revkit.v1.FileSystemService/GetAndroidPackage", kView},
+      {"revkit.v1.FileSystemService/DecodeAndroidXml", kView},
+      {"revkit.v1.FileSystemService/ListAndroidResources", kView},
+      {"revkit.v1.FileSystemService/GetAppleBundle", kView},
+      {"revkit.v1.FileSystemService/ReadPropertyList", kView},
+      // The program it resolves in (program_id) needs viewer of its project.
+      {"revkit.v1.FileSystemService/ListUiActions", kViewProject},
       // External decompilers (api_minor 92, docs/providers.md): they read
       // what the caller can read (a program of a project it views, a file
       // of a session it opened: the backend checks the owner) and run a
@@ -378,6 +398,18 @@ const std::map<std::string, MethodPolicy, std::less<>> &Table() {
 
 std::string ProjectOfProgram(const std::string &program_id) { return program_id.substr(0, program_id.find('/')); }
 
+}  // namespace
+
+NamedField NamedFieldKind(std::string_view n) {
+  if (n == "project_id") return NamedField::project;
+  if (n == "program_id" || n == "program_ids" || n == "program_file" || n.ends_with("_program_id") ||
+      n.ends_with("_program_ids"))
+    return NamedField::program;
+  return NamedField::none;
+}
+
+namespace {
+
 void Collect(const gp::Message &m, std::set<std::string> &out, int depth) {
   if (depth > 4) return;
   const gp::Descriptor *d = m.GetDescriptor();
@@ -385,8 +417,9 @@ void Collect(const gp::Message &m, std::set<std::string> &out, int depth) {
   for (int i = 0; i < d->field_count(); ++i) {
     const gp::FieldDescriptor *f = d->field(i);
     if (f->type() == gp::FieldDescriptor::TYPE_STRING) {
-      const bool project = f->name() == "project_id", program = f->name() == "program_id" || f->name() == "program_ids";
-      if (!project && !program) continue;
+      const NamedField kind = NamedFieldKind(f->name());
+      if (kind == NamedField::none) continue;
+      const bool project = kind == NamedField::project;
       auto add = [&](const std::string &v) {
         if (!v.empty()) out.insert(project ? v : ProjectOfProgram(v));
       };
@@ -463,11 +496,20 @@ Status Authorize(const auth::Principal *caller, std::string_view method, const g
     if (const auto *create = dynamic_cast<const pb::CreateDebugSessionRequest *>(&request);
         create && (create->has_launch() || create->has_remote()))
       need = auth::Role::kAdmin;
+    // A crash dump from the daemon's host or an upload: admin, as ImportProgram.
+    if (const auto *create = dynamic_cast<const pb::CreateDebugSessionRequest *>(&request);
+        create && create->has_crash() && !create->crash().has_dump_program_id())
+      need = auth::Role::kAdmin;
   }
   if (method == "revkit.v1.DebugService/CopyDebugMemory") {
     // A new program is an import: admin, as ImportProgram.
     if (const auto *copy = dynamic_cast<const pb::CopyDebugMemoryRequest *>(&request);
         copy && copy->mode() == pb::DEBUG_COPY_MODE_NEW_PROGRAM)
+      need = auth::Role::kAdmin;
+  }
+  if (method == "revkit.v1.ProjectService/ExportDsdSymbols") {
+    // Files written on the daemon's host: admin.
+    if (const auto *ex = dynamic_cast<const pb::ExportDsdSymbolsRequest *>(&request); ex && ex->write())
       need = auth::Role::kAdmin;
   }
   if (method == "revkit.v1.ProjectService/ExportProject") {

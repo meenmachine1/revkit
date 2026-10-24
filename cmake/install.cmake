@@ -4,11 +4,12 @@
 #                                 found beside it), rk-sandbox (the external
 #                                 decompilers' sandbox, found beside it), rk-lift,
 #                                 rk-decomp, rk-emu, rk-dbg, rk-diff, rk-infer,
-#                                 rk-debuginfo, rk-cparse, rk-bsim
+#                                 rk-debuginfo, rk-cparse, rk-bsim, rk-sleigh (the SLEIGH compiler)
 #   <prefix>/lib/revkit/          private shared libraries (REVKIT_BUNDLE_LIBS)
 #   <prefix>/share/revkit/ui/     the web UI (REVKIT_UI_DIST, when built)
 #   <prefix>/share/revkit/ghidra/ Ghidra's processor specs (REVKIT_GHIDRA_SPECS,
 #                                 from scripts/gather-ghidra-specs.sh)
+#   <prefix>/share/revkit/processors/ revkit's own processors (EVM), compiled by rk-sleigh
 #   <prefix>/share/revkit/plugins/ the example WebAssembly plugins (when built)
 #   <prefix>/share/revkit/scripts/ the starter scripts (ScriptService's shipped library)
 #   <prefix>/share/revkit/python/ the Python SDK's wheel (REVKIT_PYTHON_WHEEL, when given),
@@ -22,7 +23,8 @@
 
 include(GNUInstallDirs)
 
-set(REVKIT_SHIPPED_TOOLS rk-daemon rk-decompd rk-sandbox rk-lift rk-decomp rk-emu rk-dbg rk-diff rk-infer rk-debuginfo rk-cparse rk-bsim)
+set(REVKIT_SHIPPED_TOOLS rk-daemon rk-decompd rk-sandbox rk-lift rk-decomp rk-emu rk-dbg rk-diff rk-infer rk-debuginfo rk-cparse rk-bsim
+    rk-sleigh)
 set(REVKIT_UI_DIST "${PROJECT_SOURCE_DIR}/ui/dist" CACHE PATH "Built web UI to install as share/revkit/ui")
 set(REVKIT_GHIDRA_SPECS "" CACHE PATH
     "Ghidra spec tree to install as share/revkit/ghidra (scripts/gather-ghidra-specs.sh output; empty: none)")
@@ -60,6 +62,10 @@ install(DIRECTORY "${REVKIT_UI_DIST}/" DESTINATION share/revkit/ui OPTIONAL
         PATTERN "*.map" EXCLUDE)
 if(REVKIT_GHIDRA_SPECS)
   install(DIRECTORY "${REVKIT_GHIDRA_SPECS}/" DESTINATION share/revkit/ghidra)
+endif()
+# revkit's own processors (processors/CMakeLists.txt; docs/processors.md).
+if(TARGET revkit_processors)
+  install(DIRECTORY "${REVKIT_PROCESSORS_DIR}/" DESTINATION share/revkit/processors)
 endif()
 if(TARGET revkit_example_plugins)
   install(DIRECTORY "${CMAKE_BINARY_DIR}/plugins/" DESTINATION share/revkit/plugins OPTIONAL)

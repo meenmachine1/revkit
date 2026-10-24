@@ -14,10 +14,14 @@
 // entry, or (x86) it is an INT3. A target with at least three such calls
 // is non-returning; with fewer, it is if every path through it ends in a
 // call to a non-returning function. Run twice, as Ghidra does when some
-// targets were suspicious, so later passes see earlier results.
+// targets were suspicious, so later passes see earlier results. Only
+// targets in the program's code are judged: a call to an address no block
+// maps (another DS module, ROM a firmware image lacks) returns. A target
+// the user said returns (SetNoReturn false) is never marked.
 //
-// Reads analysis.functions, every function's analysis.flow and the bytes
-// after calls (INT3), so a change to discovery recomputes it.
+// Reads analysis.functions, every function's analysis.flow, the bytes
+// after calls (INT3) and the NoReturn assertions, so a change to discovery
+// recomputes it.
 #pragma once
 
 #include "revkit/analysis/analysis.h"
@@ -30,8 +34,10 @@ namespace revkit::analysis {
 
 struct NoReturnEvidence {
   static constexpr std::string_view name = "analysis.no_return_evidence";
-  static constexpr std::uint32_t version = 4;  // 2: literal pools after a call are data; 3: patches
-                                               // through patch.page; 4: fallthrough overrides
+  static constexpr std::uint32_t version = 5;  // 2: literal pools after a call are data; 3: patches
+                                               // through patch.page; 4: fallthrough overrides; 5: only
+                                               // targets in the program's code, and never one the
+                                               // user said returns
   using Key = ProgramKey;
   using Value = std::vector<std::uint64_t>;  // sorted entries
   static Value compute(facts::QueryContext &ctx, const Key &key);

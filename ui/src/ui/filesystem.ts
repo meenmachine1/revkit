@@ -10,7 +10,9 @@
 // below… (batch, with a preview and a cap), Open as file system, Decompile
 // with jadx… (bytecode: the external decompilers that take it; external.ts),
 // Extract to the daemon's host… (admin, under --browse-root), Info…
-// (hashes, magic, container path), Copy container path. Several rows:
+// (hashes, magic, container path), Copy container path; Apple bundle… on an
+// .app, a framework, an extension or an .ipa, and Property list… on a
+// plist (api_minor 100, feature "apple-bundles"; apple.ts). Several rows:
 // Ctrl/Shift-click or Space.
 
 import {
@@ -25,6 +27,8 @@ import { h, overlayRoot } from "./dom";
 import { pickFile } from "./filepick";
 import { browseHost } from "./hostfiles";
 import { EXTERNAL_FEATURE, applicable, providersFor, showExternalDialog } from "./external";
+import { ANDROID_FEATURE, showAndroidDialog } from "./android";
+import { APPLE_BUNDLES_FEATURE, UI_ACTIONS_FEATURE, isPropertyList, showAppleBundleDialog, showPropertyListDialog } from "./apple";
 import { showMenu, showMenuAt, type MenuItem } from "./menu";
 
 export { FILESYSTEMS_FEATURE };
@@ -37,8 +41,8 @@ export interface FileSystemBrowserOptions {
   /** The program this tab shows: "The current program's file" as a source. */
   currentProgram?: { programId: string; name: string };
   pauseStreams?: () => () => void;
-  /** Opens an imported program (the page navigates). */
-  onOpenProgram: (programId: string) => void;
+  /** Opens an imported program (the page navigates), at an address when given. */
+  onOpenProgram: (programId: string, address?: bigint) => void;
 }
 
 function bytes(n: bigint | number): string {
@@ -135,6 +139,9 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
     h("span", {}, "Name"), h("span", { class: "fs-size" }, "Size"), h("span", {}, "Type"), h("span", {}, "Permissions"), h("span", {}, "What it is"),
   );
   const btn = (label: string, testid: string, run: () => void, title = "") => h("button", { class: "btn small", "data-testid": testid, title, onclick: run, text: label });
+  // An APK opened directly: its manifest, resources and native code (api_minor 98).
+  const androidBtn = btn("Android…", "fs-android", () => android(""), "The package's manifest, resources, native libraries and Flutter facts");
+  androidBtn.hidden = true;
   const box = h(
     "div",
     { class: "modal fs-browser", role: "dialog", "aria-modal": "true", tabindex: "-1", "aria-label": `File system: ${fs.name}`, "data-testid": "fs-browser" },
@@ -148,6 +155,7 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
       btn("Import programs below…", "fs-batch", () => void batchImport(), "Every program below the selected folders (or everywhere), with a preview"),
       btn("Extract…", "fs-extract", () => void extract(), "Write the selected files to a folder on the daemon host (admin)"),
       btn("Info", "fs-info", () => void info(), "Hashes, first bytes and the container path"),
+      androidBtn,
       btn("Close", "fs-close", () => close()),
     ),
     fs.root?.warnings.length ? h("div", { class: "fs-warn" }, fs.root.warnings.join(" · ")) : null,
@@ -217,6 +225,8 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
             h("span", { class: "fs-label" }, e.name + (e.kind === FileSystemEntryKind.DIRECTORY ? "/" : "")),
             e.linkTarget ? h("span", { class: "dim" }, ` → ${e.linkTarget}`) : null,
             e.renamed ? h("span", { class: "badge fs-renamed", title: e.note }, "renamed") : null,
+            // An Apple bundle (api_minor 100): its kind from its name.
+            e.bundleKind ? h("span", { class: "badge mono fs-bundle-kind", "data-testid": "fs-bundle-kind", title: "An Apple bundle: Apple bundle… (context menu) describes it" }, e.bundleKind) : null,
           ),
           h("span", { class: "fs-size dim" }, e.kind === FileSystemEntryKind.DIRECTORY ? `${e.childCount}` : e.sizeUnknown ? "?" : bytes(e.size)),
           h("span", { class: "dim" }, typeText(n)),
@@ -328,6 +338,17 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
     }
   };
 
+  // Files named by path (an Apple bundle's executables), with the libraries they load.
+  const importPaths = async (paths: string[], libraries: boolean) => {
+    say(`Importing ${paths.length === 1 ? displayPath(paths[0]) : `${paths.length} files`}…`);
+    try {
+      const r = await fs.import(paths, { programsOnly: false, provenance: userProvenance("import from " + fs.name), options: { analyze: true, importLibraries: libraries } });
+      opened(r);
+    } catch (e) {
+      say(`Import failed: ${errText(e)}`, "error");
+    }
+  };
+
   const batchImport = async () => {
     // The folders and containers picked, else everything.
     const picked = rows.filter((n) => selected.has(n.entry.path) && isBrowsable(n.entry));
@@ -359,6 +380,20 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
     await showInfo(fs, n.entry);
   };
 
+  const android = (path: string, name = fs.name) =>
+    showAndroidDialog({
+      rk, fs, path, name,
+      importPaths: async (paths) => {
+        say(`Importing ${paths.length === 1 ? paths[0].replace(/^.*\//, "") : `${paths.length} libraries`} with the libraries they need…`);
+        try {
+          const r = await fs.import(paths, { programsOnly: false, provenance: userProvenance("import from " + fs.name), options: { analyze: true, importLibraries: true } });
+          opened(r);
+        } catch (e) {
+          say(`Import failed: ${errText(e)}`, "error");
+        }
+      },
+    });
+
   const menu = async (x?: number, y?: number) => {
     const t = targets();
     if (!t.length) return;
@@ -370,6 +405,18 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
       { label: "Import programs below…", testid: "fs-menu-batch", disabled: !t.some((n) => isBrowsable(n.entry)), run: () => void batchImport() },
     ];
     if (e?.containerFormat) items.push({ label: `Open as file system (${e.containerFormat})`, testid: "fs-menu-open", run: () => void expand(one!, true) });
+    if (e && e.contentKind === "apk" && o.features.has(ANDROID_FEATURE))
+      items.push({ label: "Android package…", testid: "fs-menu-android", run: () => android(e.path, e.name) });
+    // Apple bundles and property lists (api_minor 100).
+    if (e && o.features.has(APPLE_BUNDLES_FEATURE)) {
+      if ((e.bundleKind && e.bundleKind !== "storyboardc") || e.contentKind === "ipa")
+        items.push({ label: "Apple bundle…", testid: "fs-menu-bundle", run: () => void showAppleBundleDialog({
+          fs, path: e.path, importPaths: (paths, libraries) => importPaths(paths, libraries),
+          uiActions: o.features.has(UI_ACTIONS_FEATURE), openProgram: (id, address) => { close(); o.onOpenProgram(id, address); },
+        }) });
+      if (e.kind === FileSystemEntryKind.FILE && isPropertyList(e.contentKind))
+        items.push({ label: "Property list…", testid: "fs-menu-plist", run: () => void showPropertyListDialog(fs, e.path, e.name) });
+    }
     // Bytecode: the external decompilers that take it (a jar, an APK, a .pyc, ...).
     if (e && e.kind === FileSystemEntryKind.FILE && o.features.has(EXTERNAL_FEATURE)) {
       const list = await providersFor(rk, { sessionId: fs.id, path: e.path }).catch(() => null);
@@ -465,6 +512,7 @@ export function showFileSystemBrowser(o: FileSystemBrowserOptions, fs: FileSyste
     try {
       const r = await load("/", 0);
       roots = r.nodes;
+      if (o.features.has(ANDROID_FEATURE) && roots.some((n) => n.entry.name === "AndroidManifest.xml" && n.entry.kind === FileSystemEntryKind.FILE)) androidBtn.hidden = false;
       render();
       say(`${fs.root?.description ?? ""}${r.more ? ` (${r.more} more not shown)` : ""}`);
       active = 0;

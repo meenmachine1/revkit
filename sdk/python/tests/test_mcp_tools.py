@@ -73,7 +73,7 @@ def test_every_tool_group(image_daemon, binaries, tmp_path):
                 return r
 
             tools = {t.name for t in (await mcp.list_tools()).tools}
-            assert len(tools) == 174, sorted(tools)
+            assert len(tools) == 188, sorted(tools)
 
             # The workflow guide: a resource, and the investigate prompt built on it.
             resources = (await mcp.list_resources()).resources

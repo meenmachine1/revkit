@@ -319,6 +319,7 @@ std::vector<lift::DecompileResult> decompile_functions(
       LiftBundleBuilder builder(program, Mode::c_text, entry, *lookup, blocks, inputs->address_prefix);
       builder.set_naming(config.default_names, config.default_labels, config.default_extrapop);
       builder.set_format_strings(config.format_strings);
+      builder.set_shape(config.shape);
       builder.set_spaces(spaces);
       if (type_cache) builder.set_type_cache(type_cache);
       if (chain) builder.set_joins(*joins);

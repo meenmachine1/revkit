@@ -103,6 +103,31 @@ switch tables through `__tablejump2__`), and an instruction that calls and
 then returns under a condition its own p-code settles is a call or a tail
 call (SPARC's `call` with a `restore` in the delay slot).
 
+## revkit's own processors
+
+Processors Ghidra doesn't ship live in `processors/<processor>/data/languages`
+in revkit's tree, laid out as Ghidra's are (`.slaspec`, `.ldefs`,
+`.pspec`, `.cspec`). The build compiles each `.slaspec` with `rk-sleigh`,
+the SLEIGH compiler built from the vendored decompiler fork
+(`third_party/ghidra`: `slgh_compile.cc`, `slghparse.cc`, `slghscan.cc`; it
+writes the same `.sla` as Ghidra's Java `support/sleigh`,
+[bytecode-lifting.md](bytecode-lifting.md#e6-the-vendored-sleigh-compiler)),
+into `build/processors`, installed to `share/revkit/processors`.
+`lift::initialize` adds every `<dir>/<processor>/data/languages` of
+`runtime::processors_dir()` to Ghidra's: `$REVKIT_PROCESSORS_DIR`, else
+`<executable>/../share/revkit/processors`, else the build's. Every tool and
+the decompiler workers see them as they see Ghidra's languages
+(`ListLanguages`, `rk-sweep --list`, `--lang`).
+
+| Language | What | Doc |
+| --- | --- | --- |
+| `EVM:BE:32:default` | Ethereum Virtual Machine bytecode: 256-bit words, the operand stack in `opstack`, memory in `mem`; `PUSHn tag; JUMP(I)` folded into direct branches | [evm.md](evm.md) |
+
+`rk-sleigh in.slaspec out.sla` compiles any spec (`-D name=value` as
+Ghidra's compiler takes), so a processor of one's own builds without
+Java too. A cross-compiled build can't run it and leaves the processors
+out.
+
 ## What is measured where
 
 | Level | Processors | How |

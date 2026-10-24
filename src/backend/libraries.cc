@@ -465,6 +465,57 @@ std::vector<std::string> RootSearchDirs(LibraryRoot &root, const std::vector<std
   return out;
 }
 
+namespace {
+
+// "@executable_path/..." and "@loader_path/..." expanded; nullopt when the
+// prefix's directory isn't known.
+std::optional<std::string> ExpandMachoPath(std::string_view p, const std::string &loader_dir, const std::string &exe_dir) {
+  for (const auto &[prefix, dir] : {std::pair<std::string_view, const std::string *>{"@executable_path", &exe_dir},
+                                    std::pair<std::string_view, const std::string *>{"@loader_path", &loader_dir}})
+    if (p.starts_with(prefix) && (p.size() == prefix.size() || p[prefix.size()] == '/')) {
+      if (dir->empty()) return std::nullopt;
+      return *dir + std::string(p.substr(prefix.size()));
+    }
+  if (p.starts_with("@")) return std::nullopt;  // @rpath, or an unknown token
+  return std::string(p);
+}
+
+std::string Normal(const std::string &p) {
+  std::string n = fs::path(p).lexically_normal().string();
+  while (n.size() > 1 && n.back() == '/') n.pop_back();
+  return n;
+}
+
+}  // namespace
+
+std::vector<std::string> ExpandedRpaths(const loader::Image &img, const std::string &loader_dir,
+                                        const std::string &exe_dir) {
+  std::vector<std::string> out;
+  for (const std::string &r : img.runpath)
+    if (auto e = ExpandMachoPath(r, loader_dir, exe_dir); e && !e->empty() && e->front() == '/') out.push_back(Normal(*e));
+  return out;
+}
+
+std::vector<std::string> MachoCandidates(const std::string &needed, const loader::Image &img,
+                                         const std::string &loader_dir, const std::string &exe_dir,
+                                         const std::vector<std::string> &inherited) {
+  std::vector<std::string> out;
+  std::set<std::string> seen;
+  auto add = [&](const std::string &p) {
+    if (p.empty() || p.front() != '/') return;
+    std::string n = Normal(p);
+    if (seen.insert(n).second) out.push_back(std::move(n));
+  };
+  if (needed.starts_with("@rpath/")) {
+    const std::string rest = needed.substr(6);
+    for (const std::string &r : ExpandedRpaths(img, loader_dir, exe_dir)) add(r + rest);
+    for (const std::string &r : inherited) add(r + rest);
+  } else if (auto e = ExpandMachoPath(needed, loader_dir, exe_dir)) {
+    add(*e);
+  }
+  return out;
+}
+
 std::optional<std::string> FindLibraryIn(LibraryRoot &root, const std::string &needed, const std::vector<std::string> &dirs,
                                          const loader::Image &img) {
   if (img.format == loader::Format::macho && needed.starts_with("/"))

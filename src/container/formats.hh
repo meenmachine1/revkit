@@ -18,6 +18,8 @@ using Opener = std::shared_ptr<FileSystem> (*)(std::shared_ptr<const Source>, st
 std::shared_ptr<FileSystem> open_zip(std::shared_ptr<const Source>, std::string_view, const Context &);
 std::shared_ptr<FileSystem> open_tar(std::shared_ptr<const Source>, std::string_view, const Context &);
 std::shared_ptr<FileSystem> open_cpio(std::shared_ptr<const Source>, std::string_view, const Context &);
+std::shared_ptr<FileSystem> open_nds(std::shared_ptr<const Source> src, std::string_view name, const Context &ctx);
+std::shared_ptr<FileSystem> open_narc(std::shared_ptr<const Source> src, std::string_view name, const Context &ctx);
 std::shared_ptr<FileSystem> open_ar(std::shared_ptr<const Source>, std::string_view, const Context &);
 std::shared_ptr<FileSystem> open_iso9660(std::shared_ptr<const Source>, std::string_view, const Context &);
 std::shared_ptr<FileSystem> open_squashfs(std::shared_ptr<const Source>, std::string_view, const Context &);
@@ -28,6 +30,26 @@ std::shared_ptr<FileSystem> open_uimage(std::shared_ptr<const Source>, std::stri
 std::shared_ptr<FileSystem> open_android_boot(std::shared_ptr<const Source>, std::string_view, const Context &);
 std::shared_ptr<FileSystem> open_uf2(std::shared_ptr<const Source>, std::string_view, const Context &);
 std::shared_ptr<FileSystem> open_partitions(std::shared_ptr<const Source>, std::string_view, const Context &);
+// Flash file systems and firmware wrappers (jffs2.cc, ubi.cc, yaffs2.cc, wrappers.cc).
+std::shared_ptr<FileSystem> open_jffs2(std::shared_ptr<const Source>, std::string_view, const Context &);
+// A JFFS2 node header (either byte order) whose CRC holds, at the start.
+bool jffs2_header(std::span<const std::byte> b);
+std::shared_ptr<FileSystem> open_ubi(std::shared_ptr<const Source>, std::string_view, const Context &);
+std::shared_ptr<FileSystem> open_ubifs(std::shared_ptr<const Source>, std::string_view, const Context &);
+// A UBI erase-count header, a UBIFS superblock node, whose CRC holds.
+bool ubi_header(std::span<const std::byte> b);
+bool ubifs_header(std::span<const std::byte> b);
+std::shared_ptr<FileSystem> open_yaffs2(std::shared_ptr<const Source>, std::string_view, const Context &);
+// A YAFFS2 object header in the first chunk, at a common page geometry.
+bool yaffs2_header(std::span<const std::byte> head);
+std::shared_ptr<FileSystem> open_trx(std::shared_ptr<const Source>, std::string_view, const Context &);
+std::shared_ptr<FileSystem> open_android_sparse(std::shared_ptr<const Source>, std::string_view, const Context &);
+std::shared_ptr<FileSystem> open_dtb(std::shared_ptr<const Source>, std::string_view, const Context &);
+std::shared_ptr<FileSystem> open_ihex(std::shared_ptr<const Source>, std::string_view, const Context &);
+std::shared_ptr<FileSystem> open_srec(std::shared_ptr<const Source>, std::string_view, const Context &);
+bool trx_header(std::span<const std::byte> b);
+bool sparse_header(std::span<const std::byte> b);
+bool dtb_header(std::span<const std::byte> b, std::uint64_t size);
 // gzip, bzip2, xz, lzma, zstd, lz4: one file, the decompressed data.
 std::shared_ptr<FileSystem> open_compressed(Codec codec, std::shared_ptr<const Source>, std::string_view,
                                             const Context &);
@@ -51,6 +73,7 @@ inline std::uint32_t be32(const std::byte *p) {
   return static_cast<std::uint32_t>(p[0]) << 24 | static_cast<std::uint32_t>(p[1]) << 16 |
          static_cast<std::uint32_t>(p[2]) << 8 | static_cast<std::uint32_t>(p[3]);
 }
+inline std::uint64_t be64(const std::byte *p) { return static_cast<std::uint64_t>(be32(p)) << 32 | be32(p + 4); }
 
 // Bounds-checked little/big-endian reads over a buffer: Error on overrun.
 class Buf {
@@ -92,6 +115,26 @@ struct Run {
   bool zero = false;
 };
 std::shared_ptr<Source> mapped_source(std::shared_ptr<const Source> base, std::vector<Run> runs, std::uint64_t size);
+
+// The kind a POSIX mode's file type bits name.
+Kind mode_kind(std::uint32_t mode);
+
+// Reads a Source through a cached window, for formats scanned node by node
+// (flash file systems, carving): get() is cheap for nearby offsets.
+class WindowReader {
+ public:
+  explicit WindowReader(const Source &src, std::size_t window = 1u << 20) : src_(src), window_(window) {}
+  // At most n bytes at off (fewer only at the source's end); valid until
+  // the next call.
+  std::span<const std::byte> get(std::uint64_t off, std::size_t n);
+  std::uint64_t size() const { return src_.size(); }
+
+ private:
+  const Source &src_;
+  std::size_t window_;
+  std::uint64_t start_ = 0;
+  std::vector<std::byte> buf_;
+};
 
 // Helpers every format's FileSystem uses.
 std::string plural(std::uint64_t n, std::string_view one, std::string_view many);

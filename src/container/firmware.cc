@@ -139,6 +139,7 @@ class AndroidBoot final : public SliceFileSystem {
     format_ = "android-boot";
     const auto hb = src_->read_exact(0, std::min<std::uint64_t>(src_->size(), 4096), "the boot image header");
     Buf h(hb, "the boot image header");
+    if (h.str(0, 8) == "VNDRBOOT") return vendor_boot(h, hb, ctx);
     if (h.str(0, 8) != "ANDROID!") throw Error("not an Android boot image");
     const std::uint32_t version = h.l32(40);
     TreeBuilder tree(*this, ctx.limits);
@@ -184,6 +185,74 @@ class AndroidBoot final : public SliceFileSystem {
     }
     tree.finish();
     description_ = "Android boot image v" + std::to_string(version < 16 ? version : 0) +
+                   (cmdline.empty() ? "" : ", cmdline \"" + display_name(cmdline.substr(0, 80)) + "\"");
+  }
+
+ private:
+  // A vendor boot image (v3, v4): the vendor ramdisk (v4: the ramdisks its
+  // table names), the DTB, the bootconfig.
+  void vendor_boot(const Buf &h, const std::vector<std::byte> &hb, const Context &ctx) {
+    const std::uint32_t version = h.l32(8), page = h.l32(12);
+    if (version < 3 || version > 4) throw Error("vendor boot image version " + std::to_string(version) + " is not known");
+    if (page < 2048 || page > 65536 || (page & (page - 1))) throw Error("a boot image page size of " + std::to_string(page));
+    const std::uint32_t kaddr = h.l32(16), raddr = h.l32(20), ramdisk = h.l32(24);
+    const std::string cmdline = h.cstr(28, 2048);
+    const std::string name = h.cstr(2080, 16);
+    const std::uint32_t hsize = h.l32(2096), dtb = h.l32(2100);
+    const std::uint64_t daddr = h.l64(2104);
+    std::uint32_t table = 0, table_n = 0, table_esize = 0, bootconfig = 0;
+    if (version >= 4) {
+      table = h.l32(2112);
+      table_n = h.l32(2116);
+      table_esize = h.l32(2120);
+      bootconfig = h.l32(2124);
+    }
+    (void)hb;
+    auto pages = [&](std::uint64_t n) { return (n + page - 1) / page * page; };
+    TreeBuilder tree(*this, ctx.limits);
+    auto add = [&](std::string member, std::uint64_t at, std::uint64_t size, std::optional<std::uint64_t> load,
+                   std::string note) {
+      if (size == 0) return;
+      if (at > src_->size() || size > src_->size() - at) {
+        warn(member + " runs past the file");
+        return;
+      }
+      Entry e;
+      e.kind = Kind::file;
+      e.name = std::move(member);
+      e.loc0 = at;
+      e.loc1 = e.size = e.stored_size = size;
+      e.load_address = load;
+      e.note = std::move(note);
+      tree.add_child(0, std::move(e));
+    };
+    const std::uint64_t ramdisk_at = pages(hsize);
+    const std::uint64_t dtb_at = ramdisk_at + pages(ramdisk);
+    const std::uint64_t table_at = dtb_at + pages(dtb);
+    const std::uint64_t bootconfig_at = table_at + pages(table);
+    if (version >= 4 && table_n && table_esize >= 108 && table_n <= 4096) {
+      // Each entry: size, offset in the ramdisk section, type, name[32].
+      static const char *types[] = {"none", "platform", "recovery", "dlkm"};
+      const auto t = src_->read_exact(table_at, std::uint64_t{table_n} * table_esize, "the vendor ramdisk table");
+      for (std::uint32_t i = 0; i < table_n; ++i) {
+        Buf e{std::span<const std::byte>(t).subspan(std::size_t{i} * table_esize, table_esize), "a vendor ramdisk entry"};
+        const std::uint32_t size = e.l32(0), off = e.l32(4), type = e.l32(8);
+        std::string rname = safe(e.cstr(12, 32));
+        if (off > ramdisk || size > ramdisk - off) {
+          warn("vendor ramdisk " + std::to_string(i) + " lies outside the ramdisk section");
+          continue;
+        }
+        add("vendor_ramdisk" + std::string(rname.empty() ? "" : "-" + rname) + (table_n > 1 && rname.empty() ? std::to_string(i) : ""),
+            ramdisk_at + off, size, raddr, std::string("type ") + (type < 4 ? types[type] : std::to_string(type).c_str()));
+      }
+    } else {
+      add("vendor_ramdisk", ramdisk_at, ramdisk, raddr, "");
+    }
+    add("dtb", dtb_at, dtb, daddr, "");
+    add("bootconfig", bootconfig_at, bootconfig, std::nullopt, "");
+    tree.finish();
+    description_ = "Android vendor boot image v" + std::to_string(version) + (name.empty() ? "" : " \"" + display_name(name) + "\"") +
+                   ", kernel at " + hex32(kaddr) +
                    (cmdline.empty() ? "" : ", cmdline \"" + display_name(cmdline.substr(0, 80)) + "\"");
   }
 };

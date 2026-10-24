@@ -125,6 +125,24 @@ std::optional<FileArch> PeekArchIn(LibraryRoot &root, const std::string &key);
 std::vector<std::string> RootSearchDirs(LibraryRoot &root, const std::vector<std::string> &user,
                                         const std::string &origin, const loader::Image &img);
 
+// dyld's candidates for a Mach-O's load of `needed` (an install name of
+// `img`; docs/apple-apps.md, "Libraries in a bundle"), as paths in the same
+// space as the directories given (inside a root, or on the host), in the
+// order dyld tries them: "@executable_path/x" is `exe_dir`/x (nothing when
+// `exe_dir` is empty: a library's own load has no executable),
+// "@loader_path/x" `loader_dir`/x, "@rpath/x" each of img's LC_RPATHs
+// (expanded the same way) then `inherited` (the expanded rpaths of the
+// images that loaded it, nearest first) with /x; an absolute name is
+// itself. Each is normalized ("a/../b"); duplicates are dropped.
+std::vector<std::string> MachoCandidates(const std::string &needed, const loader::Image &img,
+                                         const std::string &loader_dir, const std::string &exe_dir,
+                                         const std::vector<std::string> &inherited);
+// img's own LC_RPATHs expanded (@loader_path as `loader_dir`,
+// @executable_path as `exe_dir`), for the images it loads; those that
+// can't be expanded are left out.
+std::vector<std::string> ExpandedRpaths(const loader::Image &img, const std::string &loader_dir,
+                                        const std::string &exe_dir);
+
 // The first regular file named `name` (any case for PE) in `dirs` of the
 // root whose header is compatible with `img`: its key.
 std::optional<std::string> FindLibraryIn(LibraryRoot &root, const std::string &name, const std::vector<std::string> &dirs,

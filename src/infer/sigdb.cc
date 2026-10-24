@@ -8,7 +8,7 @@ extern const char kSigdbWin64[];
 
 namespace revkit::infer {
 
-SigDb::SigDb(std::string_view text) {
+SigDb::SigDb(std::string_view text, bool core_floats) : core_floats_(core_floats) {
   while (!text.empty()) {
     std::size_t nl = text.find('\n');
     std::string_view line = text.substr(0, nl);
@@ -41,6 +41,22 @@ const std::vector<std::string> *SigDb::lookup(std::string_view name) const {
   return nullptr;
 }
 
+Prototype SigDb::as_called(Prototype p) const {
+  if (!core_floats_) return p;
+  auto core = [](VType &t) {
+    if (t.meta == Meta::float_ && t.size > 0) t = VType::integer(t.size, Sign::is_unsigned, t.size == 8);
+  };
+  core(p.ret);
+  for (VType &t : p.params) core(t);
+  return p;
+}
+
+bool soft_float_arm(const loader::Image &image) {
+  constexpr std::uint32_t kEmArm = 40, kFloatHard = 0x400;  // EM_ARM, EF_ARM_ABI_FLOAT_HARD
+  return image.format == loader::Format::elf && image.machine == kEmArm && image.bits == 32 &&
+         (image.flags & kFloatHard) == 0;
+}
+
 std::optional<Prototype> SigDb::find(std::string_view name, const DataOrg &org) const {
   const std::vector<std::string> *f = lookup(name);
   if (f == nullptr) return std::nullopt;
@@ -59,7 +75,7 @@ std::optional<Prototype> SigDb::find(std::string_view name, const DataOrg &org) 
     if (!t) return std::nullopt;
     p.params.push_back(*t);
   }
-  return p;
+  return as_called(std::move(p));
 }
 
 std::optional<Prototype> SigDb::callback(std::string_view name, std::size_t index, const DataOrg &org) const {
@@ -97,7 +113,7 @@ std::optional<Prototype> SigDb::callback(std::string_view name, std::size_t inde
       if (!t) return std::nullopt;
       p.params.push_back(*t);
     }
-    return p;
+    return as_called(std::move(p));
   }
   return std::nullopt;
 }
@@ -142,9 +158,16 @@ const Priors &SigDb::priors(const DataOrg &org) {
     e.second = t;
   };
   // Parsed as LP64 C, which glibc is: an 8-byte integer then prints as the
-  // target spells it (long long on LLP64).
+  // target spells it (long long on LLP64). On a 32-bit target as ILP32,
+  // which its glibc is: long is a word, so a 4-byte value's commonest
+  // types count size_t's and long's uses, and an 8-byte one is a long long.
   DataOrg lp64 = org;
-  lp64.long_size = 8;
+  lp64.long_size = org.pointer_size == 4 ? 4 : 8;
+  // Where ints and pointers are one size, an unknown word is an integer:
+  // a pointer needs evidence (the system headers' commonest word type
+  // there would be a pointer as often as not, and every size, offset and
+  // block number would print as one).
+  const bool ilp32 = org.pointer_size == 4;
   const SigDb glibc(kSigdbGlibcLp64);
   for (const auto &[name, fields] : glibc.entries_) {
     for (std::size_t i = 0; i < fields.size(); ++i) {
@@ -152,7 +175,8 @@ const Priors &SigDb::priors(const DataOrg &org) {
       auto t = parse_type(fields[i], lp64);
       if (!t || t->size == 0) continue;
       const bool ret = i == 0;
-      if (t->meta == Meta::int_ || t->meta == Meta::pointer || t->meta == Meta::char_ || t->meta == Meta::bool_)
+      if (t->meta == Meta::int_ || (t->meta == Meta::pointer && !ilp32) || t->meta == Meta::char_ ||
+          t->meta == Meta::bool_)
         count(ret ? returns : params, *t);
       if (t->meta == Meta::int_) count(ret ? int_returns : int_params, *t);
       if (!ret && t->is_pointer() && t->depth() == 1) {
@@ -207,8 +231,10 @@ const Priors &SigDb::priors(const DataOrg &org) {
 
 const SigDb &SigDb::for_image(const loader::Image &image) {
   static const SigDb glibc(kSigdbGlibcLp64);
+  static const SigDb glibc_core_floats(kSigdbGlibcLp64, true);
   static const SigDb win64(kSigdbWin64);
-  return image.format == loader::Format::pe ? win64 : glibc;
+  if (image.format == loader::Format::pe) return win64;
+  return soft_float_arm(image) ? glibc_core_floats : glibc;
 }
 
 }  // namespace revkit::infer

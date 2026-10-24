@@ -48,7 +48,7 @@ Two upstream executables are built from the same sources:
 | --- | --- |
 | `ghidra_fork_series` | `fork.sh check`: the pristine trees match `PRISTINE.sha256`, the series applies to them exactly, and the build tree holds what it produces |
 | `ghidra_unittests`, `ghidra_datatests` | upstream's own suites on the patched sources (`upstream-tests.sh`). A release has no Toy processor, so the 21 `funcproto_*` unit tests and `skipnext2.xml` that need it are excluded; anything else that fails, fails the test |
-| `ghidra_repro_<name>` | `repro/replay.sh`: restores `repro/<name>.xml` in `ghidra_decomp_dbg`, decompiles the function the savefile names, and requires a normal exit (no crash, within 300 s) and output matching every regex in `<name>.expect` |
+| `ghidra_repro_<name>` | `repro/replay.sh`: restores `repro/<name>.xml` in `ghidra_decomp_dbg`, decompiles the function the savefile names, and requires a normal exit (no crash, within 300 s) and output matching every regex in `<name>.expect`. A `repro/<name>.xml` in upstream's datatests format (`<decompilertest>`: an image, a console script, `<stringmatch>` checks) runs in `ghidra_test` instead, and every check must pass: how an option's patch shows its output with the option off and on |
 
 The repro format is the only thing `replay.sh` knows about; once the
 out-of-process decompiler's input bundles exist, a repro can also be a
@@ -95,6 +95,13 @@ What a patch may be:
 2. **Algorithmic**, only if small, clearly correct, and output parity
    holds: `scripts/ci.sh` (the Phase 2 gate, decompiled C under Ghidra's
    inputs) on the tuning corpus and `scripts/ci.sh --heldout` must not move.
+3. **An option**, off by default, for output Ghidra's canonical forms
+   don't give (patches 0012-0015, the source-shape options:
+   [docs/decompiler-inputs.md](../../docs/decompiler-inputs.md#source-shape)).
+   Nothing changes unless it is set, so parity under Ghidra's inputs holds;
+   revkit sets it for its own inputs, where the paired source metrics
+   ([docs/decomp-quality.md](../../docs/decomp-quality.md)) judge it. Its
+   repro is a datatest showing the output with the option off and on.
 
 Every patch has its own repro, and its commit message says what fails, why,
 what the patch does, where it was seen, and the Ghidra version, ready to

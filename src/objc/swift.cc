@@ -9,6 +9,8 @@
 
 #include "reader.h"
 
+#include <set>
+
 namespace revkit::objc {
 
 namespace {
@@ -45,6 +47,13 @@ std::optional<std::uint64_t> indirectable(const Reader &r, std::uint64_t field) 
 
 void scan_swift(const loader::Image &image, Metadata &out) {
   Reader r(image);
+  // Records may all point at one descriptor, and descriptors at one field
+  // descriptor or vtable (bug scrub part 3: 1 MiB of records made 40 GiB of
+  // fields): each descriptor is read once, and the fields and vtable
+  // entries of all of them, with their names, are budgeted.
+  std::set<std::uint64_t> seen;
+  std::uint64_t entries = 0, name_bytes = 0;
+  constexpr std::uint64_t kMaxEntries = 1u << 22, kMaxNameBytes = 64u << 20;
   for (const loader::Section *s : r.sections("__swift5_types")) {
     for (std::uint64_t e = s->addr; e + 4 <= s->addr + s->size && out.swift_types.size() < kMaxTypes; e += 4) {
       auto v = r.i32(e);
@@ -59,6 +68,7 @@ void scan_swift(const loader::Image &image, Metadata &out) {
         if (!p || *p == 0) continue;
         d = *p;
       }
+      if (!seen.insert(d).second) continue;
       auto flags = r.u32(d);
       if (!flags) continue;
       const char *kind = kind_name(*flags & 0x1f);
@@ -80,9 +90,12 @@ void scan_swift(const loader::Image &image, Metadata &out) {
         auto rec = r.u32(*fd + 8), count = r.u32(*fd + 12);
         const std::uint32_t size = rec ? *rec >> 16 : 0;
         if (count && size >= 12 && *count <= kMaxFields)
-          for (std::uint32_t i = 0; i < *count; ++i)
-            if (auto name = r.relative(*fd + 16 + std::uint64_t{i} * size + 8))
+          for (std::uint32_t i = 0; i < *count && entries < kMaxEntries && name_bytes < kMaxNameBytes; ++i)
+            if (auto name = r.relative(*fd + 16 + std::uint64_t{i} * size + 8)) {
               t.fields.push_back(r.cstr(*name, 1024).value_or(""));
+              ++entries;
+              name_bytes += t.fields.back().size();
+            }
       }
       // A class's vtable (rea's decodeSwiftClassVtables): not generic
       // (0x80), no resilient superclass (kind-specific 0x2000), with one
@@ -97,7 +110,7 @@ void scan_swift(const loader::Image &image, Metadata &out) {
           const std::uint64_t header = d + 44 + (init == 1 ? 12 : init == 2 ? 4 : 0);
           auto offset = r.u32(header), count = r.u32(header + 4), positive = r.u32(d + 28);
           if (offset && count && positive && *count <= kMaxVtable && std::uint64_t{*offset} + *count <= *positive)
-            for (std::uint32_t i = 0; i < *count; ++i) {
+            for (std::uint32_t i = 0; i < *count && entries < kMaxEntries; ++i, ++entries) {
               const std::uint64_t m = header + 8 + std::uint64_t{i} * 8;
               auto mflags = r.u32(m);
               auto impl = r.relative(m + 4);
@@ -107,7 +120,9 @@ void scan_swift(const loader::Image &image, Metadata &out) {
             }
         }
       }
+      name_bytes += t.name.size() + t.parent.size();
       out.swift_types.push_back(std::move(t));
+      if (name_bytes >= kMaxNameBytes) return;
     }
   }
 }

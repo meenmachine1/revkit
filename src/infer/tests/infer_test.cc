@@ -125,6 +125,34 @@ TEST(SigDb, PriorsComeFromTheHeaders) {
   EXPECT_EQ(print(SigDb::priors(kLlp64).integer_param(8), kLlp64), "ulonglong");
 }
 
+// On ILP32 an unknown word is an integer: a pointer needs evidence.
+TEST(SigDb, Ilp32PriorsAreIntegers) {
+  const DataOrg ilp32{4, 4, true};
+  const Priors &p = SigDb::priors(ilp32);
+  EXPECT_EQ(print(p.unknown_param(4), ilp32), "int");
+  EXPECT_EQ(print(p.unknown_return(4), ilp32), "int");
+  EXPECT_EQ(print(p.integer_param(8), ilp32), "longlong");  // off64_t, int64_t
+}
+
+// A soft-float 32-bit ARM ELF passes floats in core registers: library
+// floats come as integers of their size, which the hard-float .cspec
+// passes there too; a hard-float one keeps them.
+TEST(SigDb, SoftFloatArmGetsCoreRegisterFloats) {
+  const DataOrg ilp32{4, 4, true};
+  loader::Image arm;
+  arm.format = loader::Format::elf;
+  arm.bits = 32;
+  arm.machine = 40;            // EM_ARM
+  arm.flags = 0x05000200;      // EABI5, soft float
+  ASSERT_TRUE(soft_float_arm(arm));
+  auto sqrt = SigDb::for_image(arm).find("sqrt", ilp32);
+  ASSERT_TRUE(sqrt);
+  EXPECT_EQ(sqrt->print("sqrt", ilp32), "ulonglong sqrt(ulonglong param_1)");
+  arm.flags = 0x05000400;      // EABI5, hard float
+  EXPECT_FALSE(soft_float_arm(arm));
+  EXPECT_EQ(SigDb::for_image(arm).find("sqrt", ilp32)->print("sqrt", ilp32), "double sqrt(double param_1)");
+}
+
 // ---- merging evidence ----
 
 Slot Reg(const char *reg, std::uint8_t size, const char *type) {
@@ -167,6 +195,21 @@ TEST(Merge, KeepReturnWidthForTheDecompiler) {
   EXPECT_EQ(finalize(merged, kLp64).ret.size, 4u);
   EXPECT_EQ(finalize(merged, kLp64, true).ret.size, 8u);
   EXPECT_EQ(finalize(merged, kLp64, true).params, finalize(merged, kLp64).params);
+}
+
+// Loads typed by their instructions (Options::load_extension 1): a byte
+// pointee keeps its loads' signedness and an unknown one isn't `char`, so
+// an ldrb at an offset prints as *(byte *)(p + 4), not through a char *.
+TEST(Merge, TypedLoadsKeepBytePointees) {
+  const Abi *sysv = abi_for("x86:LE:64:default:gcc", false);
+  Observation self;
+  self.ok = true;
+  self.params = {Reg("RDI", 8, "uchar *"), Reg("RSI", 8, "undefined *")};
+  Evidence ev;
+  ev.self0 = &self;
+  const Prototype merged = merge(sysv, ev, kLp64);
+  EXPECT_EQ(finalize(merged, kLp64).print("f", kLp64), "void f(char * param_1, char * param_2)");
+  EXPECT_EQ(finalize(merged, kLp64, false, true).print("f", kLp64), "void f(uchar * param_1, void * param_2)");
 }
 
 TEST(Merge, CallersTypeWhatTheCalleeDoesNotKnow) {

@@ -74,3 +74,30 @@ The peak during the imports is the same either way (463 to 1245 MB):
 parking lowers what an idle daemon holds, not what an import needs. The
 first decode after a park costs a reset rather than a decode when a
 spare is there, and a `.sla` decode when not.
+
+## Many programs and Parameter ID
+
+A DS matching run (16 module programs in one project, `--param-id on`)
+saw the daemon reach 5.4 GB. Measured on 16 synthetic DS-like overlays
+(raw ARMv5TE, 700 functions each, 11,200 in all, 1.3 MB of code; this
+machine, 2026-10-21; `rk-daemon --project-dir`, RSS of the daemon):
+
+| | default | `--retain 8` | `--memo-budget 512` |
+| --- | ---: | ---: | ---: |
+| imported, Parameter ID done | 1.1 GB | | |
+| every function decompiled | 1.6 GB | | |
+| after 4 rounds of edits (a third of the functions renamed, prototypes as C, everything decompiled again, Parameter ID rerun) | 2.6 GB | 1.9 GB | 1.8 GB |
+
+What grows is the memos of the revisions the daemon keeps readable:
+Parameter ID publishes a revision every few seconds while it runs, and
+each retained revision (256 by default) pins what was computed at it.
+Since `api_minor` 104 only the last 8 background-analysis revisions stay
+readable (a read pinned at an older one gets `REVISION_EXPIRED`); user
+edits keep `--retain`'s. That took round 2 from 2.44 to 2.36 GB here; the
+rest is the memo budget (`--memo-budget`, 2 GiB per project by default)
+filling with decompilations. A project of many programs with Parameter ID
+on wants `--memo-budget` set to what the machine can give it (512 MiB kept
+this one under 1.9 GB) and `--retain` lowered when no client reads old
+revisions. The 5.4 GB run had larger modules, every function decompiled
+in several variants and Parameter ID passes after each assertion batch:
+the same growth, further along.

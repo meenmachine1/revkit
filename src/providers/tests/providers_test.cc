@@ -6,8 +6,11 @@
 // or skipped with a message.
 #include "revkit/providers/providers.h"
 
+#include <fcntl.h>
 #include <gtest/gtest.h>
 #include <signal.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -27,7 +30,7 @@ const fs::path kFake = fs::path(REVKIT_SOURCE_DIR) / "src" / "providers" / "test
 
 std::vector<std::byte> bytes_of(std::string_view s) {
   std::vector<std::byte> b(s.size());
-  std::memcpy(b.data(), s.data(), s.size());
+  if (!s.empty()) std::memcpy(b.data(), s.data(), s.size());  // memcpy of a null source is undefined (UBSan)
   return b;
 }
 
@@ -186,6 +189,12 @@ TEST_F(ProvidersTest, TheOutputCapStopsIt) {
   Service svc_many(s3, tmp.path / "cache3");
   const Result r3 = svc_many.decompile(bytes_of("mode=many\n"), "x", kFakeKind, "fake", false);
   EXPECT_EQ(r3.status, RunStatus::output_limit) << r3.detail;
+  // The home and temporary directories count too (bug scrub part 3): many
+  // files, or more than four times the cap, there.
+  const Result r4 = svc_many.decompile(bytes_of("mode=manyhome\n"), "x", kFakeKind, "fake", false);
+  EXPECT_EQ(r4.status, RunStatus::output_limit) << r4.detail;
+  const Result r5 = svc.decompile(bytes_of("mode=bigtmp\n"), "x", kFakeKind, "fake", false);
+  EXPECT_EQ(r5.status, RunStatus::output_limit) << r5.detail;
 }
 
 TEST_F(ProvidersTest, ACrashAFailureAndRunningOutOfMemory) {
@@ -246,15 +255,78 @@ TEST_F(ProvidersTest, TheSandboxRefuses) {
   std::uint64_t size = 0;
   const std::string report = svc.read_file(r, "report.txt", 0, 4096, size);
   for (const char *line : {"read-outside no", "list-outside no", "write-outside no", "write-input no", "read-etc yes",
-                           "signal no"})
+                           "signal no", "signal-parent no", "proc-parent no", "proc-self yes", "chmod-outside no"})
     EXPECT_NE(report.find(line), std::string::npos) << line << "\n" << report;
   if (report.find("tcp ") != std::string::npos) {
     EXPECT_NE(report.find("tcp no"), std::string::npos) << report;
     EXPECT_NE(report.find("unix no"), std::string::npos) << report;
   }
+  if (report.find("prlimit-parent ") != std::string::npos) {
+    EXPECT_NE(report.find("prlimit-parent no"), std::string::npos) << report;
+  }
   EXPECT_FALSE(fs::exists(outside.path / "planted"));
+  struct stat st {};
+  ASSERT_EQ(::stat(secret.c_str(), &st), 0);
+  EXPECT_NE(st.st_mode & 0777, 0666u);
   // The link and the pipe it made aren't part of the output.
   for (const OutputFile &f : r.files) EXPECT_TRUE(f.path == "report.txt") << f.path;
+}
+
+// An older kernel's Landlock (ABI 1: no signal scoping, no truncate right),
+// with the seccomp rules that stand in for it (bug scrub part 3): the
+// process that started the tool can't be signalled, limited, reprioritized
+// or have its /proc read, and no file outside has its mode changed or is
+// truncated; what the tool may do to itself still works.
+TEST_F(ProvidersTest, SeccompStandsInForAnOldLandlock) {
+  TempDir outside;
+  const fs::path f = outside.path / "f";
+  std::ofstream(f) << "x";
+  ::chmod(f.c_str(), 0600);
+  const pid_t parent = ::getpid();
+  const int prio = ::getpriority(PRIO_PROCESS, 0);
+  int fds[2];
+  ASSERT_EQ(::pipe(fds), 0);
+  const pid_t pid = ::fork();
+  ASSERT_GE(pid, 0);
+  if (pid == 0) {
+    ::dup2(fds[1], 1);
+    ConfineOptions o;
+    o.read_paths = {"/usr", "/lib", "/lib64", "/etc", "/proc"};
+    o.write_paths = {tmp.path.string()};
+    o.max_landlock_abi = 1;
+    if (const std::string e = confine_self(o); !e.empty()) {
+      (void)!::write(1, e.data(), e.size());
+      ::_exit(1);
+    }
+    std::string r;
+    auto check = [&](const char *what, bool worked) { r += std::string(what) + (worked ? " yes\n" : " no\n"); };
+    rlimit rl{};
+    check("signal-parent", ::kill(parent, 0) == 0);
+    check("signal-all", ::kill(-1, 0) == 0);
+    check("prlimit-parent", ::prlimit(parent, RLIMIT_CORE, nullptr, &rl) == 0);
+    check("setpriority-parent", ::setpriority(PRIO_PROCESS, parent, prio) == 0);
+    check("proc-parent", ::open(("/proc/" + std::to_string(parent) + "/environ").c_str(), O_RDONLY) >= 0);
+    check("chmod-outside", ::chmod(f.c_str(), 0666) == 0);
+    check("truncate-outside", ::truncate(f.c_str(), 0) == 0);
+    check("signal-self", ::kill(::getpid(), 0) == 0);
+    check("prlimit-self", ::prlimit(0, RLIMIT_CORE, nullptr, &rl) == 0);
+    check("proc-self", ::open("/proc/self/status", O_RDONLY) >= 0);
+    (void)!::write(1, r.data(), r.size());
+    ::_exit(0);
+  }
+  ::close(fds[1]);
+  std::string report;
+  char buf[256];
+  for (ssize_t n; (n = ::read(fds[0], buf, sizeof buf)) > 0;) report.append(buf, static_cast<std::size_t>(n));
+  ::close(fds[0]);
+  int st = 0;
+  ASSERT_EQ(::waitpid(pid, &st, 0), pid);
+  ASSERT_TRUE(WIFEXITED(st) && WEXITSTATUS(st) == 0) << report;
+  for (const char *line : {"signal-parent no", "signal-all no", "prlimit-parent no", "setpriority-parent no",
+                           "proc-parent no", "chmod-outside no", "truncate-outside no", "signal-self yes",
+                           "prlimit-self yes", "proc-self yes"})
+    EXPECT_NE(report.find(line), std::string::npos) << line << "\n" << report;
+  EXPECT_EQ(read_text(f), "x");
 }
 
 TEST_F(ProvidersTest, NothingOutlivesTheRun) {
@@ -356,6 +428,9 @@ TEST(ProviderKinds, ZipsAreJarsOrApks) {
   EXPECT_EQ(detect_kind(read_all(t.path / "a.jar"), "a.jar").kind, "jar");
   EXPECT_EQ(detect_kind(read_all(t.path / "a.apk"), "a.apk").kind, "apk");
   EXPECT_EQ(detect_kind(read_all(t.path / "a.zip"), "a.zip").kind, "");
+  // An empty zip (its end record alone) read 0 bytes into a null buffer
+  // (UBSan; providers_kinds_fuzzer, bug scrub part 3).
+  EXPECT_EQ(detect_kind(bytes_of(std::string("PK\5\6", 4) + std::string(18, '\0')), "a.cjs").kind, "");
 }
 
 TEST(ProviderKinds, Languages) {

@@ -25,6 +25,8 @@ enum class Codec : std::uint8_t {
   lz4_frame,   // .lz4 (frame format, and the legacy format the kernel uses)
   lz4_block,   // one raw LZ4 block (squashfs)
   lzo1x,       // one raw LZO1X block (squashfs)
+  nds_lz,      // the DS BIOS's LZ10, LZ11, Huffman or RLE, by its header (revkit::nds)
+  nds_blz,     // the DS ARM9's and overlays' backward LZ (revkit::nds)
 };
 std::string_view name(Codec c);
 

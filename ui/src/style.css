@@ -1348,6 +1348,16 @@ body.rk-resizing .backdrop { cursor: nwse-resize; }
 .bi-row:last-child { border-bottom: 0; }
 .bi-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bi-row.bi-kv { grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); }
+.bi-row.nds-row { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.3fr) minmax(0, 1.6fr) minmax(0, 1fr) max-content; }
+.bi-row.nds-xrow { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr) minmax(0, 1.4fr); }
+.nds-pre { margin: 0; padding: 8px; max-height: 40vh; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; white-space: pre; }
+.bi-row.kb-row { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) minmax(0, 1.8fr) minmax(0, 1.1fr) max-content; cursor: pointer; }
+.bi-row.kb-row:not(.bi-th):hover, .bi-row.kb-row:focus { background: var(--hover, var(--border-soft)); outline: none; }
+.kb-opts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 6px; font-size: 12.5px; }
+.kb-opts > .mono { max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kb-check { display: inline-flex; align-items: center; gap: 4px; }
+.kb-group > summary { cursor: pointer; margin-top: 6px; font-weight: 550; }
+.kb-detail { margin-top: 8px; max-height: 32vh; }
 .bi-row.bi-kv > span:last-child { white-space: normal; overflow-wrap: anywhere; }
 .bi-th { position: sticky; top: 0; background: var(--panel, var(--bg)); color: var(--dim); font-weight: 550; }
 .bi-row.root > span:first-child { font-weight: 600; }
@@ -1397,3 +1407,21 @@ body.rk-resizing .backdrop { cursor: nwse-resize; }
 .ext-f.active { background: var(--tok-sel); }
 .ext-f.lang-binary, .ext-f.lang-text { color: var(--dim); }
 .ext-dialog .ext-code { border: 1px solid var(--border); border-radius: 6px; }
+
+/* Apple bundles and property lists (api_minor 97; apple.ts) */
+.ap-section { display: flex; flex-direction: column; gap: 4px; }
+.ap-section h3 { margin: 6px 0 0; font-size: 13px; }
+.ap-plist { font-size: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 4px 8px; max-height: 44vh; overflow: auto; }
+.ap-plist details > :not(summary) { margin-left: 16px; }
+.ap-plist summary, .ap-leaf { display: grid; grid-template-columns: minmax(120px, max-content) 80px minmax(0, 1fr); gap: 10px; padding: 1px 0; }
+.ap-plist summary { cursor: pointer; }
+.ap-leaf { margin-left: 14px; }
+.ap-key { font-weight: 550; }
+.ap-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-req { font-size: 12px; overflow-wrap: anywhere; }
+.ap-files { font-size: 12px; max-height: 20vh; overflow: auto; }
+.ap-link { cursor: pointer; }
+.ap-link:hover, .ap-link:focus { background: var(--hover, var(--border-soft)); outline: none; }
+.fs-bundle-kind { margin-left: 6px; }
+.bi-row.ap-actions { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.7fr); }
+.ap-method { background: none; border: 0; padding: 0; color: var(--accent, inherit); text-decoration: underline; cursor: pointer; text-align: left; font-size: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

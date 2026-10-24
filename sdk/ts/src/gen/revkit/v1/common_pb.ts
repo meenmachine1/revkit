@@ -23,7 +23,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file revkit/v1/common.proto.
  */
 export const file_revkit_v1_common: GenFile = /*@__PURE__*/
-  fileDesc("ChZyZXZraXQvdjEvY29tbW9uLnByb3RvEglyZXZraXQudjEiKAoHQWRkcmVzcxINCgVzcGFjZRgBIAEoCRIOCgZvZmZzZXQYAiABKAQiUwoMQWRkcmVzc1JhbmdlEiEKBWZpcnN0GAEgASgLMhIucmV2a2l0LnYxLkFkZHJlc3MSIAoEbGFzdBgCIAEoCzISLnJldmtpdC52MS5BZGRyZXNzIk0KB1Zhcm5vZGUSDQoFc3BhY2UYASABKAkSDgoGb2Zmc2V0GAIgASgEEgwKBHNpemUYAyABKA0SFQoNcmVnaXN0ZXJfbmFtZRgEIAEoCSI1CgtSZWFkT3B0aW9ucxIQCghyZXZpc2lvbhgBIAEoBBIUCgxtaW5fcmV2aXNpb24YAiABKAQiMwoIU25hcHNob3QSEAoIcmV2aXNpb24YASABKAQSFQoNaGVhZF9yZXZpc2lvbhgCIAEoBCKXAQoKUHJvdmVuYW5jZRInCgRraW5kGAEgASgOMhkucmV2a2l0LnYxLlByb3ZlbmFuY2VLaW5kEgoKAmlkGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSDwoHc2Vzc2lvbhgEIAEoCRIOCgZyZWFzb24YBSABKAkSDAoEdG9vbBgGIAEoCRIUCgxvbl9iZWhhbGZfb2YYByABKAkigwEKB0ZhY3RLZXkSEgoKcHJvZ3JhbV9pZBgBIAEoCRIhCgRraW5kGAIgASgOMhMucmV2a2l0LnYxLkZhY3RLaW5kEiMKB2FkZHJlc3MYAyABKAsyEi5yZXZraXQudjEuQWRkcmVzcxILCgNzdWIYBCABKAkSDwoHcHJvamVjdBgFIAEoCCKKAQoKRGVyaXZhdGlvbhIMCgRydWxlGAEgASgJEiIKBmlucHV0cxgCIAMoCzISLnJldmtpdC52MS5GYWN0S2V5EhgKEGlucHV0c190cnVuY2F0ZWQYAyABKAgSEgoKY29uZmlkZW5jZRgEIAEoAhIcChRjb21wdXRlZF9hdF9yZXZpc2lvbhgFIAEoBCJrCgpGYWN0T3JpZ2luEikKCGFzc2VydGVkGAEgASgLMhUucmV2a2l0LnYxLkFzc2VydGVkQnlIABIoCgdkZXJpdmVkGAIgASgLMhUucmV2a2l0LnYxLkRlcml2YXRpb25IAEIICgZzb3VyY2UiYQoKQXNzZXJ0ZWRCeRILCgNzZXEYASABKAQSKQoKcHJvdmVuYW5jZRgCIAEoCzIVLnJldmtpdC52MS5Qcm92ZW5hbmNlEhsKAmlkGAMgASgLMg8ucmV2a2l0LnYxLk9wSWQiKAoET3BJZBIPCgdyZXBsaWNhGAEgASgGEg8KB2NvdW50ZXIYAiABKAQiNAoLUGFnZVJlcXVlc3QSEQoJcGFnZV9zaXplGAEgASgNEhIKCnBhZ2VfdG9rZW4YAiABKAkiOAoIUGFnZUluZm8SFwoPbmV4dF9wYWdlX3Rva2VuGAEgASgJEhMKC3RvdGFsX2NvdW50GAIgASgDIi4KDURlbWFuZ2xlZE5hbWUSDwoHbWFuZ2xlZBgBIAEoCRIMCgRmdWxsGAIgASgJKvcBCg5Qcm92ZW5hbmNlS2luZBIfChtQUk9WRU5BTkNFX0tJTkRfVU5TUEVDSUZJRUQQABIYChRQUk9WRU5BTkNFX0tJTkRfVVNFUhABEhoKFlBST1ZFTkFOQ0VfS0lORF9JTVBPUlQQAhIZChVQUk9WRU5BTkNFX0tJTkRfQUdFTlQQAxIcChhQUk9WRU5BTkNFX0tJTkRfQU5BTFlTSVMQBBIdChlQUk9WRU5BTkNFX0tJTkRfTUlHUkFUSU9OEAUSGgoWUFJPVkVOQU5DRV9LSU5EX1BMVUdJThAGEhoKFlBST1ZFTkFOQ0VfS0lORF9TQ1JJUFQQByqTBAoIRmFjdEtpbmQSGQoVRkFDVF9LSU5EX1VOU1BFQ0lGSUVEEAASEgoORkFDVF9LSU5EX05BTUUQARISCg5GQUNUX0tJTkRfVFlQRRACEhUKEUZBQ1RfS0lORF9DT01NRU5UEAMSHQoZRkFDVF9LSU5EX0ZVTkNUSU9OX0JPVU5EUxAEEhsKF0ZBQ1RfS0lORF9GTE9XX09WRVJSSURFEAUSEgoORkFDVF9LSU5EX05PVEUQBhIWChJGQUNUX0tJTkRfVFlQRV9ERUYQBxITCg9GQUNUX0tJTkRfTUFUQ0gQCBITCg9GQUNUX0tJTkRfUEFUQ0gQCRIbChdGQUNUX0tJTkRfTUVNT1JZX1JFR0lPThAKEhcKE0ZBQ1RfS0lORF9DT0RFX1VOSVQQCxIYChRGQUNUX0tJTkRfTVVUQUJJTElUWRAMEhQKEEZBQ1RfS0lORF9FUVVBVEUQDRIXChNGQUNUX0tJTkRfUkVGRVJFTkNFEA4SFAoQRkFDVF9LSU5EX1JFQkFTRRAPEhwKGEZBQ1RfS0lORF9DQUxMX1NJR05BVFVSRRAQEhcKE0ZBQ1RfS0lORF9OT19SRVRVUk4QERIWChJGQUNUX0tJTkRfTEFOR1VBR0UQEhIZChVGQUNUX0tJTkRfRkFMTFRIUk9VR0gQExIcChhGQUNUX0tJTkRfUkVHSVNURVJfVkFMVUUQFEI7ChFkZXYucmV2a2l0LmFwaS52MVABWiFyZXZraXQuZGV2L2FwaS9yZXZraXQvdjE7cmV2a2l0djH4AQFiBnByb3RvMw");
+  fileDesc("ChZyZXZraXQvdjEvY29tbW9uLnByb3RvEglyZXZraXQudjEiKAoHQWRkcmVzcxINCgVzcGFjZRgBIAEoCRIOCgZvZmZzZXQYAiABKAQiUwoMQWRkcmVzc1JhbmdlEiEKBWZpcnN0GAEgASgLMhIucmV2a2l0LnYxLkFkZHJlc3MSIAoEbGFzdBgCIAEoCzISLnJldmtpdC52MS5BZGRyZXNzIk0KB1Zhcm5vZGUSDQoFc3BhY2UYASABKAkSDgoGb2Zmc2V0GAIgASgEEgwKBHNpemUYAyABKA0SFQoNcmVnaXN0ZXJfbmFtZRgEIAEoCSI1CgtSZWFkT3B0aW9ucxIQCghyZXZpc2lvbhgBIAEoBBIUCgxtaW5fcmV2aXNpb24YAiABKAQiMwoIU25hcHNob3QSEAoIcmV2aXNpb24YASABKAQSFQoNaGVhZF9yZXZpc2lvbhgCIAEoBCKXAQoKUHJvdmVuYW5jZRInCgRraW5kGAEgASgOMhkucmV2a2l0LnYxLlByb3ZlbmFuY2VLaW5kEgoKAmlkGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSDwoHc2Vzc2lvbhgEIAEoCRIOCgZyZWFzb24YBSABKAkSDAoEdG9vbBgGIAEoCRIUCgxvbl9iZWhhbGZfb2YYByABKAkigwEKB0ZhY3RLZXkSEgoKcHJvZ3JhbV9pZBgBIAEoCRIhCgRraW5kGAIgASgOMhMucmV2a2l0LnYxLkZhY3RLaW5kEiMKB2FkZHJlc3MYAyABKAsyEi5yZXZraXQudjEuQWRkcmVzcxILCgNzdWIYBCABKAkSDwoHcHJvamVjdBgFIAEoCCKKAQoKRGVyaXZhdGlvbhIMCgRydWxlGAEgASgJEiIKBmlucHV0cxgCIAMoCzISLnJldmtpdC52MS5GYWN0S2V5EhgKEGlucHV0c190cnVuY2F0ZWQYAyABKAgSEgoKY29uZmlkZW5jZRgEIAEoAhIcChRjb21wdXRlZF9hdF9yZXZpc2lvbhgFIAEoBCKQAQoKRmFjdE9yaWdpbhIpCghhc3NlcnRlZBgBIAEoCzIVLnJldmtpdC52MS5Bc3NlcnRlZEJ5SAASKAoHZGVyaXZlZBgCIAEoCzIVLnJldmtpdC52MS5EZXJpdmF0aW9uSAASIwoEdGllchgDIAEoDjIVLnJldmtpdC52MS5Tb3VyY2VUaWVyQggKBnNvdXJjZSJkCgdVbmtub3duEiQKBGtpbmQYASABKA4yFi5yZXZraXQudjEuVW5rbm93bktpbmQSIwoHYWRkcmVzcxgCIAEoCzISLnJldmtpdC52MS5BZGRyZXNzEg4KBmRldGFpbBgDIAEoCSJhCgpBc3NlcnRlZEJ5EgsKA3NlcRgBIAEoBBIpCgpwcm92ZW5hbmNlGAIgASgLMhUucmV2a2l0LnYxLlByb3ZlbmFuY2USGwoCaWQYAyABKAsyDy5yZXZraXQudjEuT3BJZCIoCgRPcElkEg8KB3JlcGxpY2EYASABKAYSDwoHY291bnRlchgCIAEoBCI0CgtQYWdlUmVxdWVzdBIRCglwYWdlX3NpemUYASABKA0SEgoKcGFnZV90b2tlbhgCIAEoCSI4CghQYWdlSW5mbxIXCg9uZXh0X3BhZ2VfdG9rZW4YASABKAkSEwoLdG90YWxfY291bnQYAiABKAMiLgoNRGVtYW5nbGVkTmFtZRIPCgdtYW5nbGVkGAEgASgJEgwKBGZ1bGwYAiABKAkq9wEKDlByb3ZlbmFuY2VLaW5kEh8KG1BST1ZFTkFOQ0VfS0lORF9VTlNQRUNJRklFRBAAEhgKFFBST1ZFTkFOQ0VfS0lORF9VU0VSEAESGgoWUFJPVkVOQU5DRV9LSU5EX0lNUE9SVBACEhkKFVBST1ZFTkFOQ0VfS0lORF9BR0VOVBADEhwKGFBST1ZFTkFOQ0VfS0lORF9BTkFMWVNJUxAEEh0KGVBST1ZFTkFOQ0VfS0lORF9NSUdSQVRJT04QBRIaChZQUk9WRU5BTkNFX0tJTkRfUExVR0lOEAYSGgoWUFJPVkVOQU5DRV9LSU5EX1NDUklQVBAHKpMECghGYWN0S2luZBIZChVGQUNUX0tJTkRfVU5TUEVDSUZJRUQQABISCg5GQUNUX0tJTkRfTkFNRRABEhIKDkZBQ1RfS0lORF9UWVBFEAISFQoRRkFDVF9LSU5EX0NPTU1FTlQQAxIdChlGQUNUX0tJTkRfRlVOQ1RJT05fQk9VTkRTEAQSGwoXRkFDVF9LSU5EX0ZMT1dfT1ZFUlJJREUQBRISCg5GQUNUX0tJTkRfTk9URRAGEhYKEkZBQ1RfS0lORF9UWVBFX0RFRhAHEhMKD0ZBQ1RfS0lORF9NQVRDSBAIEhMKD0ZBQ1RfS0lORF9QQVRDSBAJEhsKF0ZBQ1RfS0lORF9NRU1PUllfUkVHSU9OEAoSFwoTRkFDVF9LSU5EX0NPREVfVU5JVBALEhgKFEZBQ1RfS0lORF9NVVRBQklMSVRZEAwSFAoQRkFDVF9LSU5EX0VRVUFURRANEhcKE0ZBQ1RfS0lORF9SRUZFUkVOQ0UQDhIUChBGQUNUX0tJTkRfUkVCQVNFEA8SHAoYRkFDVF9LSU5EX0NBTExfU0lHTkFUVVJFEBASFwoTRkFDVF9LSU5EX05PX1JFVFVSThAREhYKEkZBQ1RfS0lORF9MQU5HVUFHRRASEhkKFUZBQ1RfS0lORF9GQUxMVEhST1VHSBATEhwKGEZBQ1RfS0lORF9SRUdJU1RFUl9WQUxVRRAUKu8BCgpTb3VyY2VUaWVyEhsKF1NPVVJDRV9USUVSX1VOU1BFQ0lGSUVEEAASFAoQU09VUkNFX1RJRVJfVVNFUhABEhoKFlNPVVJDRV9USUVSX0RFQlVHX0lORk8QAhIWChJTT1VSQ0VfVElFUl9TWU1CT0wQAxIXChNTT1VSQ0VfVElFUl9MSUJSQVJZEAQSFQoRU09VUkNFX1RJRVJfQUdFTlQQBRIYChRTT1VSQ0VfVElFUl9JTkZFUlJFRBAGEhcKE1NPVVJDRV9USUVSX0dVRVNTRUQQBxIXChNTT1VSQ0VfVElFUl9ERUZBVUxUEAgqigIKC1Vua25vd25LaW5kEhwKGFVOS05PV05fS0lORF9VTlNQRUNJRklFRBAAEh4KGlVOS05PV05fS0lORF9JTkRJUkVDVF9DQUxMEAESHgoaVU5LTk9XTl9LSU5EX0lORElSRUNUX0pVTVAQAhIfChtVTktOT1dOX0tJTkRfRkxPV19UUlVOQ0FURUQQAxIhCh1VTktOT1dOX0tJTkRfREVDT01QSUxFX0ZBSUxFRBAEEiEKHVVOS05PV05fS0lORF9BTkFMWVNJU19SVU5OSU5HEAUSFwoTVU5LTk9XTl9LSU5EX0JVREdFVBAGEh0KGVVOS05PV05fS0lORF9OT1RfQU5BTFlaRUQQB0I7ChFkZXYucmV2a2l0LmFwaS52MVABWiFyZXZraXQuZGV2L2FwaS9yZXZraXQvdjE7cmV2a2l0djH4AQFiBnByb3RvMw");
 
 /**
  * A location in one of a program's address spaces.
@@ -382,6 +382,15 @@ export type FactOrigin = Message<"revkit.v1.FactOrigin"> & {
     value: Derivation;
     case: "derived";
   } | { case: undefined; value?: undefined };
+
+  /**
+   * How far to trust the value, from who said it (api_minor 97, feature
+   * "result-evidence"; docs/api.md "Result evidence"). Unset from older
+   * servers: a client derives it from the provenance or rule.
+   *
+   * @generated from field: revkit.v1.SourceTier tier = 3;
+   */
+  tier: SourceTier;
 };
 
 /**
@@ -390,6 +399,35 @@ export type FactOrigin = Message<"revkit.v1.FactOrigin"> & {
  */
 export const FactOriginSchema: GenMessage<FactOrigin> = /*@__PURE__*/
   messageDesc(file_revkit_v1_common, 8);
+
+/**
+ * @generated from message revkit.v1.Unknown
+ */
+export type Unknown = Message<"revkit.v1.Unknown"> & {
+  /**
+   * @generated from field: revkit.v1.UnknownKind kind = 1;
+   */
+  kind: UnknownKind;
+
+  /**
+   * The instruction it is about, when there is one.
+   *
+   * @generated from field: revkit.v1.Address address = 2;
+   */
+  address?: Address | undefined;
+
+  /**
+   * @generated from field: string detail = 3;
+   */
+  detail: string;
+};
+
+/**
+ * Describes the message revkit.v1.Unknown.
+ * Use `create(UnknownSchema)` to create a new message.
+ */
+export const UnknownSchema: GenMessage<Unknown> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_common, 9);
 
 /**
  * @generated from message revkit.v1.AssertedBy
@@ -420,7 +458,7 @@ export type AssertedBy = Message<"revkit.v1.AssertedBy"> & {
  * Use `create(AssertedBySchema)` to create a new message.
  */
 export const AssertedBySchema: GenMessage<AssertedBy> = /*@__PURE__*/
-  messageDesc(file_revkit_v1_common, 9);
+  messageDesc(file_revkit_v1_common, 10);
 
 /**
  * The global identity of an assertion-log entry (docs/collab.md). Seqs are
@@ -450,7 +488,7 @@ export type OpId = Message<"revkit.v1.OpId"> & {
  * Use `create(OpIdSchema)` to create a new message.
  */
 export const OpIdSchema: GenMessage<OpId> = /*@__PURE__*/
-  messageDesc(file_revkit_v1_common, 10);
+  messageDesc(file_revkit_v1_common, 11);
 
 /**
  * @generated from message revkit.v1.PageRequest
@@ -482,7 +520,7 @@ export type PageRequest = Message<"revkit.v1.PageRequest"> & {
  * Use `create(PageRequestSchema)` to create a new message.
  */
 export const PageRequestSchema: GenMessage<PageRequest> = /*@__PURE__*/
-  messageDesc(file_revkit_v1_common, 11);
+  messageDesc(file_revkit_v1_common, 12);
 
 /**
  * @generated from message revkit.v1.PageInfo
@@ -509,7 +547,7 @@ export type PageInfo = Message<"revkit.v1.PageInfo"> & {
  * Use `create(PageInfoSchema)` to create a new message.
  */
 export const PageInfoSchema: GenMessage<PageInfo> = /*@__PURE__*/
-  messageDesc(file_revkit_v1_common, 12);
+  messageDesc(file_revkit_v1_common, 13);
 
 /**
  * The other spellings of a name the demangler analysis gave a mangled
@@ -542,7 +580,7 @@ export type DemangledName = Message<"revkit.v1.DemangledName"> & {
  * Use `create(DemangledNameSchema)` to create a new message.
  */
 export const DemangledNameSchema: GenMessage<DemangledName> = /*@__PURE__*/
-  messageDesc(file_revkit_v1_common, 13);
+  messageDesc(file_revkit_v1_common, 14);
 
 /**
  * Ordered by precedence when assertions on the same key conflict:
@@ -812,4 +850,157 @@ export enum FactKind {
  */
 export const FactKindSchema: GenEnum<FactKind> = /*@__PURE__*/
   enumDesc(file_revkit_v1_common, 1);
+
+/**
+ * What kind of source a value rests on, most trusted first. The order is
+ * for reading, not precedence: the fact store's precedence (ProvenanceKind)
+ * still decides which assertion wins.
+ *
+ * @generated from enum revkit.v1.SourceTier
+ */
+export enum SourceTier {
+  /**
+   * @generated from enum value: SOURCE_TIER_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * A person said so (PROVENANCE_KIND_USER).
+   *
+   * @generated from enum value: SOURCE_TIER_USER = 1;
+   */
+  USER = 1,
+
+  /**
+   * Debug information: DWARF, PDB, a debug file, Go's pclntab.
+   *
+   * @generated from enum value: SOURCE_TIER_DEBUG_INFO = 2;
+   */
+  DEBUG_INFO = 2,
+
+  /**
+   * The file's own symbol tables and metadata (ELF and Mach-O symbols, PE
+   * exports, Objective-C metadata), names the demangler spelled out.
+   *
+   * @generated from enum value: SOURCE_TIER_SYMBOL = 3;
+   */
+  SYMBOL = 3,
+
+  /**
+   * A library match: Function ID, a type archive's prototype, BSim.
+   *
+   * @generated from enum value: SOURCE_TIER_LIBRARY = 4;
+   */
+  LIBRARY = 4,
+
+  /**
+   * An agent, plugin or script said so (PROVENANCE_KIND_AGENT, PLUGIN,
+   * SCRIPT): a claim with a reason, not yet a person's.
+   *
+   * @generated from enum value: SOURCE_TIER_AGENT = 5;
+   */
+  AGENT = 5,
+
+  /**
+   * Analysis worked it out from the code with rules that follow from the
+   * bytes (function bounds, xrefs, strings, parameter ID).
+   *
+   * @generated from enum value: SOURCE_TIER_INFERRED = 6;
+   */
+  INFERRED = 6,
+
+  /**
+   * A heuristic's guess: the decompiler's variable names and types,
+   * its prototype without parameter ID (Derivation.confidence below 0.9).
+   *
+   * @generated from enum value: SOURCE_TIER_GUESSED = 7;
+   */
+  GUESSED = 7,
+
+  /**
+   * Nothing is known: a placeholder (FUN_00401000, DAT_..., undefined4).
+   *
+   * @generated from enum value: SOURCE_TIER_DEFAULT = 8;
+   */
+  DEFAULT = 8,
+}
+
+/**
+ * Describes the enum revkit.v1.SourceTier.
+ */
+export const SourceTierSchema: GenEnum<SourceTier> = /*@__PURE__*/
+  enumDesc(file_revkit_v1_common, 2);
+
+/**
+ * What a result could not determine, and why (api_minor 97, feature
+ * "result-evidence"): an absence in a result is only evidence of absence
+ * where no unknown covers it.
+ *
+ * @generated from enum revkit.v1.UnknownKind
+ */
+export enum UnknownKind {
+  /**
+   * @generated from enum value: UNKNOWN_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * A call through a register or memory whose target nothing resolved
+   * (no reference, no constant the decompiler could follow).
+   *
+   * @generated from enum value: UNKNOWN_KIND_INDIRECT_CALL = 1;
+   */
+  INDIRECT_CALL = 1,
+
+  /**
+   * A computed jump whose destinations weren't recovered (a switch table
+   * analysis couldn't read).
+   *
+   * @generated from enum value: UNKNOWN_KIND_INDIRECT_JUMP = 2;
+   */
+  INDIRECT_JUMP = 2,
+
+  /**
+   * The function's flow stopped at analysis's instruction limit: its body
+   * may be longer than shown.
+   *
+   * @generated from enum value: UNKNOWN_KIND_FLOW_TRUNCATED = 3;
+   */
+  FLOW_TRUNCATED = 3,
+
+  /**
+   * The decompiler failed on the function (DecompileFailure says how).
+   *
+   * @generated from enum value: UNKNOWN_KIND_DECOMPILE_FAILED = 4;
+   */
+  DECOMPILE_FAILED = 4,
+
+  /**
+   * Background analysis (parameter ID, inference, Function ID) is still
+   * running on the program: prototypes, types and names may change.
+   *
+   * @generated from enum value: UNKNOWN_KIND_ANALYSIS_RUNNING = 5;
+   */
+  ANALYSIS_RUNNING = 5,
+
+  /**
+   * A budget, limit or deadline stopped the work before it was complete.
+   *
+   * @generated from enum value: UNKNOWN_KIND_BUDGET = 6;
+   */
+  BUDGET = 6,
+
+  /**
+   * Code analysis was skipped for the program (an IL-only .NET assembly).
+   *
+   * @generated from enum value: UNKNOWN_KIND_NOT_ANALYZED = 7;
+   */
+  NOT_ANALYZED = 7,
+}
+
+/**
+ * Describes the enum revkit.v1.UnknownKind.
+ */
+export const UnknownKindSchema: GenEnum<UnknownKind> = /*@__PURE__*/
+  enumDesc(file_revkit_v1_common, 3);
 

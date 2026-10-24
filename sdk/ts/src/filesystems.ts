@@ -9,11 +9,13 @@
 // from a display name, except joinPath (which encodes).
 import type { MessageInitShape } from "@bufbuild/protobuf";
 
+import type { PlistValue } from "./gen/revkit/v1/apple_pb";
 import type { ProvenanceSchema } from "./gen/revkit/v1/common_pb";
 import {
-  FileSystemEntryKind, type ExtractFromFileSystemResponse, type FileSystemEntry, type FileSystemLayer,
-  type FileSystemLimitsSchema, type GetFileSystemFileInfoResponse, type ImportFromFileSystemResponse,
-  type ListFileSystemResponse, type OpenFileSystemResponse,
+  FileSystemEntryKind, type AndroidPackage, type ExtractFromFileSystemResponse, type FileSystemEntry, type FileSystemLayer,
+  type FileSystemLimitsSchema, type GetAppleBundleResponse, type GetFileSystemFileInfoResponse, type ImportFromFileSystemResponse,
+  type ListAndroidResourcesResponse, type ListFileSystemResponse, type ListUiActionsResponse, type OpenFileSystemResponse,
+  type ReadPropertyListResponse,
 } from "./gen/revkit/v1/filesystem_pb";
 import type { ImportOptionsSchema } from "./gen/revkit/v1/project_pb";
 import type { Revkit } from "./index";
@@ -21,6 +23,36 @@ import { type FileData, uploadFile } from "./projects";
 
 /** GetServerInfo's feature for FileSystemService and ProgramInfo.containerPath. */
 export const FILESYSTEMS_FEATURE = "filesystems";
+/** GetAndroidPackage, DecodeAndroidXml and ListAndroidResources (api_minor 98; docs/android.md). */
+export const ANDROID_FEATURE = "android";
+/** GetServerInfo's feature for Apple bundles, property lists and code signatures (api_minor 100; docs/apple-apps.md). */
+export const APPLE_BUNDLES_FEATURE = "apple-bundles";
+/** GetServerInfo's feature for ListUiActions (api_minor 101): nibs' actions traced to Objective-C methods. */
+export const UI_ACTIONS_FEATURE = "ui-actions";
+
+/** A plist value as plain data (api_minor 100): string, number (bigint past 2^53), boolean, Date, Uint8Array,
+ * array, object, null; a keyed archive's UID as {"CF$UID": n}. */
+export type PlainPlist = string | number | bigint | boolean | Date | Uint8Array | null | PlainPlist[] |
+  { [key: string]: PlainPlist };
+export function plistValue(v: PlistValue | undefined): PlainPlist {
+  const x = v?.value;
+  switch (x?.case) {
+    case "stringValue": case "boolValue": case "realValue": case "dataValue": return x.value;
+    case "integerValue": case "unsignedValue": {
+      const n = x.value;
+      return n >= BigInt(Number.MIN_SAFE_INTEGER) && n <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(n) : n;
+    }
+    case "dateValue": return new Date(Number(x.value.seconds) * 1000 + Math.floor(x.value.nanos / 1e6));
+    case "uidValue": return { "CF$UID": Number(x.value) };
+    case "arrayValue": return x.value.items.map(plistValue);
+    case "dictValue": {
+      const out: { [key: string]: PlainPlist } = {};
+      for (const e of x.value.entries) out[e.key] = plistValue(e.value);
+      return out;
+    }
+    default: return null;
+  }
+}
 
 type ProvenanceInit = MessageInitShape<typeof ProvenanceSchema>;
 type ImportOptionsInit = MessageInitShape<typeof ImportOptionsSchema>;
@@ -164,6 +196,27 @@ export class FileSystemSession {
     return this.rk.filesystems.getFileSystemFileInfo({ sessionId: this.id, path, hashes }, { signal });
   }
 
+  /** An Apple bundle (api_minor 100): an .app, framework or extension, a file inside one, or an .ipa's
+   * Payload/*.app: layout, Info.plist, main executable and its code signature (not verified), nested bundles,
+   * interface files, provisioning profile. */
+  appleBundle(path = "/", o: { skipInfoPlist?: boolean; signal?: AbortSignal } = {}): Promise<GetAppleBundleResponse> {
+    return this.rk.filesystems.getAppleBundle({ sessionId: this.id, path, skipInfoPlist: o.skipInfoPlist ?? false }, { signal: o.signal });
+  }
+
+  /** A property list as a tree (api_minor 100): XML, binary, or a provisioning profile's; plistValue(r.root)
+   * makes it plain data. */
+  propertyList(path: string, o: { maxValues?: number; maxDataBytes?: number; resolveKeyedArchive?: boolean; signal?: AbortSignal } = {}): Promise<ReadPropertyListResponse> {
+    return this.rk.filesystems.readPropertyList({
+      sessionId: this.id, path, maxValues: o.maxValues ?? 0, maxDataBytes: o.maxDataBytes ?? 0, resolveKeyedArchive: o.resolveKeyedArchive ?? false,
+    }, { signal: o.signal });
+  }
+
+  /** The UI actions of a bundle's (an .ipa's, a storyboard's, a nib's) compiled nibs, traced to the Objective-C
+   * methods they run (api_minor 101): in programId, else the program imported from the bundle's main executable. */
+  uiActions(path = "/", o: { programId?: string; includeDocuments?: boolean; signal?: AbortSignal } = {}): Promise<ListUiActionsResponse> {
+    return this.rk.filesystems.listUiActions({ sessionId: this.id, path, programId: o.programId ?? "", includeDocuments: o.includeDocuments ?? false }, { signal: o.signal });
+  }
+
   /** Imports files as programs (editor): one named alone whatever it is;
    * directories and containers inside (descend) give their programs only. */
   import(paths: string[], o: ImportFromFileSystemOptions = {}): Promise<ImportFromFileSystemResponse> {
@@ -178,6 +231,28 @@ export class FileSystemSession {
   /** Writes files to a directory under --browse-root on the daemon's host (admin). */
   extract(paths: string[], hostDir: string, overwrite = false, signal?: AbortSignal): Promise<ExtractFromFileSystemResponse> {
     return this.rk.filesystems.extractFromFileSystem({ sessionId: this.id, paths, hostDir, overwrite }, { signal });
+  }
+
+  /** An APK's manifest, resources, native libraries, native methods and
+   * Flutter facts (feature "android"). `path`: the APK in this file system
+   * ("" when the file system is one). */
+  async androidPackage(path = "", opts: { native?: boolean; dex?: boolean; signal?: AbortSignal } = {}): Promise<AndroidPackage> {
+    const r = await this.rk.filesystems.getAndroidPackage(
+      { sessionId: this.id, path, skipNative: opts.native === false, skipDex: opts.dex === false }, { signal: opts.signal });
+    return r.package!;
+  }
+
+  /** A compiled XML file of an APK as XML text (references named, or with `resolve` their values). */
+  async androidXml(path: string, resolve = false, signal?: AbortSignal): Promise<string> {
+    return (await this.rk.filesystems.decodeAndroidXml({ sessionId: this.id, path, resolve }, { signal })).xml;
+  }
+
+  /** Entries of an APK's resources.arsc: a type ("string"; "" all), a
+   * configuration ("" default, "*" all), a substring of name or value. */
+  androidResources(path = "", o: { type?: string; config?: string; query?: string; offset?: number; limit?: number; signal?: AbortSignal } = {}): Promise<ListAndroidResourcesResponse> {
+    return this.rk.filesystems.listAndroidResources({
+      sessionId: this.id, path, type: o.type ?? "", config: o.config ?? "", query: o.query ?? "", offset: o.offset ?? 0, limit: o.limit ?? 0,
+    }, { signal: o.signal });
   }
 
   async close(): Promise<void> {

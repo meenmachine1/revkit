@@ -173,7 +173,7 @@ needs Rust and the Tauri system packages below. It uses at most
 
 | Artifact | Size | What |
 | --- | --- | --- |
-| `revkit-<v>-linux-x86_64.tar.gz` | 83 MB (168 MB unpacked) | portable bundle: `bin/` (the executables and `rk-script`), `lib/revkit/` (gRPC, protobuf, Abseil, OpenSSL, c-ares, RE2, zlib, liblzma, libbz2), `share/revkit/{ui,ghidra,typeinfo,plugins,scripts,python,sdk}`, `share/doc/revkit` (README, getting started, notices, license texts), `README.txt` |
+| `revkit-<v>-linux-x86_64.tar.gz` | 83 MB (168 MB unpacked) | portable bundle: `bin/` (the executables and `rk-script`), `lib/revkit/` (gRPC, protobuf, Abseil, OpenSSL, c-ares, RE2, zlib, liblzma, libbz2), `share/revkit/{ui,ghidra,typeinfo,processors,plugins,scripts,python,sdk}`, `share/doc/revkit` (README, getting started, notices, license texts), `README.txt` |
 | `revkit_<v>_amd64.deb` | 83 MB | the same tree under `/usr` (CPack), plus the systemd user units ([below](#start-the-daemon-on-first-use-systemd-socket-activation)); depends on `libc6 (>= 2.36)` and `libstdc++6 (>= 12)` only, and recommends `python3 (>= 3.10)` and `python3-venv` for scripts ([below](#scripts-and-python)) |
 | `revkit-<v>-py3-none-any.whl`, `revkit-<v>.tar.gz` | 165 KB | the Python SDK and MCP server (`pip install`; pulls `grpcio` and `protobuf`) |
 | `revkit-api-<v>.tgz` | 113 KB | the TypeScript SDK (`npm install`): ES modules and `.d.ts` built by `sdk/ts/build.mjs` (esbuild and tsc) when `npm pack` runs |

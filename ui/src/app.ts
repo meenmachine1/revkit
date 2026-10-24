@@ -28,6 +28,7 @@ import {
   AutoStructureMode,
   AutoStructureRequestSchema,
   autoStructureBodies,
+  uploadFile,
   headerImportPlan,
   type AssertionBody,
   type DecompileFailure,
@@ -51,7 +52,9 @@ import { HeaderKind, RowKind, TokenKind, type ListingRow, type RowShift } from "
 import type { TokSpan } from "./decomp/pane";
 import { DecompilerPane } from "./decomp/pane";
 import { EmulatorPanel } from "./emu/panel";
-import { DebuggerPanel, PC_CHANNEL, type PcMessage, type RunName } from "./debug/panel";
+import { DebuggerPanel, PC_CHANNEL, type CrashSource, type PcMessage, type RunName } from "./debug/panel";
+import { pickFile } from "./ui/filepick";
+import { browseHost } from "./ui/hostfiles";
 import { dprMode, measureFrames, needsFallback } from "./listing/gpu";
 import { layoutRow, makeColumns, type Columns } from "./listing/layout";
 import { makePainter } from "./listing/painters";
@@ -99,6 +102,10 @@ import { showPickerDiagnostics } from "./ui/pickdiag";
 import { Palette, type Command, type Item } from "./ui/palette";
 import { showAbout } from "./ui/about";
 import { BUILD_INFO_FEATURE, showBuildInfoDialog } from "./ui/buildinfo";
+import { APPLE_BUNDLES_FEATURE, showCodeSignatureDialog } from "./ui/apple";
+import { NDS_FEATURE, copyDecompScratch, exportDsdSymbolsDialog, importDsdProjectDialog, importNdsRomDialog } from "./ui/nds";
+import { DECOMP_KB_FEATURE, applyDecompKbDialog } from "./ui/decompkb";
+import { foreignTargets } from "./data/listingSource";
 import { EXTERNAL_FEATURE, ExternalPaneBar, applicable, providersFor } from "./ui/external";
 import { TRACE_FEATURE, showTraceDialog } from "./ui/trace";
 import { showPreferences, showShortcuts } from "./ui/preferences";
@@ -135,7 +142,7 @@ type PaneName = "functions" | "listing" | "decomp" | "graph" | "calls" | "string
 
 /** Where each view goes until the user moves it. */
 // The toolbar's menus: palette commands by id ("-" starts a group; ids a daemon lacks are left out).
-const EDIT_MENU = ["undo", "redo", "-", "rename", "retype", "comment", "comment-plate", "comment-pre", "comment-post", "comment-eol", "note", "-", "fn-edit", "fn-create", "fn-remove", "flow", "-", "copy-special", "decomp-copy-all", "export-c", "-", "patch-insn", "patch-bytes", "patch-revert-here", "patch-export", "-", "preferences"];
+const EDIT_MENU = ["undo", "redo", "-", "rename", "retype", "comment", "comment-plate", "comment-pre", "comment-post", "comment-eol", "note", "-", "fn-edit", "fn-create", "fn-remove", "flow", "-", "copy-special", "decomp-copy-all", "decomp-scratch", "export-c", "-", "patch-insn", "patch-bytes", "patch-revert-here", "patch-export", "-", "preferences"];
 const NAV_MENU = ["goto", "back", "forward", "history", "-", "follow", "follow-import", "xrefs", "functions", "-", "nav-repeat-next", "nav-repeat-prev", "-", "toggle-decomp", "toggle-graph"];
 const ANALYZE_MENU = ["xrefs", "prov", "libraries", "build-info", "-", "auto-struct", "auto-fill", "struct-from-selection", "type-new", "type-import", "-", "load-pdb", "symbol-settings", "load-debug-file", "debug-file-settings", "-", "memory-add", "memory-rebase", "language", "-", "emulate", "dbg-launch", "dbg-connect", "-", "compare", "fn-compare", "patch-compare", "-", "bsim-similar", "bsim-ingest"];
 /** A command's title in a menu: without the "File: " or "Tools: " prefix the palette uses. */
@@ -628,6 +635,13 @@ export class App {
         notify: (text, error) => toast(text, { kind: error ? "error" : "info" }),
         selection: () => this.location,
         showFrame: (pc) => void this.navigate(pc, { focus: "listing" }),
+        pickCrashDump: () => this.pickCrashDump(),
+        openProgram: (id) => {
+          const u = new URL(location.href);
+          u.searchParams.set("program", id);
+          u.hash = "";
+          window.open(u.toString(), "_blank");
+        },
       },
       this.addrWidth,
       this.features.has("debugger-live"),
@@ -638,8 +652,34 @@ export class App {
       this.features.has("debugger-copy"),
       this.features.has("debugger-conditions"),
       this.features.has("debugger-emulate-from"),
+      this.features.has("crash-dumps"),
     );
     this.emuMarks.breakpoints = this.emu.breakpoints;
+  }
+
+  /** Debugger ▸ Crash dump… (feature crash-dumps): a dump program of the project, a file on the daemon host, or one from this computer. */
+  private async pickCrashDump(): Promise<CrashSource | null> {
+    type From = { kind: "program"; id: string } | { kind: "host" } | { kind: "local" };
+    const project = this.projectId || this.programId.split("/")[0];
+    const dumps = ((await this.rk.projects.listPrograms({ projectId: project }).catch(() => null))?.programs ?? []).filter((p) => p.crashDump);
+    const choices: { label: string; detail?: string; value: From }[] = dumps.map((p) => ({ label: p.name, detail: `${p.crashDump} in the project`, value: { kind: "program", id: p.programId } }));
+    if (this.features.has("host-files")) choices.push({ label: "A file on the daemon host…", detail: "--browse-root", value: { kind: "host" } });
+    choices.push({ label: "A file on this computer…", detail: "sent to the daemon", value: { kind: "local" } });
+    const from = await choose<From>("Open crash dump: an ELF core file or a Windows minidump", choices);
+    if (!from) return null;
+    if (from.kind === "program") return { source: { case: "dumpProgramId", value: from.id } };
+    if (from.kind === "host") {
+      const path = await browseHost(this.rk, { title: "Open crash dump: a core file or minidump on the daemon host", remember: "rk.crash.lastDir" });
+      return path ? { source: { case: "hostPath", value: path } } : null;
+    }
+    const { file } = await pickFile({ pause: () => this.live.pause() });
+    if (!file) return null;
+    try {
+      return { source: { case: "uploadId", value: await uploadFile(this.rk, file, { fileName: file.name }) } };
+    } catch (e) {
+      toast(`Upload failed: ${errText(e)}`, { kind: "error" });
+      return null;
+    }
   }
 
   private showEmuPc(pc: bigint | null) {
@@ -1473,6 +1513,9 @@ export class App {
 
   /** Goes to an address, recording the current one in the back history. */
   async navigate(addr: bigint, opts: { focus?: PaneName } = {}) {
+    // A DS module's reference into another module program (ListingToken.target_program_id).
+    const foreign = foreignTargets.get(addr);
+    if (foreign && foreign !== this.programId) return this.openProgramAt(foreign, addr);
     const cur = this.view.selectedAddress();
     if (cur !== null && cur !== addr) {
       this.back.push(cur);
@@ -4454,12 +4497,18 @@ export class App {
   private fileItems(): MenuItem[] {
     const archives = this.features.has(PROJECT_ARCHIVE_FEATURE);
     const why = archives ? undefined : true;
+    const nds = this.features.has(NDS_FEATURE) && this.features.has("host-files") ? undefined : true;
     return [
       { label: "Open program…", keys: "Ctrl+O", testid: "file-open", run: () => this.openProgram() },
       { label: "Preferences…", testid: "file-preferences", run: () => this.showPreferences() },
       { label: "Open file system…", disabled: this.features.has(FILESYSTEMS_FEATURE) ? undefined : true, testid: "file-open-filesystem", run: () => void this.openFileSystem() },
       { label: "Import project…", separator: true, disabled: why, testid: "file-import-project", run: () => void this.importProject() },
       { label: "Export project…", disabled: why, testid: "file-export-project", run: () => void this.exportProject() },
+      // Nintendo DS (docs/nds.md): files on the daemon's host.
+      { label: "Import ds-decomp project…", separator: true, disabled: nds, testid: "file-import-dsd", run: () => void importDsdProjectDialog(this.ndsOptions()) },
+      { label: "Import DS ROM…", disabled: nds, testid: "file-import-nds", run: () => void importNdsRomDialog(this.ndsOptions()) },
+      { label: "Export ds-decomp symbols…", disabled: this.features.has(NDS_FEATURE) ? undefined : true, testid: "file-export-dsd", run: () => void exportDsdSymbolsDialog({ rk: this.rk, projectId: this.projectId || this.programId.split("/")[0] }) },
+      { label: "Apply decomp knowledge base…", disabled: this.features.has(DECOMP_KB_FEATURE) && this.features.has("host-files") && this.programId ? undefined : true, testid: "file-apply-decomp-kb", run: () => void applyDecompKbDialog({ rk: this.rk, projectId: this.projectId || this.programId.split("/")[0], programId: this.programId, onOpen: (id, address) => this.openProgramAt(id, address), onApplied: (rev) => this.live.waitFor(rev) }) },
     ];
   }
 
@@ -4471,12 +4520,7 @@ export class App {
       features: this.features,
       currentProgram: this.programId ? { programId: this.programId, name: $("program").textContent ?? this.programId } : undefined,
       pauseStreams: () => this.live.pause(),
-      onOpenProgram: (id) => {
-        const u = new URL(location.href);
-        u.searchParams.set("program", id);
-        u.hash = "";
-        location.href = u.toString();
-      },
+      onOpenProgram: (id, address) => this.openProgramAt(id, address),
     });
   }
 
@@ -4486,6 +4530,11 @@ export class App {
       projectId: this.projectId || this.programId.split("/")[0],
       programs: this.programId ? [{ programId: this.programId, name: $("program").textContent ?? this.programId }] : [],
     });
+  }
+
+  /** The DS import dialogs' options: this project, opening a module program on request. */
+  private ndsOptions() {
+    return { rk: this.rk, projectId: this.projectId || this.programId.split("/")[0], onOpenProgram: (id: string) => this.openProgramAt(id) };
   }
 
   /** File → Import project…: into a new project or this one; opens the first program imported. */
@@ -4691,7 +4740,7 @@ export class App {
     if (where === "listing") return this.listingContextMenu(all, x, y);
     // The decompiler's.
     const groups: (string[] | MenuItem[])[] = [
-      ["decomp-copy", "decomp-copy-all", "export-c"],
+      ["decomp-copy", "decomp-copy-all", "decomp-scratch", "export-c"],
       ["follow", "xrefs", "goto"],
       // On a struct field: its own Rename and Retype (the struct's next version).
       this.selectedField() ? ["rename-field", "retype-field", "comment", "comment-plate", "note"] : ["rename", "retype", "comment", "comment-plate", "note"],
@@ -5031,6 +5080,7 @@ export class App {
       ...this.keyedCommands(),
       { id: "libraries", title: "Libraries (shared libraries and the programs they are)…", enabled: () => this.features.has(LIBRARIES_FEATURE), run: () => this.showLibraries() },
       { id: "build-info", title: "Build info (Go modules, Rust crates, toolchain)…", enabled: () => this.features.has(BUILD_INFO_FEATURE), run: () => showBuildInfoDialog(this.rk, { programId: this.programId, programName: $("program").textContent ?? this.programId }) },
+      { id: "code-signature", title: "Code signature and entitlements (Mach-O; read, not verified)…", enabled: () => this.features.has(APPLE_BUNDLES_FEATURE), run: () => void showCodeSignatureDialog(this.rk, { programId: this.programId, programName: $("program").textContent ?? this.programId }) },
       { id: "language", title: "Change language (which processor variant fits the code)…", enabled: () => this.features.has(LANGUAGE_FEATURE), run: () => this.showLanguage() },
       { id: "follow-import", title: "Go to library function (the import's program)", enabled: () => this.importHere()?.resolved === true, run: () => this.followImport() },
       { id: "compare", title: "Tools: Compare programs (version tracking)…", enabled: () => this.diff !== null, run: () => { this.showView("diff"); void this.diff!.compare(); } },
@@ -5122,6 +5172,15 @@ export class App {
         run: () => this.copyToClipboard(this.pane.copyText() ?? "", "Copied"),
       },
       { id: "decomp-copy-all", title: "Copy function (the decompiled C)", enabled: () => !!this.pane.fn, run: () => this.copyToClipboard(this.pane.text, "Copied the function's C") },
+      {
+        id: "decomp-scratch",
+        title: "Copy as decomp scratch (a PROBE line, the declarations it uses and its C)",
+        enabled: () => !!this.pane.fn && this.features.has(NDS_FEATURE),
+        run: () => {
+          const e = this.pane.fn?.entry?.offset;
+          if (e !== undefined) void copyDecompScratch(this.rk, this.programId, e, (text, done) => this.copyToClipboard(text, done));
+        },
+      },
       {
         id: "export-c",
         title: "File: Export C/C++… (the decompiled program, with a header)",

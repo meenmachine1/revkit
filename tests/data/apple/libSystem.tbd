@@ -1,0 +1,9 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios, arm64-macos ]
+install-name:    '/usr/lib/libSystem.B.dylib'
+current-version: 1319
+exports:
+  - targets:     [ arm64-ios, arm64-macos ]
+    symbols:     [ dyld_stub_binder ]
+...

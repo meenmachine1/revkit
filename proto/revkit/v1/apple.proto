@@ -1,0 +1,398 @@
+// Apple application formats (docs/apple-apps.md): property lists, app
+// bundles and what their Info.plist says, code signatures and
+// provisioning profiles; Interface Builder's compiled nibs and storyboards
+// and their UI actions. Messages only: the RPCs are FileSystemService's
+// (GetAppleBundle, ReadPropertyList, ListUiActions) and a program's
+// summary (MachoSummary.code_signature). Added in api_minor 100 (feature
+// "apple-bundles"); Interface Builder in 101 (feature "ui-actions").
+//
+// Signatures and profiles are read as data and NEVER VERIFIED: no code
+// hash is checked against the code, no CMS signature against its
+// certificates, no certificate against a trust anchor. What a file says
+// about itself (its identifier, team, entitlements, signer's name) is
+// reported as it says it.
+syntax = "proto3";
+
+package revkit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "revkit/v1/common.proto";
+
+option cc_enable_arenas = true;
+option go_package = "revkit.dev/api/revkit/v1;revkitv1";
+option java_multiple_files = true;
+option java_package = "dev.revkit.api.v1";
+
+// One value of a property list (XML or bplist00).
+message PlistValue {
+  oneof value {
+    string string_value = 1;
+    // An integer that fits int64; one past INT64_MAX is unsigned_value.
+    sint64 integer_value = 2;
+    uint64 unsigned_value = 3;
+    double real_value = 4;
+    bool bool_value = 5;
+    google.protobuf.Timestamp date_value = 6;
+    // At most the request's max_data_bytes; data_size is the whole size.
+    bytes data_value = 7;
+    PlistArray array_value = 8;
+    PlistDict dict_value = 9;
+    // A keyed archive's object reference (NSKeyedArchiver's CF$UID).
+    uint64 uid_value = 10;
+    // A binary plist's null (XML has none).
+    bool null_value = 11;
+  }
+  uint64 data_size = 12;
+  // An array's or dictionary's entries left out (the response's value
+  // budget ran out).
+  uint32 omitted = 13;
+}
+
+message PlistArray {
+  repeated PlistValue items = 1;
+}
+
+message PlistDict {
+  // In file order; a repeated key keeps the last value.
+  repeated PlistEntry entries = 1;
+}
+
+message PlistEntry {
+  string key = 1;
+  PlistValue value = 2;
+}
+
+message AppleDocumentType {
+  string name = 1;          // CFBundleTypeName
+  string role = 2;          // CFBundleTypeRole: "Editor", "Viewer", ...
+  string handler_rank = 3;  // LSHandlerRank
+  repeated string content_types = 4;  // LSItemContentTypes
+  repeated string extensions = 5;     // CFBundleTypeExtensions
+}
+
+// A uniform type identifier a bundle exports or imports.
+message AppleTypeDeclaration {
+  string identifier = 1;   // UTTypeIdentifier
+  string description = 2;  // UTTypeDescription
+  repeated string conforms_to = 3;
+  repeated string extensions = 4;
+  repeated string mime_types = 5;
+}
+
+// A privacy string the app shows when it asks for access.
+message AppleUsageDescription {
+  string key = 1;   // "NSCameraUsageDescription"
+  string text = 2;
+}
+
+// What an Info.plist says, by Apple's key names.
+message AppleBundleInfo {
+  string identifier = 1;     // CFBundleIdentifier
+  string name = 2;           // CFBundleName
+  string display_name = 3;   // CFBundleDisplayName
+  string executable = 4;     // CFBundleExecutable
+  string version = 5;        // CFBundleVersion
+  string short_version = 6;  // CFBundleShortVersionString
+  string package_type = 7;   // CFBundlePackageType: "APPL", "FMWK", "XPC!", "BNDL"
+  // MinimumOSVersion (iOS and its kin), else LSMinimumSystemVersion (macOS).
+  string minimum_os = 8;
+  repeated string supported_platforms = 9;  // CFBundleSupportedPlatforms
+  // UIDeviceFamily: "iphone", "ipad", "tv", "watch", "carplay", "mac", "vision".
+  repeated string device_families = 10;
+  repeated string url_schemes = 11;          // CFBundleURLTypes' CFBundleURLSchemes
+  repeated string queried_url_schemes = 12;  // LSApplicationQueriesSchemes
+  repeated AppleDocumentType document_types = 13;
+  repeated string background_modes = 14;     // UIBackgroundModes
+  repeated AppleUsageDescription usage_descriptions = 15;
+  repeated AppleTypeDeclaration exported_types = 16;  // UTExportedTypeDeclarations
+  repeated AppleTypeDeclaration imported_types = 17;  // UTImportedTypeDeclarations
+  repeated string required_capabilities = 18;         // UIRequiredDeviceCapabilities
+  string extension_point = 19;    // NSExtension's NSExtensionPointIdentifier
+  string principal_class = 20;    // NSPrincipalClass, else NSExtensionPrincipalClass
+  string main_storyboard = 21;    // UIMainStoryboardFile, else NSMainStoryboardFile
+  string main_nib = 22;           // NSMainNibFile
+  string launch_storyboard = 23;  // UILaunchStoryboardName
+  bool allows_arbitrary_loads = 24;  // NSAppTransportSecurity
+  repeated string ats_exception_domains = 25;
+  string sdk = 26;               // DTSDKName
+  string xcode = 27;             // DTXcode
+  string build_machine_os = 28;  // BuildMachineOSBuild
+}
+
+// A bundle inside another (a framework, an app extension, ...).
+message AppleBundleRef {
+  // The session path of its directory.
+  string path = 1;
+  // From its name: "app", "framework", "appex", "bundle", "xpc", "plugin", ...
+  string kind = 2;
+  // What it is to its parent, by where it sits: "framework",
+  // "app-extension", "xpc-service", "plug-in", "watch-app", "login-item",
+  // "helper-application", "nested-application", "resource-bundle",
+  // "bundle".
+  string role = 3;
+  string identifier = 4;
+  // Its executable's session path ("" when it has none: a resource bundle).
+  string executable_path = 5;
+  string extension_point = 6;
+  string version = 7;
+}
+
+message CodeDirectory {
+  uint32 version = 1;
+  uint32 flags = 2;
+  // codesign's names: "adhoc", "hard", "kill", "expires", "restrict",
+  // "enforcement", "library-validation", "runtime" (the hardened runtime),
+  // "linker-signed"; unknown bits in hex.
+  repeated string flag_names = 3;
+  string identifier = 4;
+  string team_id = 5;
+  // "sha1", "sha256", "sha256-truncated", "sha384".
+  string hash_type = 6;
+  uint32 hash_size = 7;
+  // 0: the code is one page.
+  uint32 page_size = 8;
+  uint32 code_slots = 9;
+  uint32 special_slots = 10;
+  uint64 code_limit = 11;
+  uint32 platform = 12;
+  // The special slots holding a hash: "info-plist", "requirements",
+  // "resources", "application", "entitlements", "der-entitlements", ...
+  repeated string special_hashes = 13;
+  uint64 exec_seg_base = 14;
+  uint64 exec_seg_limit = 15;
+  uint64 exec_seg_flags = 16;
+  // "main-binary", "allow-unsigned", "debugger", "jit", ...
+  repeated string exec_seg_flag_names = 17;
+  // The SDK the hardened runtime targets (version 0x20500 and later).
+  uint32 runtime_version = 18;
+  // The CodeDirectory's own hash (its hash type, 20 bytes, hex) as
+  // `codesign -dv` prints CDHash: computed, not compared with anything.
+  string cdhash = 19;
+  // An alternate CodeDirectory (slot 0x1000 and on).
+  bool alternate = 20;
+  uint32 slot = 21;
+}
+
+message CodeRequirement {
+  uint32 type = 1;
+  string type_name = 2;  // "host", "guest", "designated", "library", "plugin"
+  // The requirement language, as `codesign -d -r-` prints it.
+  string text = 3;
+}
+
+// A certificate's names, as the signature carries it (not checked).
+message SigningCertificate {
+  string subject = 1;  // "CN=..., OU=..., O=..., C=..."
+  string common_name = 2;
+  // A developer certificate's team id.
+  string organizational_unit = 3;
+  string issuer = 4;  // the issuer's common name
+  string not_before = 5;  // as written: "260101000000Z"
+  string not_after = 6;
+}
+
+message CodeSignatureBlob {
+  uint32 slot = 1;
+  uint32 magic = 2;
+  uint32 offset = 3;
+  uint32 length = 4;
+}
+
+// LC_CODE_SIGNATURE's embedded signature, read, not verified.
+message CodeSignature {
+  // The primary CodeDirectory first, then the alternates.
+  repeated CodeDirectory code_directories = 1;
+  // The entitlements: the XML blob's when present, else the DER blob's.
+  PlistValue entitlements = 2;
+  string entitlements_xml = 3;
+  bool has_der_entitlements = 4;
+  repeated CodeRequirement requirements = 5;
+  // The CMS signature blob is present and not empty (an ad-hoc signature
+  // has none), its size, and its certificates as written (leaf first).
+  bool has_cms = 6;
+  uint32 cms_size = 7;
+  repeated SigningCertificate certificates = 8;
+  bool adhoc = 9;
+  repeated CodeSignatureBlob blobs = 10;
+  repeated string warnings = 11;
+  // Where it is in the file (the slice's offset added) and its size.
+  uint64 offset = 12;
+  uint32 size = 13;
+}
+
+// embedded.mobileprovision: the CMS signed plist inside, read, not verified.
+message ProvisioningProfile {
+  string name = 1;
+  string uuid = 2;
+  string app_id_name = 3;
+  // Its entitlements' application-identifier ("TEAMID.com.example.app").
+  string application_identifier = 4;
+  repeated string team_identifiers = 5;
+  string team_name = 6;
+  repeated string platforms = 7;
+  google.protobuf.Timestamp creation_date = 8;
+  google.protobuf.Timestamp expiration_date = 9;
+  uint32 provisioned_devices = 10;
+  bool provisions_all_devices = 11;
+  bool get_task_allow = 12;
+  // "development" (get-task-allow), "enterprise" (all devices), "ad-hoc"
+  // (devices listed), else "app-store".
+  string kind = 13;
+  PlistValue entitlements = 14;
+  uint32 developer_certificates = 15;
+  // The CMS wrapper's certificates.
+  repeated SigningCertificate signer_certificates = 16;
+  // The whole plist.
+  PlistValue plist = 17;
+  repeated string warnings = 18;
+}
+
+// An app bundle (.app), a framework, an app extension or another bundle
+// in a file system.
+message AppleBundle {
+  // The session path of its directory.
+  string path = 1;
+  string container_path = 2;
+  string kind = 3;  // as AppleBundleRef.kind
+  // "shallow" (iOS: Info.plist at the top), "deep" (macOS: Contents/),
+  // "versioned" (a macOS framework: Versions/<version>/).
+  string layout = 4;
+  // "ios" (shallow, or Info.plist's LSRequiresIPhoneOS or iPhoneOS
+  // platform), "macos" (deep or versioned), or what
+  // CFBundleSupportedPlatforms names first.
+  string platform = 5;
+  string info_plist_path = 6;
+  AppleBundleInfo info = 7;
+  // The whole Info.plist (values capped as ReadPropertyList caps them).
+  PlistValue info_plist = 8;
+  // CFBundleExecutable's session path, "" when missing.
+  string executable_path = 9;
+  // What it is ("Mach-O 64-bit arm64 executable").
+  string executable_detected = 10;
+  // The main executable's code signature (its default slice), when it has one.
+  CodeSignature code_signature = 11;
+  // Bundles inside it, by where they sit: frameworks, app extensions, XPC
+  // services, plug-ins, watch apps, login items, nested apps.
+  repeated AppleBundleRef nested = 12;
+  // Compiled Interface Builder files below it (not in nested bundles):
+  // .nib files and directories and .storyboardc directories.
+  repeated string interface_files = 13;
+  string provisioning_profile_path = 14;
+  ProvisioningProfile provisioning_profile = 15;
+  // _CodeSignature/CodeResources (the sealed resources' hashes).
+  string code_resources_path = 16;
+  repeated string warnings = 17;
+}
+
+// One object of a compiled nib (api_minor 101, feature "ui-actions").
+message InterfaceObject {
+  // Its index in the archive (a NIBArchive's object, a keyed archive's UID).
+  uint32 id = 1;
+  // As archived ("UIButton", "UIClassSwapper", "NSCustomObject"), and the
+  // class it is at run time (a class swapper's or custom object's class).
+  string class_name = 2;
+  string custom_class = 3;
+  string original_class = 4;
+  // "files-owner", "first-responder", "application" (placeholders), "".
+  string placeholder = 5;
+  // A title, text or accessibility label it carries.
+  string label = 6;
+  // Its superview, or its parent in the nib.
+  uint32 parent = 7;
+  bool has_parent = 8;
+  // A storyboard controller's UINibName (the nib of its view) and identifier.
+  string nib_name = 9;
+  string storyboard_identifier = 10;
+}
+
+message InterfaceConnection {
+  // "outlet" or "action".
+  string kind = 1;
+  uint32 id = 2;
+  // The outlet's name, or the action's selector.
+  string label = 3;
+  // The control sending the action, or the object owning the outlet.
+  uint32 source = 4;
+  bool has_source = 5;
+  // The action's target (none: the first responder) or the outlet's value.
+  uint32 destination = 6;
+  bool has_destination = 7;
+  // UIKit's UIControlEvents and their names ("touchUpInside"); 0 on macOS.
+  uint64 event_mask = 8;
+  repeated string events = 9;
+}
+
+// A compiled nib: a .nib file, a nib directory's runtime nib, or one of a
+// storyboard's.
+message InterfaceDocument {
+  // Its session path (the nib file read).
+  string path = 1;
+  // "nib:archive" (iOS's NIBArchive) or "nib:keyed" (a keyed archive).
+  string format = 2;
+  // The .storyboardc it is in, when it is.
+  string storyboard = 3;
+  // File's Owner's class, and how it is known: "storyboard" (the scene's
+  // controller names this nib as its view's), "nib-name" (a class named as
+  // the nib, UIKit's default nib name), "archive" (a keyed archive's
+  // NSCustomObject), or "" (unknown: whoever loads the nib).
+  string owner_class = 4;
+  string owner_class_from = 5;
+  repeated InterfaceObject objects = 6;
+  repeated InterfaceConnection connections = 7;
+  repeated string warnings = 8;
+}
+
+// A control's action, traced to the Objective-C method it runs.
+message UiAction {
+  // The document (InterfaceDocument.path) and its storyboard.
+  string document = 1;
+  string storyboard = 2;
+  // The control: its object id, class (the custom class when it has one)
+  // and label.
+  uint32 control = 3;
+  string control_class = 4;
+  string control_label = 5;
+  // The events that send it (UIKit) and the mask; none on macOS (a
+  // control's or menu item's action).
+  repeated string events = 6;
+  uint64 event_mask = 7;
+  string selector = 8;
+  // The target: "files-owner", "first-responder", "object" (an object of
+  // the nib), "" (none archived: the first responder).
+  string target = 9;
+  // The class the method is looked up from, and how it is known (as
+  // InterfaceDocument.owner_class_from, or "object": the target's own
+  // class).
+  string target_class = 10;
+  string target_class_from = 11;
+  // The resolution in the program's Objective-C metadata:
+  //   "resolved"             the target class (or a superclass in the
+  //                          program) implements the selector
+  //   "resolved-by-selector" the target class isn't known (the first
+  //                          responder, an unknown File's Owner) and one
+  //                          class in the program implements it
+  //   "ambiguous"            several do (candidates)
+  //   "external"             the target class isn't in the program (a
+  //                          system class: UIApplication, NSApplication)
+  //   "unresolved"           no class in the program implements it
+  //   "no-program"           no program to resolve against
+  string resolution = 12;
+  // The method ("-[ViewController buttonTapped:]"), the class that
+  // implements it (a superclass of target_class, or a category's class),
+  // its implementation's address and the function's current name.
+  string method = 13;
+  string implemented_by = 14;
+  Address implementation = 15;
+  string function_name = 16;
+  // Ambiguous: the methods that could run (at most 16).
+  repeated string candidates = 17;
+}
+
+// An outlet: an object's property the nib sets to another of its objects.
+message UiOutlet {
+  string document = 1;
+  string source_class = 2;
+  string name = 3;
+  string destination_class = 4;
+  string destination_label = 5;
+}

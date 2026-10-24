@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A contract's code is one run from its entry to a STOP, RETURN, REVERT,
+     INVALID or SELFDESTRUCT: no parameters, no result; the operand stack is
+     the stack (docs/evm.md). -->
+<compiler_spec>
+  <data_organization>
+    <pointer_size value="4"/>
+    <integer_size value="4"/>
+    <long_size value="8"/>
+  </data_organization>
+  <global>
+    <range space="ram"/>
+    <range space="mem"/>
+  </global>
+  <stackpointer register="SP" space="opstack" growth="negative"/>
+  <returnaddress>
+    <register name="RA"/>
+  </returnaddress>
+  <default_proto>
+    <prototype name="__evm" extrapop="0" stackshift="0">
+      <input/>
+      <output/>
+      <unaffected>
+        <register name="SP"/>
+        <register name="RA"/>
+      </unaffected>
+    </prototype>
+  </default_proto>
+</compiler_spec>

@@ -73,9 +73,11 @@ void ProgramSource::encode(Encoder &e) const {
   if (raw) {
     // The raw trailer's version: 2 adds spaces and the container, written
     // only when used so older records keep their bytes.
-    bool v2 = !raw->space.empty() || raw->container != loader::RawContainer::detect;
+    // 3 adds an importer's symbols (a ds-decomp project's, docs/nds.md).
+    const bool v3 = !raw->symbols.empty();
+    bool v2 = v3 || !raw->space.empty() || raw->container != loader::RawContainer::detect;
     for (const loader::RawRegion &r : raw->regions) v2 = v2 || !r.space.empty();
-    e.u8(v2 ? 2 : 1);
+    e.u8(v3 ? 3 : v2 ? 2 : 1);
     e.varint(raw->base);
     e.varint(raw->offset);
     facts::encode(e, raw->length);
@@ -95,6 +97,16 @@ void ProgramSource::encode(Encoder &e) const {
       e.bytes(raw->space);
       e.u8(static_cast<std::uint8_t>(raw->container));
       for (const loader::RawRegion &r : raw->regions) e.bytes(r.space);
+    }
+    if (v3) {
+      e.varint(raw->symbols.size());
+      for (const loader::Symbol &sym : raw->symbols) {
+        e.bytes(sym.name);
+        e.varint(sym.value);
+        e.varint(sym.size);
+        e.u8(static_cast<std::uint8_t>(sym.type));
+        e.u8(static_cast<std::uint8_t>(static_cast<std::uint8_t>(sym.bind) | (sym.defined ? 0x80 : 0)));
+      }
     }
   }
   if (more) e.bytes(container_path);
@@ -118,7 +130,7 @@ ProgramSource ProgramSource::decode(Decoder &d) {
   if (!d.done()) s.path = d.bytes();
   if (!d.done()) {
     const std::uint8_t version = d.u8();
-    if (version > 2) throw DecodeError("unknown raw image record");
+    if (version > 3) throw DecodeError("unknown raw image record");
     if (version == 0) {
       if (!d.done()) s.container_path = d.bytes();
       if (!d.done()) s.macho_slice = d.bytes();
@@ -145,12 +157,30 @@ ProgramSource ProgramSource::decode(Decoder &d) {
       r.file_size = d.varint();
       raw.regions.push_back(std::move(r));
     }
-    if (version == 2) {
+    if (version >= 2) {
       raw.space = d.bytes();
       const std::uint8_t c = d.u8();
-      if (c > static_cast<std::uint8_t>(loader::RawContainer::srec)) throw DecodeError("unknown raw container");
+      if (c > static_cast<std::uint8_t>(loader::RawContainer::hexbytes)) throw DecodeError("unknown raw container");
       raw.container = static_cast<loader::RawContainer>(c);
       for (loader::RawRegion &r : raw.regions) r.space = d.bytes();
+    }
+    if (version == 3) {
+      const std::size_t count = d.count();
+      raw.symbols.reserve(count);
+      for (std::size_t i = 0; i < count; ++i) {
+        loader::Symbol sym;
+        sym.name = d.bytes();
+        sym.value = d.varint();
+        sym.size = d.varint();
+        const std::uint8_t type = d.u8();
+        if (type > static_cast<std::uint8_t>(loader::SymbolType::other)) throw DecodeError("unknown symbol type");
+        sym.type = static_cast<loader::SymbolType>(type);
+        const std::uint8_t bind = d.u8();
+        if ((bind & 0x7f) > static_cast<std::uint8_t>(loader::SymbolBind::other)) throw DecodeError("unknown symbol binding");
+        sym.bind = static_cast<loader::SymbolBind>(bind & 0x7f);
+        sym.defined = (bind & 0x80) != 0;
+        raw.symbols.push_back(std::move(sym));
+      }
     }
     s.raw = std::move(raw);
     if (!d.done()) s.container_path = d.bytes();

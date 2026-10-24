@@ -21,7 +21,10 @@ set(_archives)
 function(rk_typeinfo name target headers source)
   add_custom_command(
     OUTPUT ${_out}/${name}.h ${_out}/${name}.json
-    COMMAND rk-typeinfo --name ${name} --target ${target} --out ${_out} --headers ${headers} --source ${source} ${ARGN}
+    # The tsan preset's emulator (setarch -R): an instrumented rk-typeinfo
+    # stops with "unexpected memory mapping" under full ASLR, so the whole
+    # tree didn't build under TSan (bug scrub part 3). Empty otherwise.
+    COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} $<TARGET_FILE:rk-typeinfo> --name ${name} --target ${target} --out ${_out} --headers ${headers} --source ${source} ${ARGN}
     DEPENDS rk-typeinfo ${headers} ${_here}/extra-glibc.h ${_here}/extra-mingw.h
     COMMENT "Library type archive ${name}"
     VERBATIM)

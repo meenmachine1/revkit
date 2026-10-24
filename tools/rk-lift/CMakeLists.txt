@@ -36,4 +36,11 @@ if(REVKIT_BUILD_TESTS AND GHIDRA_ROOT)
               ${REVKIT_CLANG} ${REVKIT_LLD} ${REVKIT_OBJCOPY})
     set_tests_properties(rk_lift_raw_arm PROPERTIES SKIP_RETURN_CODE 77)
   endif()
+  if(REVKIT_CLANG AND REVKIT_LLD)
+    # Source shape: tests/data/shape on ARMv5TE, x86-64 and AArch64.
+    add_test(NAME rk_lift_source_shape
+      COMMAND ${CMAKE_CROSSCOMPILING_EMULATOR} sh ${CMAKE_CURRENT_SOURCE_DIR}/shape_smoke.sh $<TARGET_FILE:rk-lift> ${GHIDRA_ROOT}
+              ${CMAKE_CURRENT_BINARY_DIR}/smoke-shape ${PROJECT_SOURCE_DIR}/tests/data/shape ${REVKIT_CLANG} ${REVKIT_LLD})
+    set_tests_properties(rk_lift_source_shape PROPERTIES SKIP_RETURN_CODE 77)
+  endif()
 endif()

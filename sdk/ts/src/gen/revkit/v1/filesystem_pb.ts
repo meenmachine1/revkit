@@ -23,6 +23,8 @@ import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobu
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { AppleBundle, AppleBundleRef, InterfaceDocument, PlistValue, UiAction, UiOutlet } from "./apple_pb";
+import { file_revkit_v1_apple } from "./apple_pb";
 import type { Provenance, Snapshot } from "./common_pb";
 import { file_revkit_v1_common } from "./common_pb";
 import type { ImportOptions, MissingLibrary, ProgramInfo } from "./project_pb";
@@ -33,7 +35,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file revkit/v1/filesystem.proto.
  */
 export const file_revkit_v1_filesystem: GenFile = /*@__PURE__*/
-  fileDesc("ChpyZXZraXQvdjEvZmlsZXN5c3RlbS5wcm90bxIJcmV2a2l0LnYxIn4KEEZpbGVTeXN0ZW1MaW1pdHMSFgoObWF4X2ZpbGVfYnl0ZXMYASABKAQSFwoPbWF4X3RvdGFsX2J5dGVzGAIgASgEEhEKCW1heF9kZXB0aBgDIAEoDRITCgttYXhfZW50cmllcxgEIAEoDRIRCgltYXhfcmF0aW8YBSABKA0iwwEKFU9wZW5GaWxlU3lzdGVtUmVxdWVzdBISCgpwcm9qZWN0X2lkGAEgASgJEhMKCWhvc3RfcGF0aBgCIAEoCUgAEhQKCnByb2dyYW1faWQYAyABKAlIABITCgl1cGxvYWRfaWQYBCABKAlIABIRCgdjb250ZW50GAUgASgMSAASDAoEbmFtZRgGIAEoCRIrCgZsaW1pdHMYByABKAsyGy5yZXZraXQudjEuRmlsZVN5c3RlbUxpbWl0c0IICgZzb3VyY2UifQoPRmlsZVN5c3RlbUxheWVyEg4KBmZvcm1hdBgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRIQCgh3YXJuaW5ncxgDIAMoCRIMCgRwYXRoGAQgASgJEhYKDmNvbnRhaW5lcl9wYXRoGAUgASgJEg0KBWRlcHRoGAYgASgNIpEBChZPcGVuRmlsZVN5c3RlbVJlc3BvbnNlEhIKCnNlc3Npb25faWQYASABKAkSDAoEbmFtZRgCIAEoCRIoCgRyb290GAMgASgLMhoucmV2a2l0LnYxLkZpbGVTeXN0ZW1MYXllchIrCgZsaW1pdHMYBCABKAsyGy5yZXZraXQudjEuRmlsZVN5c3RlbUxpbWl0cyKzBAoPRmlsZVN5c3RlbUVudHJ5EgwKBG5hbWUYASABKAkSDAoEcGF0aBgCIAEoCRIsCgRraW5kGAMgASgOMh4ucmV2a2l0LnYxLkZpbGVTeXN0ZW1FbnRyeUtpbmQSDAoEc2l6ZRgEIAEoBBIUCgxzaXplX3Vua25vd24YBSABKAgSEwoLc3RvcmVkX3NpemUYBiABKAQSEwoLcGVybWlzc2lvbnMYByABKAkSDAoEbW9kZRgIIAEoDRIRCgloYXNfb3duZXIYCSABKAgSCwoDdWlkGAogASgNEgsKA2dpZBgLIAEoDRIsCghtb2RpZmllZBgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLbGlua190YXJnZXQYDSABKAkSEQoJbGlua19wYXRoGA4gASgJEgwKBG5vdGUYDyABKAkSEgoKdW5yZWFkYWJsZRgQIAEoCBIPCgdyZW5hbWVkGBEgASgIEhAKCGRldGVjdGVkGBIgASgJEhUKDWRldGVjdGVkX2tpbmQYEyABKAkSGAoQY29udGFpbmVyX2Zvcm1hdBgUIAEoCRIRCglwcm9jZXNzb3IYFSABKAkSEwoLY2hpbGRfY291bnQYFiABKA0SEwoLbGFuZ3VhZ2VfaWQYFyABKAkSFAoMbG9hZF9hZGRyZXNzGBggASgEEhgKEGhhc19sb2FkX2FkZHJlc3MYGSABKAgSFAoMY29udGVudF9raW5kGBogASgJInsKFUxpc3RGaWxlU3lzdGVtUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSDgoGZGV0ZWN0GAMgASgIEhEKCXJlY3Vyc2l2ZRgEIAEoCBIOCgZvZmZzZXQYBSABKA0SDQoFbGltaXQYBiABKA0iyQEKFkxpc3RGaWxlU3lzdGVtUmVzcG9uc2USKQoFbGF5ZXIYASABKAsyGi5yZXZraXQudjEuRmlsZVN5c3RlbUxheWVyEi0KCWRpcmVjdG9yeRgCIAEoCzIaLnJldmtpdC52MS5GaWxlU3lzdGVtRW50cnkSKwoHZW50cmllcxgDIAMoCzIaLnJldmtpdC52MS5GaWxlU3lzdGVtRW50cnkSDQoFdG90YWwYBCABKA0SGQoRZGV0ZWN0X2luY29tcGxldGUYBSABKAgiXQoZUmVhZEZpbGVTeXN0ZW1GaWxlUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSDgoGb2Zmc2V0GAMgASgEEg4KBmxlbmd0aBgEIAEoBCJFChpSZWFkRmlsZVN5c3RlbUZpbGVSZXNwb25zZRIMCgRkYXRhGAEgASgMEgwKBHNpemUYAiABKAQSCwoDZW9mGAMgASgIIlAKHEdldEZpbGVTeXN0ZW1GaWxlSW5mb1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEg4KBmhhc2hlcxgDIAEoCCL2AQodR2V0RmlsZVN5c3RlbUZpbGVJbmZvUmVzcG9uc2USKQoFZW50cnkYASABKAsyGi5yZXZraXQudjEuRmlsZVN5c3RlbUVudHJ5EhYKDmNvbnRhaW5lcl9wYXRoGAIgASgJEg4KBnNoYTI1NhgDIAEoCRIMCgRzaGExGAQgASgJEgsKA21kNRgFIAEoCRINCgVtYWdpYxgGIAEoDBItCgljb250YWluZXIYByABKAsyGi5yZXZraXQudjEuRmlsZVN5c3RlbUxheWVyEikKBWxheWVyGAggASgLMhoucmV2a2l0LnYxLkZpbGVTeXN0ZW1MYXllciLJAgobSW1wb3J0RnJvbUZpbGVTeXN0ZW1SZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSEgoKcHJvamVjdF9pZBgCIAEoCRIRCglmb2xkZXJfaWQYAyABKAkSDQoFcGF0aHMYBCADKAkSEQoJcmVjdXJzaXZlGAUgASgIEg8KB2Rlc2NlbmQYBiABKAgSFQoNcHJvZ3JhbXNfb25seRgHIAEoCBISCgpkZXRlY3RfcmF3GAggASgIEg8KB3ByZXZpZXcYCSABKAgSFAoMbWF4X3Byb2dyYW1zGAogASgNEikKB29wdGlvbnMYCyABKAsyGC5yZXZraXQudjEuSW1wb3J0T3B0aW9ucxIUCgxrZWVwX2ZvbGRlcnMYDCABKAgSKQoKcHJvdmVuYW5jZRgNIAEoCzIVLnJldmtpdC52MS5Qcm92ZW5hbmNlIs4BChBGaWxlU3lzdGVtSW1wb3J0EgwKBHBhdGgYASABKAkSFgoOY29udGFpbmVyX3BhdGgYAiABKAkSEAoIZGV0ZWN0ZWQYAyABKAkSDgoGYWN0aW9uGAQgASgJEg4KBnJlYXNvbhgFIAEoCRInCgdwcm9ncmFtGAYgASgLMhYucmV2a2l0LnYxLlByb2dyYW1JbmZvEhAKCHdhcm5pbmdzGAcgAygJEhMKC2xhbmd1YWdlX2lkGAggASgJEhIKCmxpYnJhcnlfb2YYCSABKAkihgIKHEltcG9ydEZyb21GaWxlU3lzdGVtUmVzcG9uc2USKgoFaXRlbXMYASADKAsyGy5yZXZraXQudjEuRmlsZVN5c3RlbUltcG9ydBIQCghpbXBvcnRlZBgCIAEoDRIPCgdza2lwcGVkGAMgASgNEg4KBmZhaWxlZBgEIAEoDRIOCgZjYXBwZWQYBSABKAgSJQoIc25hcHNob3QYBiABKAsyEy5yZXZraXQudjEuU25hcHNob3QSNgoTbGlicmFyaWVzX25vdF9mb3VuZBgHIAMoCzIZLnJldmtpdC52MS5NaXNzaW5nTGlicmFyeRIYChBsaWJyYXJ5X3dhcm5pbmdzGAggAygJImYKHEV4dHJhY3RGcm9tRmlsZVN5c3RlbVJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgVwYXRocxgCIAMoCRIQCghob3N0X2RpchgDIAEoCRIRCglvdmVyd3JpdGUYBCABKAgiXwodRXh0cmFjdEZyb21GaWxlU3lzdGVtUmVzcG9uc2USDQoFZmlsZXMYASABKA0SDQoFYnl0ZXMYAiABKAQSDwoHd3JpdHRlbhgDIAMoCRIPCgdza2lwcGVkGAQgAygJIiwKFkNsb3NlRmlsZVN5c3RlbVJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSIZChdDbG9zZUZpbGVTeXN0ZW1SZXNwb25zZSIYChZMaXN0RmlsZVN5c3RlbXNSZXF1ZXN0Iq8BChVPcGVuRmlsZVN5c3RlbVNlc3Npb24SEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEg4KBmZvcm1hdBgDIAEoCRISCgpwcm9qZWN0X2lkGAQgASgJEg0KBW93bmVyGAUgASgJEi0KCW9wZW5lZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKaGVsZF9ieXRlcxgHIAEoBCJNChdMaXN0RmlsZVN5c3RlbXNSZXNwb25zZRIyCghzZXNzaW9ucxgBIAMoCzIgLnJldmtpdC52MS5PcGVuRmlsZVN5c3RlbVNlc3Npb24qhAMKE0ZpbGVTeXN0ZW1FbnRyeUtpbmQSJgoiRklMRV9TWVNURU1fRU5UUllfS0lORF9VTlNQRUNJRklFRBAAEh8KG0ZJTEVfU1lTVEVNX0VOVFJZX0tJTkRfRklMRRABEiQKIEZJTEVfU1lTVEVNX0VOVFJZX0tJTkRfRElSRUNUT1JZEAISIgoeRklMRV9TWVNURU1fRU5UUllfS0lORF9TWU1MSU5LEAMSIwofRklMRV9TWVNURU1fRU5UUllfS0lORF9IQVJETElOSxAEEiYKIkZJTEVfU1lTVEVNX0VOVFJZX0tJTkRfQ0hBUl9ERVZJQ0UQBRInCiNGSUxFX1NZU1RFTV9FTlRSWV9LSU5EX0JMT0NLX0RFVklDRRAGEh8KG0ZJTEVfU1lTVEVNX0VOVFJZX0tJTkRfRklGTxAHEiEKHUZJTEVfU1lTVEVNX0VOVFJZX0tJTkRfU09DS0VUEAgSIAocRklMRV9TWVNURU1fRU5UUllfS0lORF9PVEhFUhAJMpkGChFGaWxlU3lzdGVtU2VydmljZRJVCg5PcGVuRmlsZVN5c3RlbRIgLnJldmtpdC52MS5PcGVuRmlsZVN5c3RlbVJlcXVlc3QaIS5yZXZraXQudjEuT3BlbkZpbGVTeXN0ZW1SZXNwb25zZRJVCg5MaXN0RmlsZVN5c3RlbRIgLnJldmtpdC52MS5MaXN0RmlsZVN5c3RlbVJlcXVlc3QaIS5yZXZraXQudjEuTGlzdEZpbGVTeXN0ZW1SZXNwb25zZRJhChJSZWFkRmlsZVN5c3RlbUZpbGUSJC5yZXZraXQudjEuUmVhZEZpbGVTeXN0ZW1GaWxlUmVxdWVzdBolLnJldmtpdC52MS5SZWFkRmlsZVN5c3RlbUZpbGVSZXNwb25zZRJqChVHZXRGaWxlU3lzdGVtRmlsZUluZm8SJy5yZXZraXQudjEuR2V0RmlsZVN5c3RlbUZpbGVJbmZvUmVxdWVzdBooLnJldmtpdC52MS5HZXRGaWxlU3lzdGVtRmlsZUluZm9SZXNwb25zZRJnChRJbXBvcnRGcm9tRmlsZVN5c3RlbRImLnJldmtpdC52MS5JbXBvcnRGcm9tRmlsZVN5c3RlbVJlcXVlc3QaJy5yZXZraXQudjEuSW1wb3J0RnJvbUZpbGVTeXN0ZW1SZXNwb25zZRJqChVFeHRyYWN0RnJvbUZpbGVTeXN0ZW0SJy5yZXZraXQudjEuRXh0cmFjdEZyb21GaWxlU3lzdGVtUmVxdWVzdBooLnJldmtpdC52MS5FeHRyYWN0RnJvbUZpbGVTeXN0ZW1SZXNwb25zZRJYCg9DbG9zZUZpbGVTeXN0ZW0SIS5yZXZraXQudjEuQ2xvc2VGaWxlU3lzdGVtUmVxdWVzdBoiLnJldmtpdC52MS5DbG9zZUZpbGVTeXN0ZW1SZXNwb25zZRJYCg9MaXN0RmlsZVN5c3RlbXMSIS5yZXZraXQudjEuTGlzdEZpbGVTeXN0ZW1zUmVxdWVzdBoiLnJldmtpdC52MS5MaXN0RmlsZVN5c3RlbXNSZXNwb25zZUI7ChFkZXYucmV2a2l0LmFwaS52MVABWiFyZXZraXQuZGV2L2FwaS9yZXZraXQvdjE7cmV2a2l0djH4AQFiBnByb3RvMw", [file_google_protobuf_timestamp, file_revkit_v1_common, file_revkit_v1_project]);
+  fileDesc("ChpyZXZraXQvdjEvZmlsZXN5c3RlbS5wcm90bxIJcmV2a2l0LnYxIn4KEEZpbGVTeXN0ZW1MaW1pdHMSFgoObWF4X2ZpbGVfYnl0ZXMYASABKAQSFwoPbWF4X3RvdGFsX2J5dGVzGAIgASgEEhEKCW1heF9kZXB0aBgDIAEoDRITCgttYXhfZW50cmllcxgEIAEoDRIRCgltYXhfcmF0aW8YBSABKA0iwwEKFU9wZW5GaWxlU3lzdGVtUmVxdWVzdBISCgpwcm9qZWN0X2lkGAEgASgJEhMKCWhvc3RfcGF0aBgCIAEoCUgAEhQKCnByb2dyYW1faWQYAyABKAlIABITCgl1cGxvYWRfaWQYBCABKAlIABIRCgdjb250ZW50GAUgASgMSAASDAoEbmFtZRgGIAEoCRIrCgZsaW1pdHMYByABKAsyGy5yZXZraXQudjEuRmlsZVN5c3RlbUxpbWl0c0IICgZzb3VyY2UifQoPRmlsZVN5c3RlbUxheWVyEg4KBmZvcm1hdBgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRIQCgh3YXJuaW5ncxgDIAMoCRIMCgRwYXRoGAQgASgJEhYKDmNvbnRhaW5lcl9wYXRoGAUgASgJEg0KBWRlcHRoGAYgASgNIpEBChZPcGVuRmlsZVN5c3RlbVJlc3BvbnNlEhIKCnNlc3Npb25faWQYASABKAkSDAoEbmFtZRgCIAEoCRIoCgRyb290GAMgASgLMhoucmV2a2l0LnYxLkZpbGVTeXN0ZW1MYXllchIrCgZsaW1pdHMYBCABKAsyGy5yZXZraXQudjEuRmlsZVN5c3RlbUxpbWl0cyLIBAoPRmlsZVN5c3RlbUVudHJ5EgwKBG5hbWUYASABKAkSDAoEcGF0aBgCIAEoCRIsCgRraW5kGAMgASgOMh4ucmV2a2l0LnYxLkZpbGVTeXN0ZW1FbnRyeUtpbmQSDAoEc2l6ZRgEIAEoBBIUCgxzaXplX3Vua25vd24YBSABKAgSEwoLc3RvcmVkX3NpemUYBiABKAQSEwoLcGVybWlzc2lvbnMYByABKAkSDAoEbW9kZRgIIAEoDRIRCgloYXNfb3duZXIYCSABKAgSCwoDdWlkGAogASgNEgsKA2dpZBgLIAEoDRIsCghtb2RpZmllZBgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLbGlua190YXJnZXQYDSABKAkSEQoJbGlua19wYXRoGA4gASgJEgwKBG5vdGUYDyABKAkSEgoKdW5yZWFkYWJsZRgQIAEoCBIPCgdyZW5hbWVkGBEgASgIEhAKCGRldGVjdGVkGBIgASgJEhUKDWRldGVjdGVkX2tpbmQYEyABKAkSGAoQY29udGFpbmVyX2Zvcm1hdBgUIAEoCRIRCglwcm9jZXNzb3IYFSABKAkSEwoLY2hpbGRfY291bnQYFiABKA0SEwoLbGFuZ3VhZ2VfaWQYFyABKAkSFAoMbG9hZF9hZGRyZXNzGBggASgEEhgKEGhhc19sb2FkX2FkZHJlc3MYGSABKAgSFAoMY29udGVudF9raW5kGBogASgJEhMKC2J1bmRsZV9raW5kGBsgASgJInsKFUxpc3RGaWxlU3lzdGVtUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSDgoGZGV0ZWN0GAMgASgIEhEKCXJlY3Vyc2l2ZRgEIAEoCBIOCgZvZmZzZXQYBSABKA0SDQoFbGltaXQYBiABKA0iyQEKFkxpc3RGaWxlU3lzdGVtUmVzcG9uc2USKQoFbGF5ZXIYASABKAsyGi5yZXZraXQudjEuRmlsZVN5c3RlbUxheWVyEi0KCWRpcmVjdG9yeRgCIAEoCzIaLnJldmtpdC52MS5GaWxlU3lzdGVtRW50cnkSKwoHZW50cmllcxgDIAMoCzIaLnJldmtpdC52MS5GaWxlU3lzdGVtRW50cnkSDQoFdG90YWwYBCABKA0SGQoRZGV0ZWN0X2luY29tcGxldGUYBSABKAgiXQoZUmVhZEZpbGVTeXN0ZW1GaWxlUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSDgoGb2Zmc2V0GAMgASgEEg4KBmxlbmd0aBgEIAEoBCJFChpSZWFkRmlsZVN5c3RlbUZpbGVSZXNwb25zZRIMCgRkYXRhGAEgASgMEgwKBHNpemUYAiABKAQSCwoDZW9mGAMgASgIIlAKHEdldEZpbGVTeXN0ZW1GaWxlSW5mb1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEg4KBmhhc2hlcxgDIAEoCCL2AQodR2V0RmlsZVN5c3RlbUZpbGVJbmZvUmVzcG9uc2USKQoFZW50cnkYASABKAsyGi5yZXZraXQudjEuRmlsZVN5c3RlbUVudHJ5EhYKDmNvbnRhaW5lcl9wYXRoGAIgASgJEg4KBnNoYTI1NhgDIAEoCRIMCgRzaGExGAQgASgJEgsKA21kNRgFIAEoCRINCgVtYWdpYxgGIAEoDBItCgljb250YWluZXIYByABKAsyGi5yZXZraXQudjEuRmlsZVN5c3RlbUxheWVyEikKBWxheWVyGAggASgLMhoucmV2a2l0LnYxLkZpbGVTeXN0ZW1MYXllciLJAgobSW1wb3J0RnJvbUZpbGVTeXN0ZW1SZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSEgoKcHJvamVjdF9pZBgCIAEoCRIRCglmb2xkZXJfaWQYAyABKAkSDQoFcGF0aHMYBCADKAkSEQoJcmVjdXJzaXZlGAUgASgIEg8KB2Rlc2NlbmQYBiABKAgSFQoNcHJvZ3JhbXNfb25seRgHIAEoCBISCgpkZXRlY3RfcmF3GAggASgIEg8KB3ByZXZpZXcYCSABKAgSFAoMbWF4X3Byb2dyYW1zGAogASgNEikKB29wdGlvbnMYCyABKAsyGC5yZXZraXQudjEuSW1wb3J0T3B0aW9ucxIUCgxrZWVwX2ZvbGRlcnMYDCABKAgSKQoKcHJvdmVuYW5jZRgNIAEoCzIVLnJldmtpdC52MS5Qcm92ZW5hbmNlIs4BChBGaWxlU3lzdGVtSW1wb3J0EgwKBHBhdGgYASABKAkSFgoOY29udGFpbmVyX3BhdGgYAiABKAkSEAoIZGV0ZWN0ZWQYAyABKAkSDgoGYWN0aW9uGAQgASgJEg4KBnJlYXNvbhgFIAEoCRInCgdwcm9ncmFtGAYgASgLMhYucmV2a2l0LnYxLlByb2dyYW1JbmZvEhAKCHdhcm5pbmdzGAcgAygJEhMKC2xhbmd1YWdlX2lkGAggASgJEhIKCmxpYnJhcnlfb2YYCSABKAkihgIKHEltcG9ydEZyb21GaWxlU3lzdGVtUmVzcG9uc2USKgoFaXRlbXMYASADKAsyGy5yZXZraXQudjEuRmlsZVN5c3RlbUltcG9ydBIQCghpbXBvcnRlZBgCIAEoDRIPCgdza2lwcGVkGAMgASgNEg4KBmZhaWxlZBgEIAEoDRIOCgZjYXBwZWQYBSABKAgSJQoIc25hcHNob3QYBiABKAsyEy5yZXZraXQudjEuU25hcHNob3QSNgoTbGlicmFyaWVzX25vdF9mb3VuZBgHIAMoCzIZLnJldmtpdC52MS5NaXNzaW5nTGlicmFyeRIYChBsaWJyYXJ5X3dhcm5pbmdzGAggAygJImYKHEV4dHJhY3RGcm9tRmlsZVN5c3RlbVJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgVwYXRocxgCIAMoCRIQCghob3N0X2RpchgDIAEoCRIRCglvdmVyd3JpdGUYBCABKAgiXwodRXh0cmFjdEZyb21GaWxlU3lzdGVtUmVzcG9uc2USDQoFZmlsZXMYASABKA0SDQoFYnl0ZXMYAiABKAQSDwoHd3JpdHRlbhgDIAMoCRIPCgdza2lwcGVkGAQgAygJIiwKFkNsb3NlRmlsZVN5c3RlbVJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCSIZChdDbG9zZUZpbGVTeXN0ZW1SZXNwb25zZSIYChZMaXN0RmlsZVN5c3RlbXNSZXF1ZXN0Iq8BChVPcGVuRmlsZVN5c3RlbVNlc3Npb24SEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEg4KBmZvcm1hdBgDIAEoCRISCgpwcm9qZWN0X2lkGAQgASgJEg0KBW93bmVyGAUgASgJEi0KCW9wZW5lZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEgoKaGVsZF9ieXRlcxgHIAEoBCJNChdMaXN0RmlsZVN5c3RlbXNSZXNwb25zZRIyCghzZXNzaW9ucxgBIAMoCzIgLnJldmtpdC52MS5PcGVuRmlsZVN5c3RlbVNlc3Npb24iYwoYR2V0QW5kcm9pZFBhY2thZ2VSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDAoEcGF0aBgCIAEoCRITCgtza2lwX25hdGl2ZRgDIAEoCBIQCghza2lwX2RleBgEIAEoCCKLAQoRQW5kcm9pZEludGVudERhdGESDgoGc2NoZW1lGAEgASgJEgwKBGhvc3QYAiABKAkSDAoEcG9ydBgDIAEoCRIMCgRwYXRoGAQgASgJEhMKC3BhdGhfcHJlZml4GAUgASgJEhQKDHBhdGhfcGF0dGVybhgGIAEoCRIRCgltaW1lX3R5cGUYByABKAkinwEKE0FuZHJvaWRJbnRlbnRGaWx0ZXISDwoHYWN0aW9ucxgBIAMoCRISCgpjYXRlZ29yaWVzGAIgAygJEioKBGRhdGEYAyADKAsyHC5yZXZraXQudjEuQW5kcm9pZEludGVudERhdGESFQoIcHJpb3JpdHkYBCABKAVIAIgBARITCgthdXRvX3ZlcmlmeRgFIAEoCEILCglfcHJpb3JpdHki7AIKEEFuZHJvaWRDb21wb25lbnQSDAoEa2luZBgBIAEoCRIMCgRuYW1lGAIgASgJEhAKCGV4cG9ydGVkGAMgASgIEhkKEWV4cG9ydGVkX2V4cGxpY2l0GAQgASgIEhQKB2VuYWJsZWQYBSABKAhIAIgBARISCgpwZXJtaXNzaW9uGAYgASgJEg8KB3Byb2Nlc3MYByABKAkSEwoLYXV0aG9yaXRpZXMYCCABKAkSFwoPcmVhZF9wZXJtaXNzaW9uGAkgASgJEhgKEHdyaXRlX3Blcm1pc3Npb24YCiABKAkSHQoVZ3JhbnRfdXJpX3Blcm1pc3Npb25zGAsgASgIEhcKD3RhcmdldF9hY3Rpdml0eRgMIAEoCRIQCghsYXVuY2hlchgNIAEoCBI2Cg5pbnRlbnRfZmlsdGVycxgOIAMoCzIeLnJldmtpdC52MS5BbmRyb2lkSW50ZW50RmlsdGVyQgoKCF9lbmFibGVkIl0KEUFuZHJvaWRQZXJtaXNzaW9uEgwKBG5hbWUYASABKAkSFAoHbWF4X3NkaxgCIAEoBUgAiAEBEhgKEHByb3RlY3Rpb25fbGV2ZWwYAyABKAlCCgoIX21heF9zZGsimAsKD0FuZHJvaWRNYW5pZmVzdBIPCgdwYWNrYWdlGAEgASgJEhkKDHZlcnNpb25fY29kZRgCIAEoA0gAiAEBEhQKDHZlcnNpb25fbmFtZRgDIAEoCRIUCgdtaW5fc2RrGAQgASgFSAGIAQESFwoKdGFyZ2V0X3NkaxgFIAEoBUgCiAEBEhQKB21heF9zZGsYBiABKAVIA4gBARIYCgtjb21waWxlX3NkaxgHIAEoBUgEiAEBEhwKFGNvbXBpbGVfc2RrX2NvZGVuYW1lGAggASgJEigKG3BsYXRmb3JtX2J1aWxkX3ZlcnNpb25fY29kZRgJIAEoBUgFiAEBEiMKG3BsYXRmb3JtX2J1aWxkX3ZlcnNpb25fbmFtZRgKIAEoCRIYChBpbnN0YWxsX2xvY2F0aW9uGAsgASgJEhYKDnNoYXJlZF91c2VyX2lkGAwgASgJEjYKEHVzZXNfcGVybWlzc2lvbnMYDSADKAsyHC5yZXZraXQudjEuQW5kcm9pZFBlcm1pc3Npb24SMQoLcGVybWlzc2lvbnMYDiADKAsyHC5yZXZraXQudjEuQW5kcm9pZFBlcm1pc3Npb24SFQoNdXNlc19mZWF0dXJlcxgPIAMoCRIWCg51c2VzX2xpYnJhcmllcxgQIAMoCRIYChBxdWVyaWVzX3BhY2thZ2VzGBEgAygJEhkKEWFwcGxpY2F0aW9uX2NsYXNzGBIgASgJEg0KBWxhYmVsGBMgASgJEgwKBGljb24YFCABKAkSDQoFdGhlbWUYFSABKAkSDwoHcHJvY2VzcxgWIAEoCRIdChVhcHBfY29tcG9uZW50X2ZhY3RvcnkYFyABKAkSFwoKZGVidWdnYWJsZRgYIAEoCEgGiAEBEhkKDGFsbG93X2JhY2t1cBgZIAEoCEgHiAEBEiMKFnVzZXNfY2xlYXJ0ZXh0X3RyYWZmaWMYGiABKAhICIgBARIgChNleHRyYWN0X25hdGl2ZV9saWJzGBsgASgISAmIAQESFgoJdGVzdF9vbmx5GBwgASgISAqIAQESFwoKbGFyZ2VfaGVhcBgdIAEoCEgLiAEBEhUKCGhhc19jb2RlGB4gASgISAyIAQESLAofcmVxdWVzdF9sZWdhY3lfZXh0ZXJuYWxfc3RvcmFnZRgfIAEoCEgNiAEBEh8KF25ldHdvcmtfc2VjdXJpdHlfY29uZmlnGCAgASgJEiQKHG5ldHdvcmtfc2VjdXJpdHlfY29uZmlnX2ZpbGUYISABKAkSGwoTZnVsbF9iYWNrdXBfY29udGVudBgiIAEoCRIdChVkYXRhX2V4dHJhY3Rpb25fcnVsZXMYIyABKAkSLwoKY29tcG9uZW50cxgkIAMoCzIbLnJldmtpdC52MS5BbmRyb2lkQ29tcG9uZW50EjsKCW1ldGFfZGF0YRglIAMoCzIoLnJldmtpdC52MS5BbmRyb2lkTWFuaWZlc3QuTWV0YURhdGFFbnRyeRovCg1NZXRhRGF0YUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCDwoNX3ZlcnNpb25fY29kZUIKCghfbWluX3Nka0INCgtfdGFyZ2V0X3Nka0IKCghfbWF4X3Nka0IOCgxfY29tcGlsZV9zZGtCHgocX3BsYXRmb3JtX2J1aWxkX3ZlcnNpb25fY29kZUINCgtfZGVidWdnYWJsZUIPCg1fYWxsb3dfYmFja3VwQhkKF191c2VzX2NsZWFydGV4dF90cmFmZmljQhYKFF9leHRyYWN0X25hdGl2ZV9saWJzQgwKCl90ZXN0X29ubHlCDQoLX2xhcmdlX2hlYXBCCwoJX2hhc19jb2RlQiIKIF9yZXF1ZXN0X2xlZ2FjeV9leHRlcm5hbF9zdG9yYWdlImgKGkFuZHJvaWRSZXNvdXJjZVR5cGVTdW1tYXJ5EgwKBG5hbWUYASABKAkSCgoCaWQYAiABKA0SDwoHZW50cmllcxgDIAEoDRIOCgZ2YWx1ZXMYBCABKA0SDwoHY29uZmlncxgFIAMoCSJoChZBbmRyb2lkUmVzb3VyY2VQYWNrYWdlEgoKAmlkGAEgASgNEgwKBG5hbWUYAiABKAkSNAoFdHlwZXMYAyADKAsyJS5yZXZraXQudjEuQW5kcm9pZFJlc291cmNlVHlwZVN1bW1hcnkikgEKF0FuZHJvaWRSZXNvdXJjZXNTdW1tYXJ5Eg8KB3ByZXNlbnQYASABKAgSMwoIcGFja2FnZXMYAiADKAsyIS5yZXZraXQudjEuQW5kcm9pZFJlc291cmNlUGFja2FnZRIPCgdzdHJpbmdzGAMgASgNEg4KBnZhbHVlcxgEIAEoDRIQCgh3YXJuaW5ncxgFIAMoCSLqAQoUQW5kcm9pZE5hdGl2ZUxpYnJhcnkSCwoDYWJpGAEgASgJEgwKBHBhdGgYAiABKAkSDAoEbmFtZRgDIAEoCRIMCgRzaXplGAQgASgEEg8KB21hY2hpbmUYBSABKAkSDgoGc29uYW1lGAYgASgJEhAKCGJ1aWxkX2lkGAcgASgJEg4KBm5lZWRlZBgIIAMoCRIPCgdleHBvcnRzGAkgASgNEhMKC2puaV9leHBvcnRzGAogAygJEhIKCmpuaV9vbmxvYWQYCyABKAgSDwoHZmx1dHRlchgMIAEoCRINCgVlcnJvchgNIAEoCSKJAQoOQW5kcm9pZERleEZpbGUSDAoEcGF0aBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgJEg8KB3N0cmluZ3MYAyABKA0SDQoFdHlwZXMYBCABKA0SDwoHbWV0aG9kcxgFIAEoDRIPCgdjbGFzc2VzGAYgASgNEhYKDm5hdGl2ZV9tZXRob2RzGAcgASgNIqgBChNBbmRyb2lkTmF0aXZlTWV0aG9kEhIKCmNsYXNzX25hbWUYASABKAkSDgoGbWV0aG9kGAIgASgJEhEKCXNpZ25hdHVyZRgDIAEoCRIRCglpc19zdGF0aWMYBCABKAgSCwoDZGV4GAUgASgJEhAKCGpuaV9uYW1lGAYgASgJEhUKDWpuaV9sb25nX25hbWUYByABKAkSEQoJbGlicmFyaWVzGAggAygJIqkBChNBbmRyb2lkRGFydFNuYXBzaG90Eg4KBnN5bWJvbBgBIAEoCRITCgtmaWxlX29mZnNldBgCIAEoBBIMCgRzaXplGAMgASgEEg4KBmhlYWRlchgEIAEoCBIOCgZsZW5ndGgYBSABKAQSDAoEa2luZBgGIAEoBBIRCglraW5kX25hbWUYByABKAkSDAoEaGFzaBgIIAEoCRIQCghmZWF0dXJlcxgJIAEoCSKNAgoRQW5kcm9pZEZsdXR0ZXJBYmkSCwoDYWJpGAEgASgJEg4KBmxpYmFwcBgCIAEoCRISCgpsaWJmbHV0dGVyGAMgASgJEhUKDXNuYXBzaG90X2hhc2gYBCABKAkSFwoPaGFzaF9jYW5kaWRhdGVzGAUgAygJEhAKCGZlYXR1cmVzGAYgASgJEjEKCXNuYXBzaG90cxgHIAMoCzIeLnJldmtpdC52MS5BbmRyb2lkRGFydFNuYXBzaG90EhcKD2VuZ2luZV9idWlsZF9pZBgIIAEoCRIUCgxkYXJ0X3ZlcnNpb24YCSABKAkSEQoJdG9vbGNoYWluGAogAygJEhAKCHdhcm5pbmdzGAsgAygJImUKDkFuZHJvaWRGbHV0dGVyEhAKCGRldGVjdGVkGAEgASgIEhUKDXNuYXBzaG90X2hhc2gYAiABKAkSKgoEYWJpcxgDIAMoCzIcLnJldmtpdC52MS5BbmRyb2lkRmx1dHRlckFiaSLXAwoOQW5kcm9pZFBhY2thZ2USDAoEcGF0aBgBIAEoCRIWCg5jb250YWluZXJfcGF0aBgCIAEoCRIYChBtYW5pZmVzdF9wcmVzZW50GAMgASgIEiwKCG1hbmlmZXN0GAQgASgLMhoucmV2a2l0LnYxLkFuZHJvaWRNYW5pZmVzdBIUCgxtYW5pZmVzdF94bWwYBSABKAkSHQoVbWFuaWZlc3RfeG1sX3Jlc29sdmVkGAYgASgJEjUKCXJlc291cmNlcxgHIAEoCzIiLnJldmtpdC52MS5BbmRyb2lkUmVzb3VyY2VzU3VtbWFyeRIMCgRhYmlzGAggAygJEjkKEG5hdGl2ZV9saWJyYXJpZXMYCSADKAsyHy5yZXZraXQudjEuQW5kcm9pZE5hdGl2ZUxpYnJhcnkSLAoJZGV4X2ZpbGVzGAogAygLMhkucmV2a2l0LnYxLkFuZHJvaWREZXhGaWxlEjYKDm5hdGl2ZV9tZXRob2RzGAsgAygLMh4ucmV2a2l0LnYxLkFuZHJvaWROYXRpdmVNZXRob2QSKgoHZmx1dHRlchgMIAEoCzIZLnJldmtpdC52MS5BbmRyb2lkRmx1dHRlchIQCgh3YXJuaW5ncxgNIAMoCSJHChlHZXRBbmRyb2lkUGFja2FnZVJlc3BvbnNlEioKB3BhY2thZ2UYASABKAsyGS5yZXZraXQudjEuQW5kcm9pZFBhY2thZ2UiTAoXRGVjb2RlQW5kcm9pZFhtbFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEg8KB3Jlc29sdmUYAyABKAgiRwoYRGVjb2RlQW5kcm9pZFhtbFJlc3BvbnNlEgsKA3htbBgBIAEoCRIMCgRyb290GAIgASgJEhAKCHdhcm5pbmdzGAMgAygJIosBChtMaXN0QW5kcm9pZFJlc291cmNlc1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEgwKBHR5cGUYAyABKAkSDgoGY29uZmlnGAQgASgJEg0KBXF1ZXJ5GAUgASgJEg4KBm9mZnNldBgGIAEoDRINCgVsaW1pdBgHIAEoDSKwAQoUQW5kcm9pZFJlc291cmNlRW50cnkSCgoCaWQYASABKA0SDAoEbmFtZRgCIAEoCRIMCgR0eXBlGAMgASgJEgsKA2tleRgEIAEoCRIOCgZjb25maWcYBSABKAkSDQoFdmFsdWUYBiABKAkSEgoKdmFsdWVfdHlwZRgHIAEoCRIRCglyZWZlcmVuY2UYCCABKAkSDQoFaXRlbXMYCSADKAkSDgoGcGFyZW50GAogASgJIn8KHExpc3RBbmRyb2lkUmVzb3VyY2VzUmVzcG9uc2USMAoHZW50cmllcxgBIAMoCzIfLnJldmtpdC52MS5BbmRyb2lkUmVzb3VyY2VFbnRyeRINCgV0b3RhbBgCIAEoDRINCgV0eXBlcxgDIAMoCRIPCgdjb25maWdzGAQgAygJIlIKFUdldEFwcGxlQnVuZGxlUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSFwoPc2tpcF9pbmZvX3BsaXN0GAMgASgIImkKFkdldEFwcGxlQnVuZGxlUmVzcG9uc2USJgoGYnVuZGxlGAEgASgLMhYucmV2a2l0LnYxLkFwcGxlQnVuZGxlEicKBGFwcHMYAiADKAsyGS5yZXZraXQudjEuQXBwbGVCdW5kbGVSZWYihgEKF1JlYWRQcm9wZXJ0eUxpc3RSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDAoEcGF0aBgCIAEoCRISCgptYXhfdmFsdWVzGAMgASgNEhYKDm1heF9kYXRhX2J5dGVzGAQgASgNEh0KFXJlc29sdmVfa2V5ZWRfYXJjaGl2ZRgFIAEoCCKbAQoYUmVhZFByb3BlcnR5TGlzdFJlc3BvbnNlEg4KBmZvcm1hdBgBIAEoCRIjCgRyb290GAIgASgLMhUucmV2a2l0LnYxLlBsaXN0VmFsdWUSEQoJdHJ1bmNhdGVkGAMgASgIEg4KBnZhbHVlcxgEIAEoBBIVCg1rZXllZF9hcmNoaXZlGAUgASgIEhAKCHdhcm5pbmdzGAYgAygJImcKFExpc3RVaUFjdGlvbnNSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSDAoEcGF0aBgCIAEoCRISCgpwcm9ncmFtX2lkGAMgASgJEhkKEWluY2x1ZGVfZG9jdW1lbnRzGAQgASgIIroBChVMaXN0VWlBY3Rpb25zUmVzcG9uc2USJAoHYWN0aW9ucxgBIAMoCzITLnJldmtpdC52MS5VaUFjdGlvbhIkCgdvdXRsZXRzGAIgAygLMhMucmV2a2l0LnYxLlVpT3V0bGV0Ei8KCWRvY3VtZW50cxgDIAMoCzIcLnJldmtpdC52MS5JbnRlcmZhY2VEb2N1bWVudBISCgpwcm9ncmFtX2lkGAQgASgJEhAKCHdhcm5pbmdzGAUgAygJKoQDChNGaWxlU3lzdGVtRW50cnlLaW5kEiYKIkZJTEVfU1lTVEVNX0VOVFJZX0tJTkRfVU5TUEVDSUZJRUQQABIfChtGSUxFX1NZU1RFTV9FTlRSWV9LSU5EX0ZJTEUQARIkCiBGSUxFX1NZU1RFTV9FTlRSWV9LSU5EX0RJUkVDVE9SWRACEiIKHkZJTEVfU1lTVEVNX0VOVFJZX0tJTkRfU1lNTElOSxADEiMKH0ZJTEVfU1lTVEVNX0VOVFJZX0tJTkRfSEFSRExJTksQBBImCiJGSUxFX1NZU1RFTV9FTlRSWV9LSU5EX0NIQVJfREVWSUNFEAUSJwojRklMRV9TWVNURU1fRU5UUllfS0lORF9CTE9DS19ERVZJQ0UQBhIfChtGSUxFX1NZU1RFTV9FTlRSWV9LSU5EX0ZJRk8QBxIhCh1GSUxFX1NZU1RFTV9FTlRSWV9LSU5EX1NPQ0tFVBAIEiAKHEZJTEVfU1lTVEVNX0VOVFJZX0tJTkRfT1RIRVIQCTLHCgoRRmlsZVN5c3RlbVNlcnZpY2USVQoOT3BlbkZpbGVTeXN0ZW0SIC5yZXZraXQudjEuT3BlbkZpbGVTeXN0ZW1SZXF1ZXN0GiEucmV2a2l0LnYxLk9wZW5GaWxlU3lzdGVtUmVzcG9uc2USVQoOTGlzdEZpbGVTeXN0ZW0SIC5yZXZraXQudjEuTGlzdEZpbGVTeXN0ZW1SZXF1ZXN0GiEucmV2a2l0LnYxLkxpc3RGaWxlU3lzdGVtUmVzcG9uc2USYQoSUmVhZEZpbGVTeXN0ZW1GaWxlEiQucmV2a2l0LnYxLlJlYWRGaWxlU3lzdGVtRmlsZVJlcXVlc3QaJS5yZXZraXQudjEuUmVhZEZpbGVTeXN0ZW1GaWxlUmVzcG9uc2USagoVR2V0RmlsZVN5c3RlbUZpbGVJbmZvEicucmV2a2l0LnYxLkdldEZpbGVTeXN0ZW1GaWxlSW5mb1JlcXVlc3QaKC5yZXZraXQudjEuR2V0RmlsZVN5c3RlbUZpbGVJbmZvUmVzcG9uc2USZwoUSW1wb3J0RnJvbUZpbGVTeXN0ZW0SJi5yZXZraXQudjEuSW1wb3J0RnJvbUZpbGVTeXN0ZW1SZXF1ZXN0GicucmV2a2l0LnYxLkltcG9ydEZyb21GaWxlU3lzdGVtUmVzcG9uc2USagoVRXh0cmFjdEZyb21GaWxlU3lzdGVtEicucmV2a2l0LnYxLkV4dHJhY3RGcm9tRmlsZVN5c3RlbVJlcXVlc3QaKC5yZXZraXQudjEuRXh0cmFjdEZyb21GaWxlU3lzdGVtUmVzcG9uc2USWAoPQ2xvc2VGaWxlU3lzdGVtEiEucmV2a2l0LnYxLkNsb3NlRmlsZVN5c3RlbVJlcXVlc3QaIi5yZXZraXQudjEuQ2xvc2VGaWxlU3lzdGVtUmVzcG9uc2USWAoPTGlzdEZpbGVTeXN0ZW1zEiEucmV2a2l0LnYxLkxpc3RGaWxlU3lzdGVtc1JlcXVlc3QaIi5yZXZraXQudjEuTGlzdEZpbGVTeXN0ZW1zUmVzcG9uc2USXgoRR2V0QW5kcm9pZFBhY2thZ2USIy5yZXZraXQudjEuR2V0QW5kcm9pZFBhY2thZ2VSZXF1ZXN0GiQucmV2a2l0LnYxLkdldEFuZHJvaWRQYWNrYWdlUmVzcG9uc2USWwoQRGVjb2RlQW5kcm9pZFhtbBIiLnJldmtpdC52MS5EZWNvZGVBbmRyb2lkWG1sUmVxdWVzdBojLnJldmtpdC52MS5EZWNvZGVBbmRyb2lkWG1sUmVzcG9uc2USZwoUTGlzdEFuZHJvaWRSZXNvdXJjZXMSJi5yZXZraXQudjEuTGlzdEFuZHJvaWRSZXNvdXJjZXNSZXF1ZXN0GicucmV2a2l0LnYxLkxpc3RBbmRyb2lkUmVzb3VyY2VzUmVzcG9uc2USVQoOR2V0QXBwbGVCdW5kbGUSIC5yZXZraXQudjEuR2V0QXBwbGVCdW5kbGVSZXF1ZXN0GiEucmV2a2l0LnYxLkdldEFwcGxlQnVuZGxlUmVzcG9uc2USWwoQUmVhZFByb3BlcnR5TGlzdBIiLnJldmtpdC52MS5SZWFkUHJvcGVydHlMaXN0UmVxdWVzdBojLnJldmtpdC52MS5SZWFkUHJvcGVydHlMaXN0UmVzcG9uc2USUgoNTGlzdFVpQWN0aW9ucxIfLnJldmtpdC52MS5MaXN0VWlBY3Rpb25zUmVxdWVzdBogLnJldmtpdC52MS5MaXN0VWlBY3Rpb25zUmVzcG9uc2VCOwoRZGV2LnJldmtpdC5hcGkudjFQAVohcmV2a2l0LmRldi9hcGkvcmV2a2l0L3YxO3JldmtpdHYx+AEBYgZwcm90bzM", [file_google_protobuf_timestamp, file_revkit_v1_apple, file_revkit_v1_common, file_revkit_v1_project]);
 
 /**
  * The limits a session reads with. A request may lower the daemon's
@@ -422,11 +424,25 @@ export type FileSystemEntry = Message<"revkit.v1.FileSystemEntry"> & {
    * "python-source", ...; the full list is in docs/filesystems.md
    * ("Content kinds"). From the file's own header when it has one (set with
    * detect), else from its container (an asar's "js-source" members; set in
-   * every listing). Empty for native programs and plain data.
+   * every listing). Empty for native programs and plain data. Apple's
+   * formats (api_minor 100): "plist:xml", "plist:binary", "keyed-archive"
+   * (an NSKeyedArchiver plist), "nib:archive" (a NIBArchive), "nib:keyed"
+   * (a keyed-archive nib), "mobileprovision", "ipa".
    *
    * @generated from field: string content_kind = 26;
    */
   contentKind: string;
+
+  /**
+   * A directory that is an Apple bundle (api_minor 100, feature
+   * "apple-bundles"): its kind from its name ("app", "framework",
+   * "appex", "bundle", "xpc", "plugin", "kext", "storyboardc", ...), set
+   * when it holds what a bundle does (an Info.plist, Contents/,
+   * Versions/ or Resources/). GetAppleBundle describes it.
+   *
+   * @generated from field: string bundle_kind = 27;
+   */
+  bundleKind: string;
 };
 
 /**
@@ -1099,6 +1115,1524 @@ export const ListFileSystemsResponseSchema: GenMessage<ListFileSystemsResponse> 
   messageDesc(file_revkit_v1_filesystem, 20);
 
 /**
+ * @generated from message revkit.v1.GetAndroidPackageRequest
+ */
+export type GetAndroidPackageRequest = Message<"revkit.v1.GetAndroidPackageRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * The APK: a file in the session (its zip is opened), or any path inside
+   * an APK's layer; "" or "/": the outermost container.
+   *
+   * @generated from field: string path = 2;
+   */
+  path: string;
+
+  /**
+   * Leave out the native libraries (no ELF read: no exports, no Flutter
+   * hash) or the DEX files (no native methods). Both are read by default.
+   *
+   * @generated from field: bool skip_native = 3;
+   */
+  skipNative: boolean;
+
+  /**
+   * @generated from field: bool skip_dex = 4;
+   */
+  skipDex: boolean;
+};
+
+/**
+ * Describes the message revkit.v1.GetAndroidPackageRequest.
+ * Use `create(GetAndroidPackageRequestSchema)` to create a new message.
+ */
+export const GetAndroidPackageRequestSchema: GenMessage<GetAndroidPackageRequest> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 21);
+
+/**
+ * @generated from message revkit.v1.AndroidIntentData
+ */
+export type AndroidIntentData = Message<"revkit.v1.AndroidIntentData"> & {
+  /**
+   * @generated from field: string scheme = 1;
+   */
+  scheme: string;
+
+  /**
+   * @generated from field: string host = 2;
+   */
+  host: string;
+
+  /**
+   * @generated from field: string port = 3;
+   */
+  port: string;
+
+  /**
+   * @generated from field: string path = 4;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string path_prefix = 5;
+   */
+  pathPrefix: string;
+
+  /**
+   * @generated from field: string path_pattern = 6;
+   */
+  pathPattern: string;
+
+  /**
+   * @generated from field: string mime_type = 7;
+   */
+  mimeType: string;
+};
+
+/**
+ * Describes the message revkit.v1.AndroidIntentData.
+ * Use `create(AndroidIntentDataSchema)` to create a new message.
+ */
+export const AndroidIntentDataSchema: GenMessage<AndroidIntentData> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 22);
+
+/**
+ * @generated from message revkit.v1.AndroidIntentFilter
+ */
+export type AndroidIntentFilter = Message<"revkit.v1.AndroidIntentFilter"> & {
+  /**
+   * @generated from field: repeated string actions = 1;
+   */
+  actions: string[];
+
+  /**
+   * @generated from field: repeated string categories = 2;
+   */
+  categories: string[];
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidIntentData data = 3;
+   */
+  data: AndroidIntentData[];
+
+  /**
+   * @generated from field: optional int32 priority = 4;
+   */
+  priority?: number | undefined;
+
+  /**
+   * @generated from field: bool auto_verify = 5;
+   */
+  autoVerify: boolean;
+};
+
+/**
+ * Describes the message revkit.v1.AndroidIntentFilter.
+ * Use `create(AndroidIntentFilterSchema)` to create a new message.
+ */
+export const AndroidIntentFilterSchema: GenMessage<AndroidIntentFilter> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 23);
+
+/**
+ * @generated from message revkit.v1.AndroidComponent
+ */
+export type AndroidComponent = Message<"revkit.v1.AndroidComponent"> & {
+  /**
+   * "activity", "activity-alias", "service", "receiver", "provider"
+   *
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * Fully qualified ("com.example.MainActivity").
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * What Android decides: android:exported when given, else true when the
+   * component has an intent filter (a provider: when targetSdk < 17).
+   *
+   * @generated from field: bool exported = 3;
+   */
+  exported: boolean;
+
+  /**
+   * android:exported is in the manifest.
+   *
+   * @generated from field: bool exported_explicit = 4;
+   */
+  exportedExplicit: boolean;
+
+  /**
+   * @generated from field: optional bool enabled = 5;
+   */
+  enabled?: boolean | undefined;
+
+  /**
+   * @generated from field: string permission = 6;
+   */
+  permission: string;
+
+  /**
+   * @generated from field: string process = 7;
+   */
+  process: string;
+
+  /**
+   * Providers.
+   *
+   * @generated from field: string authorities = 8;
+   */
+  authorities: string;
+
+  /**
+   * @generated from field: string read_permission = 9;
+   */
+  readPermission: string;
+
+  /**
+   * @generated from field: string write_permission = 10;
+   */
+  writePermission: string;
+
+  /**
+   * @generated from field: bool grant_uri_permissions = 11;
+   */
+  grantUriPermissions: boolean;
+
+  /**
+   * An activity-alias's target.
+   *
+   * @generated from field: string target_activity = 12;
+   */
+  targetActivity: string;
+
+  /**
+   * An intent filter with MAIN and LAUNCHER.
+   *
+   * @generated from field: bool launcher = 13;
+   */
+  launcher: boolean;
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidIntentFilter intent_filters = 14;
+   */
+  intentFilters: AndroidIntentFilter[];
+};
+
+/**
+ * Describes the message revkit.v1.AndroidComponent.
+ * Use `create(AndroidComponentSchema)` to create a new message.
+ */
+export const AndroidComponentSchema: GenMessage<AndroidComponent> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 24);
+
+/**
+ * @generated from message revkit.v1.AndroidPermission
+ */
+export type AndroidPermission = Message<"revkit.v1.AndroidPermission"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: optional int32 max_sdk = 2;
+   */
+  maxSdk?: number | undefined;
+
+  /**
+   * A declared permission's ("signature", "dangerous|privileged").
+   *
+   * @generated from field: string protection_level = 3;
+   */
+  protectionLevel: string;
+};
+
+/**
+ * Describes the message revkit.v1.AndroidPermission.
+ * Use `create(AndroidPermissionSchema)` to create a new message.
+ */
+export const AndroidPermissionSchema: GenMessage<AndroidPermission> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 25);
+
+/**
+ * @generated from message revkit.v1.AndroidManifest
+ */
+export type AndroidManifest = Message<"revkit.v1.AndroidManifest"> & {
+  /**
+   * @generated from field: string package = 1;
+   */
+  package: string;
+
+  /**
+   * versionCode, with versionCodeMajor in the high 32 bits.
+   *
+   * @generated from field: optional int64 version_code = 2;
+   */
+  versionCode?: bigint | undefined;
+
+  /**
+   * @generated from field: string version_name = 3;
+   */
+  versionName: string;
+
+  /**
+   * @generated from field: optional int32 min_sdk = 4;
+   */
+  minSdk?: number | undefined;
+
+  /**
+   * @generated from field: optional int32 target_sdk = 5;
+   */
+  targetSdk?: number | undefined;
+
+  /**
+   * @generated from field: optional int32 max_sdk = 6;
+   */
+  maxSdk?: number | undefined;
+
+  /**
+   * @generated from field: optional int32 compile_sdk = 7;
+   */
+  compileSdk?: number | undefined;
+
+  /**
+   * @generated from field: string compile_sdk_codename = 8;
+   */
+  compileSdkCodename: string;
+
+  /**
+   * @generated from field: optional int32 platform_build_version_code = 9;
+   */
+  platformBuildVersionCode?: number | undefined;
+
+  /**
+   * @generated from field: string platform_build_version_name = 10;
+   */
+  platformBuildVersionName: string;
+
+  /**
+   * @generated from field: string install_location = 11;
+   */
+  installLocation: string;
+
+  /**
+   * @generated from field: string shared_user_id = 12;
+   */
+  sharedUserId: string;
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidPermission uses_permissions = 13;
+   */
+  usesPermissions: AndroidPermission[];
+
+  /**
+   * Declared by the package.
+   *
+   * @generated from field: repeated revkit.v1.AndroidPermission permissions = 14;
+   */
+  permissions: AndroidPermission[];
+
+  /**
+   * @generated from field: repeated string uses_features = 15;
+   */
+  usesFeatures: string[];
+
+  /**
+   * @generated from field: repeated string uses_libraries = 16;
+   */
+  usesLibraries: string[];
+
+  /**
+   * @generated from field: repeated string queries_packages = 17;
+   */
+  queriesPackages: string[];
+
+  /**
+   * <application>: the class (fully qualified, "" when none), and the
+   * label, icon and theme (a string's text, or "@type/name").
+   *
+   * @generated from field: string application_class = 18;
+   */
+  applicationClass: string;
+
+  /**
+   * @generated from field: string label = 19;
+   */
+  label: string;
+
+  /**
+   * @generated from field: string icon = 20;
+   */
+  icon: string;
+
+  /**
+   * @generated from field: string theme = 21;
+   */
+  theme: string;
+
+  /**
+   * @generated from field: string process = 22;
+   */
+  process: string;
+
+  /**
+   * @generated from field: string app_component_factory = 23;
+   */
+  appComponentFactory: string;
+
+  /**
+   * Unset: the manifest doesn't say (Android's default applies:
+   * debuggable false, allowBackup true, usesCleartextTraffic true below
+   * API 28 and false from it).
+   *
+   * @generated from field: optional bool debuggable = 24;
+   */
+  debuggable?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool allow_backup = 25;
+   */
+  allowBackup?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool uses_cleartext_traffic = 26;
+   */
+  usesCleartextTraffic?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool extract_native_libs = 27;
+   */
+  extractNativeLibs?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool test_only = 28;
+   */
+  testOnly?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool large_heap = 29;
+   */
+  largeHeap?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool has_code = 30;
+   */
+  hasCode?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool request_legacy_external_storage = 31;
+   */
+  requestLegacyExternalStorage?: boolean | undefined;
+
+  /**
+   * "@xml/network_security_config", and its file ("res/xml/...xml"):
+   * DecodeAndroidXml shows it.
+   *
+   * @generated from field: string network_security_config = 32;
+   */
+  networkSecurityConfig: string;
+
+  /**
+   * @generated from field: string network_security_config_file = 33;
+   */
+  networkSecurityConfigFile: string;
+
+  /**
+   * @generated from field: string full_backup_content = 34;
+   */
+  fullBackupContent: string;
+
+  /**
+   * @generated from field: string data_extraction_rules = 35;
+   */
+  dataExtractionRules: string;
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidComponent components = 36;
+   */
+  components: AndroidComponent[];
+
+  /**
+   * <application>'s <meta-data>: name and value.
+   *
+   * @generated from field: map<string, string> meta_data = 37;
+   */
+  metaData: { [key: string]: string };
+};
+
+/**
+ * Describes the message revkit.v1.AndroidManifest.
+ * Use `create(AndroidManifestSchema)` to create a new message.
+ */
+export const AndroidManifestSchema: GenMessage<AndroidManifest> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 26);
+
+/**
+ * @generated from message revkit.v1.AndroidResourceTypeSummary
+ */
+export type AndroidResourceTypeSummary = Message<"revkit.v1.AndroidResourceTypeSummary"> & {
+  /**
+   * "string", "drawable", ...
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: uint32 id = 2;
+   */
+  id: number;
+
+  /**
+   * distinct ids
+   *
+   * @generated from field: uint32 entries = 3;
+   */
+  entries: number;
+
+  /**
+   * across every configuration
+   *
+   * @generated from field: uint32 values = 4;
+   */
+  values: number;
+
+  /**
+   * "" is the default
+   *
+   * @generated from field: repeated string configs = 5;
+   */
+  configs: string[];
+};
+
+/**
+ * Describes the message revkit.v1.AndroidResourceTypeSummary.
+ * Use `create(AndroidResourceTypeSummarySchema)` to create a new message.
+ */
+export const AndroidResourceTypeSummarySchema: GenMessage<AndroidResourceTypeSummary> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 27);
+
+/**
+ * @generated from message revkit.v1.AndroidResourcePackage
+ */
+export type AndroidResourcePackage = Message<"revkit.v1.AndroidResourcePackage"> & {
+  /**
+   * 0x7f for the app
+   *
+   * @generated from field: uint32 id = 1;
+   */
+  id: number;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidResourceTypeSummary types = 3;
+   */
+  types: AndroidResourceTypeSummary[];
+};
+
+/**
+ * Describes the message revkit.v1.AndroidResourcePackage.
+ * Use `create(AndroidResourcePackageSchema)` to create a new message.
+ */
+export const AndroidResourcePackageSchema: GenMessage<AndroidResourcePackage> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 28);
+
+/**
+ * @generated from message revkit.v1.AndroidResourcesSummary
+ */
+export type AndroidResourcesSummary = Message<"revkit.v1.AndroidResourcesSummary"> & {
+  /**
+   * the package has a resources.arsc
+   *
+   * @generated from field: bool present = 1;
+   */
+  present: boolean;
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidResourcePackage packages = 2;
+   */
+  packages: AndroidResourcePackage[];
+
+  /**
+   * the global string pool's
+   *
+   * @generated from field: uint32 strings = 3;
+   */
+  strings: number;
+
+  /**
+   * @generated from field: uint32 values = 4;
+   */
+  values: number;
+
+  /**
+   * @generated from field: repeated string warnings = 5;
+   */
+  warnings: string[];
+};
+
+/**
+ * Describes the message revkit.v1.AndroidResourcesSummary.
+ * Use `create(AndroidResourcesSummarySchema)` to create a new message.
+ */
+export const AndroidResourcesSummarySchema: GenMessage<AndroidResourcesSummary> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 29);
+
+/**
+ * @generated from message revkit.v1.AndroidNativeLibrary
+ */
+export type AndroidNativeLibrary = Message<"revkit.v1.AndroidNativeLibrary"> & {
+  /**
+   * the directory: "arm64-v8a"
+   *
+   * @generated from field: string abi = 1;
+   */
+  abi: string;
+
+  /**
+   * session path ("/app.apk!/lib/arm64-v8a/libfoo.so"): import it, open it
+   *
+   * @generated from field: string path = 2;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string name = 3;
+   */
+  name: string;
+
+  /**
+   * @generated from field: uint64 size = 4;
+   */
+  size: bigint;
+
+  /**
+   * from its header: "AArch64"
+   *
+   * @generated from field: string machine = 5;
+   */
+  machine: string;
+
+  /**
+   * @generated from field: string soname = 6;
+   */
+  soname: string;
+
+  /**
+   * @generated from field: string build_id = 7;
+   */
+  buildId: string;
+
+  /**
+   * @generated from field: repeated string needed = 8;
+   */
+  needed: string[];
+
+  /**
+   * @generated from field: uint32 exports = 9;
+   */
+  exports: number;
+
+  /**
+   * Java_* exports, and whether it exports JNI_OnLoad (where
+   * RegisterNatives binds methods at run time).
+   *
+   * @generated from field: repeated string jni_exports = 10;
+   */
+  jniExports: string[];
+
+  /**
+   * @generated from field: bool jni_onload = 11;
+   */
+  jniOnload: boolean;
+
+  /**
+   * "engine" (libflutter.so), "app" (libapp.so), "".
+   *
+   * @generated from field: string flutter = 12;
+   */
+  flutter: string;
+
+  /**
+   * @generated from field: string error = 13;
+   */
+  error: string;
+};
+
+/**
+ * Describes the message revkit.v1.AndroidNativeLibrary.
+ * Use `create(AndroidNativeLibrarySchema)` to create a new message.
+ */
+export const AndroidNativeLibrarySchema: GenMessage<AndroidNativeLibrary> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 30);
+
+/**
+ * @generated from message revkit.v1.AndroidDexFile
+ */
+export type AndroidDexFile = Message<"revkit.v1.AndroidDexFile"> & {
+  /**
+   * "classes.dex"
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * "035"
+   *
+   * @generated from field: string version = 2;
+   */
+  version: string;
+
+  /**
+   * @generated from field: uint32 strings = 3;
+   */
+  strings: number;
+
+  /**
+   * @generated from field: uint32 types = 4;
+   */
+  types: number;
+
+  /**
+   * @generated from field: uint32 methods = 5;
+   */
+  methods: number;
+
+  /**
+   * @generated from field: uint32 classes = 6;
+   */
+  classes: number;
+
+  /**
+   * @generated from field: uint32 native_methods = 7;
+   */
+  nativeMethods: number;
+};
+
+/**
+ * Describes the message revkit.v1.AndroidDexFile.
+ * Use `create(AndroidDexFileSchema)` to create a new message.
+ */
+export const AndroidDexFileSchema: GenMessage<AndroidDexFile> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 31);
+
+/**
+ * @generated from message revkit.v1.AndroidNativeMethod
+ */
+export type AndroidNativeMethod = Message<"revkit.v1.AndroidNativeMethod"> & {
+  /**
+   * "com.example.Native"
+   *
+   * @generated from field: string class_name = 1;
+   */
+  className: string;
+
+  /**
+   * @generated from field: string method = 2;
+   */
+  method: string;
+
+  /**
+   * "(Ljava/lang/String;I)V"
+   *
+   * @generated from field: string signature = 3;
+   */
+  signature: string;
+
+  /**
+   * @generated from field: bool is_static = 4;
+   */
+  isStatic: boolean;
+
+  /**
+   * @generated from field: string dex = 5;
+   */
+  dex: string;
+
+  /**
+   * Its JNI names: Java_<class>_<method>, and with the argument signature.
+   *
+   * @generated from field: string jni_name = 6;
+   */
+  jniName: string;
+
+  /**
+   * @generated from field: string jni_long_name = 7;
+   */
+  jniLongName: string;
+
+  /**
+   * The libraries exporting either name (session paths). None: bound at
+   * run time with RegisterNatives (look in JNI_OnLoad), or in a library
+   * not in the package.
+   *
+   * @generated from field: repeated string libraries = 8;
+   */
+  libraries: string[];
+};
+
+/**
+ * Describes the message revkit.v1.AndroidNativeMethod.
+ * Use `create(AndroidNativeMethodSchema)` to create a new message.
+ */
+export const AndroidNativeMethodSchema: GenMessage<AndroidNativeMethod> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 32);
+
+/**
+ * @generated from message revkit.v1.AndroidDartSnapshot
+ */
+export type AndroidDartSnapshot = Message<"revkit.v1.AndroidDartSnapshot"> & {
+  /**
+   * "_kDartVmSnapshotData"
+   *
+   * @generated from field: string symbol = 1;
+   */
+  symbol: string;
+
+  /**
+   * @generated from field: uint64 file_offset = 2;
+   */
+  fileOffset: bigint;
+
+  /**
+   * @generated from field: uint64 size = 3;
+   */
+  size: bigint;
+
+  /**
+   * the data's header (f5f5dcdc) was read
+   *
+   * @generated from field: bool header = 4;
+   */
+  header: boolean;
+
+  /**
+   * @generated from field: uint64 length = 5;
+   */
+  length: bigint;
+
+  /**
+   * @generated from field: uint64 kind = 6;
+   */
+  kind: bigint;
+
+  /**
+   * "full-aot" for kind 3
+   *
+   * @generated from field: string kind_name = 7;
+   */
+  kindName: string;
+
+  /**
+   * @generated from field: string hash = 8;
+   */
+  hash: string;
+
+  /**
+   * @generated from field: string features = 9;
+   */
+  features: string;
+};
+
+/**
+ * Describes the message revkit.v1.AndroidDartSnapshot.
+ * Use `create(AndroidDartSnapshotSchema)` to create a new message.
+ */
+export const AndroidDartSnapshotSchema: GenMessage<AndroidDartSnapshot> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 33);
+
+/**
+ * @generated from message revkit.v1.AndroidFlutterAbi
+ */
+export type AndroidFlutterAbi = Message<"revkit.v1.AndroidFlutterAbi"> & {
+  /**
+   * @generated from field: string abi = 1;
+   */
+  abi: string;
+
+  /**
+   * session paths
+   *
+   * @generated from field: string libapp = 2;
+   */
+  libapp: string;
+
+  /**
+   * @generated from field: string libflutter = 3;
+   */
+  libflutter: string;
+
+  /**
+   * @generated from field: string snapshot_hash = 4;
+   */
+  snapshotHash: string;
+
+  /**
+   * several: the VM's and isolate's disagree
+   *
+   * @generated from field: repeated string hash_candidates = 5;
+   */
+  hashCandidates: string[];
+
+  /**
+   * @generated from field: string features = 6;
+   */
+  features: string;
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidDartSnapshot snapshots = 7;
+   */
+  snapshots: AndroidDartSnapshot[];
+
+  /**
+   * libflutter.so's GNU build ID, and the labelled strings it carries.
+   *
+   * @generated from field: string engine_build_id = 8;
+   */
+  engineBuildId: string;
+
+  /**
+   * @generated from field: string dart_version = 9;
+   */
+  dartVersion: string;
+
+  /**
+   * @generated from field: repeated string toolchain = 10;
+   */
+  toolchain: string[];
+
+  /**
+   * @generated from field: repeated string warnings = 11;
+   */
+  warnings: string[];
+};
+
+/**
+ * Describes the message revkit.v1.AndroidFlutterAbi.
+ * Use `create(AndroidFlutterAbiSchema)` to create a new message.
+ */
+export const AndroidFlutterAbiSchema: GenMessage<AndroidFlutterAbi> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 34);
+
+/**
+ * @generated from message revkit.v1.AndroidFlutter
+ */
+export type AndroidFlutter = Message<"revkit.v1.AndroidFlutter"> & {
+  /**
+   * a lib/<abi>/libapp.so or libflutter.so
+   *
+   * @generated from field: bool detected = 1;
+   */
+  detected: boolean;
+
+  /**
+   * The Dart snapshot hash every ABI agrees on (it names the Dart SDK
+   * release, through a dataset revkit doesn't carry); "" when they don't.
+   *
+   * @generated from field: string snapshot_hash = 2;
+   */
+  snapshotHash: string;
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidFlutterAbi abis = 3;
+   */
+  abis: AndroidFlutterAbi[];
+};
+
+/**
+ * Describes the message revkit.v1.AndroidFlutter.
+ * Use `create(AndroidFlutterSchema)` to create a new message.
+ */
+export const AndroidFlutterSchema: GenMessage<AndroidFlutter> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 35);
+
+/**
+ * @generated from message revkit.v1.AndroidPackage
+ */
+export type AndroidPackage = Message<"revkit.v1.AndroidPackage"> & {
+  /**
+   * The APK's layer ("/app.apk!", "" for the outermost) and container path.
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string container_path = 2;
+   */
+  containerPath: string;
+
+  /**
+   * @generated from field: bool manifest_present = 3;
+   */
+  manifestPresent: boolean;
+
+  /**
+   * @generated from field: revkit.v1.AndroidManifest manifest = 4;
+   */
+  manifest?: AndroidManifest | undefined;
+
+  /**
+   * The manifest as XML text (references named, "@string/app_name"), and
+   * with them resolved for the default configuration.
+   *
+   * @generated from field: string manifest_xml = 5;
+   */
+  manifestXml: string;
+
+  /**
+   * @generated from field: string manifest_xml_resolved = 6;
+   */
+  manifestXmlResolved: string;
+
+  /**
+   * @generated from field: revkit.v1.AndroidResourcesSummary resources = 7;
+   */
+  resources?: AndroidResourcesSummary | undefined;
+
+  /**
+   * @generated from field: repeated string abis = 8;
+   */
+  abis: string[];
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidNativeLibrary native_libraries = 9;
+   */
+  nativeLibraries: AndroidNativeLibrary[];
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidDexFile dex_files = 10;
+   */
+  dexFiles: AndroidDexFile[];
+
+  /**
+   * @generated from field: repeated revkit.v1.AndroidNativeMethod native_methods = 11;
+   */
+  nativeMethods: AndroidNativeMethod[];
+
+  /**
+   * @generated from field: revkit.v1.AndroidFlutter flutter = 12;
+   */
+  flutter?: AndroidFlutter | undefined;
+
+  /**
+   * @generated from field: repeated string warnings = 13;
+   */
+  warnings: string[];
+};
+
+/**
+ * Describes the message revkit.v1.AndroidPackage.
+ * Use `create(AndroidPackageSchema)` to create a new message.
+ */
+export const AndroidPackageSchema: GenMessage<AndroidPackage> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 36);
+
+/**
+ * @generated from message revkit.v1.GetAndroidPackageResponse
+ */
+export type GetAndroidPackageResponse = Message<"revkit.v1.GetAndroidPackageResponse"> & {
+  /**
+   * @generated from field: revkit.v1.AndroidPackage package = 1;
+   */
+  package?: AndroidPackage | undefined;
+};
+
+/**
+ * Describes the message revkit.v1.GetAndroidPackageResponse.
+ * Use `create(GetAndroidPackageResponseSchema)` to create a new message.
+ */
+export const GetAndroidPackageResponseSchema: GenMessage<GetAndroidPackageResponse> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 37);
+
+/**
+ * @generated from message revkit.v1.DecodeAndroidXmlRequest
+ */
+export type DecodeAndroidXmlRequest = Message<"revkit.v1.DecodeAndroidXmlRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * A compiled XML file inside an APK ("/app.apk!/res/layout/main.xml").
+   *
+   * @generated from field: string path = 2;
+   */
+  path: string;
+
+  /**
+   * Attribute values that are references as their default-configuration
+   * values ("Hello" rather than "@string/hello").
+   *
+   * @generated from field: bool resolve = 3;
+   */
+  resolve: boolean;
+};
+
+/**
+ * Describes the message revkit.v1.DecodeAndroidXmlRequest.
+ * Use `create(DecodeAndroidXmlRequestSchema)` to create a new message.
+ */
+export const DecodeAndroidXmlRequestSchema: GenMessage<DecodeAndroidXmlRequest> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 38);
+
+/**
+ * @generated from message revkit.v1.DecodeAndroidXmlResponse
+ */
+export type DecodeAndroidXmlResponse = Message<"revkit.v1.DecodeAndroidXmlResponse"> & {
+  /**
+   * @generated from field: string xml = 1;
+   */
+  xml: string;
+
+  /**
+   * the root element's name
+   *
+   * @generated from field: string root = 2;
+   */
+  root: string;
+
+  /**
+   * @generated from field: repeated string warnings = 3;
+   */
+  warnings: string[];
+};
+
+/**
+ * Describes the message revkit.v1.DecodeAndroidXmlResponse.
+ * Use `create(DecodeAndroidXmlResponseSchema)` to create a new message.
+ */
+export const DecodeAndroidXmlResponseSchema: GenMessage<DecodeAndroidXmlResponse> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 39);
+
+/**
+ * @generated from message revkit.v1.ListAndroidResourcesRequest
+ */
+export type ListAndroidResourcesRequest = Message<"revkit.v1.ListAndroidResourcesRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * The APK, as GetAndroidPackage takes it.
+   *
+   * @generated from field: string path = 2;
+   */
+  path: string;
+
+  /**
+   * A type's name ("string"; empty: every type).
+   *
+   * @generated from field: string type = 3;
+   */
+  type: string;
+
+  /**
+   * A configuration's qualifiers ("fr", "night"; "" the default; "*" every
+   * configuration).
+   *
+   * @generated from field: string config = 4;
+   */
+  config: string;
+
+  /**
+   * A case-insensitive substring of the name or value.
+   *
+   * @generated from field: string query = 5;
+   */
+  query: string;
+
+  /**
+   * @generated from field: uint32 offset = 6;
+   */
+  offset: number;
+
+  /**
+   * At most this many (default 500, at most 5000).
+   *
+   * @generated from field: uint32 limit = 7;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message revkit.v1.ListAndroidResourcesRequest.
+ * Use `create(ListAndroidResourcesRequestSchema)` to create a new message.
+ */
+export const ListAndroidResourcesRequestSchema: GenMessage<ListAndroidResourcesRequest> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 40);
+
+/**
+ * @generated from message revkit.v1.AndroidResourceEntry
+ */
+export type AndroidResourceEntry = Message<"revkit.v1.AndroidResourceEntry"> & {
+  /**
+   * 0x7f020000
+   *
+   * @generated from field: uint32 id = 1;
+   */
+  id: number;
+
+  /**
+   * "@string/app_name"
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string type = 3;
+   */
+  type: string;
+
+  /**
+   * "app_name"
+   *
+   * @generated from field: string key = 4;
+   */
+  key: string;
+
+  /**
+   * @generated from field: string config = 5;
+   */
+  config: string;
+
+  /**
+   * The value: a string's text, "true", "#ff336699", "16.0dip", a file's
+   * path; a reference's target value, its name in `reference`.
+   *
+   * @generated from field: string value = 6;
+   */
+  value: string;
+
+  /**
+   * "string", "reference", "bool", "color", "dimension", "bag", ...
+   *
+   * @generated from field: string value_type = 7;
+   */
+  valueType: string;
+
+  /**
+   * @generated from field: string reference = 8;
+   */
+  reference: string;
+
+  /**
+   * A bag's items (style, array, plurals): "attribute = value".
+   *
+   * @generated from field: repeated string items = 9;
+   */
+  items: string[];
+
+  /**
+   * a bag's parent ("@android:style/Theme" or an id)
+   *
+   * @generated from field: string parent = 10;
+   */
+  parent: string;
+};
+
+/**
+ * Describes the message revkit.v1.AndroidResourceEntry.
+ * Use `create(AndroidResourceEntrySchema)` to create a new message.
+ */
+export const AndroidResourceEntrySchema: GenMessage<AndroidResourceEntry> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 41);
+
+/**
+ * @generated from message revkit.v1.ListAndroidResourcesResponse
+ */
+export type ListAndroidResourcesResponse = Message<"revkit.v1.ListAndroidResourcesResponse"> & {
+  /**
+   * @generated from field: repeated revkit.v1.AndroidResourceEntry entries = 1;
+   */
+  entries: AndroidResourceEntry[];
+
+  /**
+   * Matching entries in all (before offset and limit).
+   *
+   * @generated from field: uint32 total = 2;
+   */
+  total: number;
+
+  /**
+   * What the filters can name.
+   *
+   * @generated from field: repeated string types = 3;
+   */
+  types: string[];
+
+  /**
+   * @generated from field: repeated string configs = 4;
+   */
+  configs: string[];
+};
+
+/**
+ * Describes the message revkit.v1.ListAndroidResourcesResponse.
+ * Use `create(ListAndroidResourcesResponseSchema)` to create a new message.
+ */
+export const ListAndroidResourcesResponseSchema: GenMessage<ListAndroidResourcesResponse> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 42);
+
+/**
+ * @generated from message revkit.v1.GetAppleBundleRequest
+ */
+export type GetAppleBundleRequest = Message<"revkit.v1.GetAppleBundleRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * A bundle directory, a file inside one (its nearest bundle), or an .ipa
+   * (or any container whose root holds Payload/*.app or an .app: the
+   * first, by name).
+   *
+   * @generated from field: string path = 2;
+   */
+  path: string;
+
+  /**
+   * Leave out the whole Info.plist (AppleBundle.info_plist).
+   *
+   * @generated from field: bool skip_info_plist = 3;
+   */
+  skipInfoPlist: boolean;
+};
+
+/**
+ * Describes the message revkit.v1.GetAppleBundleRequest.
+ * Use `create(GetAppleBundleRequestSchema)` to create a new message.
+ */
+export const GetAppleBundleRequestSchema: GenMessage<GetAppleBundleRequest> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 43);
+
+/**
+ * @generated from message revkit.v1.GetAppleBundleResponse
+ */
+export type GetAppleBundleResponse = Message<"revkit.v1.GetAppleBundleResponse"> & {
+  /**
+   * @generated from field: revkit.v1.AppleBundle bundle = 1;
+   */
+  bundle?: AppleBundle | undefined;
+
+  /**
+   * Every app an .ipa's Payload holds (the first is `bundle`).
+   *
+   * @generated from field: repeated revkit.v1.AppleBundleRef apps = 2;
+   */
+  apps: AppleBundleRef[];
+};
+
+/**
+ * Describes the message revkit.v1.GetAppleBundleResponse.
+ * Use `create(GetAppleBundleResponseSchema)` to create a new message.
+ */
+export const GetAppleBundleResponseSchema: GenMessage<GetAppleBundleResponse> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 44);
+
+/**
+ * @generated from message revkit.v1.ReadPropertyListRequest
+ */
+export type ReadPropertyListRequest = Message<"revkit.v1.ReadPropertyListRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * @generated from field: string path = 2;
+   */
+  path: string;
+
+  /**
+   * At most this many values in the response (default 20000, at most
+   * 200000); arrays and dictionaries past it say how many entries they
+   * left out.
+   *
+   * @generated from field: uint32 max_values = 3;
+   */
+  maxValues: number;
+
+  /**
+   * Data values cut to this many bytes (default 4096, at most 1 MiB).
+   *
+   * @generated from field: uint32 max_data_bytes = 4;
+   */
+  maxDataBytes: number;
+
+  /**
+   * An NSKeyedArchiver archive with its objects resolved (api_minor 101):
+   * the root is {"$top": {key: object}}, each object a dictionary with
+   * "$class" and its fields, arrays and dictionaries as themselves, each
+   * object where it is first reached and later references (and cycles) as
+   * {"$ref": uid, "$class": name}. Ignored for other plists.
+   *
+   * @generated from field: bool resolve_keyed_archive = 5;
+   */
+  resolveKeyedArchive: boolean;
+};
+
+/**
+ * Describes the message revkit.v1.ReadPropertyListRequest.
+ * Use `create(ReadPropertyListRequestSchema)` to create a new message.
+ */
+export const ReadPropertyListRequestSchema: GenMessage<ReadPropertyListRequest> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 45);
+
+/**
+ * @generated from message revkit.v1.ReadPropertyListResponse
+ */
+export type ReadPropertyListResponse = Message<"revkit.v1.ReadPropertyListResponse"> & {
+  /**
+   * "xml", "binary", or "mobileprovision" (a provisioning profile's plist,
+   * taken out of its CMS wrapper without checking the signature).
+   *
+   * @generated from field: string format = 1;
+   */
+  format: string;
+
+  /**
+   * @generated from field: revkit.v1.PlistValue root = 2;
+   */
+  root?: PlistValue | undefined;
+
+  /**
+   * The value budget ran out: some entries were left out.
+   *
+   * @generated from field: bool truncated = 3;
+   */
+  truncated: boolean;
+
+  /**
+   * Values in the file.
+   *
+   * @generated from field: uint64 values = 4;
+   */
+  values: bigint;
+
+  /**
+   * It is an NSKeyedArchiver archive ($archiver, $objects, $top).
+   *
+   * @generated from field: bool keyed_archive = 5;
+   */
+  keyedArchive: boolean;
+
+  /**
+   * @generated from field: repeated string warnings = 6;
+   */
+  warnings: string[];
+};
+
+/**
+ * Describes the message revkit.v1.ReadPropertyListResponse.
+ * Use `create(ReadPropertyListResponseSchema)` to create a new message.
+ */
+export const ReadPropertyListResponseSchema: GenMessage<ReadPropertyListResponse> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 46);
+
+/**
+ * @generated from message revkit.v1.ListUiActionsRequest
+ */
+export type ListUiActionsRequest = Message<"revkit.v1.ListUiActionsRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * A bundle (its Interface Builder files, as GetAppleBundle finds them),
+   * an .ipa, a .storyboardc, or a .nib (a file or a nib directory).
+   *
+   * @generated from field: string path = 2;
+   */
+  path: string;
+
+  /**
+   * The program to resolve the actions in. Empty: the program of the
+   * session's project imported from the bundle's main executable (by its
+   * container path), when there is one.
+   *
+   * @generated from field: string program_id = 3;
+   */
+  programId: string;
+
+  /**
+   * Also return each document's objects and connections.
+   *
+   * @generated from field: bool include_documents = 4;
+   */
+  includeDocuments: boolean;
+};
+
+/**
+ * Describes the message revkit.v1.ListUiActionsRequest.
+ * Use `create(ListUiActionsRequestSchema)` to create a new message.
+ */
+export const ListUiActionsRequestSchema: GenMessage<ListUiActionsRequest> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 47);
+
+/**
+ * @generated from message revkit.v1.ListUiActionsResponse
+ */
+export type ListUiActionsResponse = Message<"revkit.v1.ListUiActionsResponse"> & {
+  /**
+   * @generated from field: repeated revkit.v1.UiAction actions = 1;
+   */
+  actions: UiAction[];
+
+  /**
+   * @generated from field: repeated revkit.v1.UiOutlet outlets = 2;
+   */
+  outlets: UiOutlet[];
+
+  /**
+   * With include_documents; else each with its path, format, storyboard
+   * and owner only.
+   *
+   * @generated from field: repeated revkit.v1.InterfaceDocument documents = 3;
+   */
+  documents: InterfaceDocument[];
+
+  /**
+   * The program resolved against ("" none).
+   *
+   * @generated from field: string program_id = 4;
+   */
+  programId: string;
+
+  /**
+   * Nibs that couldn't be read, and other problems.
+   *
+   * @generated from field: repeated string warnings = 5;
+   */
+  warnings: string[];
+};
+
+/**
+ * Describes the message revkit.v1.ListUiActionsResponse.
+ * Use `create(ListUiActionsResponseSchema)` to create a new message.
+ */
+export const ListUiActionsResponseSchema: GenMessage<ListUiActionsResponse> = /*@__PURE__*/
+  messageDesc(file_revkit_v1_filesystem, 48);
+
+/**
  * @generated from enum revkit.v1.FileSystemEntryKind
  */
 export enum FileSystemEntryKind {
@@ -1251,6 +2785,81 @@ export const FileSystemService: GenService<{
     methodKind: "unary";
     input: typeof ListFileSystemsRequestSchema;
     output: typeof ListFileSystemsResponseSchema;
+  },
+  /**
+   * Android packages (api_minor 98, feature "android"; docs/android.md).
+   * An APK in a session: its manifest (as XML text and as fields), its
+   * resource table's summary, its native libraries by ABI with their JNI
+   * exports, the DEX files' native methods linked to those exports, and a
+   * Flutter app's Dart snapshot hash. Viewer, and the session's owner.
+   *
+   * @generated from rpc revkit.v1.FileSystemService.GetAndroidPackage
+   */
+  getAndroidPackage: {
+    methodKind: "unary";
+    input: typeof GetAndroidPackageRequestSchema;
+    output: typeof GetAndroidPackageResponseSchema;
+  },
+  /**
+   * A compiled XML file of an APK (a layout, res/xml/...) as XML text,
+   * references named from the package's resources.arsc. Viewer.
+   *
+   * @generated from rpc revkit.v1.FileSystemService.DecodeAndroidXml
+   */
+  decodeAndroidXml: {
+    methodKind: "unary";
+    input: typeof DecodeAndroidXmlRequestSchema;
+    output: typeof DecodeAndroidXmlResponseSchema;
+  },
+  /**
+   * The entries of an APK's resources.arsc (the strings table, or any
+   * type), filtered and paged. Viewer.
+   *
+   * @generated from rpc revkit.v1.FileSystemService.ListAndroidResources
+   */
+  listAndroidResources: {
+    methodKind: "unary";
+    input: typeof ListAndroidResourcesRequestSchema;
+    output: typeof ListAndroidResourcesResponseSchema;
+  },
+  /**
+   * An Apple bundle (api_minor 100, feature "apple-bundles";
+   * docs/apple-apps.md): an .app, a framework, an app extension, or an .ipa
+   * (its Payload/*.app): its layout, Info.plist, main executable and its
+   * code signature (read, not verified), the bundles inside it, its
+   * Interface Builder files and provisioning profile. Viewer.
+   *
+   * @generated from rpc revkit.v1.FileSystemService.GetAppleBundle
+   */
+  getAppleBundle: {
+    methodKind: "unary";
+    input: typeof GetAppleBundleRequestSchema;
+    output: typeof GetAppleBundleResponseSchema;
+  },
+  /**
+   * A property list as a tree: an XML or binary plist, or a provisioning
+   * profile's (api_minor 100, feature "apple-bundles"). Viewer.
+   *
+   * @generated from rpc revkit.v1.FileSystemService.ReadPropertyList
+   */
+  readPropertyList: {
+    methodKind: "unary";
+    input: typeof ReadPropertyListRequestSchema;
+    output: typeof ReadPropertyListResponseSchema;
+  },
+  /**
+   * Interface Builder's UI wiring (api_minor 101, feature "ui-actions";
+   * docs/apple-apps.md): the compiled nibs and storyboards of a bundle (or
+   * one nib or storyboard), their objects and connections, and each
+   * control's action traced to the Objective-C method that runs it in a
+   * program's metadata. Viewer (of the program's project, when named).
+   *
+   * @generated from rpc revkit.v1.FileSystemService.ListUiActions
+   */
+  listUiActions: {
+    methodKind: "unary";
+    input: typeof ListUiActionsRequestSchema;
+    output: typeof ListUiActionsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_revkit_v1_filesystem, 0);

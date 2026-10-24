@@ -47,7 +47,7 @@ fi
 setup='^(open: the program|second page)'
 a1='navigate|functions panel|xrefs|decompiler <-> listing|rename|right-click|set type|provenance|comment|undo|header rows|a name on|flow|retype a|function bounds|notes|listing edit|auto-struct:|search|equates|references|hover|type-uses|find uses|signature override|byte viewer|navigation|go to|overview|copy special|fields|presence|open:|listing:|emulator|debugger|open dialog'
 a2='raw detection|graph|call graph|strings window|types|retype with|plugins|layout|compare|programs|functions:|large tables|file chooser|accessibility|keyboard'
-b1='project tree|project archive|file system browser|scripts|console'
+b1='project tree|project archive|file system browser|android|crash dumps|scripts|console'
 b2='patching|memory map|demangled|class hierarchy|Load PDB|project types|archives|Function ID'
 failed=""
 for part in A1 A2 B1 B2 B3; do

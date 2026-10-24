@@ -1,0 +1,326 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: meenmachine1 <78238681+meenmachine1@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 01:13:05 -0400
+Subject: [PATCH] Decompiler: an option to print comparisons with the constant
+ the code compares against
+
+- Shows: `cmp r0,#0; ble` prints `x < 1`, and `cmp r0,#9; bge` prints
+  `8 < x`, where the instruction (and usually the source) has `x <= 0`
+  and `x >= 9`. Written back as C, the shifted constant is a different
+  instruction (`cmp r0,#1; blt`), which a matching decompilation has to
+  undo by hand, and the constant on the left reads backwards.
+- Cause: RuleIntLessEqual (Funcdata::replaceLessequal) canonicalizes
+  `V <= c` to `V < c+1`, also when a condition is negated
+  (opFlipInPlaceExecute), and the printer prints the p-code's operand
+  order, which for `x > c` has the constant first since p-code has no
+  greater-than.
+- Patch: replaceLessequal records the move on the op (a flag it toggles,
+  so a constant moved twice, there and back, counts as unmoved). A new
+  print option, `encodedcompare` (off by default), takes `right` or `on`.
+  With `right`, a comparison against a constant prints with the constant
+  on the right (`x > 8`), and a signed `-1 < x` as `x >= 0`. With `on`,
+  also a comparison whose constant was moved in its less-or-equal form
+  prints with the constant moved back (`x <= 0`, `x >= 9`). The p-code
+  doesn't change, only how it prints; a constant with a symbol (an
+  equate), a character, an enum, or one at its type's limit prints as
+  before. `right` suits code from compilers that rewrite `x < 10` as
+  `x <= 9` themselves (GCC, LLVM), whose instructions carry a constant
+  the source doesn't; `on` a compiler that keeps the source's.
+- Seen on: ARMv5TE (Nintendo DS, CodeWarrior) code in a matching
+  decompilation; the same canonical forms on every processor.
+- Ghidra 12.1.4.
+
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/funcdata_op.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/funcdata_op.cc
+index 7e7dd75..3a592f1 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/funcdata_op.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/funcdata_op.cc
+@@ -1061,6 +1061,7 @@ bool Funcdata::replaceLessequal(PcodeOp *op)
+   Varnode *newvn = newConstant(vn->getSize(),res);
+   newvn->copySymbol(vn);	// Preserve data-type (and any Symbol info)
+   opSetInput(op,newvn,i);
++  op->flipLessEqualMoved();	// The constant is one away from the form before (see PrintC::opComparison)
+   return true;
+ }
+ 
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/op.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/op.hh
+index 18c2526..3139809 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/op.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/op.hh
+@@ -118,7 +118,8 @@ public:
+     no_indirect_collapse = 0x200,	///< Do not collapse \b this INDIRECT (via RuleIndirectCollapse)
+     store_unmapped = 0x400,	///< If STORE collapses to a stack Varnode, force it to be unmapped
+     zext_load = 0x800,		///< LOAD whose instruction zero-extends the value it reads
+-    sext_load = 0x1000		///< LOAD whose instruction sign-extends the value it reads
++    sext_load = 0x1000,		///< LOAD whose instruction sign-extends the value it reads
++    lessequal_moved = 0x2000	///< Comparison whose constant was moved by one, from or to a \e less-or-equal form
+   };
+ private:
+   TypeOp *opcode;		///< Pointer to class providing behavioral details of the operation
+@@ -229,6 +230,8 @@ public:
+   bool isZextLoad(void) const { return ((addlflags & zext_load)!=0); }	///< Does the instruction of \b this LOAD zero-extend its value
+   bool isSextLoad(void) const { return ((addlflags & sext_load)!=0); }	///< Does the instruction of \b this LOAD sign-extend its value
+   void setLoadExtension(bool isSigned) const { addlflags |= (isSigned ? sext_load : zext_load); }	///< Mark the extension applied to a LOAD's value
++  bool isLessEqualMoved(void) const { return ((addlflags & lessequal_moved)!=0); }	///< Was the constant of \b this comparison moved by one
++  void flipLessEqualMoved(void) const { addlflags ^= lessequal_moved; }	///< Record a move of the comparison's constant by one
+   /// \brief Return \b true if this LOADs or STOREs from a dynamic \e spacebase pointer
+   bool usesSpacebasePtr(void) const { return ((flags&PcodeOp::spacebase_ptr)!=0); }
+   uintm getCseHash(void) const;	///< Return hash indicating possibility of common subexpression elimination
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
+index 1c175e3..557fa70 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/options.cc
+@@ -61,6 +61,7 @@ ElementId ELEM_WARNING = ElementId("warning",210);
+ ElementId ELEM_JUMPTABLEMAX = ElementId("jumptablemax",271);
+ ElementId ELEM_NANIGNORE = ElementId("nanignore",272);
+ ElementId ELEM_BRACEFORMAT = ElementId("braceformat",284);
++ElementId ELEM_ENCODEDCOMPARE = ElementId("encodedcompare",292);
+ ElementId ELEM_EXTENSIONTYPES = ElementId("extensiontypes",291);
+ 
+ /// If the parameter is "on" return \b true, if "off" return \b false.
+@@ -113,6 +114,7 @@ OptionDatabase::OptionDatabase(Architecture *g)
+   registerOption(new OptionInPlaceOps());
+   registerOption(new OptionConventionPrinting());
+   registerOption(new OptionNoCastPrinting());
++  registerOption(new OptionEncodedCompare());
+   registerOption(new OptionMaxLineWidth());
+   registerOption(new OptionIndentIncrement());
+   registerOption(new OptionCommentIndent());
+@@ -429,6 +431,31 @@ string OptionNullPrinting::apply(Architecture *glb,const string &p1,const string
+   return "Null printing turned "+prop;
+ }
+ 
++/// \class OptionEncodedCompare
++/// \brief Set whether comparisons print in the form the instruction encodes
++///
++/// The first parameter is "right" to print a comparison against a constant with the constant on
++/// the right (`x > 8` rather than `8 < x`, `x >= 0` rather than `-1 < x`), "on" to also print it
++/// with the constant the code compares against where the decompiler moved it by one to turn
++/// \e less-or-equal into \e less (`x <= 0` and `x >= 9` rather than `x < 1` and `8 < x`), or "off".
++/// Compilers that rewrite `x < 10` as `x <= 9` themselves (GCC, LLVM) encode a constant the source
++/// doesn't have, so "right" suits their code and "on" a compiler that keeps the source's.
++string OptionEncodedCompare::apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const
++
++{
++  int4 form;
++  if (p1 == "right")
++    form = 1;
++  else
++    form = onOrOff(p1) ? 2 : 0;
++  if (glb->print->getName() != "c-language")
++    return "Only c-language accepts the encoded comparison option";
++  PrintC *lng = (PrintC *)glb->print;
++  lng->setCompareForm(form);
++  string prop = (form == 2) ? "on" : (form == 1) ? "right" : "off";
++  return "Encoded comparisons turned "+prop;
++}
++
+ /// \class OptionInPlaceOps
+ /// \brief Toggle whether \e in-place operators (+=, *=, &=, etc.) are emitted by the decompiler
+ string OptionInPlaceOps::apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
+index 9cf30de..9b6a560 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/options.hh
+@@ -67,6 +67,7 @@ extern ElementId ELEM_WARNING;			///< Marshaling element \<warning>
+ extern ElementId ELEM_JUMPTABLEMAX;		///< Marshaling element \<jumptablemax>
+ extern ElementId ELEM_NANIGNORE;		///< Marshaling element \<nanignore>
+ extern ElementId ELEM_EXTENSIONTYPES;		///< Marshaling element \<extensiontypes> (ids from 291 are revkit's)
++extern ElementId ELEM_ENCODEDCOMPARE;		///< Marshaling element \<encodedcompare> (ids from 291 are revkit's)
+ 
+ /// \brief Base class for options classes that affect the configuration of the Architecture object
+ ///
+@@ -200,6 +201,12 @@ public:
+   virtual string apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const;
+ };
+ 
++class OptionEncodedCompare : public ArchOption {
++public:
++  OptionEncodedCompare(void) { name="encodedcompare"; }		///< Constructor
++  virtual string apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const;
++};
++
+ class OptionMaxLineWidth : public ArchOption {
+ public:
+   OptionMaxLineWidth(void) { name = "maxlinewidth"; }	///< Constructor
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/printc.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/printc.cc
+index 00411be..31efae5 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/printc.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/printc.cc
+@@ -497,6 +497,93 @@ void PrintC::opHiddenFunc(const PcodeOp *op)
+   pushVn(op->getIn(0),op,mods);
+ }
+ 
++/// \brief Can the constant input of a comparison be printed one away from its value
++///
++/// The constant must be a plain integer (no equate or other symbol, not a character, enum or pointer),
++/// and moving it must not wrap: one less than the minimum or one more than the maximum of its type.
++/// \param vn is the constant input
++/// \param op is the comparison
++/// \param plus is \b true to move it up by one, \b false to move it down
++/// \return \b true if the constant can move
++static bool canMoveCompareConstant(const Varnode *vn,const PcodeOp *op,bool plus)
++
++{
++  if (vn->getSymbolEntry() != (SymbolEntry *)0) return false;
++  Datatype *ct = vn->getHighTypeReadFacing(op);
++  type_metatype meta = ct->getMetatype();
++  if (meta != TYPE_INT && meta != TYPE_UINT && meta != TYPE_UNKNOWN) return false;
++  if (ct->isCharPrint() || ct->isEnumType()) return false;
++  int4 sz = vn->getSize();
++  uintb val = vn->getOffset();
++  bool isSigned = (op->code() == CPUI_INT_SLESS || op->code() == CPUI_INT_SLESSEQUAL);
++  if (isSigned) {
++    if (plus && val == calc_int_max(sz)) return false;
++    if (!plus && val == calc_int_min(sz)) return false;
++  }
++  else {
++    if (plus && val == calc_mask(sz)) return false;
++    if (!plus && val == 0) return false;
++  }
++  return true;
++}
++
++/// Without the \e encodedcompare option, this is a normal binary operator. Set to \e right, a
++/// comparison against a constant prints the constant on the right (`x > 8` rather than `8 < x`), and a
++/// signed `-1 < x` as the sign test it is, `x >= 0`. Set to \e on, also a comparison whose constant
++/// was moved by one when its \e less-or-equal form became \e less (Funcdata::replaceLessequal, which
++/// records the move on the op) prints in the \e less-or-equal form, with the constant the instruction
++/// encodes: `x <= 0` rather than `x < 1`, `x >= 9` rather than `8 < x`.
++/// \param tok is the operator token of the comparison as it stands
++/// \param op is the comparison
++void PrintC::opComparison(const OpToken *tok,const PcodeOp *op)
++
++{
++  if (option_compare_form == 0) {
++    opBinary(tok,op);
++    return;
++  }
++  const Varnode *in0 = op->getIn(0);
++  const Varnode *in1 = op->getIn(1);
++  int4 cslot;
++  if (in1->isConstant())
++    cslot = 1;
++  else if (in0->isConstant())
++    cslot = 0;
++  else {
++    opBinary(tok,op);
++    return;
++  }
++  uint4 adjust = 0;
++  if (option_compare_form == 2 && op->isLessEqualMoved() && tok == &less_than) {
++    // V < c was V <= c-1, and c < V was c+1 <= V
++    if (canMoveCompareConstant(op->getIn(cslot),op,cslot == 0)) {
++      tok = &less_equal;
++      adjust = (cslot == 1) ? const_minus_one : const_plus_one;
++    }
++  }
++  else if (op->code() == CPUI_INT_SLESS && cslot == 0 && in0->getOffset() == calc_mask(in0->getSize()) &&
++	   canMoveCompareConstant(in0,op,true)) {
++    tok = &less_equal;		// -1 < V is V >= 0, a sign test
++    adjust = const_plus_one;
++  }
++  if (cslot == 0)		// The constant goes on the right: c < V is V > c
++    tok = (tok == &less_than) ? &greater_than : &greater_equal;
++  if (isSet(negatetoken)) {
++    tok = tok->negate;
++    unsetMod(negatetoken);
++  }
++  pushOp(tok,op);
++  // Inputs are pushed in reverse order of printing
++  if (cslot == 0) {
++    pushVn(in0,op,mods | adjust);
++    pushVn(in1,op,mods);
++  }
++  else {
++    pushVn(in1,op,mods | adjust);
++    pushVn(in0,op,mods);
++  }
++}
++
+ void PrintC::opCopy(const PcodeOp *op)
+ 
+ {
+@@ -1646,6 +1733,7 @@ void PrintC::resetDefaultsPrintC(void)
+ {
+   option_convention = true;
+   option_hide_exts = true;
++  option_compare_form = 0;
+   option_inplace_ops = false;
+   option_nocasts = false;
+   option_NULL = false;
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/printc.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/printc.hh
+index fb0d2fd..f797c1e 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/printc.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/printc.hh
+@@ -149,6 +149,7 @@ protected:
+   bool option_nocasts;		///< Don't print a cast if \b true
+   bool option_unplaced;		///< Set to \b true if we should display unplaced comments
+   bool option_hide_exts;	///< Set to \b true if we should hide implied extension operations
++  int4 option_compare_form;	///< How comparisons print: 0 as p-code has them, 1 the constant on the right, 2 also as encoded
+   Emit::brace_style option_brace_func;		///< How function declaration braces should be formatted
+   Emit::brace_style option_brace_ifelse;	///< How braces for if/else blocks are formatted
+   Emit::brace_style option_brace_loop;		///< How braces for loop blocks are formatted
+@@ -199,6 +200,7 @@ protected:
+   void opFunc(const PcodeOp *op);			///< Push a \e functional expression based on the given p-code op to the RPN stack
+   void opTypeCast(const PcodeOp *op);			///< Push the given p-code op using type-cast syntax to the RPN stack
+   void opHiddenFunc(const PcodeOp *op);			///< Push the given p-code op as a hidden token
++  void opComparison(const OpToken *tok,const PcodeOp *op);	///< Push a \e less or \e less-or-equal comparison
+   static void printCharHexEscape(ostream &s,int4 val);	///< Print value as an escaped hex sequence
+   bool printCharacterConstant(ostream &s,const Address &addr,Datatype *charType) const;
+   int4 getHiddenThisSlot(const PcodeOp *op,FuncProto *fc);	///< Get position of "this" pointer needing to be hidden
+@@ -246,6 +248,7 @@ public:
+   void setCPlusPlusStyleComments(void) { setCommentDelimeter("// ","",true); }	///< Set c++-style "//" comment delimiters
+   void setDisplayUnplaced(bool val) { option_unplaced = val; }	///< Toggle whether \e unplaced comments are displayed in the header
+   void setHideImpliedExts(bool val) { option_hide_exts = val; }	///< Toggle whether implied extensions are hidden
++  void setCompareForm(int4 val) { option_compare_form = val; }	///< Set how comparisons print (0, 1 or 2)
+   void setBraceFormatFunction(Emit::brace_style style) { option_brace_func = style; }	///< Set how function declarations are formatted
+   void setBraceFormatIfElse(Emit::brace_style style) { option_brace_ifelse = style; }	///< Set how if/else blocks are formatted
+   void setBraceFormatLoop(Emit::brace_style style) { option_brace_loop = style; }	///< Set how loop blocks are formatted
+@@ -285,10 +288,10 @@ public:
+   virtual void opReturn(const PcodeOp *op);
+   virtual void opIntEqual(const PcodeOp *op) { opBinary(&equal,op); }
+   virtual void opIntNotEqual(const PcodeOp *op) { opBinary(&not_equal,op); }
+-  virtual void opIntSless(const PcodeOp *op) { opBinary(&less_than,op); }
+-  virtual void opIntSlessEqual(const PcodeOp *op) { opBinary(&less_equal,op); }
+-  virtual void opIntLess(const PcodeOp *op) { opBinary(&less_than,op); }
+-  virtual void opIntLessEqual(const PcodeOp *op) { opBinary(&less_equal,op); }
++  virtual void opIntSless(const PcodeOp *op) { opComparison(&less_than,op); }
++  virtual void opIntSlessEqual(const PcodeOp *op) { opComparison(&less_equal,op); }
++  virtual void opIntLess(const PcodeOp *op) { opComparison(&less_than,op); }
++  virtual void opIntLessEqual(const PcodeOp *op) { opComparison(&less_equal,op); }
+   virtual void opIntZext(const PcodeOp *op,const PcodeOp *readOp);
+   virtual void opIntSext(const PcodeOp *op,const PcodeOp *readOp);
+   virtual void opIntAdd(const PcodeOp *op) { opBinary(&binary_plus,op); }
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/printlanguage.cc b/Ghidra/Features/Decompiler/src/decompile/cpp/printlanguage.cc
+index 7f43d29..71ef09e 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/printlanguage.cc
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/printlanguage.cc
+@@ -224,7 +224,12 @@ void PrintLanguage::pushVnExplicit(const Varnode *vn,const PcodeOp *op)
+   }
+   if (vn->isConstant()) {
+     Datatype *ct = vn->getHighTypeReadFacing(op);
+-    pushConstant(vn->getOffset(),ct,vartoken,vn,op,ct->getDisplayFormat());
++    uintb val = vn->getOffset();
++    if (isSet(const_minus_one))
++      val = (val - 1) & calc_mask(vn->getSize());
++    else if (isSet(const_plus_one))
++      val = (val + 1) & calc_mask(vn->getSize());
++    pushConstant(val,ct,vartoken,vn,op,ct->getDisplayFormat());
+     return;
+   }
+   pushSymbolDetail(vn,op,true);
+diff --git a/Ghidra/Features/Decompiler/src/decompile/cpp/printlanguage.hh b/Ghidra/Features/Decompiler/src/decompile/cpp/printlanguage.hh
+index 222ac65..0b831dd 100644
+--- a/Ghidra/Features/Decompiler/src/decompile/cpp/printlanguage.hh
++++ b/Ghidra/Features/Decompiler/src/decompile/cpp/printlanguage.hh
+@@ -157,7 +157,9 @@ public:
+     nofallthru = 0x1000,       	///< Fall-thru no longer exists
+     negatetoken = 0x2000,	///< Print the token representing the negation of current token
+     hide_thisparam = 0x4000,	///< Do not print the 'this' parameter in argument lists
+-    pending_brace = 0x8000	///< The current block may need to surround itself with additional braces
++    pending_brace = 0x8000,	///< The current block may need to surround itself with additional braces
++    const_minus_one = 0x10000,	///< Print the constant (a comparison's) one less than its value
++    const_plus_one = 0x20000	///< Print the constant (a comparison's) one more than its value
+   };
+   /// \brief Possible types of Atom
+   enum tagtype {

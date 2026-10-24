@@ -1,5 +1,8 @@
 #include "debugger.h"
 
+#include "open_beneath.h"
+
+#include "revkit/debug/crash_target.hh"
 #include "revkit/debug/emu_target.hh"
 #include "revkit/debug/expr.hh"
 #include "revkit/debug/gdb_remote.hh"
@@ -13,7 +16,9 @@
 #include <random>
 #include <set>
 #include <sstream>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 namespace revkit::backend {
 
@@ -40,6 +45,22 @@ struct DebugSessions::Entry {
   std::map<std::string, std::shared_ptr<const DebugProgram>> libraries;
   // Their call-frame information, read once each, by program id.
   std::map<std::string, std::shared_ptr<const debug::CfiTable>> library_cfi;
+  // A crash dump target (api_minor 102): the target, and its modules that
+  // are files under --browse-root rather than project programs, loaded once
+  // each by path (null: not found or not loadable).
+  debug::CrashTarget *crash = nullptr;
+  struct HostModule {
+    std::shared_ptr<const loader::Image> image;
+    std::int64_t slide = 0;
+    std::shared_ptr<const debug::CfiTable> cfi;
+    struct Function {
+      std::uint64_t start = 0, size = 0;  // static; size 0: unknown
+      std::string name;
+      bool operator<(const Function &o) const { return start < o.start; }
+    };
+    std::vector<Function> functions;  // sorted by start
+  };
+  std::map<std::string, std::shared_ptr<const HostModule>> host_modules;
   // Hooks the client answers (SetDebugHooks; docs/debugger.md "Hooks").
   struct Hook {
     int id = 0;
@@ -74,6 +95,12 @@ struct DebugSessions::Entry {
 namespace {
 
 bool SameName(std::string_view a, std::string_view b);  // case-insensitive (below)
+
+// A backtrace's frames as the API gives them (GetDebugBacktrace, the crash
+// summary), and a crash dump session's summary (below).
+void FillFrames(DebugSessions::Entry &e, const std::vector<debug::Frame> &frames,
+                google::protobuf::RepeatedPtrField<pb::DebugFrame> *out);
+void FillCrash(DebugSessions::Entry &e, std::uint32_t max_frames, pb::DebugCrash *out);
 
 // Defined with the evaluation, below: a condition at a stop (true: stop;
 // an error stops too), and a condition's parse error ("" when it parses).
@@ -252,20 +279,137 @@ std::optional<LibraryHit> LibraryAt(DebugSessions::Entry &e, std::uint64_t runti
   return hit;
 }
 
+// A crash dump's module that is no project program, from its file under
+// --browse-root (an admin's session only): its image, slide, CFI and
+// function symbols. The address in its image, when it is one.
+struct HostHit {
+  std::shared_ptr<const DebugSessions::Entry::HostModule> module;
+  std::uint64_t address = 0;
+  std::optional<std::pair<std::uint64_t, std::string>> function;
+};
+
+std::shared_ptr<const DebugSessions::Entry::HostModule> LoadHostModule(const DebugSessions::Entry &e, const debug::ModuleInfo &m) {
+  if (!e.program.crash || e.program.crash->host_roots.empty() || m.path.empty() || m.path.front() != '/') return nullptr;
+  const fs::path want = fs::path(m.path).lexically_normal();
+  for (const std::string &r : e.program.crash->host_roots) {
+    std::error_code ec;
+    const fs::path root = fs::canonical(r, ec);
+    if (ec) continue;
+    const fs::path rel = want.lexically_relative(root);
+    if (rel.empty() || rel.native().starts_with("..")) continue;
+    // O_NONBLOCK: a FIFO at the path a dump names doesn't block the
+    // session; it isn't a regular file, so it is refused below.
+    const int fd = OpenBeneath(root, rel, O_RDONLY | O_NONBLOCK);
+    if (fd < 0) continue;
+    struct stat st {};
+    if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size > (512ll << 20)) {
+      ::close(fd);
+      continue;
+    }
+    auto bytes = std::make_shared<loader::Bytes>(static_cast<std::size_t>(st.st_size));
+    std::size_t got = 0;
+    while (got < bytes->size()) {
+      const ssize_t n = ::pread(fd, bytes->data() + got, bytes->size() - got, static_cast<off_t>(got));
+      if (n <= 0) break;
+      got += static_cast<std::size_t>(n);
+    }
+    ::close(fd);
+    if (got != bytes->size()) continue;
+    try {
+      auto img = std::make_shared<const loader::Image>(loader::parse(bytes));
+      auto out = std::make_shared<DebugSessions::Entry::HostModule>();
+      out->slide = img->format == loader::Format::pe ? static_cast<std::int64_t>(m.base - img->image_base)
+                                                     : static_cast<std::int64_t>(m.load_bias - (img->image_base - img->file_base));
+      out->cfi = debug::CfiTable::from_image(*img);
+      for (const loader::Symbol &s : img->symbols)
+        if (s.defined && s.type == loader::SymbolType::func && s.value != 0 && !s.name.empty())
+          out->functions.push_back({s.value, s.size, s.name});
+      std::sort(out->functions.begin(), out->functions.end());
+      out->image = std::move(img);
+      return out;
+    } catch (const std::exception &) {
+    }
+  }
+  return nullptr;
+}
+
+std::optional<HostHit> HostModuleAt(DebugSessions::Entry &e, std::uint64_t runtime) {
+  if (e.crash == nullptr) return std::nullopt;
+  debug::Session &s = *e.session;
+  if (s.to_program(runtime)) return std::nullopt;
+  std::optional<std::pair<debug::ModuleInfo, std::uint64_t>> m;
+  try {
+    m = s.module_at(runtime);
+  } catch (const debug::DebugError &) {
+    return std::nullopt;
+  }
+  if (!m || m->first.main) return std::nullopt;
+  std::int64_t slide = 0;
+  if (LibraryOf(e, m->first, slide)) return std::nullopt;  // a project program: LibraryAt's
+  auto it = e.host_modules.find(m->first.path);
+  if (it == e.host_modules.end()) it = e.host_modules.emplace(m->first.path, LoadHostModule(e, m->first)).first;
+  if (!it->second) return std::nullopt;
+  HostHit h;
+  h.module = it->second;
+  h.address = runtime - static_cast<std::uint64_t>(h.module->slide);
+  if (!h.module->image->memory.find(h.address)) return std::nullopt;
+  const auto &fns = h.module->functions;
+  auto f = std::upper_bound(fns.begin(), fns.end(), h.address,
+                            [](std::uint64_t a, const DebugSessions::Entry::HostModule::Function &x) { return a < x.start; });
+  // The symbol that covers it (an internal function between two exported
+  // ones is no symbol's: the module and offset name it then).
+  if (f != fns.begin()) {
+    --f;
+    if (f->size != 0 ? h.address - f->start < f->size : h.address - f->start < 0x1000) h.function = std::make_pair(f->start, f->name);
+  }
+  return h;
+}
+
+// Bytes a crash dump doesn't hold, from the session's program, a library
+// program, or a host module's file: as many from the start of `out` as one
+// of them maps contiguously.
+std::size_t CrashBacking(DebugSessions::Entry &e, std::uint64_t runtime, std::span<std::uint8_t> out) {
+  auto from = [&](const loader::Image &img, std::uint64_t at) -> std::size_t {
+    std::size_t done = 0;
+    while (done < out.size()) {
+      const loader::Region *r = img.memory.find(at + done);
+      if (r == nullptr) break;
+      const std::uint64_t left = r->start + r->size - (at + done);
+      const std::size_t n = static_cast<std::size_t>(std::min<std::uint64_t>(left, out.size() - done));
+      img.memory.read(at + done, std::as_writable_bytes(out.subspan(done, n)));
+      done += n;
+    }
+    return done;
+  };
+  debug::Session &s = *e.session;
+  if (auto p = s.to_program(runtime)) return from(e.program.program->image(), *p);
+  if (auto h = LibraryAt(e, runtime)) return from(h->program->program->image(), h->address);
+  if (auto h = HostModuleAt(e, runtime)) return from(*h->module->image, h->address);
+  return 0;
+}
+
 // Unwinding through libraries that are project programs: their own CFI
 // (.eh_frame, .debug_frame; read once per session) and function entries,
 // by the library's image.
 void LibraryUnwinding(DebugSessions::Entry &e, debug::Session::BacktraceOptions &o) {
-  if (!e.program.library) return;
+  if (!e.program.library && e.crash == nullptr) return;
   o.library_cfi = [&e](std::uint64_t runtime) -> std::optional<debug::CfiRow> {
     auto h = LibraryAt(e, runtime);
-    if (!h) return std::nullopt;
+    if (!h) {
+      // A crash dump's module from its file on the host.
+      if (auto m = HostModuleAt(e, runtime)) return m->module->cfi->row_at(m->address);
+      return std::nullopt;
+    }
     auto &t = e.library_cfi[h->program->program_id];
     if (!t) t = debug::CfiTable::from_image(h->program->program->image());
     return t->row_at(h->address);
   };
   o.library_entry = [&e](std::uint64_t runtime) {
     auto h = LibraryAt(e, runtime);
+    if (!h) {
+      auto m = HostModuleAt(e, runtime);
+      return m && m->function && m->function->first == m->address;
+    }
     return h && h->function && h->function->first == h->address;
   };
 }
@@ -555,8 +699,9 @@ Status DebugSessions::Create(const api::CallContext &ctx, const pb::CreateDebugS
   if (req.has_slide()) so.slide = req.slide();
   so.function_entry = e->program.function_entry;
 
+  const bool crash_target = req.target_case() == pb::CreateDebugSessionRequest::kCrash;
   std::vector<debug::SleighRegister> sleigh;
-  if (live_target) {
+  if (live_target || crash_target) {
     auto lifter = prog.lifter();
     for (const lift::RegisterDef &r : lifter->registers()) sleigh.push_back({r.name, r.size});
   }
@@ -640,6 +785,31 @@ Status DebugSessions::Create(const api::CallContext &ctx, const pb::CreateDebugS
         target = std::move(t);
         break;
       }
+      case pb::CreateDebugSessionRequest::kCrash: {
+        // A crash dump (docs/crash-dumps.md): its bytes resolved by the backend.
+        const auto &src = e->program.crash;
+        if (!src) return Error(StatusCode::kInvalidArgument, "crash: give a dump_program_id, host_path or upload_id");
+        crash::CrashDump dump;
+        try {
+          dump = crash::parse(src->bytes);
+        } catch (const crash::Error &err) {
+          return Error(StatusCode::kInvalidArgument, src->name + ": " + err.what());
+        }
+        debug::CrashTargetOptions co;
+        co.language = prog.language().id();
+        co.sleigh_registers = sleigh;
+        std::string who = dump.command.empty() ? (dump.modules.empty() ? src->name : dump.modules.front().name) : dump.command;
+        for (const crash::Module &m : dump.modules)
+          if (m.main) who = m.name;
+        co.description = std::string(dump.format == crash::Format::elf_core ? "core" : "minidump") + " of " + who +
+                         (dump.pid != 0 ? " (pid " + std::to_string(dump.pid) + ")" : "") + ": " + dump.reason;
+        so.stack_bytes = std::max<std::uint32_t>(so.stack_bytes, 4096);
+        so.record_steps = false;
+        auto t = std::make_unique<debug::CrashTarget>(src->keep, src->bytes, std::move(dump), std::move(co));
+        e->crash = t.get();
+        target = std::move(t);
+        break;
+      }
       case pb::CreateDebugSessionRequest::kEmulator:
       case pb::CreateDebugSessionRequest::TARGET_NOT_SET: {
         const pb::DebugEmulatorTarget &em = req.emulator();
@@ -675,6 +845,12 @@ Status DebugSessions::Create(const api::CallContext &ctx, const pb::CreateDebugS
         break;
       }
     }
+    // A crash dump's missing bytes come from the programs it ran; set
+    // before the session records its first stop (the code at the pc).
+    if (e->crash != nullptr)
+      e->crash->set_backing([ep = e.get()](std::uint64_t at, std::span<std::uint8_t> out) -> std::size_t {
+        return ep->session ? CrashBacking(*ep, at, out) : 0;
+      });
     e->session = std::make_unique<debug::Session>(std::move(target), std::move(so));
     if (trace_target != nullptr) trace_target->attach(&e->session->timeline());
   } catch (const debug::DebugError &err) {
@@ -705,6 +881,7 @@ Status DebugSessions::Create(const api::CallContext &ctx, const pb::CreateDebugS
   resp.set_sp_register(s.target().sp_register());
   *resp.mutable_timeline() = e->limits;
   if (auto st = FillState(*e, {}, std::nullopt, resp.mutable_state()); !st.ok()) return st;
+  if (e->crash != nullptr) FillCrash(*e, 64, resp.mutable_crash());
   std::lock_guard g(mu_);
   sessions_[e->id] = e;
   return Status::Ok();
@@ -1080,9 +1257,19 @@ Status DebugSessions::GetBacktrace(const api::CallContext &ctx, const pb::GetDeb
   } catch (const debug::DebugError &err) {
     return DebugFailure(err);
   }
+  FillFrames(*e, frames, resp.mutable_frames());
+  return Status::Ok();
+}
+
+namespace {
+
+void FillFrames(DebugSessions::Entry &ent, const std::vector<debug::Frame> &frames,
+                google::protobuf::RepeatedPtrField<pb::DebugFrame> *outs) {
+  DebugSessions::Entry *e = &ent;
+  debug::Session &s = *e->session;
   for (std::size_t i = 0; i < frames.size(); ++i) {
     const debug::Frame &f = frames[i];
-    pb::DebugFrame *out = resp.add_frames();
+    pb::DebugFrame *out = outs->Add();
     out->set_level(static_cast<std::uint32_t>(i));
     FillLocation(*e, f.pc, out->mutable_pc());
     out->set_sp(f.sp);
@@ -1101,6 +1288,12 @@ Status DebugSessions::GetBacktrace(const api::CallContext &ctx, const pb::GetDeb
       out->set_function(h->function->second);
       out->mutable_function_entry()->set_offset(h->function->first);
       out->set_function_offset(at - h->function->first);
+    } else if (auto m = HostModuleAt(*e, i == 0 ? f.pc : f.pc - 1); m && m->function) {
+      // A crash dump's module read from its file: the nearest function symbol.
+      const std::uint64_t at = f.pc - static_cast<std::uint64_t>(m->module->slide);
+      out->set_function(m->function->second);
+      out->mutable_function_entry()->set_offset(m->function->first);
+      out->set_function_offset(at - m->function->first);
     }
     const unsigned size = s.options().image ? s.options().image->bits / 8 : 8;
     for (const debug::FrameRegister &r : f.registers) {
@@ -1109,6 +1302,206 @@ Status DebugSessions::GetBacktrace(const api::CallContext &ctx, const pb::GetDeb
       FillValue(r.name, bytes, false, out->add_registers());
     }
   }
+}
+
+// Where a runtime address is, as text: "lib_store+0x4", "main",
+// "libc.so.6+0x98e51", "0x7f…".
+std::string WhereText(DebugSessions::Entry &e, std::uint64_t runtime, bool return_address) {
+  debug::Session &s = *e.session;
+  const std::uint64_t look = return_address ? runtime - 1 : runtime;
+  auto with = [](const std::string &name, std::uint64_t off) {
+    char b[24];
+    std::snprintf(b, sizeof b, "+0x%llx", static_cast<unsigned long long>(off));
+    return off ? name + b : name;
+  };
+  if (auto p = s.to_program(runtime); p && e.program.function_at)
+    if (auto fn = e.program.function_at(return_address ? *p - 1 : *p)) return with(fn->second, *p - fn->first);
+  if (auto h = LibraryAt(e, look); h && h->function)
+    return with(h->function->second, runtime - static_cast<std::uint64_t>(h->slide) - h->function->first);
+  if (auto h = HostModuleAt(e, look); h && h->function)
+    return with(h->function->second, runtime - static_cast<std::uint64_t>(h->module->slide) - h->function->first);
+  try {
+    if (auto m = s.module_at(runtime)) return with(m->first.name, m->second);
+  } catch (const debug::DebugError &) {
+  }
+  char b[24];
+  std::snprintf(b, sizeof b, "0x%llx", static_cast<unsigned long long>(runtime));
+  return b;
+}
+
+void FillCrash(DebugSessions::Entry &e, std::uint32_t max_frames, pb::DebugCrash *out) {
+  debug::Session &s = *e.session;
+  const crash::CrashDump &d = e.crash->dump();
+  out->set_format(std::string(crash::to_string(d.format)));
+  out->set_arch(d.arch);
+  out->set_reason(d.reason);
+  out->set_signal(d.signal);
+  out->set_signal_name(d.signal_name);
+  out->set_signal_code(d.signal_code);
+  out->set_code_name(d.code_name);
+  out->set_exception_code(d.exception_code);
+  out->set_exception_name(d.exception_name);
+  out->set_access(d.access);
+  if (d.fault_address) out->set_fault_address(*d.fault_address);
+  out->set_pid(d.pid);
+  out->set_command(d.command);
+  out->set_args(d.args);
+  out->set_os(d.os.empty() && d.format == crash::Format::elf_core ? "Linux" : d.os);
+  out->set_cpu(d.cpu);
+  std::uint64_t dumped = 0;
+  for (const crash::Segment &g : d.memory) dumped += g.file_size;
+  out->set_segments(static_cast<std::uint32_t>(d.memory.size()));
+  out->set_dumped_bytes(dumped);
+  for (const std::string &c : d.comments) out->add_comments(c);
+  for (const std::string &w : d.warnings) out->add_warnings(w);
+  // The crashed thread, whatever thread the session shows now.
+  const std::string shown = s.target().current_thread();
+  const std::string crashed = d.crashed_thread < d.threads.size() ? std::to_string(d.threads[d.crashed_thread].id) : shown;
+  out->set_crashed_thread(crashed);
+  try {
+    if (shown != crashed) e.crash->select_thread(crashed);
+  } catch (const debug::DebugError &) {
+  }
+  std::uint64_t pc = 0;
+  try {
+    pc = s.target().pc();
+  } catch (const debug::DebugError &) {
+  }
+  FillLocation(e, pc, out->mutable_pc());
+  out->set_module(out->pc().module());
+  out->set_module_offset(out->pc().module_offset());
+  out->set_function(WhereText(e, pc, false));
+  // The faulting instruction: its bytes from the dump or the programs.
+  std::vector<std::uint8_t> code(16);
+  std::vector<debug::ByteRange> missing;
+  const std::size_t got = s.target().read_memory(pc, code, &missing);
+  std::size_t have = code.size();
+  for (const debug::ByteRange &m : missing) have = std::min<std::size_t>(have, m.offset);
+  if (got != 0 && have != 0) {
+    code.resize(have);
+    try {
+      if (auto insn = s.disassemble(pc, code)) {
+        out->set_instruction(insn->text);
+        out->set_instruction_bytes(std::string(reinterpret_cast<const char *>(code.data()), std::min<std::size_t>(insn->length, code.size())));
+      }
+    } catch (const std::exception &) {
+    }
+  }
+  // The backtrace.
+  std::vector<debug::Frame> frames;
+  if (debug::UnwindArch::for_language(s.options().language)) {
+    debug::Session::BacktraceOptions o;
+    o.max_frames = max_frames;
+    LibraryUnwinding(e, o);
+    try {
+      frames = s.backtrace(o);
+    } catch (const debug::DebugError &err) {
+      out->add_warnings(std::string("the backtrace: ") + err.what());
+    }
+  } else {
+    out->add_warnings("no call-stack unwinding for " + s.options().language);
+  }
+  FillFrames(e, frames, out->mutable_backtrace());
+  // The threads, each at its own pc.
+  const std::string sp_name = s.target().sp_register();
+  const debug::RegisterDesc *spd = s.target().find_register(sp_name);
+  for (const crash::Thread &t : d.threads) {
+    pb::DebugCrashThread *x = out->add_threads();
+    x->set_id(std::to_string(t.id));
+    x->set_name(t.name);
+    x->set_crashed(x->id() == crashed);
+    std::uint64_t tpc = 0, tsp = 0;
+    for (const crash::Register &r : t.registers) {
+      std::uint64_t v = 0;
+      for (std::size_t i = 0; i < r.value.size() && i < 8; ++i) v |= std::uint64_t(r.value[i]) << (8 * i);
+      if (r.name == "rip" || r.name == "eip" || r.name == "pc") tpc = v;
+      if (spd != nullptr && r.name == spd->target_name) tsp = v;
+    }
+    FillLocation(e, tpc, x->mutable_pc());
+    x->set_sp(tsp);
+    x->set_where(WhereText(e, tpc, false));
+  }
+  // The modules, and which project programs they are.
+  for (const crash::Module &m : d.modules) {
+    pb::DebugCrashModule *x = out->add_modules();
+    x->set_name(m.name);
+    x->set_path(m.path);
+    x->set_base(m.base);
+    x->set_size(m.size);
+    x->set_main(m.main);
+    x->set_version(m.version);
+    x->set_timestamp(m.timestamp);
+    x->set_pdb_name(m.pdb_name);
+    x->set_pdb_guid(m.pdb_guid);
+    x->set_build_id(m.build_id);
+    if (SameName(m.name, ProgramName(e.program.program_id))) {
+      x->set_program_id(e.program.program_id);
+    } else if (e.program.library) {
+      try {
+        if (auto dp = e.program.library(m.name); dp && dp->program) {
+          x->set_program_id(dp->program_id);
+          if (m.main) out->set_main_program_id(dp->program_id);
+        }
+      } catch (const std::exception &) {
+      }
+    }
+  }
+  // The report as text.
+  std::string text = d.reason + "\n";
+  char line[512];
+  std::snprintf(line, sizeof line, "at 0x%llx in %s", static_cast<unsigned long long>(pc), out->function().c_str());
+  text += line;
+  if (!out->module().empty() && out->function().rfind(out->module(), 0) != 0) {
+    std::snprintf(line, sizeof line, " (%s+0x%llx)", out->module().c_str(), static_cast<unsigned long long>(out->module_offset()));
+    text += line;
+  }
+  text += ", thread " + crashed;
+  if (!out->instruction().empty()) text += ": " + out->instruction();
+  text += "\n";
+  for (const pb::DebugFrame &f : out->backtrace()) {
+    std::string fn = f.function().empty() ? WhereText(e, f.pc().address().offset(), f.level() != 0)
+                                          : (f.function_offset() ? f.function() + "+0x" + [&] {
+                                              char b[24];
+                                              std::snprintf(b, sizeof b, "%llx", static_cast<unsigned long long>(f.function_offset()));
+                                              return std::string(b);
+                                            }()
+                                                                 : f.function());
+    std::snprintf(line, sizeof line, "#%u  0x%llx  %s", f.level(), static_cast<unsigned long long>(f.pc().address().offset()), fn.c_str());
+    text += line;
+    if (!f.pc().module().empty()) {
+      std::snprintf(line, sizeof line, "  [%s+0x%llx]", f.pc().module().c_str(), static_cast<unsigned long long>(f.pc().module_offset()));
+      text += line;
+    }
+    text += "  (" + f.how() + ")\n";
+  }
+  if (d.threads.size() > 1) {
+    text += std::to_string(d.threads.size()) + " threads:";
+    for (const pb::DebugCrashThread &t : out->threads()) text += " " + t.id() + (t.crashed() ? " (crashed)" : "") + " in " + t.where() + ";";
+    text.back() = '\n';
+  }
+  if (d.pid != 0 || !d.command.empty()) {
+    text += "process " + std::to_string(d.pid);
+    if (!d.args.empty()) text += " \"" + d.args + "\"";
+    else if (!d.command.empty()) text += " " + d.command;
+    text += "\n";
+  }
+  if (!out->main_program_id().empty() && out->main_program_id() != e.program.program_id)
+    text += "the executable is program " + out->main_program_id() + ": open the dump from it for its code and names\n";
+  out->set_summary(text);
+  try {
+    if (shown != crashed && !shown.empty()) e.crash->select_thread(shown);
+  } catch (const debug::DebugError &) {
+  }
+}
+
+}  // namespace
+
+Status DebugSessions::GetCrash(const api::CallContext &ctx, const pb::GetDebugCrashRequest &req, pb::GetDebugCrashResponse &resp) {
+  std::shared_ptr<Entry> e;
+  std::unique_lock<std::mutex> lock;
+  if (auto st = Acquire(ctx, req.session_id(), e, lock); !st.ok()) return st;
+  if (e->crash == nullptr) return Error(StatusCode::kFailedPrecondition, "the session isn't a crash dump's");
+  FillCrash(*e, req.max_frames() == 0 ? 64 : std::min<std::uint32_t>(req.max_frames(), 256), resp.mutable_crash());
   return Status::Ok();
 }
 

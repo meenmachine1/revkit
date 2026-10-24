@@ -41,6 +41,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -76,11 +77,11 @@ def raw_args(image: dict) -> list[str]:
     return args
 
 
-def run_revkit(rk_lift: str, corpus: str, out: str, image: dict, threads: int) -> dict:
+def run_revkit(rk_lift: str, corpus: str, out: str, image: dict, threads: int, extra: list = ()) -> dict:
     path = os.path.join(out, image["name"] + ".json")
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    cmd = [rk_lift, *raw_args(image), "--analyze", "--decompile", "-j", str(threads), "--name", image["path"], "-o",
-           path, os.path.join(corpus, image["path"])]
+    cmd = [rk_lift, *raw_args(image), "--analyze", "--decompile", "-j", str(threads), *extra, "--name", image["path"],
+           "-o", path, os.path.join(corpus, image["path"])]
     t = time.monotonic()
     r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     if r.returncode != 0:
@@ -159,6 +160,7 @@ def main(argv=None) -> int:
     ap.add_argument("--baseline-dir", help="fail on a drop below <dir>/firmware-<arch>.json")
     ap.add_argument("--save-baseline", metavar="DIR", help="write <dir>/firmware-<arch>.json")
     ap.add_argument("--reuse", action="store_true", help="score revkit outputs already in --out")
+    ap.add_argument("--rk-args", default="", help="more rk-lift options (--no-source-shape, say)")
     args = ap.parse_args(argv)
 
     manifest = json.load(open(os.path.join(args.corpus, "manifest.json")))
@@ -176,7 +178,7 @@ def main(argv=None) -> int:
         path = os.path.join(args.out, im["name"] + ".json")
         secs = None
         if not (args.reuse and os.path.exists(path)):
-            secs = run_revkit(args.rk_lift, args.corpus, args.out, im, threads)["seconds"]
+            secs = run_revkit(args.rk_lift, args.corpus, args.out, im, threads, shlex.split(args.rk_args))["seconds"]
         s = score_image(args.corpus, args.ref, im, path)
         s["seconds"] = secs
         return im, s

@@ -5,6 +5,7 @@
 #include "../internal.h"
 
 #include "revkit/analysis/analysis.h"
+#include "revkit/analysis/no_return.h"
 #include "revkit/facts/thread_pool.h"
 #include "revkit/lift/lifter.hh"
 #include "revkit/loader/load.hh"
@@ -1483,6 +1484,143 @@ TEST(Codecs, RoundTrip) {
             (Location{"p/x", 0x401000}));
   EXPECT_THROW(facts::decode_from_string<FlowGraph>(std::string("\x01\x00\x01\x00\x05\x7f\x00", 7)),
                facts::DecodeError);
+}
+
+}  // namespace
+}  // namespace revkit::analysis
+
+// ---- no-return evidence on calls into other modules ----
+
+namespace revkit::analysis {
+namespace {
+
+// A DS overlay (docs/nds.md) at 0x02100000: four functions, each a call
+// right before the next function's entry (what Ghidra's evidence counts),
+// to `target`. Seeded from symbols, as a dsd import or the SDK makes them.
+struct OverlayCalls {
+  std::shared_ptr<const loader::Image> image;
+  facts::FactDb db;
+  ProgramInfo info;
+  explicit OverlayCalls(std::uint32_t target) {
+    constexpr std::uint32_t kBase = 0x02100000;
+    std::vector<std::uint32_t> words(0x40, 0);
+    auto bl = [&](std::uint32_t at) {
+      return 0xeb000000u | (((target - (kBase + at + 8)) >> 2) & 0xffffff);
+    };
+    for (std::uint32_t f = 0; f < 4; ++f) {
+      words[f * 2] = 0xe92d4010;  // push {r4, lr}
+      words[f * 2 + 1] = bl(f * 8 + 4);
+    }
+    words[8] = 0xe8bd8010;     // pop {r4, pc}
+    words[0x10] = 0xe12fff1e;  // 0x02100040: bx lr (a function that returns)
+    auto data = std::make_shared<loader::Bytes>(words.size() * 4);
+    for (std::size_t i = 0; i < words.size(); ++i)
+      for (int b = 0; b < 4; ++b) (*data)[i * 4 + b] = static_cast<std::byte>(words[i] >> (8 * b));
+    loader::RawOptions o;
+    o.language = "ARM:LE:32:v5t:default";
+    o.base = kBase;
+    for (std::uint32_t f = 0; f < 4; ++f)
+      o.symbols.push_back({"f" + std::to_string(f), kBase + f * 8, f == 3 ? 12u : 8u, loader::SymbolType::func,
+                           loader::SymbolBind::global, loader::SymbolSource::symtab, true, 0});
+    image = std::make_shared<const loader::Image>(loader::parse_raw(data, o));
+    register_queries(db.engine());
+    info = describe(*image, o.language);
+    import_image(db, ProgramKey{}, *image, info);
+  }
+  std::vector<std::uint64_t> evidence() { return *db.snapshot().get<NoReturnEvidence>(ProgramKey{}); }
+};
+
+// A call to an address no block maps (main, from an overlay) returns, as
+// far as this program can tell: what follows its calls is no evidence.
+TEST(NoReturnEvidence, UnmappedTargetsReturn) {
+  if (std::string(REVKIT_GHIDRA_ROOT).empty()) GTEST_SKIP() << "GHIDRA_ROOT not configured";
+  lift::initialize(REVKIT_GHIDRA_ROOT);
+  OverlayCalls unmapped(0x02000100);
+  EXPECT_TRUE(unmapped.evidence().empty());
+  // The same calls to code of its own are evidence (Ghidra's threshold).
+  OverlayCalls mapped(0x02100040);
+  EXPECT_EQ(mapped.evidence(), std::vector<std::uint64_t>{0x02100040});
+}
+
+// SetNoReturn(false) is over the evidence: the target returns, so the
+// decompiler's inputs no longer end its callers after the call.
+TEST(NoReturnEvidence, UserSaysItReturns) {
+  if (std::string(REVKIT_GHIDRA_ROOT).empty()) GTEST_SKIP() << "GHIDRA_ROOT not configured";
+  lift::initialize(REVKIT_GHIDRA_ROOT);
+  OverlayCalls p(0x02100040);
+  ASSERT_EQ(p.evidence(), std::vector<std::uint64_t>{0x02100040});
+  auto tx = p.db.begin();
+  const facts::Seq s = tx.assert_fact(facts::Provenance::user("t"),
+                                      facts::FactKey{facts::FactKind::NoReturn, {p.info.space, 0x02100040}, {}},
+                                      std::int64_t{0});
+  tx.commit();
+  EXPECT_TRUE(p.evidence().empty());
+  auto undo = p.db.begin();
+  undo.retract(facts::Provenance::user("t"), s);
+  undo.commit();
+  EXPECT_EQ(p.evidence(), std::vector<std::uint64_t>{0x02100040});
+}
+
+// SetNoReturn on a Thumb function is keyed at its untagged entry, as the
+// SDK sends it. A Thumb function found by a BLX (no symbol paints it
+// Thumb) has a tagged flow key; its callers' flow and discovery read the
+// mark at the entry, so an ARM caller ends at its BLX.
+TEST(NoReturnEvidence, UserMarkOnAThumbEntry) {
+  if (std::string(REVKIT_GHIDRA_ROOT).empty()) GTEST_SKIP() << "GHIDRA_ROOT not configured";
+  lift::initialize(REVKIT_GHIDRA_ROOT);
+  constexpr std::uint32_t kBase = 0x02000000, kThumb = kBase + 0x20;
+  const std::vector<std::uint32_t> words = {
+      0xe92d4010,  // caller: push {r4, lr}
+      0xfa000005,  //   blx 0x02000020 (Thumb)
+      0xe3a00001,  //   mov r0, #1
+      0xe8bd8010,  //   pop {r4, pc}
+      0,          0, 0, 0,
+      0x46c04770,  // 0x02000020: bx lr; nop (Thumb)
+  };
+  auto data = std::make_shared<loader::Bytes>(words.size() * 4);
+  for (std::size_t i = 0; i < words.size(); ++i)
+    for (int b = 0; b < 4; ++b) (*data)[i * 4 + b] = static_cast<std::byte>(words[i] >> (8 * b));
+  loader::RawOptions o;
+  o.language = "ARM:LE:32:v5t:default";
+  o.base = kBase;
+  o.symbols.push_back({"caller", kBase, 16, loader::SymbolType::func, loader::SymbolBind::global,
+                       loader::SymbolSource::symtab, true, 0});
+  auto image = std::make_shared<const loader::Image>(loader::parse_raw(data, o));
+  facts::FactDb db;
+  register_queries(db.engine());
+  const ProgramInfo info = describe(*image, o.language);
+  import_image(db, ProgramKey{}, *image, info);
+  // Whether the BLX falls through, and whether the caller's body goes on
+  // past it.
+  auto caller_goes_on = [&](bool &falls, bool &body) {
+    auto snap = db.snapshot();
+    auto list = snap.get<Functions>(ProgramKey{});
+    const FunctionInfo *caller = list->find(kBase);
+    ASSERT_NE(caller, nullptr);
+    auto flow = snap.get<Flow>(Location{{}, caller->flow_key()});
+    const FlowInsn *blx = flow->at(kBase + 4);
+    ASSERT_NE(blx, nullptr);
+    falls = blx->falls_through;
+    body = caller->body.contains({info.space, kBase + 8});
+  };
+  bool falls = false, body = false;
+  ASSERT_NE(db.snapshot().get<Functions>(ProgramKey{})->find(kThumb), nullptr);
+  caller_goes_on(falls, body);
+  EXPECT_TRUE(falls);
+  EXPECT_TRUE(body);
+
+  auto tx = db.begin();
+  tx.assert_fact(facts::Provenance::user("t"), facts::FactKey{facts::FactKind::NoReturn, {info.space, kThumb}, {}},
+                 std::int64_t{1});
+  tx.commit();
+  {
+    auto list = db.snapshot().get<Functions>(ProgramKey{});
+    ASSERT_NE(list->find(kThumb), nullptr);
+    EXPECT_EQ(list->find(kThumb)->no_return, NoReturnReason::user);
+  }
+  caller_goes_on(falls, body);
+  EXPECT_FALSE(falls);
+  EXPECT_FALSE(body);
 }
 
 }  // namespace

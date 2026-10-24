@@ -937,16 +937,15 @@ void Program::DataRow(const RowIndex &index, const ListingSpan &span, std::int64
 std::optional<Program::Decoded> Program::instruction(std::uint64_t addr, bool thumb, PatchedBytes *patches) const {
   if (!executable(addr)) return std::nullopt;
   auto lifter = thumb && thumb_lifters_ ? thumb_lifters_->Acquire() : lifters_->Acquire();
-  std::optional<lift::Instruction> insn;
+  // From the bytes, so the decode depends on `thumb` and the painted
+  // context only: a pooled engine's earlier context commits (an ARM blx's
+  // switch to Thumb at its target, which SLEIGH paints to the end of the
+  // space) must not turn later ARM code after that target into Thumb.
   facts::PatchList over;
   if (patches) over = patches->overlapping(addr, addr + 31);
-  if (over.empty()) {
-    insn = lifter->lift(addr);
-  } else {
-    std::string window = read(addr, 32);
-    facts::apply_patches(over, addr, window);
-    insn = lifter->lift(addr, std::as_bytes(std::span(window.data(), window.size())));
-  }
+  std::string window = read(addr, 32);
+  if (!over.empty()) facts::apply_patches(over, addr, window);
+  std::optional<lift::Instruction> insn = lifter->lift(addr, std::as_bytes(std::span(window.data(), window.size())));
   if (!insn) return std::nullopt;
   Decoded d{std::move(*insn), {}};
   auto note = [&](const lift::Varnode &v) {

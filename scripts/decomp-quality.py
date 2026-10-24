@@ -372,8 +372,10 @@ def firmware_units(args, roots) -> list[dict]:
             "truth_bin": elf, "pe": False, "dwarf_bin": elf,
             "image": os.path.join(args.firmware_corpus, im["path"]), "base": int(im["base"], 16),
             "big_endian": ":BE:" in im["language"],
-            "src_root": os.path.join(roots["firmware"], "u-boot") if uboot else roots["firmware"],
-            "src_exclude": () if uboot else ("u-boot",),
+            # A fixture's manifest names its sources (tests/data/arm32).
+            "src_root": (os.path.join(ROOT, im["src_root"]) if im.get("src_root") else
+                         os.path.join(roots["firmware"], "u-boot") if uboot else roots["firmware"]),
+            "src_exclude": () if uboot or im.get("src_root") else ("u-boot",),
         })
     return units
 
@@ -718,7 +720,7 @@ def main() -> int:
     with cf.ProcessPoolExecutor(args.jobs) as ex:
         results = list(ex.map(score_unit, [args] * len(units), units))
     families = list(FAMILIES_TUNING) + [("fw " + a, (lambda a: lambda g: g == "fw " + a)(a))
-                                        for a in ("cortexm", "m68k", "mips", "ppc", "sh4", "xtensa")]
+                                        for a in ("arm", "cortexm", "m68k", "mips", "ppc", "sh4", "xtensa")]
     families += [("ALL tuning", lambda g: not g.startswith("fw ")), ("ALL firmware", lambda g: g.startswith("fw "))]
     agg = aggregate(results, families)
     md = markdown(agg)

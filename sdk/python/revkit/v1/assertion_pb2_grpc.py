@@ -75,8 +75,10 @@ class AssertionServiceServicer:
 
     def AppendAssertions(self, request, context):
         """Appends a batch of assertions atomically: all land in one new revision
-        or none do (INVALID_ARGUMENT names the offending index). Returns the
-        stored assertions with their sequence numbers and canonical keys.
+        or none do (INVALID_ARGUMENT names each offending index and why; with
+        skip_invalid the valid ones land and the others are returned in
+        refused). Returns the stored assertions with their sequence numbers and
+        canonical keys.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

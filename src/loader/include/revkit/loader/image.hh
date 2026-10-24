@@ -553,7 +553,10 @@ struct RawRegion {
 // their own addresses and possibly an entry point. `detect` tells them
 // apart by content: a file that parses as HEX or S-records throughout is
 // one, anything else is binary.
-enum class RawContainer : std::uint8_t { detect, binary, ihex, srec };
+// hexbytes: the file is hex text ("0x6080604052...", whitespace between
+// byte pairs allowed), as an EVM contract's bytecode is printed; it loads as
+// the binary file those bytes are (offset, length and regions index them).
+enum class RawContainer : std::uint8_t { detect, binary, ihex, srec, hexbytes };
 
 // How to load a flat binary (Ghidra's "Raw Binary" loader): `length` bytes
 // of the file from `offset` (skipping a header) at `base`, as one block,
@@ -576,9 +579,35 @@ struct RawOptions {
   // offsets there (a word-addressed space's word address times its size).
   std::string space;
   RawContainer container = RawContainer::detect;
+  // Symbols the importer knows from elsewhere (a ds-decomp project's
+  // symbols.txt, docs/nds.md), kept as the image's symbol table, as an
+  // ELF's would be: function symbols seed functions and name them, data
+  // symbols label data, mangled names are demangled. For an ARM language
+  // a function symbol with bit 0 set is Thumb, as in ELF (the image is
+  // then marked machine 40, EM_ARM, so its Thumb functions get TMode).
+  std::vector<Symbol> symbols;
 
   friend bool operator==(const RawOptions &, const RawOptions &) = default;
 };
+
+// A platform's memory map beyond a program's own bytes, as raw regions: what
+// a raw image of that platform needs mapped for its code to decompile
+// right, above all the memory-mapped I/O as volatile memory (Ghidra's
+// volatile blocks), so polling loops and saved interrupt state stay.
+// Presets (docs/nds.md, "Memory map"):
+//   nds-arm9  the DS's ARM9: shared WRAM 0x03000000-0x03FFFFFF, I/O ports
+//             0x04000000-0x04FFFFFF, the main memory's shared area
+//             0x027FF000-0x027FFFFF, all volatile and uninitialized
+//   nds-arm7  the DS's ARM7: shared WRAM 0x03000000-0x037FFFFF, I/O ports
+//             and the wireless ports 0x04000000-0x04FFFFFF, the shared
+//             area 0x027FF000-0x027FFFFF
+// Each region is cut around `taken` (inclusive [first, last] ranges the
+// program or its sibling modules map), so it never overlaps them. nullopt
+// for a name that isn't a preset.
+std::optional<std::vector<RawRegion>> platform_regions(std::string_view preset,
+                                                       const std::vector<std::pair<std::uint64_t, std::uint64_t>> &taken);
+// The preset names platform_regions takes.
+std::vector<std::string> platform_presets();
 
 // The relocation table (relocations.cc). A relocation type's name as the
 // format names it ("R_X86_64_JUMP_SLOT", "IMAGE_REL_BASED_DIR64"; "type N"

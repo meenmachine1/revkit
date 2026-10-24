@@ -72,6 +72,17 @@ std::optional<fs::path> typeinfo_dir() {
   return std::nullopt;
 }
 
+std::optional<fs::path> processors_dir() {
+  std::error_code ec;
+  if (const char *env = std::getenv("REVKIT_PROCESSORS_DIR"); env != nullptr && *env)
+    return fs::is_directory(env, ec) ? std::optional<fs::path>(env) : std::nullopt;
+  if (auto share = share_dir())
+    if (fs::is_directory(*share / "processors", ec)) return *share / "processors";
+  const fs::path build = REVKIT_DEFAULT_PROCESSORS_DIR;
+  if (!build.empty() && fs::is_directory(build, ec)) return build;
+  return std::nullopt;
+}
+
 namespace {
 
 std::string trim(std::string s) {

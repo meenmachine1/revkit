@@ -19,6 +19,7 @@ syntax = "proto3";
 package revkit.v1;
 
 import "google/protobuf/timestamp.proto";
+import "revkit/v1/apple.proto";
 import "revkit/v1/common.proto";
 import "revkit/v1/project.proto";
 
@@ -53,6 +54,34 @@ service FileSystemService {
   rpc CloseFileSystem(CloseFileSystemRequest) returns (CloseFileSystemResponse);
   // The caller's open sessions (an admin's: everyone's).
   rpc ListFileSystems(ListFileSystemsRequest) returns (ListFileSystemsResponse);
+
+  // Android packages (api_minor 98, feature "android"; docs/android.md).
+  // An APK in a session: its manifest (as XML text and as fields), its
+  // resource table's summary, its native libraries by ABI with their JNI
+  // exports, the DEX files' native methods linked to those exports, and a
+  // Flutter app's Dart snapshot hash. Viewer, and the session's owner.
+  rpc GetAndroidPackage(GetAndroidPackageRequest) returns (GetAndroidPackageResponse);
+  // A compiled XML file of an APK (a layout, res/xml/...) as XML text,
+  // references named from the package's resources.arsc. Viewer.
+  rpc DecodeAndroidXml(DecodeAndroidXmlRequest) returns (DecodeAndroidXmlResponse);
+  // The entries of an APK's resources.arsc (the strings table, or any
+  // type), filtered and paged. Viewer.
+  rpc ListAndroidResources(ListAndroidResourcesRequest) returns (ListAndroidResourcesResponse);
+  // An Apple bundle (api_minor 100, feature "apple-bundles";
+  // docs/apple-apps.md): an .app, a framework, an app extension, or an .ipa
+  // (its Payload/*.app): its layout, Info.plist, main executable and its
+  // code signature (read, not verified), the bundles inside it, its
+  // Interface Builder files and provisioning profile. Viewer.
+  rpc GetAppleBundle(GetAppleBundleRequest) returns (GetAppleBundleResponse);
+  // A property list as a tree: an XML or binary plist, or a provisioning
+  // profile's (api_minor 100, feature "apple-bundles"). Viewer.
+  rpc ReadPropertyList(ReadPropertyListRequest) returns (ReadPropertyListResponse);
+  // Interface Builder's UI wiring (api_minor 101, feature "ui-actions";
+  // docs/apple-apps.md): the compiled nibs and storyboards of a bundle (or
+  // one nib or storyboard), their objects and connections, and each
+  // control's action traced to the Objective-C method that runs it in a
+  // program's metadata. Viewer (of the program's project, when named).
+  rpc ListUiActions(ListUiActionsRequest) returns (ListUiActionsResponse);
 }
 
 // The limits a session reads with. A request may lower the daemon's
@@ -185,8 +214,17 @@ message FileSystemEntry {
   // "python-source", ...; the full list is in docs/filesystems.md
   // ("Content kinds"). From the file's own header when it has one (set with
   // detect), else from its container (an asar's "js-source" members; set in
-  // every listing). Empty for native programs and plain data.
+  // every listing). Empty for native programs and plain data. Apple's
+  // formats (api_minor 100): "plist:xml", "plist:binary", "keyed-archive"
+  // (an NSKeyedArchiver plist), "nib:archive" (a NIBArchive), "nib:keyed"
+  // (a keyed-archive nib), "mobileprovision", "ipa".
   string content_kind = 26;
+  // A directory that is an Apple bundle (api_minor 100, feature
+  // "apple-bundles"): its kind from its name ("app", "framework",
+  // "appex", "bundle", "xpc", "plugin", "kext", "storyboardc", ...), set
+  // when it holds what a bundle does (an Info.plist, Contents/,
+  // Versions/ or Resources/). GetAppleBundle describes it.
+  string bundle_kind = 27;
 }
 
 message ListFileSystemRequest {
@@ -359,4 +397,369 @@ message OpenFileSystemSession {
 
 message ListFileSystemsResponse {
   repeated OpenFileSystemSession sessions = 1;
+}
+
+// --- Android packages (api_minor 98, feature "android"; docs/android.md) ---
+
+message GetAndroidPackageRequest {
+  string session_id = 1;
+  // The APK: a file in the session (its zip is opened), or any path inside
+  // an APK's layer; "" or "/": the outermost container.
+  string path = 2;
+  // Leave out the native libraries (no ELF read: no exports, no Flutter
+  // hash) or the DEX files (no native methods). Both are read by default.
+  bool skip_native = 3;
+  bool skip_dex = 4;
+}
+
+message AndroidIntentData {
+  string scheme = 1;
+  string host = 2;
+  string port = 3;
+  string path = 4;
+  string path_prefix = 5;
+  string path_pattern = 6;
+  string mime_type = 7;
+}
+
+message AndroidIntentFilter {
+  repeated string actions = 1;
+  repeated string categories = 2;
+  repeated AndroidIntentData data = 3;
+  optional int32 priority = 4;
+  bool auto_verify = 5;
+}
+
+message AndroidComponent {
+  // "activity", "activity-alias", "service", "receiver", "provider"
+  string kind = 1;
+  // Fully qualified ("com.example.MainActivity").
+  string name = 2;
+  // What Android decides: android:exported when given, else true when the
+  // component has an intent filter (a provider: when targetSdk < 17).
+  bool exported = 3;
+  // android:exported is in the manifest.
+  bool exported_explicit = 4;
+  optional bool enabled = 5;
+  string permission = 6;
+  string process = 7;
+  // Providers.
+  string authorities = 8;
+  string read_permission = 9;
+  string write_permission = 10;
+  bool grant_uri_permissions = 11;
+  // An activity-alias's target.
+  string target_activity = 12;
+  // An intent filter with MAIN and LAUNCHER.
+  bool launcher = 13;
+  repeated AndroidIntentFilter intent_filters = 14;
+}
+
+message AndroidPermission {
+  string name = 1;
+  optional int32 max_sdk = 2;
+  // A declared permission's ("signature", "dangerous|privileged").
+  string protection_level = 3;
+}
+
+message AndroidManifest {
+  string package = 1;
+  // versionCode, with versionCodeMajor in the high 32 bits.
+  optional int64 version_code = 2;
+  string version_name = 3;
+  optional int32 min_sdk = 4;
+  optional int32 target_sdk = 5;
+  optional int32 max_sdk = 6;
+  optional int32 compile_sdk = 7;
+  string compile_sdk_codename = 8;
+  optional int32 platform_build_version_code = 9;
+  string platform_build_version_name = 10;
+  string install_location = 11;
+  string shared_user_id = 12;
+  repeated AndroidPermission uses_permissions = 13;
+  // Declared by the package.
+  repeated AndroidPermission permissions = 14;
+  repeated string uses_features = 15;
+  repeated string uses_libraries = 16;
+  repeated string queries_packages = 17;
+  // <application>: the class (fully qualified, "" when none), and the
+  // label, icon and theme (a string's text, or "@type/name").
+  string application_class = 18;
+  string label = 19;
+  string icon = 20;
+  string theme = 21;
+  string process = 22;
+  string app_component_factory = 23;
+  // Unset: the manifest doesn't say (Android's default applies:
+  // debuggable false, allowBackup true, usesCleartextTraffic true below
+  // API 28 and false from it).
+  optional bool debuggable = 24;
+  optional bool allow_backup = 25;
+  optional bool uses_cleartext_traffic = 26;
+  optional bool extract_native_libs = 27;
+  optional bool test_only = 28;
+  optional bool large_heap = 29;
+  optional bool has_code = 30;
+  optional bool request_legacy_external_storage = 31;
+  // "@xml/network_security_config", and its file ("res/xml/...xml"):
+  // DecodeAndroidXml shows it.
+  string network_security_config = 32;
+  string network_security_config_file = 33;
+  string full_backup_content = 34;
+  string data_extraction_rules = 35;
+  repeated AndroidComponent components = 36;
+  // <application>'s <meta-data>: name and value.
+  map<string, string> meta_data = 37;
+}
+
+message AndroidResourceTypeSummary {
+  string name = 1;  // "string", "drawable", ...
+  uint32 id = 2;
+  uint32 entries = 3;  // distinct ids
+  uint32 values = 4;   // across every configuration
+  repeated string configs = 5;  // "" is the default
+}
+
+message AndroidResourcePackage {
+  uint32 id = 1;  // 0x7f for the app
+  string name = 2;
+  repeated AndroidResourceTypeSummary types = 3;
+}
+
+message AndroidResourcesSummary {
+  bool present = 1;  // the package has a resources.arsc
+  repeated AndroidResourcePackage packages = 2;
+  uint32 strings = 3;  // the global string pool's
+  uint32 values = 4;
+  repeated string warnings = 5;
+}
+
+message AndroidNativeLibrary {
+  string abi = 1;   // the directory: "arm64-v8a"
+  string path = 2;  // session path ("/app.apk!/lib/arm64-v8a/libfoo.so"): import it, open it
+  string name = 3;
+  uint64 size = 4;
+  string machine = 5;  // from its header: "AArch64"
+  string soname = 6;
+  string build_id = 7;
+  repeated string needed = 8;
+  uint32 exports = 9;
+  // Java_* exports, and whether it exports JNI_OnLoad (where
+  // RegisterNatives binds methods at run time).
+  repeated string jni_exports = 10;
+  bool jni_onload = 11;
+  // "engine" (libflutter.so), "app" (libapp.so), "".
+  string flutter = 12;
+  string error = 13;
+}
+
+message AndroidDexFile {
+  string path = 1;  // "classes.dex"
+  string version = 2;  // "035"
+  uint32 strings = 3;
+  uint32 types = 4;
+  uint32 methods = 5;
+  uint32 classes = 6;
+  uint32 native_methods = 7;
+}
+
+message AndroidNativeMethod {
+  string class_name = 1;  // "com.example.Native"
+  string method = 2;
+  string signature = 3;  // "(Ljava/lang/String;I)V"
+  bool is_static = 4;
+  string dex = 5;
+  // Its JNI names: Java_<class>_<method>, and with the argument signature.
+  string jni_name = 6;
+  string jni_long_name = 7;
+  // The libraries exporting either name (session paths). None: bound at
+  // run time with RegisterNatives (look in JNI_OnLoad), or in a library
+  // not in the package.
+  repeated string libraries = 8;
+}
+
+message AndroidDartSnapshot {
+  string symbol = 1;  // "_kDartVmSnapshotData"
+  uint64 file_offset = 2;
+  uint64 size = 3;
+  bool header = 4;  // the data's header (f5f5dcdc) was read
+  uint64 length = 5;
+  uint64 kind = 6;
+  string kind_name = 7;  // "full-aot" for kind 3
+  string hash = 8;
+  string features = 9;
+}
+
+message AndroidFlutterAbi {
+  string abi = 1;
+  string libapp = 2;      // session paths
+  string libflutter = 3;
+  string snapshot_hash = 4;
+  repeated string hash_candidates = 5;  // several: the VM's and isolate's disagree
+  string features = 6;
+  repeated AndroidDartSnapshot snapshots = 7;
+  // libflutter.so's GNU build ID, and the labelled strings it carries.
+  string engine_build_id = 8;
+  string dart_version = 9;
+  repeated string toolchain = 10;
+  repeated string warnings = 11;
+}
+
+message AndroidFlutter {
+  bool detected = 1;  // a lib/<abi>/libapp.so or libflutter.so
+  // The Dart snapshot hash every ABI agrees on (it names the Dart SDK
+  // release, through a dataset revkit doesn't carry); "" when they don't.
+  string snapshot_hash = 2;
+  repeated AndroidFlutterAbi abis = 3;
+}
+
+message AndroidPackage {
+  // The APK's layer ("/app.apk!", "" for the outermost) and container path.
+  string path = 1;
+  string container_path = 2;
+  bool manifest_present = 3;
+  AndroidManifest manifest = 4;
+  // The manifest as XML text (references named, "@string/app_name"), and
+  // with them resolved for the default configuration.
+  string manifest_xml = 5;
+  string manifest_xml_resolved = 6;
+  AndroidResourcesSummary resources = 7;
+  repeated string abis = 8;
+  repeated AndroidNativeLibrary native_libraries = 9;
+  repeated AndroidDexFile dex_files = 10;
+  repeated AndroidNativeMethod native_methods = 11;
+  AndroidFlutter flutter = 12;
+  repeated string warnings = 13;
+}
+
+message GetAndroidPackageResponse {
+  AndroidPackage package = 1;
+}
+
+message DecodeAndroidXmlRequest {
+  string session_id = 1;
+  // A compiled XML file inside an APK ("/app.apk!/res/layout/main.xml").
+  string path = 2;
+  // Attribute values that are references as their default-configuration
+  // values ("Hello" rather than "@string/hello").
+  bool resolve = 3;
+}
+
+message DecodeAndroidXmlResponse {
+  string xml = 1;
+  string root = 2;  // the root element's name
+  repeated string warnings = 3;
+}
+
+message ListAndroidResourcesRequest {
+  string session_id = 1;
+  // The APK, as GetAndroidPackage takes it.
+  string path = 2;
+  // A type's name ("string"; empty: every type).
+  string type = 3;
+  // A configuration's qualifiers ("fr", "night"; "" the default; "*" every
+  // configuration).
+  string config = 4;
+  // A case-insensitive substring of the name or value.
+  string query = 5;
+  uint32 offset = 6;
+  // At most this many (default 500, at most 5000).
+  uint32 limit = 7;
+}
+
+message AndroidResourceEntry {
+  uint32 id = 1;     // 0x7f020000
+  string name = 2;   // "@string/app_name"
+  string type = 3;
+  string key = 4;    // "app_name"
+  string config = 5;
+  // The value: a string's text, "true", "#ff336699", "16.0dip", a file's
+  // path; a reference's target value, its name in `reference`.
+  string value = 6;
+  string value_type = 7;  // "string", "reference", "bool", "color", "dimension", "bag", ...
+  string reference = 8;
+  // A bag's items (style, array, plurals): "attribute = value".
+  repeated string items = 9;
+  string parent = 10;  // a bag's parent ("@android:style/Theme" or an id)
+}
+
+message ListAndroidResourcesResponse {
+  repeated AndroidResourceEntry entries = 1;
+  // Matching entries in all (before offset and limit).
+  uint32 total = 2;
+  // What the filters can name.
+  repeated string types = 3;
+  repeated string configs = 4;
+}
+
+message GetAppleBundleRequest {
+  string session_id = 1;
+  // A bundle directory, a file inside one (its nearest bundle), or an .ipa
+  // (or any container whose root holds Payload/*.app or an .app: the
+  // first, by name).
+  string path = 2;
+  // Leave out the whole Info.plist (AppleBundle.info_plist).
+  bool skip_info_plist = 3;
+}
+
+message GetAppleBundleResponse {
+  AppleBundle bundle = 1;
+  // Every app an .ipa's Payload holds (the first is `bundle`).
+  repeated AppleBundleRef apps = 2;
+}
+
+message ReadPropertyListRequest {
+  string session_id = 1;
+  string path = 2;
+  // At most this many values in the response (default 20000, at most
+  // 200000); arrays and dictionaries past it say how many entries they
+  // left out.
+  uint32 max_values = 3;
+  // Data values cut to this many bytes (default 4096, at most 1 MiB).
+  uint32 max_data_bytes = 4;
+  // An NSKeyedArchiver archive with its objects resolved (api_minor 101):
+  // the root is {"$top": {key: object}}, each object a dictionary with
+  // "$class" and its fields, arrays and dictionaries as themselves, each
+  // object where it is first reached and later references (and cycles) as
+  // {"$ref": uid, "$class": name}. Ignored for other plists.
+  bool resolve_keyed_archive = 5;
+}
+
+message ReadPropertyListResponse {
+  // "xml", "binary", or "mobileprovision" (a provisioning profile's plist,
+  // taken out of its CMS wrapper without checking the signature).
+  string format = 1;
+  PlistValue root = 2;
+  // The value budget ran out: some entries were left out.
+  bool truncated = 3;
+  // Values in the file.
+  uint64 values = 4;
+  // It is an NSKeyedArchiver archive ($archiver, $objects, $top).
+  bool keyed_archive = 5;
+  repeated string warnings = 6;
+}
+
+message ListUiActionsRequest {
+  string session_id = 1;
+  // A bundle (its Interface Builder files, as GetAppleBundle finds them),
+  // an .ipa, a .storyboardc, or a .nib (a file or a nib directory).
+  string path = 2;
+  // The program to resolve the actions in. Empty: the program of the
+  // session's project imported from the bundle's main executable (by its
+  // container path), when there is one.
+  string program_id = 3;
+  // Also return each document's objects and connections.
+  bool include_documents = 4;
+}
+
+message ListUiActionsResponse {
+  repeated UiAction actions = 1;
+  repeated UiOutlet outlets = 2;
+  // With include_documents; else each with its path, format, storyboard
+  // and owner only.
+  repeated InterfaceDocument documents = 3;
+  // The program resolved against ("" none).
+  string program_id = 4;
+  // Nibs that couldn't be read, and other problems.
+  repeated string warnings = 5;
 }

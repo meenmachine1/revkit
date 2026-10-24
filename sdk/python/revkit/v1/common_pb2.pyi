@@ -41,6 +41,29 @@ class FactKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FACT_KIND_LANGUAGE: _ClassVar[FactKind]
     FACT_KIND_FALLTHROUGH: _ClassVar[FactKind]
     FACT_KIND_REGISTER_VALUE: _ClassVar[FactKind]
+
+class SourceTier(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SOURCE_TIER_UNSPECIFIED: _ClassVar[SourceTier]
+    SOURCE_TIER_USER: _ClassVar[SourceTier]
+    SOURCE_TIER_DEBUG_INFO: _ClassVar[SourceTier]
+    SOURCE_TIER_SYMBOL: _ClassVar[SourceTier]
+    SOURCE_TIER_LIBRARY: _ClassVar[SourceTier]
+    SOURCE_TIER_AGENT: _ClassVar[SourceTier]
+    SOURCE_TIER_INFERRED: _ClassVar[SourceTier]
+    SOURCE_TIER_GUESSED: _ClassVar[SourceTier]
+    SOURCE_TIER_DEFAULT: _ClassVar[SourceTier]
+
+class UnknownKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    UNKNOWN_KIND_UNSPECIFIED: _ClassVar[UnknownKind]
+    UNKNOWN_KIND_INDIRECT_CALL: _ClassVar[UnknownKind]
+    UNKNOWN_KIND_INDIRECT_JUMP: _ClassVar[UnknownKind]
+    UNKNOWN_KIND_FLOW_TRUNCATED: _ClassVar[UnknownKind]
+    UNKNOWN_KIND_DECOMPILE_FAILED: _ClassVar[UnknownKind]
+    UNKNOWN_KIND_ANALYSIS_RUNNING: _ClassVar[UnknownKind]
+    UNKNOWN_KIND_BUDGET: _ClassVar[UnknownKind]
+    UNKNOWN_KIND_NOT_ANALYZED: _ClassVar[UnknownKind]
 PROVENANCE_KIND_UNSPECIFIED: ProvenanceKind
 PROVENANCE_KIND_USER: ProvenanceKind
 PROVENANCE_KIND_IMPORT: ProvenanceKind
@@ -70,6 +93,23 @@ FACT_KIND_NO_RETURN: FactKind
 FACT_KIND_LANGUAGE: FactKind
 FACT_KIND_FALLTHROUGH: FactKind
 FACT_KIND_REGISTER_VALUE: FactKind
+SOURCE_TIER_UNSPECIFIED: SourceTier
+SOURCE_TIER_USER: SourceTier
+SOURCE_TIER_DEBUG_INFO: SourceTier
+SOURCE_TIER_SYMBOL: SourceTier
+SOURCE_TIER_LIBRARY: SourceTier
+SOURCE_TIER_AGENT: SourceTier
+SOURCE_TIER_INFERRED: SourceTier
+SOURCE_TIER_GUESSED: SourceTier
+SOURCE_TIER_DEFAULT: SourceTier
+UNKNOWN_KIND_UNSPECIFIED: UnknownKind
+UNKNOWN_KIND_INDIRECT_CALL: UnknownKind
+UNKNOWN_KIND_INDIRECT_JUMP: UnknownKind
+UNKNOWN_KIND_FLOW_TRUNCATED: UnknownKind
+UNKNOWN_KIND_DECOMPILE_FAILED: UnknownKind
+UNKNOWN_KIND_ANALYSIS_RUNNING: UnknownKind
+UNKNOWN_KIND_BUDGET: UnknownKind
+UNKNOWN_KIND_NOT_ANALYZED: UnknownKind
 
 class Address(_message.Message):
     __slots__ = ("space", "offset")
@@ -162,12 +202,24 @@ class Derivation(_message.Message):
     def __init__(self, rule: _Optional[str] = ..., inputs: _Optional[_Iterable[_Union[FactKey, _Mapping]]] = ..., inputs_truncated: _Optional[bool] = ..., confidence: _Optional[float] = ..., computed_at_revision: _Optional[int] = ...) -> None: ...
 
 class FactOrigin(_message.Message):
-    __slots__ = ("asserted", "derived")
+    __slots__ = ("asserted", "derived", "tier")
     ASSERTED_FIELD_NUMBER: _ClassVar[int]
     DERIVED_FIELD_NUMBER: _ClassVar[int]
+    TIER_FIELD_NUMBER: _ClassVar[int]
     asserted: AssertedBy
     derived: Derivation
-    def __init__(self, asserted: _Optional[_Union[AssertedBy, _Mapping]] = ..., derived: _Optional[_Union[Derivation, _Mapping]] = ...) -> None: ...
+    tier: SourceTier
+    def __init__(self, asserted: _Optional[_Union[AssertedBy, _Mapping]] = ..., derived: _Optional[_Union[Derivation, _Mapping]] = ..., tier: _Optional[_Union[SourceTier, str]] = ...) -> None: ...
+
+class Unknown(_message.Message):
+    __slots__ = ("kind", "address", "detail")
+    KIND_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    DETAIL_FIELD_NUMBER: _ClassVar[int]
+    kind: UnknownKind
+    address: Address
+    detail: str
+    def __init__(self, kind: _Optional[_Union[UnknownKind, str]] = ..., address: _Optional[_Union[Address, _Mapping]] = ..., detail: _Optional[str] = ...) -> None: ...
 
 class AssertedBy(_message.Message):
     __slots__ = ("seq", "provenance", "id")

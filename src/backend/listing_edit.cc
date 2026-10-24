@@ -255,7 +255,6 @@ std::string ResolveListingEdit(const ParseCContext &c, const pb::ListingEdit &e,
       if (!block->initialized && d.string() != pb::STRING_ENCODING_UNSPECIFIED && d.layout() != pb::STRING_LAYOUT_FIXED)
         return "address 0x" + Hex(a) + " has no bytes (uninitialized memory) to find the string's length in";
       TypeStore store;
-      auto names = c.names;
       ProgramTypes program(c.names, c.closure, store);
       an::DataSpec spec;
       spec.pointer_size = static_cast<std::uint8_t>(PointerSize(p));

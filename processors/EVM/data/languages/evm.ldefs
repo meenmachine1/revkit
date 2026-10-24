@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- revkit's Ethereum Virtual Machine processor (docs/evm.md). -->
+<language_definitions>
+  <language processor="EVM" endian="big" size="32" variant="default" version="1.0"
+            slafile="evm.sla" processorspec="evm.pspec" id="EVM:BE:32:default">
+    <description>Ethereum Virtual Machine bytecode (256-bit words; revkit)</description>
+    <compiler name="default" spec="evm.cspec" id="default"/>
+  </language>
+</language_definitions>

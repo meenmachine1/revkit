@@ -4,6 +4,7 @@ syntax = "proto3";
 package revkit.v1;
 
 import "google/protobuf/timestamp.proto";
+import "revkit/v1/apple.proto";
 import "revkit/v1/assertion.proto";
 import "revkit/v1/common.proto";
 
@@ -216,6 +217,47 @@ service ProjectService {
   // Where an import goes: the library program and the function there, by
   // the import's thunk or slot address, or by name.
   rpc ResolveImport(ResolveImportRequest) returns (ResolveImportResponse);
+
+  // Nintendo DS games (api_minor 103, feature "nds"; docs/nds.md). A
+  // ds-decomp project (its config.yaml on the daemon's host, under a
+  // --browse-root) as one program per module, in a new folder: main, the
+  // autoloads and the ARM9 overlays as ARM:LE:32:v5t, the ARM7 and its
+  // overlays as ARM:LE:32:v4t, each at its load address, with
+  // symbols.txt's names, sizes and Thumb modes, delinks.txt's sections as
+  // blocks and its translation units as plate comments. Each module is
+  // linked to the modules its relocs.txt calls and reads (and main and the
+  // autoloads), so the decompiler and listing name what is in another
+  // module from that program. Needs admin (it reads the host).
+  rpc ImportDsdProject(ImportDsdProjectRequest) returns (ImportDsdProjectResponse);
+  // Shrinks a closed project's store (api_minor 104, feature "compact";
+  // docs/backend.md, "Compaction"): its stale memos (and, as asked, every
+  // memo or those beyond a size) are dropped, then the LMDB file is
+  // rewritten without its free pages, as mdb_copy -c does. The log is kept
+  // whole. FAILED_PRECONDITION while the project is open (CloseProject
+  // first) or when it isn't on disk. Needs admin.
+  rpc CompactProject(CompactProjectRequest) returns (CompactProjectResponse);
+  // A .nds ROM image (by host path under a --browse-root, as bytes, or a
+  // program's stored file) as the same programs, decompressed (BLZ) and
+  // with the autoloads split out; no symbols (the ROM has none). Needs
+  // admin for a host path, editor otherwise.
+  rpc ImportNdsRom(ImportNdsRomRequest) returns (ImportNdsRomResponse);
+  // The renames and the new functions and data of a ds-decomp project's
+  // module programs as changes to each module's symbols.txt, in dsd's
+  // syntax: a unified diff per file and, with write, the files written
+  // (each backed up first beside it). A viewer's call; writing needs admin
+  // and the files under a --browse-root.
+  rpc ExportDsdSymbols(ExportDsdSymbolsRequest) returns (ExportDsdSymbolsResponse);
+
+  // The decomp knowledge base (api_minor 105, feature "decomp-kb";
+  // docs/decomp-kb.md): finished matching decompilations, carried to a new
+  // game. BuildDecompKb ingests a finished game's module programs (their
+  // functions' Function ID hashes, translation units, verbatim sources,
+  // compiler and flags, from delinks.txt, the source tree and a manifest)
+  // into a KB directory on the daemon's host; ApplyDecompKb matches a new
+  // program's functions against it, names the exact matches and returns
+  // their source. Both need admin (the host's files) and a --browse-root.
+  rpc BuildDecompKb(BuildDecompKbRequest) returns (BuildDecompKbResponse);
+  rpc ApplyDecompKb(ApplyDecompKbRequest) returns (ApplyDecompKbResponse);
 }
 
 // A folder of a project (api_minor 37, feature "project-folders").
@@ -934,6 +976,11 @@ message ProgramInfo {
   // a self-extractor); "lua-chunks" for a raw image holding Lua chunks.
   // OpenFileSystem with this program_id opens it. Empty when there is none.
   string payload_format = 20;
+  // A crash dump (api_minor 102, feature "crash-dumps";
+  // docs/crash-dumps.md): "elf-core" for an ELF core file, whose PT_LOAD
+  // segments are its memory blocks. CreateDebugSession with
+  // crash.dump_program_id opens it in the debugger. Empty otherwise.
+  string crash_dump = 21;
 }
 
 // A PE's CLR header (data directory 14, IMAGE_COR20_HEADER) and metadata
@@ -989,6 +1036,26 @@ message ListProgramsResponse {
   repeated ProjectFolder folders = 3;
 }
 
+// What an import does when its name is taken (api_minor 104, feature
+// "import-conflict"). A program's id is "<project>/<name>"; a name is taken
+// when a program of the project, deleted or not, has that id (a DS import:
+// when the game's folder exists under the parent).
+enum NameConflict {
+  // As KEEP_BOTH.
+  NAME_CONFLICT_UNSPECIFIED = 0;
+  // The new program gets the next free name ("name-2", a DS game's folder
+  // "game (2)"), as before; the response says which name was taken.
+  NAME_CONFLICT_KEEP_BOTH = 1;
+  // The program that has the name is deleted (DeleteProgram: undoable) and
+  // the new one shows the name (RenameProgram; its id is still the next
+  // free one, as a deleted program keeps its id). A DS import deletes the
+  // folder's programs and imports into that folder.
+  NAME_CONFLICT_REPLACE = 2;
+  // ALREADY_EXISTS, naming the program (or folder) that has the name;
+  // nothing is imported.
+  NAME_CONFLICT_REFUSE = 3;
+}
+
 message ImportProgramRequest {
   string project_id = 1;
   oneof source {
@@ -1019,6 +1086,8 @@ message ImportProgramRequest {
   // The folder the program (and the libraries ImportOptions.import_libraries
   // brings) goes into; empty: the root (api_minor 70).
   string folder_id = 8;
+  // When the name is taken (api_minor 104).
+  NameConflict on_conflict = 10;
 }
 
 // What an import is doing (GetImportProgress), in the order an import goes
@@ -1288,6 +1357,10 @@ message CancelRawDetectResponse {}
 
 message ImportOptions {
   // Force a format instead of detecting it ("raw" needs language_id).
+  // "evm" (api_minor 99, feature "evm"; docs/evm.md): Ethereum Virtual
+  // Machine bytecode, binary or hex text, runtime or creation code; a file
+  // whose bytes (or hex text) start as solc's contracts do is detected as
+  // EVM without it.
   string format = 1;
   string language_id = 2;
   // Compiler spec id, "gcc", "windows", "default".
@@ -1320,7 +1393,8 @@ message ImportOptions {
   // entry_point are byte offsets in it.
   string raw_space = 13;
   // What the file holds (api_minor 26): "binary", "ihex" (Intel HEX),
-  // "srec" (Motorola S-records), or empty to tell by content.
+  // "srec" (Motorola S-records), "hexbytes" (hex text: "0x6080...", api_minor
+  // 99), or empty to tell by content.
   string raw_format = 14;
 
   // Also import the libraries it needs (api_minor 70, feature
@@ -1357,6 +1431,11 @@ message ImportOptions {
   // was loaded. Libraries a Mach-O imports (import_libraries) load the
   // slice of their own universal files with the program's CPU type.
   string macho_slice = 19;
+  // Format "raw": a platform's memory map added to the regions, cut around
+  // the image and the regions given: "nds-arm9", "nds-arm7" (the DS's I/O
+  // ports, shared WRAM and main memory's shared area as volatile memory;
+  // docs/nds.md, "Memory map"). Added in api_minor 104 (feature "memory-preset").
+  string memory_preset = 20;
 }
 
 // A memory region declared at import (ImportOptions.regions).
@@ -1395,6 +1474,12 @@ message ImportProgramResponse {
   // (ImportOptions.library_root, or the one found); empty: the host's
   // directories (api_minor 79).
   string library_root = 7;
+  // The program that already had the name asked for (its id), when it was
+  // taken; empty when it wasn't (api_minor 104).
+  string name_taken_by = 8;
+  // NAME_CONFLICT_REPLACE: the program deleted for this one (empty if none
+  // was live).
+  string replaced_program_id = 9;
 }
 
 // A library needed but not found on the search paths.
@@ -1545,6 +1630,52 @@ message ProgramSummary {
   // A Mach-O's header and load commands (api_minor 90, feature "macho");
   // unset for other formats.
   MachoSummary macho = 14;
+  // An Ethereum Virtual Machine contract (api_minor 99, feature "evm";
+  // docs/evm.md); unset for other programs.
+  EvmSummary evm = 15;
+}
+
+// What revkit found in an EVM contract (docs/evm.md): where its runtime code
+// is, the dispatcher's functions, and how much of its control flow is known.
+message EvmSummary {
+  // The file is creation code (a constructor): its runtime code is the
+  // slice it CODECOPYs and RETURNs, at runtime_offset in the file. The
+  // program has the runtime at 0 and the creation code at 0x100000.
+  bool creation = 1;
+  uint32 runtime_offset = 2;
+  uint32 runtime_size = 3;
+  // The dispatcher's functions, in its order.
+  repeated EvmFunction functions = 4;
+  // JUMP and JUMPI instructions, runtime and creation code together:
+  // direct (PUSHn tag right before: one instruction, a direct branch),
+  // resolved (computed, every target found by the stack analysis and given
+  // the decompiler as references), unresolved (a target not a constant on
+  // some path), unreached (no path from the entries reached it). resolved
+  // counts the direct ones too.
+  uint32 jumps = 5;
+  uint32 direct_jumps = 6;
+  uint32 resolved_jumps = 7;
+  uint32 unresolved_jumps = 8;
+  uint32 unreached_jumps = 9;
+  uint32 jumpdests = 10;
+  // The stack analysis's budget stopped it: some paths weren't followed.
+  bool budget = 11;
+  // solc's CBOR metadata at the runtime's end (size 0: none).
+  uint32 metadata_offset = 12;
+  uint32 metadata_size = 13;
+}
+
+message EvmFunction {
+  uint32 selector = 1;
+  // Its code: the dispatcher's jump target.
+  Address entry = 2;
+  // The name it was given: the well-known signature's ("transfer"), else
+  // func_0x<selector>.
+  string name = 3;
+  // From revkit's short table of well-known signatures ("transfer(address,uint256)"
+  // and "ERC-20"); empty when the selector isn't in it.
+  string signature = 4;
+  string standard = 5;
 }
 
 // What a Mach-O's header and load commands say (docs/macho.md).
@@ -1588,6 +1719,12 @@ message MachoSummary {
   string fixups = 20;
   // Header flags as named: "PIE", "TWOLEVEL", "DYLDLINK", "NOUNDEFS", ...
   repeated string flags = 21;
+  // LC_CODE_SIGNATURE's signature, read and not verified (api_minor 100,
+  // feature "apple-bundles"; docs/apple-apps.md): the CodeDirectories
+  // (identifier, team, flags such as the hardened runtime, hashes), the
+  // entitlements, the requirements and the CMS signature's certificates.
+  // Unset without one.
+  CodeSignature code_signature = 22;
 }
 
 message MachoDylib {
@@ -1726,4 +1863,359 @@ message MemoryBlockSource {
   // FILE: the bytes haven't reached this daemon yet (a collaborator added
   // the region); it reads as uninitialized until they do.
   bool missing = 6;
+}
+
+// --- Nintendo DS (api_minor 103, feature "nds"; docs/nds.md) -------------------
+
+message ImportDsdProjectRequest {
+  string project_id = 1;
+  // The ds-decomp config.yaml (config/<version>/arm9/config.yaml), on the
+  // daemon's host under a --browse-root. The module binaries are read from
+  // the extract its rom_config names (else each module's built object).
+  string config_path = 2;
+  // The folder the game's folder goes in ("" the root).
+  string folder_id = 3;
+  // The game's folder; default: the project directory's name and version
+  // ("bakubrawlers-usa"). A folder of that name gets " (2)" and so on.
+  string folder_name = 4;
+  // Only these modules ("main", "itcm", "ov006", "arm7"); empty: all.
+  repeated string modules = 5;
+  // Leave the ARM7 and its overlays out (the extract has them; dsd's
+  // config doesn't list them).
+  bool skip_arm7 = 6;
+  // Start auto-analysis's analyzers after each import (ImportOptions.analyze).
+  bool analyze = 7;
+  Provenance provenance = 8;
+  // When the game's folder is taken (api_minor 104).
+  NameConflict on_conflict = 9;
+}
+
+message ImportNdsRomRequest {
+  string project_id = 1;
+  oneof source {
+    string path = 2;          // on the daemon's host, under a --browse-root
+    bytes content = 3;
+    string program_file = 4;  // a program's stored file in the project
+  }
+  string folder_id = 5;
+  // Default: the ROM's title and game code ("REVKITTEST (RKTE)").
+  string folder_name = 6;
+  repeated string modules = 7;
+  bool skip_arm7 = 8;
+  bool analyze = 9;
+  Provenance provenance = 10;
+  // When the game's folder is taken (api_minor 104).
+  NameConflict on_conflict = 11;
+}
+
+// One module and the program made of it.
+message NdsModuleImport {
+  string module = 1;     // "main", "itcm", "dtcm", "autoload_2", "ov006", "arm7", "arm7_ov000"
+  string kind = 2;       // main, itcm, dtcm, autoload, overlay, arm7, arm7_overlay
+  int32 overlay_id = 3;  // -1: not an overlay
+  ProgramInfo program = 4;  // unset when it failed
+  string language_id = 5;
+  uint64 address = 6;       // load address
+  uint64 size = 7;          // bytes (decompressed)
+  uint64 bss_size = 8;
+  uint32 symbols = 9;       // symbols.txt entries applied
+  uint32 functions = 10;
+  uint32 thumb_functions = 11;
+  uint32 data_symbols = 12;
+  uint32 relocations = 13;              // relocs.txt entries
+  uint32 cross_module_relocations = 14; // naming another module alone
+  uint32 ambiguous_relocations = 15;    // module:overlays(...): not linked
+  uint32 sections = 16;                 // blocks from delinks.txt
+  uint32 units = 17;                    // translation units (plate comments)
+  repeated string links = 18;           // the modules it is linked to
+  bool compressed = 19;                 // decompressed from the ROM
+  repeated string warnings = 20;
+  string error = 21;                    // why it wasn't imported
+}
+
+message ImportDsdProjectResponse {
+  Snapshot snapshot = 1;
+  ProjectFolder folder = 2;  // the game's, holding the programs
+  repeated NdsModuleImport modules = 3;
+  repeated string warnings = 4;
+  uint32 imported = 5;
+  uint32 failed = 6;
+  // The folder that already had the game's name (its id), when it was
+  // taken (api_minor 104); REPLACE: its programs were deleted.
+  string folder_taken_by = 7;
+  repeated string replaced_program_ids = 8;
+}
+
+// The same as ImportDsdProjectResponse.
+message ImportNdsRomResponse {
+  Snapshot snapshot = 1;
+  ProjectFolder folder = 2;
+  repeated NdsModuleImport modules = 3;
+  repeated string warnings = 4;
+  uint32 imported = 5;
+  uint32 failed = 6;
+  // The folder that already had the game's name (its id), when it was
+  // taken (api_minor 104); REPLACE: its programs were deleted.
+  string folder_taken_by = 7;
+  repeated string replaced_program_ids = 8;
+}
+
+message ExportDsdSymbolsRequest {
+  string project_id = 1;
+  // ds-decomp module programs (ImportDsdProject's); empty: every one in
+  // folder_id (and the folders below it).
+  repeated string program_ids = 2;
+  string folder_id = 3;
+  // Write each changed symbols.txt (after copying it to
+  // symbols.txt.bak-<UTC time>). Needs admin and the files under a
+  // --browse-root.
+  bool write = 4;
+  // Leave out new functions and data (renames only).
+  bool no_new_symbols = 5;
+  // Leave out renames (new symbols only).
+  bool no_renames = 6;
+  // Return each new file's full text.
+  bool include_text = 7;
+  ReadOptions read = 8;
+  Provenance provenance = 9;
+}
+
+message DsdSymbolChange {
+  string kind = 1;      // "renamed", "added", "skipped"
+  Address address = 2;
+  string old_name = 3;  // as symbols.txt has it
+  string new_name = 4;  // as written
+  uint32 line = 5;      // in the old file (renamed)
+  string reason = 6;    // skipped: why
+}
+
+message DsdSymbolsExport {
+  string program_id = 1;
+  string module = 2;
+  string path = 3;       // the module's symbols.txt
+  string diff = 4;       // unified diff, "" when unchanged
+  string text = 5;       // include_text: the new file
+  uint32 renamed = 6;
+  uint32 added = 7;
+  uint32 skipped = 8;
+  repeated DsdSymbolChange changes = 9;
+  bool written = 10;
+  string backup_path = 11;
+  repeated string warnings = 12;
+}
+
+message ExportDsdSymbolsResponse {
+  Snapshot snapshot = 1;
+  repeated DsdSymbolsExport modules = 2;
+  // Every module's diff in one, with absolute paths ("--- /path/symbols.txt",
+  // "+++ /path/symbols.txt"): `patch -p0 < file` applies it.
+  string patch = 3;
+  uint32 renamed = 4;
+  uint32 added = 5;
+  uint32 skipped = 6;
+  uint32 written = 7;
+}
+
+// --- Compaction (api_minor 104, feature "compact") ---------------------------
+
+message CompactProjectRequest {
+  string project_id = 1;
+  // Drop every memo (all derived results recompute, as after an import).
+  bool drop_caches = 2;
+  // Keep at most this many bytes of memos, the most recently used ones; 0:
+  // no limit.
+  uint64 cache_limit_bytes = 3;
+  // Measure and plan only: nothing is dropped or rewritten.
+  bool dry_run = 4;
+}
+
+// One rule's memos in the store, before.
+message CompactRule {
+  string name = 1;  // "decompile.ghidra"; "?<id>" for a rule this daemon doesn't have
+  uint64 records = 2;
+  uint64 bytes = 3;
+  uint64 dropped = 4;
+}
+
+message CompactProjectResponse {
+  uint64 file_bytes_before = 1;  // data.mdb
+  uint64 file_bytes_after = 2;
+  uint64 log_records = 3;        // the assertion log, kept whole
+  uint64 log_bytes = 4;
+  uint64 program_bytes = 5;      // the programs' stored files
+  uint64 memo_records = 6;       // derived results, before
+  uint64 memo_bytes = 7;
+  uint64 dropped_records = 8;
+  uint64 dropped_bytes = 9;
+  uint64 dropped_stale = 10;     // of a rule that is gone or changed
+  repeated CompactRule rules = 11;  // largest first
+}
+
+// --- Decomp knowledge base (api_minor 105, feature "decomp-kb"; docs/decomp-kb.md) ---
+
+message BuildDecompKbRequest {
+  string project_id = 1;
+  // The finished game's module programs (ImportDsdProject's); empty: every
+  // dsd module program in folder_id.
+  repeated string program_ids = 2;
+  string folder_id = 3;
+  // The KB's directory on the daemon's host (made if missing), under a
+  // --browse-root. A game ingested again replaces its records.
+  string kb_path = 4;
+  // The game's name in the KB; default: the folder's (the dsd project's).
+  string game = 5;
+  // Where the units' source paths are relative to; default: the dsd
+  // project's root (the directory above config/).
+  string source_root = 6;
+  // A JSON-lines manifest (docs/decomp-kb.md, "The manifest"), optional.
+  string manifest_path = 7;
+  // For functions the manifest doesn't cover.
+  string compiler = 8;  // "mwcc-ds/2.0/sp2p2"
+  string flags = 9;     // "-O4,p -ipa file -inline on,noauto"
+  Provenance provenance = 10;
+  // Don't sign the functions into the KB's BSim database (near.rkbsim),
+  // which ApplyDecompKb's near matches search; signing decompiles every
+  // function.
+  bool skip_near_index = 11;
+  // Decompiler workers for signing (0: up to 4).
+  uint32 threads = 12;
+}
+
+message BuildDecompKbResponse {
+  string kb_path = 1;
+  string game = 2;
+  uint32 functions = 3;     // records written
+  uint32 with_source = 4;   // whose own text was found in their unit
+  uint32 units = 5;         // source files copied
+  uint32 too_short = 6;     // below Function ID's 4 code units
+  uint32 unnamed = 7;       // placeholder names (FUN_, func_)
+  uint32 from_manifest = 8; // records the manifest supplied compiler and flags for
+  uint32 total = 9;         // functions in the KB, every game
+  repeated string warnings = 10;
+  uint32 near_indexed = 11; // functions signed into the KB's BSim database
+  // Records whose name is a placeholder (func_, FUN_), kept for their
+  // source and compiler: a match brings the source, not the name.
+  uint32 anonymous = 12;
+}
+
+// One function of a finished decomp, as functions.jsonl holds it.
+message DecompKbFunction {
+  string game = 1;
+  string module = 2;
+  uint64 address = 3;
+  uint64 size = 4;
+  string mode = 5;          // "arm", "thumb"
+  string symbol = 6;        // as the linker spells it
+  string name = 7;          // as revkit shows it (demangled)
+  string prototype = 8;     // revkit's C prototype, when known
+  string unit = 9;          // the translation unit ("src/06_GameOver/Scene/GameOverScene.cpp")
+  string source = 10;       // the unit's file in the KB ("sources/<game>/<unit>")
+  string text = 11;         // the function's own text in its unit, when found
+  string compiler = 12;
+  string flags = 13;
+  string status = 14;       // "matching", "nonmatching", "asm", ""
+  string full_hash = 15;    // Function ID's, 16 hex digits
+  string specific_hash = 16;
+  uint32 code_units = 17;
+  uint32 specific_extra = 18;
+  string language = 19;     // "ARM:LE:32:v5t"
+  string manifest_hash = 20;  // the manifest's masked_sha256 (or masked_hash), kept as given
+  double fuzzy = 21;          // the manifest's fuzzy match score, percent
+  string library = 22;        // the manifest's library region ("NitroSDK")
+  string object = 23;         // the manifest's object file
+  string variant = 24;        // the manifest's build variant
+  uint32 relocations = 25;    // relocation sites the manifest lists
+  // The function's instructions as text, call and branch targets and
+  // addresses normalized, for a near match's diff.
+  repeated string instructions = 26;
+  // The name is a placeholder: a match brings the source, not the name.
+  bool anonymous = 27;
+  // Fewer instructions than Function ID's 4: never matched alone, only
+  // through a matched caller (verdict "call").
+  bool small = 28;
+  // The calls in its body, by instruction: what a match names its
+  // callees by.
+  repeated DecompKbCall calls = 29;
+}
+
+message DecompKbCall {
+  uint32 offset = 1;   // of the call instruction, from the entry
+  string symbol = 2;   // the callee, as the linker spells it
+  uint64 address = 3;  // the callee's entry in the KB's game
+}
+
+message ApplyDecompKbRequest {
+  string project_id = 1;
+  // The new game's programs; empty: every program in folder_id.
+  repeated string program_ids = 2;
+  string folder_id = 3;
+  string kb_path = 4;
+  // Name the exact matches (and note their linker spelling and source in
+  // a plate comment); without it only report them.
+  bool apply = 5;
+  // Rename functions that already have a name of their own too.
+  bool overwrite = 6;
+  // Return each match's unit source file too (else its own text only).
+  bool include_unit_source = 7;
+  Provenance provenance = 8;
+  // Near matches: for each function without an exact match, the closest
+  // KB functions by BSim (the KB's near.rkbsim), their source as a
+  // starting scratch, with the similarity and the instruction diff.
+  bool near = 9;
+  optional double min_similarity = 10;  // default 0.7
+  uint32 max_near = 11;                 // candidates per function, default 1
+  // Writes the matches as files under this directory on the daemon's host
+  // (under a --browse-root): each module's symbols.txt as ExportDsdSymbols
+  // would write it (with apply), symbols.patch, the exact matches' source
+  // in their units' paths (src/...), and near matches as scratches
+  // (scratch/<module>/<name>.c).
+  string export_dir = 12;
+  uint32 threads = 13;  // decompiler workers for near matches (0: up to 4)
+}
+
+message DecompKbMatch {
+  string program_id = 1;
+  Address address = 2;
+  string current_name = 3;
+  // "exact": hashes, code units and size are the KB function's;
+  // "candidate": the instructions are (full hash), the constants differ;
+  // "call": named through a matched caller (the call at the same place in
+  // the KB function's code goes to this KB function; its hashes, when it
+  // has any, agree); "near": BSim's closest KB functions (near), not
+  // applied.
+  string verdict = 4;
+  repeated DecompKbFunction functions = 5;  // the KB functions it matches (several: ambiguous)
+  bool applied = 6;
+  string reason = 7;          // why not applied
+  string unit_source = 8;     // include_unit_source
+  // Near matches ("near"): BSim's similarity and confidence, and the
+  // instruction diff from the KB function to this one (unified: " ", "-"
+  // the KB's, "+" this function's).
+  double similarity = 9;
+  double confidence = 10;
+  string diff = 11;
+}
+
+// What ApplyDecompKb's export_dir received.
+message DecompKbExport {
+  string dir = 1;
+  repeated string files = 2;   // relative to dir
+  uint32 sources = 3;          // unit files with exact matches' source
+  uint32 scratches = 4;        // near matches' scratches
+  uint32 symbols_files = 5;    // symbols.txt files
+  string patch = 6;            // the symbols.txt changes (ExportDsdSymbols' patch)
+}
+
+message ApplyDecompKbResponse {
+  Snapshot snapshot = 1;
+  repeated DecompKbMatch matches = 2;
+  uint32 hashed = 3;      // functions hashed in the programs
+  uint32 exact = 4;
+  uint32 candidates = 5;
+  uint32 applied = 6;
+  uint32 ambiguous = 7;
+  repeated string warnings = 8;
+  uint32 near = 9;              // functions with a near match
+  DecompKbExport exported = 10;  // export_dir
+  uint32 by_call = 11;          // functions matched through their callers ("call")
 }

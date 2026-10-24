@@ -261,5 +261,34 @@ TEST_F(TraceTest, Refusals) {
   EXPECT_EQ(Trace(combine + 1, pb::TRACE_DIRECTION_FORWARD, q, r).code, api::StatusCode::kNotFound);
 }
 
+// Result evidence (api_minor 97, feature "result-evidence"; docs/api.md
+// "Result evidence"): main's call through `hook` is an unknown of GetFunction
+// and of its decompilation; scale's calls are all known. Names say their
+// tier: DWARF's (-g) are debug information, the decompiler's are guesses.
+TEST_F(TraceTest, ResultsSayWhatTheyLeaveUnknown) {
+  const std::uint64_t main_fn = Fn("main"), scale = Fn("scale");
+  auto indirect = [](const auto &unknowns) {
+    int n = 0;
+    for (const pb::Unknown &u : unknowns) n += u.kind() == pb::UNKNOWN_KIND_INDIRECT_CALL && u.has_address();
+    return n;
+  };
+  pb::GetFunctionRequest req;
+  req.set_program_id(id_);
+  req.mutable_address()->set_offset(main_fn);
+  pb::GetFunctionResponse resp;
+  ASSERT_TRUE(backend_->GetFunction(ctx_, req, resp).ok());
+  EXPECT_EQ(indirect(resp.function().unknowns()), 1);
+  EXPECT_EQ(resp.function().name_origin().tier(), pb::SOURCE_TIER_DEBUG_INFO)
+      << resp.function().name_origin().DebugString();
+  const pb::DecompiledFunction dec = Decompile(main_fn);
+  EXPECT_EQ(indirect(dec.unknowns()), 1) << Text(dec);
+  EXPECT_EQ(indirect(Decompile(scale).unknowns()), 0);
+  bool guessed = false;
+  for (const pb::Variable &v : dec.variables())
+    if (v.kind() == pb::VARIABLE_KIND_LOCAL && v.name_origin().has_derived())
+      guessed |= v.name_origin().tier() == pb::SOURCE_TIER_GUESSED;
+  EXPECT_TRUE(guessed) << "the decompiler's local names are guesses";
+}
+
 }  // namespace
 }  // namespace revkit::backend

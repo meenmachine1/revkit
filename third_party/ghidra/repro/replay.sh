@@ -3,6 +3,7 @@
 # (ghidra_decomp_dbg, upstream's decomp_dbg) and check the outcome.
 #
 #   replay.sh <ghidra_decomp_dbg> <ghidra root> <repro.xml>
+#   replay.sh <ghidra_test> <ghidra root> <test.xml>
 #   replay.sh <rk-decompd> <ghidra root> <repro.bundle>
 #
 # <repro.xml> is an <xml_savefile> (Ghidra's "Debug Function Decompilation"
@@ -41,6 +42,25 @@ expect=${xml%.xml}.expect
 limit=${RK_REPRO_TIMEOUT:-300}
 
 fail() { echo "FAIL $(basename "$xml"): $*" >&2; printf '%s\n' "$out" | tail -20 >&2; exit 1; }
+
+out=
+if head -c 64 "$xml" | grep -q '<decompilertest>'; then
+  # Upstream's datatests format, run by <ghidra_test>: every <stringmatch>
+  # in it must pass, and the output match the .expect.
+  [ -f "$expect" ] || fail "no $(basename "$expect")"
+  out=$(timeout "$limit" "$dbg" -sleighpath "$root" -path "$(dirname "$xml")" datatests "$(basename "$xml")" 2>&1)
+  rc=$?
+  [ $rc = 0 ] || fail "ghidra_test exited with status $rc (124: timeout, >128: signal $((rc - 128)))"
+  applied=$(printf '%s\n' "$out" | sed -n 's/^Total tests applied = //p')
+  passing=$(printf '%s\n' "$out" | sed -n 's/^Total passing tests = //p')
+  [ -n "$applied" ] && [ "$applied" -gt 0 ] && [ "$applied" = "$passing" ] || fail "$passing of $applied checks pass"
+  while IFS= read -r re; do
+    [ -n "$re" ] || continue
+    printf '%s\n' "$out" | grep -Eq -- "$re" || fail "no output line matches: $re"
+  done < "$expect"
+  echo "ok $(basename "$xml"): $passing checks"
+  exit 0
+fi
 
 out=
 [ -f "$expect" ] || fail "no $(basename "$expect")"

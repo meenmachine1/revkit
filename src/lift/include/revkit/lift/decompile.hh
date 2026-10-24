@@ -20,11 +20,16 @@
 #include <vector>
 
 namespace ghidra {
+class Architecture;
 class PrintLanguage;
 struct PrototypePieces;
 }
 
 namespace revkit::lift {
+
+// Sets the fork's options for `shape` on an architecture whose printer is
+// Ghidra's C printer (after resetDefaults, which turns them all off).
+void apply_shape(ghidra::Architecture &arch, const SourceShape &shape);
 
 // Java's IllegalCharCppTransformer: characters that can't appear in a C++
 // identifier become '_' ("main.cold" -> "main_cold"), as Ghidra's
@@ -134,6 +139,11 @@ struct DecompileConfig {
   // "Variadic Function Signature Override" analysis. revkit's own inputs
   // only (rk-lift --analyze, the daemon); off for Ghidra's exported ones.
   bool format_strings = false;
+  // The fork's source-shape options (docs/decompiler-inputs.md, "Source
+  // shape"): C that follows what the instructions encode. revkit's own
+  // inputs only (rk-lift --analyze, the daemon); off for Ghidra's exported
+  // ones, whose C is the identity gate.
+  SourceShape shape;
 };
 
 struct DecompileResult {

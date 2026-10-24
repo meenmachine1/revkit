@@ -212,6 +212,16 @@ class DebugTraceTarget(_message.Message):
     name: str
     def __init__(self, name: _Optional[str] = ...) -> None: ...
 
+class DebugCrashTarget(_message.Message):
+    __slots__ = ("dump_program_id", "host_path", "upload_id")
+    DUMP_PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    HOST_PATH_FIELD_NUMBER: _ClassVar[int]
+    UPLOAD_ID_FIELD_NUMBER: _ClassVar[int]
+    dump_program_id: str
+    host_path: str
+    upload_id: str
+    def __init__(self, dump_program_id: _Optional[str] = ..., host_path: _Optional[str] = ..., upload_id: _Optional[str] = ...) -> None: ...
+
 class DebugTimelineLimits(_message.Message):
     __slots__ = ("max_snapshots", "max_bytes", "stops_only", "stack_bytes")
     MAX_SNAPSHOTS_FIELD_NUMBER: _ClassVar[int]
@@ -447,12 +457,13 @@ class DebugStateOptions(_message.Message):
     def __init__(self, registers: _Optional[_Iterable[str]] = ..., all_registers: _Optional[bool] = ..., output_offset: _Optional[int] = ..., include_threads: _Optional[bool] = ...) -> None: ...
 
 class CreateDebugSessionRequest(_message.Message):
-    __slots__ = ("program_id", "emulator", "remote", "launch", "trace", "breakpoints", "timeline", "slide", "client")
+    __slots__ = ("program_id", "emulator", "remote", "launch", "trace", "crash", "breakpoints", "timeline", "slide", "client")
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
     EMULATOR_FIELD_NUMBER: _ClassVar[int]
     REMOTE_FIELD_NUMBER: _ClassVar[int]
     LAUNCH_FIELD_NUMBER: _ClassVar[int]
     TRACE_FIELD_NUMBER: _ClassVar[int]
+    CRASH_FIELD_NUMBER: _ClassVar[int]
     BREAKPOINTS_FIELD_NUMBER: _ClassVar[int]
     TIMELINE_FIELD_NUMBER: _ClassVar[int]
     SLIDE_FIELD_NUMBER: _ClassVar[int]
@@ -462,14 +473,15 @@ class CreateDebugSessionRequest(_message.Message):
     remote: DebugRemoteTarget
     launch: DebugLaunchTarget
     trace: DebugTraceTarget
+    crash: DebugCrashTarget
     breakpoints: _containers.RepeatedCompositeFieldContainer[DebugBreakpointSpec]
     timeline: DebugTimelineLimits
     slide: int
     client: str
-    def __init__(self, program_id: _Optional[str] = ..., emulator: _Optional[_Union[DebugEmulatorTarget, _Mapping]] = ..., remote: _Optional[_Union[DebugRemoteTarget, _Mapping]] = ..., launch: _Optional[_Union[DebugLaunchTarget, _Mapping]] = ..., trace: _Optional[_Union[DebugTraceTarget, _Mapping]] = ..., breakpoints: _Optional[_Iterable[_Union[DebugBreakpointSpec, _Mapping]]] = ..., timeline: _Optional[_Union[DebugTimelineLimits, _Mapping]] = ..., slide: _Optional[int] = ..., client: _Optional[str] = ...) -> None: ...
+    def __init__(self, program_id: _Optional[str] = ..., emulator: _Optional[_Union[DebugEmulatorTarget, _Mapping]] = ..., remote: _Optional[_Union[DebugRemoteTarget, _Mapping]] = ..., launch: _Optional[_Union[DebugLaunchTarget, _Mapping]] = ..., trace: _Optional[_Union[DebugTraceTarget, _Mapping]] = ..., crash: _Optional[_Union[DebugCrashTarget, _Mapping]] = ..., breakpoints: _Optional[_Iterable[_Union[DebugBreakpointSpec, _Mapping]]] = ..., timeline: _Optional[_Union[DebugTimelineLimits, _Mapping]] = ..., slide: _Optional[int] = ..., client: _Optional[str] = ...) -> None: ...
 
 class CreateDebugSessionResponse(_message.Message):
-    __slots__ = ("session_id", "target_kind", "description", "language", "registers", "pc_register", "sp_register", "state", "timeline", "machine")
+    __slots__ = ("session_id", "target_kind", "description", "language", "registers", "pc_register", "sp_register", "state", "timeline", "machine", "crash")
     SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     TARGET_KIND_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
@@ -480,6 +492,7 @@ class CreateDebugSessionResponse(_message.Message):
     STATE_FIELD_NUMBER: _ClassVar[int]
     TIMELINE_FIELD_NUMBER: _ClassVar[int]
     MACHINE_FIELD_NUMBER: _ClassVar[int]
+    CRASH_FIELD_NUMBER: _ClassVar[int]
     session_id: str
     target_kind: str
     description: str
@@ -490,7 +503,8 @@ class CreateDebugSessionResponse(_message.Message):
     state: DebugState
     timeline: DebugTimelineLimits
     machine: _emulator_pb2.EmulatorMachineInfo
-    def __init__(self, session_id: _Optional[str] = ..., target_kind: _Optional[str] = ..., description: _Optional[str] = ..., language: _Optional[str] = ..., registers: _Optional[_Iterable[_Union[DebugRegisterInfo, _Mapping]]] = ..., pc_register: _Optional[str] = ..., sp_register: _Optional[str] = ..., state: _Optional[_Union[DebugState, _Mapping]] = ..., timeline: _Optional[_Union[DebugTimelineLimits, _Mapping]] = ..., machine: _Optional[_Union[_emulator_pb2.EmulatorMachineInfo, _Mapping]] = ...) -> None: ...
+    crash: DebugCrash
+    def __init__(self, session_id: _Optional[str] = ..., target_kind: _Optional[str] = ..., description: _Optional[str] = ..., language: _Optional[str] = ..., registers: _Optional[_Iterable[_Union[DebugRegisterInfo, _Mapping]]] = ..., pc_register: _Optional[str] = ..., sp_register: _Optional[str] = ..., state: _Optional[_Union[DebugState, _Mapping]] = ..., timeline: _Optional[_Union[DebugTimelineLimits, _Mapping]] = ..., machine: _Optional[_Union[_emulator_pb2.EmulatorMachineInfo, _Mapping]] = ..., crash: _Optional[_Union[DebugCrash, _Mapping]] = ...) -> None: ...
 
 class CloseDebugSessionRequest(_message.Message):
     __slots__ = ("session_id", "kill")
@@ -1289,3 +1303,127 @@ class GetDebugMachineResponse(_message.Message):
     first_event: int
     event_count: int
     def __init__(self, state: _Optional[_Union[_emulator_pb2.EmulatorMachineState, _Mapping]] = ..., events: _Optional[_Iterable[_Union[_emulator_pb2.EmulatorException, _Mapping]]] = ..., first_event: _Optional[int] = ..., event_count: _Optional[int] = ...) -> None: ...
+
+class DebugCrashThread(_message.Message):
+    __slots__ = ("id", "name", "crashed", "pc", "sp", "where")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    CRASHED_FIELD_NUMBER: _ClassVar[int]
+    PC_FIELD_NUMBER: _ClassVar[int]
+    SP_FIELD_NUMBER: _ClassVar[int]
+    WHERE_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    name: str
+    crashed: bool
+    pc: DebugLocation
+    sp: int
+    where: str
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., crashed: _Optional[bool] = ..., pc: _Optional[_Union[DebugLocation, _Mapping]] = ..., sp: _Optional[int] = ..., where: _Optional[str] = ...) -> None: ...
+
+class DebugCrashModule(_message.Message):
+    __slots__ = ("name", "path", "base", "size", "main", "program_id", "version", "timestamp", "pdb_name", "pdb_guid", "build_id")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    BASE_FIELD_NUMBER: _ClassVar[int]
+    SIZE_FIELD_NUMBER: _ClassVar[int]
+    MAIN_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
+    PDB_NAME_FIELD_NUMBER: _ClassVar[int]
+    PDB_GUID_FIELD_NUMBER: _ClassVar[int]
+    BUILD_ID_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    path: str
+    base: int
+    size: int
+    main: bool
+    program_id: str
+    version: str
+    timestamp: int
+    pdb_name: str
+    pdb_guid: str
+    build_id: str
+    def __init__(self, name: _Optional[str] = ..., path: _Optional[str] = ..., base: _Optional[int] = ..., size: _Optional[int] = ..., main: _Optional[bool] = ..., program_id: _Optional[str] = ..., version: _Optional[str] = ..., timestamp: _Optional[int] = ..., pdb_name: _Optional[str] = ..., pdb_guid: _Optional[str] = ..., build_id: _Optional[str] = ...) -> None: ...
+
+class DebugCrash(_message.Message):
+    __slots__ = ("format", "arch", "reason", "signal", "signal_name", "signal_code", "code_name", "exception_code", "exception_name", "access", "fault_address", "crashed_thread", "pc", "module", "module_offset", "function", "instruction", "instruction_bytes", "backtrace", "threads", "modules", "pid", "command", "args", "os", "cpu", "segments", "dumped_bytes", "main_program_id", "summary", "comments", "warnings")
+    FORMAT_FIELD_NUMBER: _ClassVar[int]
+    ARCH_FIELD_NUMBER: _ClassVar[int]
+    REASON_FIELD_NUMBER: _ClassVar[int]
+    SIGNAL_FIELD_NUMBER: _ClassVar[int]
+    SIGNAL_NAME_FIELD_NUMBER: _ClassVar[int]
+    SIGNAL_CODE_FIELD_NUMBER: _ClassVar[int]
+    CODE_NAME_FIELD_NUMBER: _ClassVar[int]
+    EXCEPTION_CODE_FIELD_NUMBER: _ClassVar[int]
+    EXCEPTION_NAME_FIELD_NUMBER: _ClassVar[int]
+    ACCESS_FIELD_NUMBER: _ClassVar[int]
+    FAULT_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    CRASHED_THREAD_FIELD_NUMBER: _ClassVar[int]
+    PC_FIELD_NUMBER: _ClassVar[int]
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    MODULE_OFFSET_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_FIELD_NUMBER: _ClassVar[int]
+    INSTRUCTION_FIELD_NUMBER: _ClassVar[int]
+    INSTRUCTION_BYTES_FIELD_NUMBER: _ClassVar[int]
+    BACKTRACE_FIELD_NUMBER: _ClassVar[int]
+    THREADS_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    PID_FIELD_NUMBER: _ClassVar[int]
+    COMMAND_FIELD_NUMBER: _ClassVar[int]
+    ARGS_FIELD_NUMBER: _ClassVar[int]
+    OS_FIELD_NUMBER: _ClassVar[int]
+    CPU_FIELD_NUMBER: _ClassVar[int]
+    SEGMENTS_FIELD_NUMBER: _ClassVar[int]
+    DUMPED_BYTES_FIELD_NUMBER: _ClassVar[int]
+    MAIN_PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
+    SUMMARY_FIELD_NUMBER: _ClassVar[int]
+    COMMENTS_FIELD_NUMBER: _ClassVar[int]
+    WARNINGS_FIELD_NUMBER: _ClassVar[int]
+    format: str
+    arch: str
+    reason: str
+    signal: int
+    signal_name: str
+    signal_code: int
+    code_name: str
+    exception_code: int
+    exception_name: str
+    access: str
+    fault_address: int
+    crashed_thread: str
+    pc: DebugLocation
+    module: str
+    module_offset: int
+    function: str
+    instruction: str
+    instruction_bytes: bytes
+    backtrace: _containers.RepeatedCompositeFieldContainer[DebugFrame]
+    threads: _containers.RepeatedCompositeFieldContainer[DebugCrashThread]
+    modules: _containers.RepeatedCompositeFieldContainer[DebugCrashModule]
+    pid: int
+    command: str
+    args: str
+    os: str
+    cpu: str
+    segments: int
+    dumped_bytes: int
+    main_program_id: str
+    summary: str
+    comments: _containers.RepeatedScalarFieldContainer[str]
+    warnings: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, format: _Optional[str] = ..., arch: _Optional[str] = ..., reason: _Optional[str] = ..., signal: _Optional[int] = ..., signal_name: _Optional[str] = ..., signal_code: _Optional[int] = ..., code_name: _Optional[str] = ..., exception_code: _Optional[int] = ..., exception_name: _Optional[str] = ..., access: _Optional[str] = ..., fault_address: _Optional[int] = ..., crashed_thread: _Optional[str] = ..., pc: _Optional[_Union[DebugLocation, _Mapping]] = ..., module: _Optional[str] = ..., module_offset: _Optional[int] = ..., function: _Optional[str] = ..., instruction: _Optional[str] = ..., instruction_bytes: _Optional[bytes] = ..., backtrace: _Optional[_Iterable[_Union[DebugFrame, _Mapping]]] = ..., threads: _Optional[_Iterable[_Union[DebugCrashThread, _Mapping]]] = ..., modules: _Optional[_Iterable[_Union[DebugCrashModule, _Mapping]]] = ..., pid: _Optional[int] = ..., command: _Optional[str] = ..., args: _Optional[str] = ..., os: _Optional[str] = ..., cpu: _Optional[str] = ..., segments: _Optional[int] = ..., dumped_bytes: _Optional[int] = ..., main_program_id: _Optional[str] = ..., summary: _Optional[str] = ..., comments: _Optional[_Iterable[str]] = ..., warnings: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class GetDebugCrashRequest(_message.Message):
+    __slots__ = ("session_id", "max_frames")
+    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    MAX_FRAMES_FIELD_NUMBER: _ClassVar[int]
+    session_id: str
+    max_frames: int
+    def __init__(self, session_id: _Optional[str] = ..., max_frames: _Optional[int] = ...) -> None: ...
+
+class GetDebugCrashResponse(_message.Message):
+    __slots__ = ("crash",)
+    CRASH_FIELD_NUMBER: _ClassVar[int]
+    crash: DebugCrash
+    def __init__(self, crash: _Optional[_Union[DebugCrash, _Mapping]] = ...) -> None: ...

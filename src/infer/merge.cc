@@ -44,6 +44,9 @@ VType param_type(const Slot &s, const Abi &) {
 // Whether a caller's type for a value should refine the callee's.
 bool refines(const VType &have, const VType &caller, std::uint8_t size) {
   if (caller.meta == Meta::unknown) return false;
+  // A 32-bit pointer the caller passes in a narrower parameter (a 2-byte
+  // block number) isn't what the callee takes.
+  if (caller.meta == Meta::pointer && caller.size == 4 && size != 0 && caller.size > size) return false;
   if (caller.meta == Meta::pointer)
     return have.meta != Meta::pointer || have.target().meta == Meta::unknown || have.target().meta == Meta::void_ ||
            (have.target().meta == Meta::code && have.target().pointee.empty() && caller.target().meta == Meta::code);
@@ -152,6 +155,70 @@ Prototype merge(const Abi *abi, const Evidence &ev, const DataOrg &org) {
     }
   }
 
+  // Registers the decompiler drops the use of (ARM's `msr cpsr_c, r0`: the
+  // state it restores shows in no C value; its callers, unlocked, then
+  // pass nothing either), on 32-bit targets: an integer argument register
+  // the entry's straight-line code reads before writing it, other than to
+  // store it (a push), is a parameter, in order.
+  if (org.pointer_size == 4 && self0 != nullptr && !self0->entry_reads.empty()) {
+    for (std::size_t i = 0; i < abi->int_regs.size(); ++i) {
+      const ArgPos pos{0, static_cast<int>(i)};
+      if (params.contains(pos)) continue;
+      const std::string &reg = abi->int_regs[i];
+      if (std::find(self0->entry_reads.begin(), self0->entry_reads.end(), reg) == self0->entry_reads.end()) break;
+      if (i > 0 && !params.contains(ArgPos{0, static_cast<int>(i) - 1})) break;
+      params[pos] = {VType::unknown(org.pointer_size), org.pointer_size};
+    }
+  }
+
+  // Parameters no caller passes, on 32-bit targets: the decompiler takes
+  // a stack word an ARM function pushes for alignment (`push {r3, lr}`)
+  // and passes to an unknown callee for a parameter, and a register its
+  // code only passes on for one too, and every caller of a function
+  // locked with them shows an `in_r3` or an `extraout_r2`. The last
+  // parameters (stack words, then registers, from the end) that no more
+  // than half of two or more callers set before the call go (one that
+  // sets it may have left a value there for itself); a caller passing its
+  // own parameter on there counts as setting it (the decompiler doesn't
+  // count a register a call passes through unchanged as an unknown
+  // callee's argument, but does at a call locked to the previous
+  // prototype).
+  if (org.pointer_size == 4 && ev.unlocked.size() >= 2 && !params.empty()) {
+    auto passes = [&](const ArgPos &pos) {
+      std::size_t n = 0;
+      for (const CallSite *c : ev.unlocked)
+        for (const Slot &a : c->args)
+          if (auto ap = arg_position(*abi, a); ap && *ap == pos) {
+            ++n;
+            break;
+          }
+      // Passed on: a caller's own parameter, unchanged, at a call locked
+      // to the previous prototype.
+      for (const CallSite *c : ev.current)
+        for (const Slot &a : c->args)
+          if (auto ap = arg_position(*abi, a); ap && *ap == pos && a.from_param >= 0) {
+            ++n;
+            break;
+          }
+      return n * 2 > ev.unlocked.size();
+    };
+    std::vector<ArgPos> order;
+    for (const auto &[pos, q] : params) order.push_back(pos);
+    std::sort(order.begin(), order.end(),
+              [&](const ArgPos &a, const ArgPos &b) { return order_key(*abi, a) > order_key(*abi, b); });
+    // A register the entry's code reads as a value (not a push) stays.
+    auto read_at_entry = [&](const ArgPos &pos) {
+      return pos.cls == 0 && static_cast<std::size_t>(pos.index) < abi->int_regs.size() &&
+             std::find(self0->entry_reads.begin(), self0->entry_reads.end(), abi->int_regs[pos.index]) !=
+                 self0->entry_reads.end();
+    };
+    for (const ArgPos &pos : order) {
+      if (pos.cls == 1 || passes(pos) || (self0 != nullptr && read_at_entry(pos)))
+        break;
+      params.erase(pos);
+    }
+  }
+
   // ---- varargs ----
   // A variadic function saves the argument registers its named
   // parameters don't use (the register save area, or Windows' home
@@ -206,6 +273,21 @@ Prototype merge(const Abi *abi, const Evidence &ev, const DataOrg &org) {
 
   // Types the callers' values have where they pass them.
   const std::vector<const CallSite *> &typed = ev.current.empty() ? ev.unlocked : ev.current;
+  // Where ints and pointers are one size (32-bit), a pointer some caller
+  // passes is a pointer only if more callers pass one than an integer
+  // there: one caller's mistyped value (a size computed from pointers, a
+  // field typed by another guess) would otherwise make memcpy's length a
+  // `char *`, and every caller's constant a cast.
+  std::map<ArgPos, std::pair<int, int>> votes;  // position -> (pointers, integers)
+  if (org.pointer_size == 4)
+    for (const CallSite *c : typed)
+      for (const Slot &s : c->args)
+        if (auto pos = arg_position(*abi, s)) {
+          if (s.type.meta == Meta::pointer) ++votes[*pos].first;
+          else if (s.type.meta == Meta::int_ || s.type.meta == Meta::char_ || s.type.meta == Meta::bool_ ||
+                   (!s.constants.empty() && !s.data_address && !s.code_address))
+            ++votes[*pos].second;
+        }
   for (const CallSite *c : typed) {
     for (const Slot &s : c->args) {
       auto pos = arg_position(*abi, s);
@@ -213,6 +295,10 @@ Prototype merge(const Abi *abi, const Evidence &ev, const DataOrg &org) {
       auto it = params.find(*pos);
       if (it == params.end()) continue;
       Param &q = it->second;
+      if (org.pointer_size == 4 && s.type.meta == Meta::pointer && q.type.meta != Meta::pointer) {
+        const auto [ptrs, ints] = votes[*pos];
+        if (ptrs <= ints) continue;
+      }
       if (refines(q.type, s.type, q.size)) q.type = join(s.type, q.type);
     }
   }
@@ -228,7 +314,18 @@ Prototype merge(const Abi *abi, const Evidence &ev, const DataOrg &org) {
         auto it = params.find(*pos);
         if (it == params.end() || it->second.size != org.pointer_size) continue;
         VType &t = it->second.type;
-        if (s.code_address && !s.data_address) {
+        bool function_address = s.code_address && !s.data_address;
+        if (function_address && org.pointer_size == 4 && ev.is_function &&
+            std::none_of(s.constants.begin(), s.constants.end(), ev.is_function)) {
+          // On a 32-bit target a raw image is one read/write/execute block,
+          // where strings and tables are too: only a function's entry is a
+          // function's address, and an address past the first 64 KiB is
+          // data's (below it, sizes and offsets land in code too often).
+          if (std::none_of(s.constants.begin(), s.constants.end(), [](std::uint64_t c) { return c >= 0x10000; }))
+            continue;
+          function_address = false;
+        }
+        if (function_address) {
           // A function's address: a pointer to a function of its prototype.
           VType code = VType::code_type();
           if (ev.proto_of)
@@ -265,7 +362,7 @@ Prototype merge(const Abi *abi, const Evidence &ev, const DataOrg &org) {
   }
   if (self0 != nullptr && self0->ret) {
     p.ret = self0->ret->type;
-    if (self0->ret->reg == abi->float_ret && p.ret.meta == Meta::unknown)
+    if (float_return(*abi, self0->ret->reg) && p.ret.meta == Meta::unknown)
       p.ret = float_of(self0->ret_natural > 0 ? self0->ret_natural : self0->ret->size);
     if (self != nullptr && self->ret && self->ret->size == self0->ret->size) p.ret = join(self->ret->type, p.ret);
     // A value zero- or sign-extended into a wider return register is as
@@ -378,7 +475,7 @@ Prototype join(const Prototype &prev, const Prototype &next) {
   return out;
 }
 
-Prototype finalize(const Prototype &p, const DataOrg &org, bool keep_return_width) {
+Prototype finalize(const Prototype &p, const DataOrg &org, bool keep_return_width, bool typed_loads) {
   const Priors &pr = SigDb::priors(org);
   std::function<VType(const VType &, bool)> spell = [&](const VType &t, bool ret) -> VType {
     switch (t.meta) {
@@ -407,11 +504,15 @@ Prototype finalize(const Prototype &p, const DataOrg &org, bool keep_return_widt
         if (ret && to.meta == Meta::void_ && pr.pointee.meta != Meta::unknown) return VType::pointer_to(pr.pointee, t.size);
         if (to.meta == Meta::unknown) {
           if (to.size > 1) return VType::pointer_to(pr.unknown_param(to.size), t.size);
+          // Only reached at offsets (a structure's fields): `char` would
+          // type each byte load against its instruction.
+          if (typed_loads) return VType::pointer_to(VType::void_type(), t.size);
           if (pr.pointee.meta != Meta::unknown) return VType::pointer_to(pr.pointee, t.size);
         }
         // Bytes: the decompiler's signedness comes from the loads compilers
-        // pick; C strings are char.
-        if (to.meta == Meta::int_ && to.size == 1 && pr.pointee.meta == Meta::char_)
+        // pick; C strings are char. Unless the loads are typed by their
+        // instructions, as the source's C has them.
+        if (!typed_loads && to.meta == Meta::int_ && to.size == 1 && pr.pointee.meta == Meta::char_)
           return VType::pointer_to(pr.pointee, t.size);
         return t;
       }

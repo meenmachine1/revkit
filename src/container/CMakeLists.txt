@@ -2,7 +2,8 @@
 # file system images and firmware packages, browsed as trees and nested.
 # revkit::container is the parser library (what the fuzzers link); its
 # dependencies are the compression libraries: zlib, liblzma, libzstd and
-# libbz2 (LZ4 and LZO1X are decoded here).
+# libbz2 (LZ4 and LZO1X are decoded here), and revkit::nds for the DS
+# formats (NitroFS, NARC and their compressions).
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(RK_LZMA REQUIRED IMPORTED_TARGET liblzma)
@@ -10,6 +11,7 @@ pkg_check_modules(RK_ZSTD REQUIRED IMPORTED_TARGET libzstd)
 find_package(BZip2 REQUIRED)
 
 add_library(revkit_container STATIC
+  apple.cc
   ar.cc
   asar.cc
   bytecode.cc
@@ -26,18 +28,23 @@ add_library(revkit_container STATIC
   firmware.cc
   identify.cc
   iso9660.cc
+  jffs2.cc
   jsexe.cc
   json.cc
   luacarve.cc
   marshal.cc
+  nds.cc
   pyinstaller.cc
   session.cc
   squashfs.cc
   tar.cc
+  ubi.cc
+  wrappers.cc
+  yaffs2.cc
   zip.cc)
 add_library(revkit::container ALIAS revkit_container)
 target_include_directories(revkit_container PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(revkit_container PRIVATE ZLIB::ZLIB PkgConfig::RK_LZMA PkgConfig::RK_ZSTD BZip2::BZip2)
+target_link_libraries(revkit_container PRIVATE revkit::nds ZLIB::ZLIB PkgConfig::RK_LZMA PkgConfig::RK_ZSTD BZip2::BZip2)
 target_compile_options(revkit_container PRIVATE -Wall -Wextra)
 set_target_properties(revkit_container PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

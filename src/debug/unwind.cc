@@ -366,16 +366,13 @@ std::optional<CfiRow> CfiTable::row_at(std::uint64_t pc) const {
           }
           case 0x0a: stack.push_back(row); break;
           case 0x0b:
+            // The whole row comes back, the CFA's rule with the registers'
+            // (as libgcc and LLVM's libunwind restore it): GCC's epilogues
+            // remember the state, define the CFA for the return, and restore
+            // the state for the code after it.
             if (!stack.empty()) {
-              // The CFA stays; the register rules come back.
-              const int cr = row.cfa_reg;
-              const std::int64_t co = row.cfa_offset;
-              const bool ce = row.cfa_expression;
               row = stack.back();
               stack.pop_back();
-              row.cfa_reg = cr;
-              row.cfa_offset = co;
-              row.cfa_expression = ce;
             }
             break;
           case 0x0c:

@@ -10,6 +10,7 @@
 //   rk-daemon token create|list|revoke ...           API tokens
 //   rk-daemon tls fingerprint                        the listeners' certificate
 //   rk-daemon project export|import|import-batch ...  project archives (.rkproj; docs/backend.md), batch import (docs/filesystems.md)
+//   rk-daemon compact <project dir> ...               shrink the project stores (docs/backend.md, "Compaction")
 //
 // The HTTP port also serves the web UI: --web-root, else $REVKIT_WEB_ROOT,
 // else an installed bundle's share/revkit/ui, else the source tree's ui/dist
@@ -65,6 +66,7 @@ struct Options {
   std::string port_file;
   std::uint32_t retain = 256;
   std::size_t memo_budget_mb = 0;  // 0: the backend's default
+  std::uint64_t cache_limit_mb = 0;  // stored memos per project; 0: no limit
   std::vector<std::string> open;
   std::string ghidra_root;
   std::string project_dir;
@@ -185,6 +187,8 @@ void usage(std::ostream &os) {
         "  --retain <n>            revisions kept readable per project (default 256)\n"
         "  --memo-budget <MiB>     derived facts kept in memory per project before the oldest\n"
         "                          are evicted (default 2048; tests run smaller daemons)\n"
+        "  --cache-limit-mb <MiB>  stored memos kept per project on disk; as a project opens, those\n"
+        "                          used longest ago go beyond it (default: no limit; docs/backend.md)\n"
         "  --port-file <path>      write {\"grpc\": port, \"http\": port} once listening\n"
         "  --plugin-dir <dir>      load WebAssembly plugins (NAME.wasm + NAME.json) from dir (repeatable;\n"
         "                          image backend; see docs/plugins.md)\n"
@@ -252,6 +256,9 @@ void usage(std::ostream &os) {
         "  rk-daemon token list\n"
         "  rk-daemon token revoke <id or name>\n"
         "  rk-daemon tls fingerprint [--tls-cert pem | --tls-dir dir]\n"
+        "\n"
+        "Compaction (docs/backend.md, \"Compaction\"), on a --project-dir no daemon is using:\n"
+        "  rk-daemon compact <dir> [--project <id>] [--drop-caches] [--cache-limit-mb <MiB>] [--dry-run]\n"
         "\n"
         "Project archives (.rkproj; docs/backend.md, \"Project archives\"), on a --project-dir no daemon is using:\n"
         "  rk-daemon project export --project-dir <dir> [--project <id>] [--program <id>]... [--folder </path>]...\n"
@@ -337,6 +344,7 @@ std::optional<Options> parse_args(int argc, char **argv) {
     else if (arg == "--backend" && (v = value())) opt.backend = v;
     else if (arg == "--retain" && (v = value())) opt.retain = static_cast<std::uint32_t>(std::stoul(v));
     else if (arg == "--memo-budget" && (v = value())) opt.memo_budget_mb = std::stoull(v);
+    else if (arg == "--cache-limit-mb" && (v = value())) opt.cache_limit_mb = std::stoull(v);
     else if (arg == "--port-file" && (v = value())) opt.port_file = v;
     else if (arg == "--open" && (v = value())) opt.open.emplace_back(v);
     else if (arg == "--ghidra" && (v = value())) opt.ghidra_root = v;
@@ -541,6 +549,7 @@ std::shared_ptr<revkit::api::Backend> make_backend(const Options &opt) {
   image.ghidra_root = specs.root.string();
   image.retained_revisions = opt.retain;
   if (opt.memo_budget_mb != 0) image.memo_budget = opt.memo_budget_mb << 20;
+  image.persisted_cache_limit = opt.cache_limit_mb << 20;
   image.server_version = revkit::runtime::version_string("rk-daemon") + " (image backend)";
   image.decompilers_per_program = opt.decompilers;
   image.decompile_workers = opt.decompilers;
@@ -926,6 +935,42 @@ bool lock_project_dir(const std::string &dir, std::string &error) {
   return true;  // the descriptor stays open: the lock lasts as long as the process
 }
 
+// rk-daemon compact <project dir> (docs/backend.md, "Compaction"): with the
+// daemon stopped, each project's store pruned and rewritten.
+int run_compact(int argc, char **argv) {
+  std::string dir, project;
+  revkit::backend::StoreCompaction o;
+  for (int i = 2; i < argc; ++i) {
+    std::string_view a = argv[i];
+    auto value = [&]() -> std::string {
+      if (i + 1 >= argc) throw std::runtime_error(std::string(a) + " needs a value");
+      return argv[++i];
+    };
+    if (a == "--project") project = value();
+    else if (a == "--drop-caches") o.drop_caches = true;
+    else if (a == "--cache-limit-mb") o.cache_limit = std::stoull(value()) << 20;
+    else if (a == "--dry-run") o.dry_run = true;
+    else if (a == "--project-dir") dir = value();
+    else if (a.starts_with("-")) throw std::runtime_error("unknown option " + std::string(a));
+    else if (dir.empty()) dir = std::string(a);
+    else throw std::runtime_error("one project directory");
+  }
+  if (dir.empty()) {
+    std::cerr << "usage: rk-daemon compact <project dir> [--project <id>] [--drop-caches] [--cache-limit-mb <MiB>]\n"
+                 "                          [--dry-run]\n"
+                 "  Rewrites each project's store without its free pages (as mdb_copy -c), after dropping\n"
+                 "  stale memos (and every memo with --drop-caches, or those used longest ago beyond\n"
+                 "  --cache-limit-mb). The log, the programs' files and settings stay. Run it with the\n"
+                 "  daemon stopped (it takes the directory's lock); a running daemon has CompactProject.\n";
+    return 2;
+  }
+  std::string error;
+  if (!lock_project_dir(dir, error)) throw std::runtime_error(error);
+  const int n = revkit::backend::CompactProjectDir(dir, project, o, std::cout);
+  if (n == 0) std::cout << "no project stores in " << dir << "\n";
+  return 0;
+}
+
 int project_usage() {
   std::cerr << "usage: rk-daemon project export --project-dir <dir> [--project <id>] [--program <id>]... [--folder </path>]...\n"
                "                                [--annotations-only] -o <file.rkproj>\n"
@@ -1249,6 +1294,14 @@ int main(int argc, char **argv) {
   if (argc >= 2 && std::string_view(argv[1]) == "project") {
     try {
       return run_project(argc, argv);
+    } catch (const std::exception &e) {
+      std::cerr << "rk-daemon: " << e.what() << "\n";
+      return 1;
+    }
+  }
+  if (argc >= 2 && std::string_view(argv[1]) == "compact") {
+    try {
+      return run_compact(argc, argv);
     } catch (const std::exception &e) {
       std::cerr << "rk-daemon: " << e.what() << "\n";
       return 1;

@@ -121,6 +121,7 @@ void Observation::encode(facts::Encoder &e) const {
   facts::encode(e, spilled_only);
   facts::encode(e, spills);
   facts::encode(e, reads_al);
+  facts::encode(e, entry_reads);
   facts::encode(e, calls);
   facts::encode(e, pointer_uses);
   facts::encode(e, results);
@@ -144,6 +145,7 @@ Observation Observation::decode(facts::Decoder &d) {
   o.spilled_only = facts::decode<std::vector<std::string>>(d);
   o.spills = facts::decode<std::vector<std::string>>(d);
   o.reads_al = facts::decode<bool>(d);
+  o.entry_reads = facts::decode<std::vector<std::string>>(d);
   o.calls = facts::decode<std::vector<CallSite>>(d);
   o.pointer_uses = facts::decode<std::vector<PointerUse>>(d);
   o.results = facts::decode<std::vector<PointerUse>>(d);
@@ -907,7 +909,32 @@ struct Decompiler::Impl {
 
   // Registers the first straight-line instructions store before writing
   // them, and whether AL is read before RAX is written.
-  void prologue(std::uint64_t entry, Observation &o) { prologues->fill(entry, o); }
+  void prologue(std::uint64_t entry, Observation &o, const RunOptions &options) {
+    prologues->fill(entry, o, options.context);
+  }
+
+  // The function's instruction set over its body and the code its flow
+  // runs into, as the final C's decompiler paints it
+  // (lift::InputDecompiler::set_context): set back to the image's context
+  // first, whatever decoding other functions left there (a BL or BLX from
+  // the other instruction set marks its target; an IT block the code after
+  // it).
+  void set_context(std::uint64_t entry, const RunOptions &options) {
+    if (options.context.empty()) return;
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> ranges = options.context_ranges;
+    if (ranges.empty()) ranges.emplace_back(entry, entry);
+    for (const auto &[first, last] : ranges)
+      if (last != ~std::uint64_t{0}) arch->reset_context(first, last + 1);
+    for (const auto &[name, value] : options.context)
+      for (const auto &[first, last] : ranges) {
+        if (last == ~std::uint64_t{0}) continue;
+        try {
+          arch->set_context_region(name, first, last + 1, value);
+        } catch (const ghidra::LowlevelError &) {
+          // not a context variable of this language
+        }
+      }
+  }
 
   Observation run(std::uint64_t entry, SymbolEnv &e, const RunOptions &options) {
     Observation o;
@@ -929,6 +956,10 @@ struct Decompiler::Impl {
         fd = sym != nullptr ? sym->getFunction() : nullptr;
       }
       if (fd == nullptr) throw ghidra::LowlevelError("no function at the entry");
+      set_context(entry, options);
+      // Loads typed as the final C's decompiler types them (fork patch
+      // 0012, Options::load_extension).
+      arch->extension_types = static_cast<int>(options.load_extension);
       for (std::uint64_t a : options.call_returns)
         fd->getOverride().insertFlowOverride(ghidra::Address(code, a), ghidra::Override::CALL_RETURN);
       lift::DecompileLimits limits;
@@ -941,7 +972,7 @@ struct Decompiler::Impl {
       if (budget.stopped() != lift::DecompileStop::none) throw lift::DecompileStopped(budget.stopped(), budget.message());
       if (!fd->isProcComplete()) throw ghidra::LowlevelError("decompilation did not complete");
       observe(fd, o);
-      if (options.prologue) prologue(entry, o);
+      if (options.prologue) prologue(entry, o, options);
       if (options.want_c) {
         std::ostringstream out;
         auto globals = lift::lock_ghidra_globals();
@@ -983,8 +1014,13 @@ struct Prologues::Impl {
   std::shared_ptr<const loader::Image> image;
   std::string language;
   std::mutex mu;
-  std::unique_ptr<lift::Lifter> lifter;  // built on first use
-  std::map<std::uint64_t, std::pair<std::vector<std::string>, bool>> done;
+  using Context = std::vector<std::pair<std::string, std::uint32_t>>;
+  std::map<Context, std::unique_ptr<lift::Lifter>> lifters;  // by context, built on first use
+  struct Done {
+    std::vector<std::string> spills, reads;
+    bool reads_al = false;
+  };
+  std::map<std::pair<std::uint64_t, Context>, Done> done;
 };
 
 Prologues::Prologues(std::shared_ptr<const loader::Image> image, std::string language)
@@ -995,42 +1031,69 @@ Prologues::Prologues(std::shared_ptr<const loader::Image> image, std::string lan
 
 Prologues::~Prologues() = default;
 
-void Prologues::fill(std::uint64_t entry, Observation &o) {
+void Prologues::fill(std::uint64_t entry, Observation &o, const std::vector<std::pair<std::string, std::uint32_t>> &context) {
   std::lock_guard lock(impl_->mu);
-  if (auto it = impl_->done.find(entry); it != impl_->done.end()) {
-    o.spills = it->second.first;
-    o.reads_al = it->second.second;
+  if (auto it = impl_->done.find({entry, context}); it != impl_->done.end()) {
+    o.spills = it->second.spills;
+    o.reads_al = it->second.reads_al;
+    o.entry_reads = it->second.reads;
     return;
   }
-  std::unique_ptr<lift::Lifter> &lifter = impl_->lifter;
+  std::unique_ptr<lift::Lifter> &lifter = impl_->lifters[context];
   const auto &image = impl_->image;
   const auto &language = impl_->language;
   if (!lifter) {
     try {
+      // The image's context (a raw image's Thumb regions), then the
+      // function's over the whole space, as decompd::LifterPool paints it.
       lifter = std::make_unique<lift::Lifter>(image, language);
+      for (const lift::ContextRegion &c : lift::image_context(*image)) lifter->set_context(c.name, c.value, c.start, c.end);
+      for (const auto &[name, value] : context) {
+        try {
+          lifter->set_context(name, value, 0);
+        } catch (const lift::LiftError &) {
+          // not a context variable of this language
+        }
+      }
     } catch (const std::exception &) {
+      lifter.reset();
       return;
     }
   }
   o.spills.clear();
   o.reads_al = false;
+  o.entry_reads.clear();
   std::set<std::uint64_t> written;  // register offsets written (by byte)
   auto was_written = [&](const lift::Varnode &v) {
     for (std::uint32_t i = 0; i < v.size; ++i)
       if (written.contains(v.offset + i)) return true;
     return false;
   };
+  // On 32-bit targets a spill is a store to the stack (a push, or through
+  // an address computed from the stack pointer): ARM code storing its
+  // arguments into an object (a constructor's fields) before anything
+  // else looks like a register save area otherwise. (The 64-bit ones keep
+  // any store, as measured.)
+  std::optional<lift::Varnode> sp;
+  if (image->bits == 32)
+    sp = lifter->register_varnode(language.starts_with("PowerPC") ? "r1" : language.starts_with("x86") ? "ESP" : "sp");
+  std::set<std::pair<std::string, std::uint64_t>> stackish;  // varnodes holding an address on the stack
+  if (sp) stackish.insert({sp->space, sp->offset});
   std::uint64_t at = entry;
   for (int n = 0; n < 48; ++n) {
     auto insn = lifter->lift(at);
     if (!insn || insn->length == 0) break;
     bool stop = false;
     std::map<std::uint64_t, lift::Varnode> copies;  // unique -> register it copies (push)
+    const std::size_t spilled_before = o.spills.size();
+    std::vector<std::string> reads;  // this instruction's
     for (const lift::PcodeOp &op : insn->pcode) {
       if (op.opcode == "COPY" && op.output && op.output->space == "unique" && op.inputs.size() == 1 &&
           op.inputs[0].space == "register")
         copies[op.output->offset] = op.inputs[0];
-      if (op.opcode == "STORE" && op.inputs.size() >= 2) {
+      const bool to_stack = !sp || (op.inputs.size() >= 2 && stackish.contains({op.inputs[op.inputs.size() - 2].space,
+                                                                                  op.inputs[op.inputs.size() - 2].offset}));
+      if (op.opcode == "STORE" && op.inputs.size() >= 2 && to_stack) {
         lift::Varnode v = op.inputs.back();
         if (v.space == "unique")
           if (auto it = copies.find(v.offset); it != copies.end()) v = it->second;
@@ -1041,19 +1104,45 @@ void Prologues::fill(std::uint64_t entry, Observation &o) {
             o.spills.push_back(name);
         }
       }
-      for (const lift::Varnode &v : op.inputs)
-        if (v.space == "register" && v.size == 1 && !was_written(v) && lifter->register_name(v.offset, 1) == "AL")
-          o.reads_al = true;
+      for (const lift::Varnode &v : op.inputs) {
+        if (v.space != "register" || was_written(v)) continue;
+        if (v.size == 1 && lifter->register_name(v.offset, 1) == "AL") o.reads_al = true;
+        std::string name = lifter->register_name(v.offset, 8);
+        if (name.empty()) name = lifter->register_name(v.offset, v.size);
+        if (!name.empty()) reads.push_back(std::move(name));
+      }
+      if (sp && op.output) {
+        // Addresses on the stack: the stack pointer, copied or offset.
+        const bool derived = (op.opcode == "COPY" || op.opcode == "INT_ADD" || op.opcode == "INT_SUB" ||
+                              op.opcode == "PTRADD" || op.opcode == "PTRSUB") &&
+                             std::any_of(op.inputs.begin(), op.inputs.end(), [&](const lift::Varnode &i) {
+                               return stackish.contains({i.space, i.offset});
+                             });
+        if (derived) stackish.insert({op.output->space, op.output->offset});
+        else if (!(op.output->space == sp->space && op.output->offset == sp->offset))
+          stackish.erase({op.output->space, op.output->offset});
+      }
       if (op.output && op.output->space == "register")
         for (std::uint32_t i = 0; i < op.output->size; ++i) written.insert(op.output->offset + i);
-      if (op.opcode == "RETURN" || op.opcode == "BRANCHIND" || op.opcode == "CALLIND" || op.opcode == "CALL" ||
-          op.opcode == "BRANCH")
+      // A call or branch to the next instruction is a PIC base's
+      // (PowerPC's `bcl 20,31,.+4`, x86's `call .+5`): the prologue goes on.
+      const bool to_next = (op.opcode == "CALL" || op.opcode == "BRANCH") && !op.inputs.empty() &&
+                           op.inputs[0].space != "const" && op.inputs[0].offset == at + insn->length;
+      if (op.opcode == "RETURN" || op.opcode == "BRANCHIND" || op.opcode == "CALLIND" ||
+          ((op.opcode == "CALL" || op.opcode == "BRANCH") && !to_next))
         stop = true;
+    }
+    // A register this instruction only stores (a push) isn't read.
+    for (std::string &r : reads) {
+      if (std::find(o.spills.begin() + static_cast<std::ptrdiff_t>(spilled_before), o.spills.end(), r) != o.spills.end())
+        continue;
+      if (std::find(o.entry_reads.begin(), o.entry_reads.end(), r) == o.entry_reads.end())
+        o.entry_reads.push_back(std::move(r));
     }
     if (stop) break;
     at += insn->length;
   }
-  impl_->done.emplace(entry, std::make_pair(o.spills, o.reads_al));
+  impl_->done.emplace(std::make_pair(entry, context), Prologues::Impl::Done{o.spills, o.entry_reads, o.reads_al});
 }
 
 Decompiler::Decompiler(std::shared_ptr<const loader::Image> image, const std::string &language_id,

@@ -203,7 +203,7 @@ class DataFlow(_message.Message):
     def __init__(self, nodes: _Optional[_Iterable[_Union[DataFlowNode, _Mapping]]] = ..., ops: _Optional[_Iterable[_Union[DataFlowOp, _Mapping]]] = ...) -> None: ...
 
 class DecompiledFunction(_message.Message):
-    __slots__ = ("entry", "name", "prototype", "variables", "lines", "varnodes", "text", "warnings", "origin", "dataflow")
+    __slots__ = ("entry", "name", "prototype", "variables", "lines", "varnodes", "text", "warnings", "origin", "dataflow", "unknowns")
     ENTRY_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
     PROTOTYPE_FIELD_NUMBER: _ClassVar[int]
@@ -214,6 +214,7 @@ class DecompiledFunction(_message.Message):
     WARNINGS_FIELD_NUMBER: _ClassVar[int]
     ORIGIN_FIELD_NUMBER: _ClassVar[int]
     DATAFLOW_FIELD_NUMBER: _ClassVar[int]
+    UNKNOWNS_FIELD_NUMBER: _ClassVar[int]
     entry: _common_pb2.Address
     name: str
     prototype: FunctionPrototype
@@ -224,7 +225,8 @@ class DecompiledFunction(_message.Message):
     warnings: _containers.RepeatedScalarFieldContainer[str]
     origin: _common_pb2.Derivation
     dataflow: DataFlow
-    def __init__(self, entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., name: _Optional[str] = ..., prototype: _Optional[_Union[FunctionPrototype, _Mapping]] = ..., variables: _Optional[_Iterable[_Union[Variable, _Mapping]]] = ..., lines: _Optional[_Iterable[_Union[CodeLine, _Mapping]]] = ..., varnodes: _Optional[_Iterable[_Union[MappedVarnode, _Mapping]]] = ..., text: _Optional[str] = ..., warnings: _Optional[_Iterable[str]] = ..., origin: _Optional[_Union[_common_pb2.Derivation, _Mapping]] = ..., dataflow: _Optional[_Union[DataFlow, _Mapping]] = ...) -> None: ...
+    unknowns: _containers.RepeatedCompositeFieldContainer[_common_pb2.Unknown]
+    def __init__(self, entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., name: _Optional[str] = ..., prototype: _Optional[_Union[FunctionPrototype, _Mapping]] = ..., variables: _Optional[_Iterable[_Union[Variable, _Mapping]]] = ..., lines: _Optional[_Iterable[_Union[CodeLine, _Mapping]]] = ..., varnodes: _Optional[_Iterable[_Union[MappedVarnode, _Mapping]]] = ..., text: _Optional[str] = ..., warnings: _Optional[_Iterable[str]] = ..., origin: _Optional[_Union[_common_pb2.Derivation, _Mapping]] = ..., dataflow: _Optional[_Union[DataFlow, _Mapping]] = ..., unknowns: _Optional[_Iterable[_Union[_common_pb2.Unknown, _Mapping]]] = ...) -> None: ...
 
 class DecompileOptions(_message.Message):
     __slots__ = ("include_text", "timeout_ms", "escalate", "include_bundle", "include_dataflow")

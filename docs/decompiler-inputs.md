@@ -86,6 +86,15 @@ named types, inline `type` elements for pointers, arrays and integers).
 `types` holds the full definitions of every named type reachable from
 them, so revkit can answer the decompiler's `getDataType` queries.
 
+A structure's bitfields (from DWARF, a PDB, the C parser or a type
+archive) reach the decompiler as its `<bitfield>` elements (`name`, `id`
+the field's ordinal, `offset` the first byte of the bytes holding it,
+`size` its width in bits, `first` its least significant bit there,
+counted from the least significant end of a little-endian unit or the
+most significant of a big-endian one), so a test or store of one prints as
+the field (`f->on`, `f->level = v`) rather than as masks and shifts. Before
+2026-10-21 revkit left them out (`inputs::GhidraTypes`).
+
 ## How revkit answers from it
 
 `InputDecompiler` (`src/lift/decompile.cc`) follows `DecompileCallback`:
@@ -338,3 +347,78 @@ symbol):
   locked.
 - A format string's call-site prototype (`DecompileConfig::format_strings`)
   is never given for a call with the user's.
+
+## Source shape
+
+revkit's fork of the decompiler (third_party/ghidra, patches 0012-0015)
+adds options that print what the instructions encode, where Ghidra's
+canonical forms differ from what the source (and a matching decompilation)
+has. Each is off in Ghidra and under Ghidra's exported inputs, whose C is
+the identity gate; revkit's own inputs (rk-lift `--analyze --decompile`,
+the daemon) turn them on as `lift::SourceShape::own()` says, and a
+program's decompiler settings (`SetDecompilerSettings`, api_minor 106;
+[api.md](api.md#decompiler-settings)) change them per program.
+
+| Option (decompiler console) | What changes | revkit's default |
+| --- | --- | --- |
+| `extensiontypes on\|words` | A LOAD whose own instruction sign-extends the value (`ldrsh`, `ldrsb`, `movsx`, `lh`, `ldrsw`) types it signed, and one that zero-extends a value smaller than an `int` (`ldrh`, `ldrb`, `movzx`, `lhu`) unsigned, as the LOAD output's local type in type propagation (FlowInfo marks the op as the instruction's p-code is generated, before the extension is simplified away). `words` leaves out zero-extended bytes | `on` |
+| `encodedcompare right\|on` | `right`: a comparison against a constant prints the constant on the right (`x > 8`, not `8 < x`), a signed `-1 < x` as `x >= 0`. `on`: also the constant the instruction compares against where `RuleIntLessEqual` moved it by one (`x <= 0`, not `x < 1`; `x >= 9`, not `8 < x`). The p-code doesn't change | `right` |
+| `flagcompare on` | `RuleFlagResultCompare`: the signed flag test of a decrement's result (`subs r2,r2,#1; bgt`: `iVar2 != 0 && 0 < n`, the second on the value before) is one test of the result, `n > 0` (and its negation `n <= 0`) | on |
+| `compilablec on` | C a compiler accepts as it is: bytes no field names as `*(T *)((char *)&x + 2)` (not `x._2_2_`), a read wider than its symbol as `*(T *)&x` (not `_x`), `;` after a label or a last `case` with no statement, casts on every conversion between a pointer and an integer and between pointers to different kinds of data (`CastStrategy::setExplicitPointerCasts`), and (rk-lift's printer) C's multi-word type names (`unsigned short`, not `unsigned_short`) | off |
+
+Why these defaults (measured with the paired source metrics,
+[decomp-quality.md](decomp-quality.md#source-shape-2026-10-21)):
+
+- **Loads.** Zero-extended bytes are typed too: on firmware that turned
+  hundreds more `undefined1` values into `byte` (the `undefined` metric
+  1343 → 2081 wins against Ghidra, `words` 1343 → 1705; the firmware
+  composite 4306 wins against 4026), at the
+  cost, on desktop programs, of a few `char` buffers and strings typed
+  `byte` (compilers load a signed `char` with `movzx` or `ldrb` where only
+  its low bits matter: 3 functions lost a string literal on the tuning
+  corpus). `LOAD_TYPES_WORDS` leaves bytes to their uses.
+- **Comparisons.** GCC and LLVM rewrite `x < 10` as `x <= 9` themselves,
+  so on their code the encoded constant is one the source doesn't have
+  (the `constants` metric lost significantly on gcc -O0 with `on`);
+  `right` changes no constant. Metrowerks CodeWarrior, the Nintendo DS
+  compiler, keeps the source's: a matching decompilation there wants
+  `COMPARISON_FORM_ENCODED`.
+- **Compilable C** costs readability: the casts it adds lost the `casts`
+  and `undefined` metrics in every firmware family. It is a setting for
+  exporting C to compile (a decomp.me scratch, `ExportC`).
+- `flagcompare` assumes the decrement doesn't overflow (the value isn't
+  within the step of the minimum), as the source's `--n > 0` does.
+
+rk-lift: `--source-shape <list>` (`extension` or `words`, `right` or
+`encoded`, `flag`, `compilable`; `all`, the default, is
+`extension,right,flag`; `none` Ghidra's forms), `--no-source-shape`, `--compilable-c`. Bundles carry the options
+(`LiftFacts::shape`, bundle version 6) and the worker sets them on its
+architecture (`lift::apply_shape`); `decompile.ghidra` is version 17.
+
+**Inference** ([infer.md](infer.md#load-types)) decompiles each function
+with the loads typed as the final C's decompiler types them
+(`infer::Options::load_extension`: rk-lift's shape, the daemon's
+`SourceShape::own()`; rk-infer Ghidra's): a value loaded with `ldrh` and
+typed from its uses would lock `short *` where that C says `ushort *`. With
+`extension` it doesn't spell a byte pointee `char` over its loads: an
+unknown pointee (a pointer only read at offsets) is `void *`, so an `ldrb`
+at one prints `*(byte *)((int)p + 4)`, not `p[4]` through a `char *`.
+A program's own decompiler settings don't infer again.
+
+**Tokens** (api_minor 106): a volatile register's token (the decompiler
+names the address a volatile read or write's user op annotates) is a
+`GLOBAL_VARIABLE` with the global at the address as its variable, or, where
+none is, its `target` the address (it was `PUNCTUATION` with neither); a
+string literal's token has the string's address as its `target`; a
+bitfield's `FIELD` token has its structure and the offset of the bytes
+holding it.
+
+Not done: stack arrays one element too large (the decompiler sizes an
+array to the gap before the next stack variable; without debug info the
+element count isn't in the code), struct copies printed field by field
+(the decompiler's split of a combined structure copy), bitfield detection
+from masks and shifts across functions (inferred structures compose
+fields from accesses in `src/infer`, which records no masks), and the
+daemon's inference following a program's own `load_types` (it infers with
+revkit's defaults).
+

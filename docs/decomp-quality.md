@@ -471,7 +471,8 @@ reference function list, rk-lift, firmware) hold. Timing: `rk-infer` on
 typed); `/usr/bin/bash` 75 s either way; the tuning corpus decompiles in
 77 s with them, 109 s without (two binaries at once, each in order).
 
-**32-bit processors.** Inference is off there (`infer::supports`: with
+**32-bit processors** (since 2026-10-21 inference is on for ARM, MIPS
+and PowerPC: [below](#inference-on-32-bit-arm-mips-and-powerpc-2026-10-21)). Inference was off there (`infer::supports`: with
 ints and pointers one size it typed sizes as pointers), so structures
 don't reach the firmware corpus, where `members` ties in every family
 (2/7820/0) and the casts already win. The structure pass needs only the
@@ -503,6 +504,251 @@ decompiler.
   unions are composed as overlapping fields.
 - **Null pointers and floats**: as before.
 
+### Inference on 32-bit ARM, MIPS and PowerPC (2026-10-21)
+
+Inference had been off for 32-bit processors (with ints and pointers one
+size it typed sizes as pointers, and it decoded a raw image's Thumb code
+as ARM). It is on now for ARM and Thumb, MIPS o32 and PowerPC SysV, with
+the fixes [infer.md](infer.md#32-bit-processors) lists: Thumb decoding in
+inference's decompiler, Thumb pointers, thunks' prototypes, constants,
+callers' pointer votes, word priors, uses the decompiler drops (an SDK's
+interrupt restore), parameters no caller passes (`push {r3, lr}`),
+stack-only spills, PIC prologues, structures through word parameters,
+and soft-float library prototypes. Before: this branch with
+`--no-infer-prototypes`, the same C as master for these images (inference
+was off there); after: the branch. Paired metrics only (no judges; the
+held-out sets were not used); the tuning corpus (64-bit) gives
+byte-identical C, so its numbers are those above.
+
+| family | paired | before W/T/L | after W/T/L | after p |
+| --- | ---: | --- | --- | ---: |
+| ALL firmware | 14630 | 3892/10223/515 (WIN) | 8548/4611/1471 (WIN) | 0 |
+| fw cortexm | 2722 | 812/1843/67 (WIN) | 1899/454/369 (WIN) | 2.9e-247 |
+| fw mips | 2739 | 303/2219/217 (WIN) | 1679/680/380 (WIN) | 3.9e-194 |
+| fw ppc | 3940 | 402/3481/57 (WIN) | 2595/797/548 (WIN) | 1.4e-316 |
+| fw m68k | 1038 | 296/723/19 (WIN) | (unchanged) | |
+| fw sh4 | 1712 | 1217/423/72 (WIN) | (unchanged) | |
+| fw xtensa | 2479 | 862/1534/83 (WIN) | (unchanged) | |
+
+Per metric, before → after where it moved (+ and − mark p < 0.01):
+
+| metric | ALL firmware | cortexm | mips | ppc | m68k | sh4 | xtensa |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `call_args` | 529/9791/200+ → 2918/7148/454+ | 11/2081/13 → 941/1036/128+ | 104/1927/116 → 728/1320/99+ | 28/3056/4+ → 863/2065/160+ | 67/721/4+ | 171/379/62+ | 148/1627/1+ |
+| `casts` | 2551/11328/751+ → 3781/5638/5211− | 305/2281/136+ → 598/690/1434− | 198/2373/168 → 518/821/1400− | 123/3718/99 → 740/1171/2029− | 91/922/25+ | 1275/390/47+ | 559/1644/276+ |
+| `constants` | 78/2099/3+ → 95/2013/72 | 15/410/0+ → 26/369/30 | 2/199/1 → 4/188/10 | 1/646/0 → 5/612/30− | 1/189/0 | 28/254/1+ | 31/401/1+ |
+| `failed` | 0/14630/0 | 0/2722/0 | 0/2739/0 | 0/3940/0 | 0/1038/0 | 0/1712/0 | 0/2479/0 |
+| `globals_named` | 25/1106/1+ → 31/1096/1+ | 0/4/0 | 6/367/1 → 10/361/1 | 7/405/0 → 9/401/0+ | 12/330/0+ | - | - |
+| `gotos` | 242/12530/127+ → 269/12488/142+ | 42/2627/34 → 47/2615/41 | 54/996/20+ → 58/990/22+ | 56/3852/18+ → 74/3828/24+ | 26/1000/8+ | 4/1686/15 | 60/2369/32+ |
+| `length` | 1370/10296/1233+ → 2289/8564/2046+ | 226/2291/186 → 550/1667/486 | 102/847/121 → 186/655/229 | 117/3712/97 → 628/2796/502+ | 51/927/56 | 463/840/402 | 411/1679/371 |
+| `lib_call_args` | 0/7/0 | - | - | 0/7/0 | - | - | - |
+| `locals_class` | 981/11511/407+ → 2506/8992/1401+ | 155/2473/75+ → 643/1590/470+ | 60/927/83 → 255/645/170+ | 53/3849/24+ → 895/2495/536+ | 54/965/15+ | 419/1144/142+ | 240/2153/68+ |
+| `loops` | 252/12587/60+ → 253/12581/65+ | 49/2649/5+ → 49/2648/6+ | 64/985/21+ → 64/983/23+ | 48/3866/12+ → 49/3863/14+ | 34/992/8+ | 0/1702/3 | 57/2393/11+ |
+| `members` | 2/7843/0 → 1860/5638/347+ | 0/1545/0 → 581/862/102+ | 1/669/0 → 375/223/72+ | 0/2393/0 → 903/1317/173+ | 1/664/0 | 0/999/0 | 0/1573/0 |
+| `noise` | 269/14308/53+ → 415/13501/714− | 29/2693/0+ → 76/2388/258− | 21/2683/35 → 40/2462/237− | 20/3909/11 → 100/3628/212− | 15/1018/5 | 0/1710/2 | 184/2295/0+ |
+| `noreturn` | 418/1363/0+ | 67/301/0+ | 169/175/0+ | 63/301/0+ | 66/272/0+ | 53/57/0+ | 0/257/0 |
+| `proto_arity` | 29/14582/19 → 587/13844/199+ | 3/2713/6 → 299/2361/62+ | 4/2729/6 → 106/2546/87 | 5/3935/0 → 165/3732/43+ | 11/1023/4 | 0/1712/0 | 6/2470/3 |
+| `proto_exact` | 10/14617/3 → 489/14076/65+ | 3/2719/0 → 101/2604/17+ | 2/2735/2 → 167/2542/30+ | 0/3940/0 → 216/3707/17+ | 0/1038/0 | 2/1709/1 | 3/2476/0 |
+| `proto_param_class` | 88/14434/108 → 4582/9797/251+ | 7/2708/7 → 1411/1214/97+ | 35/2631/73− → 1217/1449/73+ | 13/3921/6 → 1921/1960/59+ | 13/1016/9 | 7/1700/5 | 13/2458/8 |
+| `proto_ret_class` | 118/14471/41+ → 1042/13121/467+ | 21/2692/9 → 305/2237/180+ | 36/2688/15+ → 286/2348/105+ | 43/3883/14+ → 433/3328/179+ | 4/1034/0 | 11/1698/3 | 3/2476/0 |
+| `proto_return` | 105/14499/26+ → 799/13622/209+ | 2/2716/4 → 236/2414/72+ | 38/2693/8+ → 218/2446/75+ | 57/3870/13+ → 337/3542/61+ | 4/1034/0 | 1/1710/1 | 3/2476/0 |
+| `strings` | 2110/2954/0+ | 605/473/0+ | 213/191/0+ | 227/1401/0+ | 213/165/0+ | 356/288/0+ | 496/436/0+ |
+| `switch` | 0/588/0 | 0/126/0 | 0/37/0 | 0/221/0 | 0/36/0 | 0/79/0 | 0/89/0 |
+| `temporaries` | 1191/11325/383+ → 2174/8909/1816+ | 149/2489/65+ → 521/1555/627− | 51/919/100− → 142/659/269− | 53/3840/33 → 573/2618/735− | 58/960/16+ | 573/1029/103+ | 307/2088/66+ |
+| `undefined` | 1343/13010/277+ → 7721/6474/435+ | 279/2429/14+ → 2080/588/54+ | 77/2550/112 → 1869/741/129+ | 57/3842/41 → 2842/956/142+ | 65/954/19+ | 552/1105/55+ | 313/2130/36+ |
+| `warnings` | 342/14220/68+ → 361/14189/80+ | 80/2625/17+ → 84/2617/21+ | 14/2699/26 → 18/2693/28 | 37/3895/8+ → 48/3878/14+ | 13/1024/1+ | 12/1684/16 | 186/2293/0+ |
+
+Reading it:
+
+- **Prototypes** win in every measure: parameter classes (4582 wins, 251
+  losses), arity (587/199), returns, return classes and exact signatures,
+  and calls to the program's functions pass the right count far more
+  often (`call_args` 2918/7148/454).
+- **Members** win (1860/5638/347, from 2/7843/0): structures through word
+  parameters print `p->field_0x10`. **Undefined types** win much more
+  (7721/6474/435).
+- **Casts lose** in the three families, where they won or tied (ALL
+  firmware 2551/11328/751+ → 3781/5638/5211−). Null pointers compared or
+  passed (`p != (astruct_15 *)0x0`, where Ghidra's untyped word takes
+  `0`) are about a third of the difference; without them casts still
+  lose (4067/5838/4725). The rest are conversions between a typed value
+  and a parameter of another type: a pointer loaded from a literal pool
+  (an untyped word) passed to a structure parameter, a pointer passed to
+  an `int` parameter that the callers' votes kept an integer, a
+  structure's address passed where a callee was typed `int *`. This is
+  the 64-bit tuning corpus's profile too (its casts lose since
+  inference).
+- **Noise loses** (269/14308/53+ → 415/13501/714−): `extraout_` values
+  after calls (registers GCC keeps live across a call it knows doesn't
+  clobber them, `-fipa-ra`, and the high word of a 64-bit result that a
+  locked 32-bit return says is clobbered) and `in_` values where a callee
+  kept a parameter only some callers pass, or a stack word it reads.
+- **Temporaries** lose in the three families (the 64-bit tuning
+  families' profile: typed values don't share variables); ALL firmware
+  still wins (2174/8909/1816+). `constants` loses in ppc (5/612/30):
+  constants passed to typed parameters print as casts or characters.
+- `strings`, `noreturn`, `loops` and `gotos` are unchanged or better.
+
+**The ARM fixture** (tests/data/arm32: two ARMv5TE images, -O2 and -Os,
+ARM and Thumb code, C and C++; Ghidra's reference from `ghidra_export.py
+--firmware-corpus` on the fixture's manifest, which `decomp-quality.py`
+takes with `--firmware-corpus`, its sources named by the manifest's
+`src_root`): composite 7/83/0 → 44/26/20 (WIN, p 0.0037); parameter
+classes 0/90/0 → 26/60/4+, members 0/52/0 → 14/38/0+, undefined
+4/86/0 → 47/43/0+; casts 5/83/2 → 22/38/30 and noise 0/90/0 → 6/77/7 (not
+significant on 90 functions). The SDK restore takes its argument at all
+its call sites, and the seven-argument calls pass seven; its arity losses
+are `to_fixed`, whose one caller passes it a call's result in r0 (which
+the drop rule doesn't count as setting r0), and two C++ functions.
+
+**Gates.** The firmware gate's identity rates with Ghidra fall for the
+three families (cortexm c_ast 50.3% → 4.8%, mips 48.0% → 6.3%, ppc to
+6.4%; discovery, listing and DWARF recall unchanged): their baselines
+(`corpus/baselines/firmware-cortexm.json`, `-mips`, `-ppc`) are re-saved,
+as the benchmark above says the C is closer to the source in every
+family. `rk-infer`'s gate is unchanged (+8.9 pp at signature, every
+architecture at or above its baseline), and the tuning corpus's C is
+byte-identical.
+
+**What's left.** The cast and noise losses above; `extraout_` after
+calls needs per-function clobber lists (what a callee really writes)
+rather than the convention's; a structure of words none of which is
+dereferenced reads as an `int` array; RISC-V rv32 and x86-32 have tables
+but no corpus image.
+
+### Source shape (2026-10-21)
+
+The fork's source-shape options ([decompiler-inputs.md](decompiler-inputs.md#source-shape)),
+on by default for revkit's inputs: loads typed by their instruction's
+extension, comparisons with the constant on the right, a decrement's
+signed flag test as one comparison; and inference's own decompiler typing
+loads as the final C's does ([infer.md](infer.md#load-types)). Before: this
+branch with `--no-source-shape` (rk-lift; Ghidra's forms, and inference's
+loads typed from their uses: master's C on these stripped binaries but for
+bitfields, which print as fields either way); after: the default,
+`--source-shape extension,right,flag`. Same commands, paired metrics only
+(no judges; the held-out sets were not used). Re-measured 2026-10-23 on
+master with inference on 32-bit ARM, MIPS and PowerPC (the section above),
+so the firmware "before" is that section's "after".
+
+| family | paired | before W/T/L | after W/T/L | after p |
+| --- | ---: | --- | --- | ---: |
+| ALL firmware | 14630 | 8548/4611/1471 (WIN) | 8628/4521/1481 (WIN) | 0 |
+| ALL tuning | 3484 | 2159/667/658 (WIN) | 2142/711/631 (WIN) | 6.6e-191 |
+| ELF clang -O0 | 558 | 358/127/73 (WIN) | 355/136/67 (WIN) | 1.9e-48 |
+| ELF clang -O2 | 1048 | 668/170/210 (WIN) | 663/177/208 (WIN) | 5e-56 |
+| ELF gcc -O0 | 400 | 229/101/70 (WIN) | 224/111/65 (WIN) | 1.3e-21 |
+| ELF gcc -O2 | 1252 | 807/193/252 (WIN) | 805/206/241 (WIN) | 1.7e-71 |
+| PE clang -O0 | 101 | 46/38/17 (WIN) | 44/44/13 (WIN) | 4.7e-05 |
+| PE clang -O2 | 125 | 51/38/36 (tie) | 51/37/37 (tie) | 0.17 |
+| fw cortexm | 2722 | 1899/454/369 (WIN) | 1889/461/372 (WIN) | 1.4e-243 |
+| fw m68k | 1038 | 296/723/19 (WIN) | 296/723/19 (WIN) | 4.4e-65 |
+| fw mips | 2739 | 1679/680/380 (WIN) | 1677/681/381 (WIN) | 2.8e-193 |
+| fw ppc | 3940 | 2595/797/548 (WIN) | 2595/800/545 (WIN) | 6e-318 |
+| fw sh4 | 1712 | 1217/423/72 (WIN) | 1229/412/71 (WIN) | 2e-273 |
+| fw xtensa | 2479 | 862/1534/83 (WIN) | 942/1444/93 (WIN) | 1.8e-177 |
+
+No family loses, and none changes verdict: the firmware composite gains
+80 functions and loses 10 (xtensa +80, sh4 +12; the three inference
+families within a few functions either way); the tuning composite has 17
+fewer wins and 27 fewer losses (none significant; more ties). 68000's C
+changes only in comparisons' operand order (`1 < param_1` → `param_1 > 1`),
+which no metric reads. Per metric, before → after where it moved (+ and −
+mark p < 0.01):
+
+| metric | ALL firmware | ALL tuning | where |
+| --- | --- | --- | --- |
+| `undefined` | 7721/6474/435+ → 7952/6256/422+ | 2406/1016/61+ → 2408/1019/56+ | an `undefined1`/`undefined2` load (and what it reaches) typed `byte`, `ushort`, `short` from its instruction: xtensa 313 → 497 wins, sh4 552 → 619 (on ARM, MIPS and PowerPC inference's prototypes had already typed most of them) |
+| `constants` | 95/2013/72 → 112/1997/71+ | 11/507/23 → 12/509/20 | ppc's loss (5/612/30−) no longer significant (13/605/29) |
+| `members` | 1860/5638/347+ → 1875/5619/351+ | | |
+| `proto_param_class` | 4582/9797/251+ → 4608/9771/251+ | 1888/1563/23+ → 1887/1564/23+ | |
+| `locals_class` | 2506/8992/1401+ → 2514/8977/1408+ | 766/2182/505+ → 758/2176/519+ | |
+| `length` | 2289/8564/2046+ → 2304/8555/2040+ | 437/2399/617− → 440/2399/614− | |
+| `temporaries` | 2174/8909/1816+ → 2166/8902/1831+ | 420/2254/779− → 414/2244/795− | |
+| `casts` | 3781/5638/5211− → 3746/5561/5323− | 1199/864/1420− → 1178/887/1418− | a value whose type now follows its load casts where it meets another (`(short)param_1[1] >> 1` after an `ldrh`): cortexm 1434 → 1515 losses |
+| `proto_exact` | 489/14076/65+ → 389/14170/71+ | 337/3098/39+ → 299/3115/60+ | byte pointees: with every load typed, inference's defaults keep a `uchar *` and spell an unknown pointee `void *` where the headers' prior gave `char *` (`naive_strstr(uchar *, uchar *)`, zlib's `zError` returning `void *`); 212 functions lose an exact signature, 47 gain one |
+| `strings` | | 102/652/0+ → 94/657/3+ | a `char` buffer loaded with `movzx` typed `byte` (cJSON, features on gcc and clang -O2) |
+
+**The byte-pointee rule, measured both ways.** With inference's defaults
+spelling byte pointees `char` as before (the `typed_loads` branch of
+`finalize` off, everything else the default): composite 8638/4485/1507
+(firmware) and 2160/655/669 (tuning); `proto_exact` 504/14061/65+ and
+338/3097/39+, `strings` (tuning) 101/650/3+, `undefined` 7987/6231/412+,
+but `casts` (tuning) 1191/844/1448−. The composites are within 20 net
+functions of the default's (8628/4521/1481, 2142/711/631), so neither is
+better by them; the default keeps the rule, because it makes a byte load
+print as its instruction encodes it (`*(byte *)(param_1 + 4)` for an
+`ldrb`, which a `char *` turns into a signed read), the point of the
+source shape, and the exact-signature loss is the price. Spelling a
+pointee `char` only where a string reaches it (a call's `char *`
+parameter, a string literal) might keep both (not tried).
+
+Each option on its own, and the alternatives (composite W/T/L; measured
+2026-10-21, before inference on 32-bit processors):
+
+| `--source-shape` | ALL tuning | ALL firmware | notes |
+| --- | --- | --- | --- |
+| `none` (before) | 2156/670/658 | 3892/10223/515 | |
+| `extension` | 2159/658/667 | | casts 1443 losses, strings 3 |
+| `right` | 2156/670/658 | | moves no metric: they don't read operand order |
+| `encoded` | 2153/663/668 | | `constants` 11/507/23 → 22/475/44 (−); gcc -O0 0/110/4 → 1/97/16 (−) |
+| `flag` | 2157/670/657 | | |
+| `words,right,flag` | 2162/666/656 | 4026/10095/509 | zero-extended bytes untyped |
+| `extension,right,flag` (default) | 2160/658/666 | 4306/9794/530 | |
+| `extension,encoded,flag` | 2158/651/675 | 4352/9723/555 | firmware `constants` 78/2099/3 → 126/2009/45 |
+| `extension,right,flag,compilable` | 2061/673/750 | 2042/6292/6296 (**LOSS**) | casts 1416 → 1574 losses (tuning), 751 → 7306 (firmware); `undefined` 7273 firmware losses (`(undefined4)` casts) |
+
+Reading it:
+
+- **Loads** are the gain: Ghidra types an 8- or 16-bit load by its uses,
+  and the instruction's extension is simplified away before types are
+  inferred; with it kept, a raw image's halfword and byte values get a
+  type, and a value loaded with `ldrh` and stored back after an add is
+  `ushort`, not `short`. `words` (bytes left out) gives up about a third
+  of the firmware gain to keep 3 tuning functions' `char` buffers.
+- **Comparisons.** Constant on the right changes no metric (the metrics
+  count values, not order) and reads as the source does (`x > 8`, `x >=
+  0`), so it is the default. The encoded constant loses `constants` on
+  tuning, significantly on gcc -O0: GCC and LLVM rewrite `x < 10` as
+  `x <= 9`, so their instructions carry a constant the source doesn't, and
+  Ghidra's canonical `x < 10` is the source's. On firmware (also GCC) it
+  wins more functions than it loses. It is a program setting
+  (`COMPARISON_FORM_ENCODED`) for code from a compiler that keeps the
+  source's constants: CodeWarrior's, which the DS experiment matched.
+- **Flag tests** are rare on these corpora (one composite win); the
+  CodeWarrior loop they fix (`subs; bgt`) isn't what GCC or LLVM emit.
+- **Compilable C** loses everywhere the casts count: C a compiler accepts
+  casts every pointer/integer conversion, which raw firmware is full of.
+  It stays a setting for C meant to be compiled.
+
+**Gates** (2026-10-23). Ghidra's inputs (`rk-decomp.json`: c_ast 100%)
+and the reference function list (`rk-decomp-refonly.json`) are unchanged:
+the options are off there. The firmware gate's discovery, listing, DWARF
+and truth-precision rates don't move, and with `--no-source-shape` it
+passes clean; with the default only the identity rates with Ghidra's C
+fall, as the C departs from Ghidra's forms on purpose:
+
+| arch | c_ast | c_alpha | c_shape | c_shape_dwarf |
+| --- | --- | --- | --- | --- |
+| cortexm | 4.8% → 3.5% | 4.9% → 3.5% | 13.3% → 11.6% | 15.8% → 14.1% |
+| m68k | 55.8% → 48.2% | 69.9% → 58.2% | 73.3% → 61.2% | 77.2% → 65.1% |
+| mips | 6.3% → 5.6% | 6.8% → 6.1% | 18.4% → 17.1% | 24.8% → 23.4% |
+| ppc | 6.7% → 5.8% | 7.0% → 6.1% | 22.3% → 19.5% | 24.0% → 21.2% |
+| sh4 | 17.8% → 16.3% | 18.0% → 16.5% | 18.9% → 17.6% | 33.8% → 32.5% |
+| xtensa | 43.1% → 32.2% | 47.6% → 35.5% | 50.3% → 39.8% | 72.3% → 61.9% |
+
+Identity under revkit's own inputs (`rk-decomp-own.json`) falls likewise,
+c_ast 49.90% → 42.07%, c_alpha 50.30% → 42.34%, c_tokens 28.38% →
+23.80% (with `--no-source-shape`, one function of cjson.exe's debug build,
+whose bitfields now print as fields: `s->seen_eof == 0`, not
+`(s->field_0x1010 & 1) == 0`). The firmware baselines
+(`corpus/baselines/firmware-*.json`) and `rk-decomp-own.json` are re-saved
+for this section, as the paired metrics above say no family's C is
+further from the source. `rk-infer`'s gate is unchanged (+8.9 pp at
+signature, every architecture at or above its baseline): rk-infer keeps Ghidra's
+load types (`Options::load_extension` off), so its observations are as
+before.
+
 ## The judged sample
 
 `scripts/decomp-quality.py --judge build/judge` writes a blinded packet:
@@ -524,7 +770,10 @@ source for correctness first and readability second (`README.md` there).
   the C read worse. With ints and pointers the same size, inference typed
   sizes and block numbers as pointers (littlefs's `lfs_bd_read`: all eight
   parameters). A raw ARM image mixing ARM and Thumb also needs discovery's
-  Thumb ranges in the inference decompiler, which it doesn't get yet.
+  Thumb ranges in the inference decompiler, which it didn't get then.
+  *Since done* for ARM, MIPS and PowerPC, with those fixed
+  ([above](#inference-on-32-bit-arm-mips-and-powerpc-2026-10-21));
+  SuperH, Xtensa and 68000 stay off.
 - **Folding every literal-pool word**, as an ELF's read-only `.text` makes
   Ghidra do: with an address in RAM or in a peripheral region constant,
   the decompiler forwards a store there to later loads, so a register

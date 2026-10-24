@@ -108,6 +108,10 @@
    "normalize": {
     "replace": [
      [
+      "(\\d\\d:\\d\\d:\\d\\d) \\S+ (\\d{4})$",
+      "\\1 TZ \\2"
+     ],
+     [
       "\\b(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day\\b",
       "DAY"
      ],

@@ -24,7 +24,8 @@ add_library(revkit::runtime ALIAS revkit_runtime)
 add_dependencies(revkit_runtime revkit_build_info)
 target_include_directories(revkit_runtime PUBLIC include PRIVATE ${_gen})
 target_compile_definitions(revkit_runtime PRIVATE REVKIT_DEFAULT_GHIDRA_ROOT="${GHIDRA_ROOT}"
-                                                   REVKIT_DEFAULT_TYPEINFO_DIR="${REVKIT_TYPEINFO_DIR}")
+                                                   REVKIT_DEFAULT_TYPEINFO_DIR="${REVKIT_TYPEINFO_DIR}"
+                                                   REVKIT_DEFAULT_PROCESSORS_DIR="${REVKIT_PROCESSORS_DIR}")
 target_compile_options(revkit_runtime PRIVATE -Wall -Wextra)
 
 if(REVKIT_BUILD_TESTS)

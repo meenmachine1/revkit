@@ -8,7 +8,9 @@
 #include "revkit/cparse/spec.h"
 #include "revkit/types/print.h"
 
+#include <algorithm>
 #include <filesystem>
+#include <tuple>
 #include <mutex>
 #include <set>
 #include <system_error>
@@ -110,6 +112,11 @@ cparse::Profile ProgramProfile(const Program &program, std::vector<std::string> 
 
 ProgramTypes::ProgramTypes(const NamedTypes &names, Closure closure, types::TypeStore &store)
     : names_(names), closure_(std::move(closure)), store_(store) {
+  sorted_ = std::is_sorted(names.types.begin(), names.types.end(),
+                           [](const auto &a, const auto &b) { return std::tie(a.key, a.hash) < std::tie(b.key, b.hash); }) &&
+            std::is_sorted(names.bindings.begin(), names.bindings.end(),
+                           [](const auto &a, const auto &b) { return a.first < b.first; });
+  if (sorted_) return;
   // The library's first, then the program's own over them, then bindings.
   for (const auto &e : names.types)
     if (e.library) definitions_.emplace(e.key, e.hash);
@@ -122,8 +129,31 @@ ProgramTypes::ProgramTypes(const NamedTypes &names, Closure closure, types::Type
 }
 
 std::string ProgramTypes::definition(const std::string &key) const {
-  auto it = definitions_.find(key);
-  return it == definitions_.end() ? std::string() : it->second;
+  if (!sorted_) {
+    auto it = definitions_.find(key);
+    return it == definitions_.end() ? std::string() : it->second;
+  }
+  // As the index picks: a binding, else the program's own first entry,
+  // else the library's first.
+  if (const std::string *b = names_.bound(key)) return *b;
+  auto lo = std::lower_bound(names_.types.begin(), names_.types.end(), key,
+                             [](const NamedTypes::Entry &e, const std::string &k) { return e.key < k; });
+  const NamedTypes::Entry *library = nullptr;
+  for (auto it = lo; it != names_.types.end() && it->key == key; ++it) {
+    if (!it->library) return it->hash;
+    if (!library) library = &*it;
+  }
+  return library ? library->hash : std::string();
+}
+
+bool ProgramTypes::own(const std::string &key) const {
+  if (!sorted_) return own_.contains(key);
+  if (names_.bound(key)) return true;
+  auto lo = std::lower_bound(names_.types.begin(), names_.types.end(), key,
+                             [](const NamedTypes::Entry &e, const std::string &k) { return e.key < k; });
+  for (auto it = lo; it != names_.types.end() && it->key == key; ++it)
+    if (!it->library) return true;
+  return false;
 }
 
 std::optional<TypeId> ProgramTypes::intern(const std::string &hash) {
@@ -428,15 +458,20 @@ static ParsedRetype RetypeOf(types::TypeStore &store, const ProgramTypes &progra
 
 std::optional<ParsedRetype> ParseRetype(const ParseCContext &c, const std::string &declaration, bool function) {
   if (declaration.size() > 65536) return std::nullopt;
-  types::TypeStore store;
-  ProgramTypes program(c.names, c.closure, store);
-  cparse::Options o;
-  o.profile = ProgramProfile(c.program);
-  o.lookup = [&](std::string_view key) { return program.lookup(key); };
-  o.limits.wall_time = std::chrono::milliseconds(2000);
-  std::optional<cparse::Declaration> d = cparse::parse_declaration(store, declaration, o);
+  return RetypeParser(c).parse(declaration, function);
+}
+
+RetypeParser::RetypeParser(const ParseCContext &c) : program_(c.names, c.closure, store_) {
+  options_.profile = ProgramProfile(c.program);
+  options_.lookup = [this](std::string_view key) { return program_.lookup(key); };
+  options_.limits.wall_time = std::chrono::milliseconds(2000);
+}
+
+std::optional<ParsedRetype> RetypeParser::parse(const std::string &declaration, bool function) {
+  if (declaration.size() > 65536) return std::nullopt;
+  std::optional<cparse::Declaration> d = cparse::parse_declaration(store_, declaration, options_);
   if (!d || d->function != function) return std::nullopt;
-  return RetypeOf(store, program, d->type);
+  return RetypeOf(store_, program_, d->type);
 }
 
 // The type and the records of what it reaches that the program lacks.

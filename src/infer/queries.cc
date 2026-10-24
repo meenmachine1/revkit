@@ -42,6 +42,7 @@ void Options::encode(facts::Encoder &e) const {
   e.varint(max_varnodes);
   facts::encode(e, keep_return_width);
   facts::encode(e, structures);
+  e.varint(static_cast<std::uint32_t>(load_extension));
 }
 
 Options Options::decode(facts::Decoder &d) {
@@ -56,6 +57,8 @@ Options Options::decode(facts::Decoder &d) {
   // Encoded last since version 4 of the fixpoint (an input staged before
   // has none: the default).
   if (!d.done()) o.structures = facts::decode<bool>(d);
+  // Since version 8 of the observation.
+  if (!d.done()) o.load_extension = static_cast<lift::SourceShape::Extension>(d.varint());
   return o;
 }
 
@@ -100,9 +103,12 @@ CallNode CallNode::decode(facts::Decoder &d) {
 }
 
 const CallNode *CallGraph::find(std::uint64_t entry) const {
-  auto it = std::lower_bound(nodes.begin(), nodes.end(), entry,
-                             [](const CallNode &n, std::uint64_t a) { return n.entry < a; });
-  return it != nodes.end() && it->entry == entry ? &*it : nullptr;
+  auto at = [&](std::uint64_t a) -> const CallNode * {
+    auto it = std::lower_bound(nodes.begin(), nodes.end(), a, [](const CallNode &n, std::uint64_t x) { return n.entry < x; });
+    return it != nodes.end() && it->entry == a ? &*it : nullptr;
+  };
+  if (const CallNode *n = at(entry)) return n;
+  return interworking && (entry & 1) ? at(entry & ~std::uint64_t{1}) : nullptr;
 }
 
 const std::string *CallGraph::slot(std::uint64_t address) const {
@@ -114,12 +120,14 @@ const std::string *CallGraph::slot(std::uint64_t address) const {
 void CallGraph::encode(facts::Encoder &e) const {
   facts::encode(e, nodes);
   facts::encode(e, slots);
+  facts::encode(e, interworking);
 }
 
 CallGraph CallGraph::decode(facts::Decoder &d) {
   CallGraph g;
   g.nodes = facts::decode<std::vector<CallNode>>(d);
   g.slots = facts::decode<std::vector<std::pair<std::uint64_t, std::string>>>(d);
+  g.interworking = facts::decode<bool>(d);
   return g;
 }
 
@@ -242,13 +250,15 @@ void sort_unique(std::vector<std::uint64_t> &v) {
 }
 
 // Pointer-sized words in initialized, non-executable data whose value (or
-// RELATIVE relocation target) is an address in executable memory.
+// RELATIVE relocation target) is an address in executable memory. With
+// `interworking` (ARM), a target with the low bit set is Thumb code at the
+// address without it, and is given so.
 struct CodeSlot {
   std::uint64_t address, target;
   std::size_t block;
 };
 
-std::vector<CodeSlot> code_pointer_slots(const loader::Image &image) {
+std::vector<CodeSlot> code_pointer_slots(const loader::Image &image, bool interworking) {
   const unsigned ptr = image.bits / 8;
   const bool big = image.endian == loader::Endian::big;
   std::map<std::uint64_t, std::uint64_t> relocated;  // slot -> target
@@ -277,6 +287,7 @@ std::vector<CodeSlot> code_pointer_slots(const loader::Image &image) {
           v = (v << 8) | byte;
         }
       }
+      if (interworking) v &= ~std::uint64_t{1};
       if (v != 0 && in_code(v)) out.push_back({at, v, bi});
     }
   }
@@ -319,6 +330,7 @@ CallGraph CallGraphQuery::compute(facts::QueryContext &ctx, const ProgramKey &pr
   std::sort(entries.begin(), entries.end());
   auto is_entry = [&](std::uint64_t a) { return std::binary_search(entries.begin(), entries.end(), a); };
   CallGraph g;
+  g.interworking = !info->isa_context.empty();
   g.nodes.reserve(funcs->functions.size());
   for (const an::FunctionInfo &f : funcs->functions) {
     CallNode n;
@@ -370,7 +382,7 @@ CallGraph CallGraphQuery::compute(facts::QueryContext &ctx, const ProgramKey &pr
         return false;
       };
       const unsigned align = info->language.starts_with("x86") ? 1 : 2;
-      const std::vector<CodeSlot> slots = code_pointer_slots(*img_ref->image);
+      const std::vector<CodeSlot> slots = code_pointer_slots(*img_ref->image, g.interworking);
       std::set<std::uint64_t> known;
       for (const CallNode &n : g.nodes) known.insert(n.entry);
       for (const auto &[i, j] : slot_runs(slots))
@@ -511,7 +523,9 @@ class QueryEnv : public SymbolEnv {
 
   std::optional<FunctionSymbol> function(std::uint64_t entry) override {
     const CallNode *n = cg_.find(entry);
-    if (n == nullptr) return std::nullopt;
+    // Only at an entry: the decompiler isn't told a function lives at a
+    // Thumb pointer's odd address (nor is the final C's).
+    if (n == nullptr || n->entry != entry) return std::nullopt;
     consulted.push_back(entry);
     FunctionSymbol f;
     f.name = n->name;
@@ -705,9 +719,19 @@ Observation Observe::compute(facts::QueryContext &ctx, const RoundKey &key) {
     RunOptions run;
     run.max_varnodes = img.options.max_varnodes;
     run.timeout_seconds = img.options.timeout_seconds;
-    for (const facts::AddressRange &r : ctx.get<an::Function>(key.at)->body.ranges())
-      run.body.emplace_back(r.first.offset, r.last.offset);
+    run.load_extension = img.options.load_extension;
+    const auto fn = ctx.get<an::Function>(key.at);
+    for (const facts::AddressRange &r : fn->body.ranges()) run.body.emplace_back(r.first.offset, r.last.offset);
     if (const CallNode *n = cg->find(key.at.address)) run.call_returns = n->call_returns;
+    // Each function decodes in its own instruction set (Thumb or ARM), as
+    // the final C's inputs give it (inputs/assemble.cc).
+    auto info = ctx.get<an::Program>(key.at.program);
+    if (!info->isa_context.empty()) {
+      const bool thumb = (fn->flags & an::kFunctionThumb) || !an::two_instruction_sets(*info);
+      run.context.emplace_back(info->isa_context, thumb ? 1 : 0);
+      run.context_ranges = run.body;
+      for (const facts::AddressRange &r : fn->reach.ranges()) run.context_ranges.emplace_back(r.first.offset, r.last.offset);
+    }
     o = d->run(key.at.address, env, run);
     if (Collector *c = g_collector.load())
       c->add(key.round, key.at.address, std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count());
@@ -788,12 +812,13 @@ Inferred Own::compute(facts::QueryContext &ctx, const RoundKey &key) {
     }
     return std::nullopt;
   };
+  ev.is_function = [&](std::uint64_t a) { return cg->find(a) != nullptr; };
   ev.proto_of = [&](std::uint64_t a) -> std::optional<Prototype> {
-    const CallNode *n = cg->find(a);
-    if (n == nullptr || a == key.at.address) return std::nullopt;
+    const CallNode *n = cg->find(a);  // a Thumb pointer names the function at its address
+    if (n == nullptr || n->entry == key.at.address) return std::nullopt;
     if (!n->import.empty()) return img.options.library ? db.find(n->import, org) : std::nullopt;
     if (key.round == 0) return std::nullopt;
-    auto r = ctx.get<Round>(RoundKey{{key.at.program, a}, key.round - 1});
+    auto r = ctx.get<Round>(RoundKey{{key.at.program, n->entry}, key.round - 1});
     if (!r->known) return std::nullopt;
     return r->proto;
   };
@@ -868,6 +893,37 @@ Inferred Round::compute(facts::QueryContext &ctx, const RoundKey &key) {
   }
   Inferred out = *ctx.get<Own>(key);
   if (out.proto.source == "library" || !img.options.interprocedural) return out;
+
+  // A thunk (a veneer, an interworking stub: a jump to one function) has
+  // its target's prototype; its own decompilation, a jump through a
+  // register, shows no parameters. (32-bit targets: on the 64-bit ones the
+  // decompiler's own view of a thunk already is its target's, and taking
+  // the target's moved two of the tuning corpus's functions the wrong way.)
+  auto cg = ctx.get<CallGraphQuery>(key.at.program);
+  if (const CallNode *self = cg->find(key.at.address);
+      self != nullptr && self->thunk_target != 0 && img.image->bits == 32)
+    if (const CallNode *t = cg->find(self->thunk_target); t != nullptr && t->entry != key.at.address) {
+      std::optional<Prototype> target;
+      if (!t->import.empty()) {
+        if (img.options.library) target = SigDb::for_image(*img.image).find(t->import, data_org(*img.image));
+      } else {
+        auto order = ctx.get<OrderQuery>(key.at.program);
+        const bool below = order->rank_of(t->entry) < order->rank_of(key.at.address);
+        if (below || key.round > 0) {
+          auto r = ctx.get<Round>(RoundKey{{key.at.program, t->entry}, below ? key.round : key.round - 1});
+          if (r->known) target = r->proto;
+        }
+      }
+      if (target) {
+        out.known = true;
+        out.proto = std::move(*target);
+        out.proto.source = "thunk";
+        if (prior) {
+          out.changes = prior->changes + (prior->proto != out.proto || !prior->known ? 1 : 0);
+        }
+        return out;
+      }
+    }
 
   // A callback's type, from the library it is passed to, for it or for
   // any function in its table; else its table's consensus.
@@ -980,7 +1036,7 @@ FamilyTable Families::compute(facts::QueryContext &ctx, const ProgramKey &progra
   };
   // Code pointers in data that hold a function's entry.
   std::vector<CodeSlot> slots;
-  for (const CodeSlot &c : code_pointer_slots(*img.image))
+  for (const CodeSlot &c : code_pointer_slots(*img.image, cg->interworking))
     if (is_function(c.target)) slots.push_back(c);
   std::map<std::uint64_t, std::uint64_t> parent;
   std::function<std::uint64_t(std::uint64_t)> root = [&](std::uint64_t a) {
@@ -1035,7 +1091,7 @@ Callbacks::Value Callbacks::compute(facts::QueryContext &ctx, const ProgramKey &
       if (callee.empty()) continue;
       for (std::size_t i = 0; i < c.args.size(); ++i) {
         for (std::uint64_t v : c.args[i].constants) {
-          const CallNode *f = cg->find(v);
+          const CallNode *f = cg->find(v);  // a Thumb callback's pointer too
           if (f == nullptr || !f->import.empty()) continue;
           if (auto p = db.callback(callee, i, org)) found.emplace(f->entry, std::move(*p));
         }
@@ -1091,11 +1147,7 @@ void unify_passed_pointers(facts::QueryContext &ctx, const ProgramKey &program, 
     while (parent[x] != x) x = parent[x] = parent[parent[x]];
     return x;
   };
-  auto int_index = [&](const Slot &s) -> std::optional<std::size_t> {
-    auto pos = arg_position(abi, s);
-    if (!pos || pos->cls != 0) return std::nullopt;
-    return static_cast<std::size_t>(pos->index);
-  };
+  auto int_index = [&](const Slot &s) { return infer::int_index(abi, s); };
   for (std::size_t f = 0; f < r.prototypes.size(); ++f) {
     auto o = observation(ctx, RoundKey{{program, r.prototypes[f].first}, r.rounds});
     if (!o->ok) continue;
@@ -1170,7 +1222,9 @@ FixpointResult Fixpoint::compute(facts::QueryContext &ctx, const ProgramKey &pro
   for (std::size_t i = 0; i < entries.size(); ++i) {
     if (cur[i]->widened) ++r.widened;
     if (!cur[i]->known) continue;
-    r.prototypes.emplace_back(entries[i], img.options.defaults ? finalize(cur[i]->proto, org, img.options.keep_return_width) : cur[i]->proto);
+    r.prototypes.emplace_back(entries[i], img.options.defaults ? finalize(cur[i]->proto, org, img.options.keep_return_width,
+                                                                                  img.options.load_extension == lift::SourceShape::Extension::all)
+                                                                       : cur[i]->proto);
   }
   if (img.options.interprocedural)
     if (const Abi *abi = abi_for(img.language_id, img.image->format == loader::Format::pe)) {

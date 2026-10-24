@@ -47,6 +47,34 @@ std::string strip_suffix(std::string_view name, std::initializer_list<std::strin
   return std::string(name) + ".out";
 }
 
+Kind mode_kind(std::uint32_t mode) {
+  switch (mode & 0170000) {
+    case 0100000: return Kind::file;
+    case 0040000: return Kind::directory;
+    case 0120000: return Kind::symlink;
+    case 0020000: return Kind::char_device;
+    case 0060000: return Kind::block_device;
+    case 0010000: return Kind::fifo;
+    case 0140000: return Kind::socket;
+    default: return Kind::other;
+  }
+}
+
+std::span<const std::byte> WindowReader::get(std::uint64_t off, std::size_t n) {
+  const std::uint64_t size = src_.size();
+  if (off >= size) return {};
+  const std::uint64_t want_end = std::min<std::uint64_t>(size, off + n);
+  if (off < start_ || want_end > start_ + buf_.size()) {
+    const std::size_t len = static_cast<std::size_t>(std::min<std::uint64_t>(std::max(window_, n), size - off));
+    buf_.resize(len);
+    buf_.resize(src_.read(off, buf_));
+    start_ = off;
+  }
+  const std::size_t at = static_cast<std::size_t>(off - start_);
+  if (at >= buf_.size()) return {};
+  return std::span<const std::byte>(buf_).subspan(at, std::min<std::size_t>(n, buf_.size() - at));
+}
+
 namespace {
 
 class MappedSource final : public Source {

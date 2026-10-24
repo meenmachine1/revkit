@@ -6,6 +6,9 @@ import { showName, showNameIn } from "./names";
 import { fmtAddr } from "./format";
 import { RowKind, type HeaderKind, TokenKind, type ListingRow, type ListingSource, type OperandToken, type RowsAroundResult, type RowsResult } from "./types";
 
+/** Targets in another program (a DS module's call into main: ListingToken.target_program_id), by address. */
+export const foreignTargets = new Map<bigint, string>();
+
 const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
 export const MAX_BYTES_SHOWN = 5;
 
@@ -121,6 +124,7 @@ export function toRow(r: PbRow, revision: bigint, addrWidth: number, headerRows 
     const text = t.kind === ListingTokenKind.SYMBOL ? showName(t.text, t.demangled) : t.text;
     const o: OperandToken = { text, kind: tokenKind(t.kind), col };
     if ((t.kind === ListingTokenKind.ADDRESS || t.kind === ListingTokenKind.SYMBOL) && t.target) o.target = t.target.offset;
+    if (t.targetProgramId && t.target) foreignTargets.set(t.target.offset, t.targetProgramId);
     if (t.operandIndex !== undefined) o.operandIndex = t.operandIndex;
     if (t.value !== undefined) o.value = t.value;
     if (t.scalarBits !== undefined) o.bits = t.scalarBits;

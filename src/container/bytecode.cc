@@ -10,6 +10,7 @@
 #include "formats.hh"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -112,6 +113,30 @@ std::optional<Guess> wasm_guess(std::span<const std::byte> b) {
     g.content_kind = "wasm";
     g.description = "WebAssembly module (version " + std::to_string(version) + ")";
   }
+  return g;
+}
+
+// Ethereum Virtual Machine bytecode as solc writes it (docs/evm.md): the
+// free-memory pointer set first, PUSH1 0x80 PUSH1 0x40 MSTORE (0x60 before
+// solc 0.4.22), as bytes or as hex text ("0x6080604052...").
+std::optional<Guess> evm_guess(std::span<const std::byte> b) {
+  auto prologue = [](std::string_view hex) {
+    return hex.starts_with("6080604052") || hex.starts_with("6060604052");
+  };
+  Guess g;
+  g.kind = "bytecode";
+  g.format = "evm";
+  g.content_kind = "evm";
+  if (b.size() >= 5 && u8(b, 0) == 0x60 && (u8(b, 1) == 0x80 || u8(b, 1) == 0x60) && u8(b, 2) == 0x60 &&
+      u8(b, 3) == 0x40 && u8(b, 4) == 0x52) {
+    g.description = "EVM bytecode (solc)";
+    return g;
+  }
+  std::string head;
+  for (std::size_t i = 0; i < b.size() && head.size() < 12; ++i) head.push_back(static_cast<char>(std::tolower(u8(b, i))));
+  if (head.starts_with("0x")) head.erase(0, 2);
+  if (!prologue(head)) return std::nullopt;
+  g.description = "EVM bytecode as hex text (solc)";
   return g;
 }
 
@@ -405,6 +430,7 @@ std::optional<Guess> bytecode_guess(std::span<const std::byte> b, std::uint64_t 
   if (auto g = dex_guess(b)) return g;
   if (auto g = wasm_guess(b)) return g;
   if (auto g = hermes_guess(b)) return g;
+  if (auto g = evm_guess(b)) return g;
   if (auto g = v8_guess(b, size)) return g;
   if (auto g = other_guess(b)) return g;
   return std::nullopt;
@@ -469,6 +495,8 @@ std::string zip_content_kind(std::span<const std::byte> b) {
     if (p + 30 + nlen > b.size()) break;
     const std::string_view name(reinterpret_cast<const char *>(b.data() + p + 30), nlen);
     if (name == "AndroidManifest.xml" || name == "classes.dex" || name == "resources.arsc") return "apk";
+    // An iOS app archive: Payload/<name>.app/ (docs/apple-apps.md).
+    if (name.starts_with("Payload/") && name.find(".app/") != std::string_view::npos) return "ipa";
     if (name == "META-INF/MANIFEST.MF" || (name.size() > 6 && name.ends_with(".class"))) jar = true;
     // A member whose size follows it (a data descriptor) ends the walk.
     if ((flags & 8) && csize == 0) break;

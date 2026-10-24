@@ -1,0 +1,33 @@
+<decompilertest>
+<!--
+  clamp_cw(x): if (x >= 10) x = 9; if (x <= 0) x = 1; return x;
+    8054: cmp r0,#10   8058: movge r0,#9   805c: cmp r0,#0   8060: movle r0,#1
+    8064: bx lr
+  Ghidra prints 9 < x and x < 1; with encodedcompare right, x > 9; with
+  it on, the constants the instructions compare against, on the right.
+-->
+<binaryimage arch="ARM:LE:32:v5t:default">
+<bytechunk space="ram" offset="0x8054" readonly="true">
+0a0050e30900a0a3000050e30100a0d31eff2fe1
+</bytechunk>
+</binaryimage>
+<script>
+  <com>map fun r0x8054 clamp_cw</com>
+  <com>parse line extern int4 clamp_cw(int4 x);</com>
+  <com>lo fu clamp_cw</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>option encodedcompare right</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>option encodedcompare on</com>
+  <com>decompile</com>
+  <com>print C</com>
+  <com>quit</com>
+</script>
+<stringmatch name="Off: canonical upper" min="1" max="1">if \(9 &lt; x\)</stringmatch>
+<stringmatch name="Off and right: canonical lower" min="2" max="2">if \(x &lt; 1\)</stringmatch>
+<stringmatch name="Right: constant on the right" min="1" max="1">if \(x > 9\)</stringmatch>
+<stringmatch name="On: encoded upper" min="1" max="1">if \(x >= 10\)</stringmatch>
+<stringmatch name="On: encoded lower" min="1" max="1">if \(x &lt;= 0\)</stringmatch>
+</decompilertest>

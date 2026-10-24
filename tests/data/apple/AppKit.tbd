@@ -1,0 +1,9 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-macos ]
+install-name:    '/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit'
+current-version: 1
+exports:
+  - targets:     [ arm64-macos ]
+    objc-classes: [ NSResponder, NSViewController ]
+...

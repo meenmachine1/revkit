@@ -1,0 +1,9 @@
+--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios ]
+install-name:    '/System/Library/Frameworks/UIKit.framework/UIKit'
+current-version: 1
+exports:
+  - targets:     [ arm64-ios ]
+    objc-classes: [ UIResponder, UIViewController ]
+...

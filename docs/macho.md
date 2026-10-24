@@ -228,11 +228,16 @@ feature ([api.md](api.md#libraries)):
 - An import resolves in the dylib it names (the two-level namespace), else,
   for what an umbrella only re-exports, in the program's other libraries
   in load order. Exports are a library's export trie.
-- `import_libraries` looks for each by its file name in the search paths,
-  the program's directory and its rpaths (`@loader_path` and
-  `@executable_path` as that directory); inside a library root an absolute
-  install name (`/usr/lib/libc++.1.dylib`) is tried as it is first. A
-  universal library loads its slice of the program's CPU type and subtype.
+- `import_libraries` first expands `@executable_path`, `@loader_path` and
+  `@rpath` install names as dyld does (the loading image's rpaths, then
+  its loaders', up to the main executable; `api_minor` 100, so an app's
+  `@rpath/Foo.framework/Foo` is found in its `Frameworks/`:
+  [apple-apps.md](apple-apps.md#libraries-in-a-bundle)), then looks for
+  each by its file name in the search paths, the program's directory and
+  its rpaths (`@loader_path` and `@executable_path` as that directory);
+  inside a library root an absolute install name (`/usr/lib/libc++.1.dylib`)
+  is tried as it is first. A universal library loads its slice of the
+  program's CPU type and subtype.
 
 ## Objective-C and Swift
 
@@ -290,8 +295,11 @@ CPU type and subtype and the arch name, file type, header flags, the
 slices, `LC_UUID` (also `Image::build_id`, lower-case hex), the platform,
 minimum OS and SDK of `LC_BUILD_VERSION` (else `LC_VERSION_MIN_*`),
 `LC_SOURCE_VERSION`, the dylinker, dylibs with their kind and versions,
-rpaths, the segments, whether the file is code-signed (`LC_CODE_SIGNATURE`,
-not verified) and where the signature is, and `LC_ENCRYPTION_INFO(_64)`.
+rpaths, the segments, whether the file is code-signed (`LC_CODE_SIGNATURE`)
+and where the signature is, and `LC_ENCRYPTION_INFO(_64)`. The signature's
+contents (CodeDirectories, entitlements, requirements, the signer's
+certificates; read, not verified) are the program summary's
+`code_signature` ([apple-apps.md](apple-apps.md#code-signatures)).
 An encrypted file (a nonzero `cryptid`, or a segment with
 `SG_PROTECTED_VERSION_1`) loads with a warning saying so; its encrypted
 range reads as the file has it, and nothing tries to decrypt it.
@@ -303,7 +311,7 @@ range reads as the file has it, and nothing tries to decrypt it.
 | `ImportOptions.macho_slice` (`api_minor` 90, feature `macho`) | the slice to load: an arch name or `#N` |
 | `ImportProgramRequest.program_file` | import a program's stored file again (another slice) |
 | `ProgramInfo.macho_slice`, `macho_slices` | the slice a program is and the file's slices (empty for a thin file) |
-| `ProgramSummary.macho` (`MachoSummary`) | arch, CPU type and subtype, file type, UUID, platform, minimum OS, SDK, source version, install name, dylinker, dylibs (`MachoDylib`: name, kind, versions), rpaths, slices (`MachoSlice`) and which this is, code signature, encryption and its range, how dyld fixes it up (`fixups`: `chained`, `opcodes`), header flags; `ProgramSummary.build_id` the UUID |
+| `ProgramSummary.macho` (`MachoSummary`) | arch, CPU type and subtype, file type, UUID, platform, minimum OS, SDK, source version, install name, dylinker, dylibs (`MachoDylib`: name, kind, versions), rpaths, slices (`MachoSlice`) and which this is, code signature (`code_signature`, `api_minor` 100: [apple-apps.md](apple-apps.md#code-signatures)), encryption and its range, how dyld fixes it up (`fixups`: `chained`, `opcodes`), header flags; `ProgramSummary.build_id` the UUID |
 | `ListRelocations` | `format` `macho`, the fixups above with their names |
 | Python | `Client.import_program(..., macho_slice=, program_file=)`; `Program.macho()` |
 | MCP | `import_program(macho_slice)`; `program_summary` has a `macho` object |

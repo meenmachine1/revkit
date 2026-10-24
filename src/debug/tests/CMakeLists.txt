@@ -6,7 +6,7 @@ find_program(REVKIT_EMU_CLANG clang)
 find_program(REVKIT_EMU_LLD ld.lld)
 find_program(REVKIT_EMU_OBJCOPY NAMES llvm-objcopy llvm-objcopy-18)
 
-add_executable(revkit_debug_tests rsp_test.cc timeline_test.cc live_test.cc firmware_test.cc expr_test.cc)
+add_executable(revkit_debug_tests rsp_test.cc timeline_test.cc live_test.cc firmware_test.cc expr_test.cc crash_target_test.cc)
 target_link_libraries(revkit_debug_tests PRIVATE revkit::debug revkit::emu revkit::lift revkit::loader GTest::gtest_main)
 target_compile_definitions(revkit_debug_tests PRIVATE
   REVKIT_GHIDRA_ROOT="${GHIDRA_ROOT}"

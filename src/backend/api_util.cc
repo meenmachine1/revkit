@@ -43,6 +43,7 @@ pb::FactOrigin Derived(const std::string &rule, std::uint64_t revision, float co
   o.mutable_derived()->set_rule(rule);
   o.mutable_derived()->set_confidence(confidence);
   o.mutable_derived()->set_computed_at_revision(revision);
+  o.set_tier(TierOf(rule, confidence));
   return o;
 }
 
@@ -50,7 +51,56 @@ pb::FactOrigin Asserted(const pb::Assertion &a) {
   pb::FactOrigin o;
   o.mutable_asserted()->set_seq(a.seq());
   *o.mutable_asserted()->mutable_provenance() = a.provenance();
+  o.set_tier(TierOf(a.provenance()));
   return o;
+}
+
+namespace {
+bool StartsWith(const std::string &s, const char *prefix) { return s.rfind(prefix, 0) == 0; }
+}  // namespace
+
+pb::SourceTier TierOf(const pb::Provenance &p) {
+  const std::string &id = p.id();
+  switch (p.kind()) {
+    case pb::PROVENANCE_KIND_USER: return pb::SOURCE_TIER_USER;
+    case pb::PROVENANCE_KIND_AGENT:
+    case pb::PROVENANCE_KIND_PLUGIN:
+    case pb::PROVENANCE_KIND_SCRIPT: return pb::SOURCE_TIER_AGENT;
+    case pb::PROVENANCE_KIND_IMPORT:
+    case pb::PROVENANCE_KIND_ANALYSIS:
+      // Debug information: DWARF and PDB (at import or loaded later), a
+      // debug file, Go's function table.
+      if (id == "dwarf" || id == "pdb" || id == "go" || StartsWith(id, "debug") || StartsWith(id, "dwarf") ||
+          StartsWith(id, "pdb"))
+        return pb::SOURCE_TIER_DEBUG_INFO;
+      // Library matches: Function ID, type archives.
+      if (id == "fid" || StartsWith(id, "fid:") || id == "archive" || StartsWith(id, "library") || id == "bsim")
+        return pb::SOURCE_TIER_LIBRARY;
+      // The file's own tables and metadata: the loader's symbols and
+      // sections, PE and Objective-C structures, RTTI.
+      if (p.kind() == pb::PROVENANCE_KIND_IMPORT || id == "pe" || id == "objc" || id == "swift" || id == "msvc")
+        return pb::SOURCE_TIER_SYMBOL;
+      return pb::SOURCE_TIER_INFERRED;
+    case pb::PROVENANCE_KIND_MIGRATION:
+      // Markup ported from another program (a comparison's match).
+      return pb::SOURCE_TIER_INFERRED;
+    default: return pb::SOURCE_TIER_UNSPECIFIED;
+  }
+}
+
+pb::SourceTier TierOf(const std::string &rule, float confidence) {
+  if (rule == "names.default" || rule == "types.default" || StartsWith(rule, "default")) return pb::SOURCE_TIER_DEFAULT;
+  if (StartsWith(rule, "library")) return pb::SOURCE_TIER_LIBRARY;
+  if (StartsWith(rule, "names.loader") || StartsWith(rule, "loader.") || rule == "analysis.demangler" ||
+      StartsWith(rule, "types.builtin"))
+    return pb::SOURCE_TIER_SYMBOL;
+  if (confidence > 0 && confidence < 0.9f) return pb::SOURCE_TIER_GUESSED;
+  return pb::SOURCE_TIER_INFERRED;
+}
+
+void SetTier(pb::FactOrigin &origin) {
+  if (origin.has_asserted()) origin.set_tier(TierOf(origin.asserted().provenance()));
+  else if (origin.has_derived()) origin.set_tier(TierOf(origin.derived().rule(), origin.derived().confidence()));
 }
 
 std::string PageToken(std::uint64_t revision, std::size_t offset) {

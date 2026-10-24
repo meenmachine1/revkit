@@ -28,3 +28,18 @@ enum:ghidra/src/cpp/semantics.hh
 # VarnodeListSymbol is a vptr report, never a use. Seen in raw-firmware
 # detection's sweeps (python SDK test_detect), part 2 of the scrub.
 vptr:ghidra/src/cpp/sleigh.cc
+# SleighCompile::checkSymbols (rk-sleigh, compiling revkit's own
+# processors at build time) casts every symbol of a scope to LabelSymbol
+# before it checks getType() and skips the others: the same cast-then-check
+# as buildEmpty's (bug scrub part 3).
+vptr:ghidra/src/cpp/slgh_compile.cc
+# CircleRange::pushForwardBinary (value-set analysis, reached by inference's
+# decompilations in rk-decompd workers) computes the minimum negative as
+# the maximum positive plus one, which for 8-byte values is INT64_MAX + 1:
+# Java's long wraps there, and the next line sign-extends the result (bug
+# scrub part 3).
+signed-integer-overflow:ghidra/src/cpp/rangeutil.cc
+# RulePtrsubCharConstant::applyOp casts an output's type to TypePointer and
+# then checks its metatype, returning before any use when it isn't one: the
+# same cast-then-check as above (bug scrub part 3).
+vptr:ghidra/src/cpp/ruleaction.cc

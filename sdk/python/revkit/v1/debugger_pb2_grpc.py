@@ -164,6 +164,11 @@ class DebugServiceStub:
                 request_serializer=revkit_dot_v1_dot_debugger__pb2.AnswerDebugHookRequest.SerializeToString,
                 response_deserializer=revkit_dot_v1_dot_debugger__pb2.AnswerDebugHookResponse.FromString,
                 _registered_method=True)
+        self.GetDebugCrash = channel.unary_unary(
+                '/revkit.v1.DebugService/GetDebugCrash',
+                request_serializer=revkit_dot_v1_dot_debugger__pb2.GetDebugCrashRequest.SerializeToString,
+                response_deserializer=revkit_dot_v1_dot_debugger__pb2.GetDebugCrashResponse.FromString,
+                _registered_method=True)
 
 
 class DebugServiceServicer:
@@ -371,6 +376,17 @@ class DebugServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetDebugCrash(self, request, context):
+        """A crash dump session's summary (api_minor 102, feature "crash-dumps";
+        docs/crash-dumps.md): the signal or exception, where it happened (the
+        faulting module and offset, the function, the instruction), the
+        crashed thread's backtrace, the threads and modules. A session on
+        another target is FAILED_PRECONDITION.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DebugServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -503,6 +519,11 @@ def add_DebugServiceServicer_to_server(servicer, server):
                     servicer.AnswerDebugHook,
                     request_deserializer=revkit_dot_v1_dot_debugger__pb2.AnswerDebugHookRequest.FromString,
                     response_serializer=revkit_dot_v1_dot_debugger__pb2.AnswerDebugHookResponse.SerializeToString,
+            ),
+            'GetDebugCrash': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetDebugCrash,
+                    request_deserializer=revkit_dot_v1_dot_debugger__pb2.GetDebugCrashRequest.FromString,
+                    response_serializer=revkit_dot_v1_dot_debugger__pb2.GetDebugCrashResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1207,6 +1228,33 @@ class DebugService:
             '/revkit.v1.DebugService/AnswerDebugHook',
             revkit_dot_v1_dot_debugger__pb2.AnswerDebugHookRequest.SerializeToString,
             revkit_dot_v1_dot_debugger__pb2.AnswerDebugHookResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetDebugCrash(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/revkit.v1.DebugService/GetDebugCrash',
+            revkit_dot_v1_dot_debugger__pb2.GetDebugCrashRequest.SerializeToString,
+            revkit_dot_v1_dot_debugger__pb2.GetDebugCrashResponse.FromString,
             options,
             channel_credentials,
             insecure,
