@@ -73,7 +73,7 @@ def test_every_tool_group(image_daemon, binaries, tmp_path):
                 return r
 
             tools = {t.name for t in (await mcp.list_tools()).tools}
-            assert len(tools) == 188, sorted(tools)
+            assert len(tools) == 189, sorted(tools)
 
             # The workflow guide: a resource, and the investigate prompt built on it.
             resources = (await mcp.list_resources()).resources
@@ -81,10 +81,21 @@ def test_every_tool_group(image_daemon, binaries, tmp_path):
             guide = (await mcp.read_resource("revkit://guide")).contents[0].text
             assert guide.startswith("# Investigating a binary with revkit") and "undo_changes" in guide
             prompts = {p.name: p for p in (await mcp.list_prompts()).prompts}
-            assert set(prompts) == {"investigate"} and {a.name for a in prompts["investigate"].arguments} == {"goal", "program_id"}
+            assert set(prompts) == {"investigate", "match_decomp"} and {a.name for a in prompts["investigate"].arguments} == {"goal", "program_id"}
             msg = (await mcp.get_prompt("investigate", {"goal": "find the parser", "program_id": a})).messages[0].content.text
             assert msg.startswith("# Investigating") and "find the parser" in msg and a in msg
             assert "revkit://guide" in (await call("about"))["guide"]
+            # The matching-decompilation prompt and its section of the guide.
+            assert {x.name for x in prompts["match_decomp"].arguments} == {"goal", "project_id"}
+            msg = (await mcp.get_prompt("match_decomp", {"project_id": "default"})).messages[0].content.text
+            assert "## Matching decompilation" in msg and "import_dsd_project" in msg and "default" in msg
+            # Per-program decompiler settings: the CodeWarrior comparison form, then the defaults back.
+            await call("set_decompiler_settings", program_id=a, reason="test", comparison_form="encoded",
+                       compilable_c=True)
+            await call("set_decompiler_settings", program_id=a, reason="test")
+            bad = _json(await mcp.call_tool("set_decompiler_settings",
+                                            {"program_id": a, "reason": "test", "comparison_form": "sideways"}))
+            assert bad.get("error") == "INVALID_ARGUMENT", bad
 
             # Function ID: the databases and a program's matches (none here).
             dbs = await call("fid_databases", program_id=a)

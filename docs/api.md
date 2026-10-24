@@ -3751,7 +3751,7 @@ annotations-only archive's binaries) and imports it (`ts_sdk_projects`,
 revkit-mcp --daemon 127.0.0.1:50051 --agent claude --agent-version opus-5.5   # stdio
 ```
 
-186 tools, all built on the public SDK. `about` (and the server's
+189 tools, all built on the public SDK. `about` (and the server's
 instructions) gives an agent the workflow (list programs, pick one, find
 functions, decompile, rename, retype and comment with a reason, search
 again), the address syntax, how long results page, its provenance and the
@@ -3763,7 +3763,12 @@ bearings, finding what matters, reading, recording what one learns with
 reasons, reviewing and undoing, BSim and comparing, running code. The
 server serves it as the resource `revkit://guide` (`text/markdown`) and as
 the prompt `investigate` (arguments `goal` and `program_id`: the guide,
-then the task); `about` points at both.
+then the task); `about` points at both. The prompt `match_decomp`
+(arguments `goal` and `project_id`) starts a matching-decompilation task
+with the same guide and points at its "Matching decompilation" section:
+`import_dsd_project`, `set_decompiler_settings` (the per-program
+decompiler settings, api_minor 106, also an MCP tool), `decomp_scratch`,
+`build_decomp_kb`/`apply_decomp_kb` and `export_dsd_symbols`.
 
 **Registering it with an agent: `revkit-mcp setup`** (or `revkit mcp
 setup` from the `revkit` launcher, which passes the daemon's address). It

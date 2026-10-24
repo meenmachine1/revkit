@@ -457,6 +457,18 @@ def create_server(
                 f"understand, each with a reason, and finish with a short summary of what you found and what "
                 f"is still unclear.")
 
+    @server.prompt(name="match_decomp", title="Matching decompilation with revkit",
+                   description="Start a matching-decompilation task (a Nintendo DS ds-decomp project or similar) with "
+                               "the workflow guide's matching section: import, decompiler settings, scratches, "
+                               "knowledge base, writing names back.")
+    def match_decomp(goal: str = "", project_id: str = "") -> str:
+        task = goal.strip() or ("Get the game's modules in, carry over what known decompilations match, and give "
+                                "each function you work on a scratch that compiles.")
+        where = f" The project is {project_id}." if project_id.strip() else " Start with list_projects and list_programs."
+        return (f"{agent_guide()}\n\n## Your task\n\n{task}{where} Call about first, then follow the guide's "
+                f"\"Matching decompilation\" section. Rename and type with reasons; finish with what was imported, "
+                f"what the knowledge base matched, the functions drafted, and what is still unclear.")
+
     def guarded(fn):
         # Report API errors to the model as text it can act on, not a crash.
         # functools.wraps keeps the signature MCP derives the tool schema from.
@@ -2784,6 +2796,22 @@ def create_server(
         if clear:
             return write_result(prog.clear_fallthrough(a, reason=reason))
         return write_result(prog.set_fallthrough(a, None if no_fallthrough else at(program_id, target), reason=reason))
+
+    @server.tool(annotations=WRITE)
+    @guarded
+    def set_decompiler_settings(program_id: str, reason: str, comparison_form: str = "", load_types: str = "",
+                                compilable_c: bool = False, ghidra_flag_tests: bool = False) -> dict:
+        """How the decompiler shapes this program's C (docs/decompiler-inputs.md, "Source shape"); every
+        decompilation of the program is redone. comparison_form: "right" (the default: x > 8, x < 1), "encoded"
+        (the constant the instruction compares against: x >= 9, x <= 0; for Metrowerks CodeWarrior, which keeps
+        the source's) or "ghidra" (8 < x). load_types: "all" (the default: a load's extension gives its
+        signedness, ldrh unsigned, ldrsh signed), "words" (not for zero-extended bytes) or "ghidra".
+        compilable_c: C a compiler accepts as it is (no x._2_2_, no label ending a block, pointer/integer
+        conversions cast), for drafts you will compile. ghidra_flag_tests: Ghidra's two-test form of subs; bgt.
+        No options give the defaults back."""
+        return write_result(rk.program(program_id).set_decompiler_settings(
+            comparison_form=comparison_form, load_types=load_types, compilable_c=compilable_c,
+            ghidra_flag_tests=ghidra_flag_tests, reason=reason))
 
     @server.tool(annotations=WRITE)
     @guarded

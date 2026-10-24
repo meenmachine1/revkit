@@ -171,6 +171,66 @@ have named.
 function with arguments; `debug_start` launches or attaches a debugger.
 Use them to confirm what a routine computes, not as a first step.
 
+## Matching decompilation (Nintendo DS and similar)
+
+A matching decompilation writes C that the game's original compiler turns
+back into the exact original bytes. revkit's part is getting the program
+in, giving each function a good first draft, carrying over what earlier
+decompilations already matched, and writing names back. The compiling and
+byte-for-byte comparison happen in the project's own toolchain (the
+original compiler, objdiff or decomp.me); revkit doesn't run them.
+
+1. **Import the game the decomp project's way.** For a ds-decomp (dsd)
+   project, `import_dsd_project` with its `config.yaml`. Each module (main,
+   ITCM, DTCM, every overlay, the ARM7) becomes a program at its load
+   address, with `symbols.txt`'s names, Thumb modes and sizes, and the
+   modules linked so calls into another module have that module's names and
+   prototypes. Prefer this to importing raw images yourself: some analysis
+   (calls into another module counting as returning, DS I/O as volatile)
+   needs the module structure. Without a dsd project, `import_nds_rom` reads
+   the `.nds` directly (no names).
+2. **Shape the C for the compiler.** `set_decompiler_settings` per program:
+   - `comparison_form "encoded"` keeps the constant the instruction compares
+     against (`x <= 0`, not `x < 1`). Use it for Metrowerks CodeWarrior, which
+     keeps the source's; GCC and LLVM rewrite comparisons themselves, so leave
+     their programs at the default.
+   - `compilable_c` prints C a compiler accepts as is (no `x._2_2_`, no label
+     ending a block, casts on pointer/integer conversions). It reads a little
+     worse; use it for drafts you will compile.
+3. **Know what inference does to matching.** revkit infers prototypes and
+   structures on 32-bit code. The C reads better, but where an inferred type
+   is wrong (`uint` for `int`, a pointer for an integer) the compiler emits
+   different instructions, and inferred structures need every field in the
+   header to compile. When a function's draft compiles but doesn't match,
+   check its parameter and local types first; signedness and widths change
+   instruction selection (`ldrsh` vs `ldrh`, signed vs unsigned compares and
+   shifts). docs/known-issues.md says what is still open, and the daemon's
+   `--infer-prototypes off` gives Ghidra-style types if a project needs them.
+4. **Draft one function at a time.** `decomp_scratch` gives a function's C
+   with every declaration it needs (types, callees' prototypes, globals),
+   split into `context` and `source` for decomp.me, under a
+   `// PROBE: <mangled> <module> <address>` line. Change the draft until the
+   compiler's output matches, then put it in the project's source tree.
+5. **Reuse finished decompilations.** `build_decomp_kb` ingests a matched
+   decomp: its module programs, source tree, and the compiler and flags per
+   function (a JSON-lines manifest, if the project has one). `apply_decomp_kb`
+   on a new game lists:
+   - exact matches, with the same masked bytes, plus their source and the
+     compiler and flags they matched with;
+   - with `near`, the closest KB function's source as a starting draft, with
+     the similarity and the instruction diff.
+
+   SDK code (NitroSDK and friends), the C runtime and a studio's shared
+   engine code match across games; start there. With `apply`, exact matches
+   are renamed.
+6. **Name, then write back.** Rename functions and globals with reasons as
+   you understand them, then `export_dsd_symbols` to see the `symbols.txt`
+   diff, and with `write` to update the project. Listed mangled names are
+   kept; a new C++ name has to be typed in its mangled form.
+7. **Library code first.** In a DS game the low part of main is usually the
+   SDK, the C runtime and middleware. Function ID and the knowledge base name
+   much of it, so the game's own code is what is left to read.
+
 ## Good habits
 
 - Read before you write: decompile the function and look at its callers
