@@ -469,6 +469,20 @@ class ExportedC:
     failed: list = field(default_factory=list)
     notes: list = field(default_factory=list)
     revision: int = 0
+    # With per_function: each function's ``query_pb2.ExportedCFunction``
+    # (entry, name, source, prototype, failure), in address order.
+    function_sources: list = field(default_factory=list)
+
+
+def _c_dialect(dialect: Union[str, int]) -> int:
+    if isinstance(dialect, int):
+        return dialect
+    d = dialect.lower().replace("-", "").replace("_", "")
+    if d in ("", "c11", "default"):
+        return query_pb2.C_DIALECT_C11
+    if d in ("c89", "c90", "ansi"):
+        return query_pb2.C_DIALECT_C89
+    raise ValueError("dialect: \"c11\" or \"c89\", not %r" % dialect)
 
 
 @dataclass(frozen=True)
@@ -3780,7 +3794,7 @@ class Program:
         return stream()
 
     def decomp_scratch(
-        self, function: AddressLike, *, module: str = "", timeout_ms: int = 0
+        self, function: AddressLike, *, module: str = "", timeout_ms: int = 0, dialect: Union[str, int] = "c11"
     ) -> "query_pb2.ExportDecompScratchResponse":
         """One function as a matching decompilation's starting scratch
         (``ExportDecompScratch``, api_minor 103, feature "nds"; docs/nds.md):
@@ -3788,9 +3802,13 @@ class Program:
         built-in type names, the named types it uses, its callees'
         prototypes (from linked DS modules too) and the globals it reads,
         then its decompiled C; ``context`` and ``source`` split it for a
-        decomp.me scratch. ``module`` overrides the PROBE line's module."""
+        decomp.me scratch. ``module`` overrides the PROBE line's module.
+        ``dialect`` ``"c89"`` writes the context for old compilers (api_minor
+        112). The scratch is of one revision; ``program.at(revision)`` pins it
+        to an ``export_c``'s."""
         req = query_pb2.ExportDecompScratchRequest(
-            program_id=self.id, function=address(function), read=self._read(), module=module, timeout_ms=timeout_ms)
+            program_id=self.id, function=address(function), read=self._read(), module=module, timeout_ms=timeout_ms,
+            dialect=_c_dialect(dialect))
         return self._q("ExportDecompScratch", req)
 
     def export_c(
@@ -3803,6 +3821,9 @@ class Program:
         timeout_ms: int = 0,
         parallelism: int = 0,
         progress: Optional[Callable[[int, int], None]] = None,
+        dialect: Union[str, int] = "c11",
+        per_function: bool = False,
+        wait_for_analysis: bool = False,
     ) -> "ExportedC":
         """Ghidra's C/C++ exporter (``ExportC``, api_minor 80, feature
         "export-c"): ``entries`` (None: every function) decompiled into one
@@ -3811,9 +3832,23 @@ class Program:
         Ghidra's built-in type names and each function's prototype, which
         the source includes. ``name`` defaults to the program's.
         ``progress(done, total)`` is called while the functions decompile.
-        With ``directory``, the files are written there too."""
+        With ``directory``, the files are written there too.
+
+        api_minor 112 (feature "c-dialect"): the header's types are as the
+        decompiler sees them (its field names, a byte member named
+        ``field_0x10`` for each byte no field covers) with the function types
+        the C names, so the C compiles with it. ``dialect="c89"`` writes it
+        for old compilers (CodeWarrior's). ``per_function`` gives each
+        function's C on its own (``function_sources``; with ``directory``,
+        a ``<name>/<entry>.c`` each, including the header), of the header's
+        revision. ``wait_for_analysis`` first waits for the program's
+        background analysis (inference) to finish, so the export has its
+        prototypes and structures."""
+        if wait_for_analysis:
+            self.wait_for_analysis()
         req = query_pb2.ExportCRequest(program_id=self.id, read=self._read(), header=header, name=name,
-                                       timeout_ms=timeout_ms, parallelism=parallelism)
+                                       timeout_ms=timeout_ms, parallelism=parallelism, dialect=_c_dialect(dialect),
+                                       per_function=per_function)
         if entries is None:
             req.all = True
         else:
@@ -3833,7 +3868,8 @@ class Program:
                     out.notes = list(m.notes)
                 if m.source_part:
                     parts.append(m.source_part)
-                if progress is not None and m.total and not m.source_part and not m.finished:
+                out.function_sources.extend(m.function_sources)
+                if progress is not None and m.total and not m.source_part and not m.function_sources and not m.finished:
                     progress(m.done, m.total)
                 if m.finished:
                     out.functions = m.functions
@@ -3845,8 +3881,19 @@ class Program:
         out.source = "".join(parts)
         if directory is not None:
             os.makedirs(directory, exist_ok=True)
-            with open(os.path.join(directory, out.source_name), "w", encoding="utf-8", newline="") as f:
-                f.write(out.source)
+            if per_function:
+                stem = out.source_name[:-2] if out.source_name.endswith(".c") else out.source_name
+                os.makedirs(os.path.join(directory, stem), exist_ok=True)
+                for fn in out.function_sources:
+                    if not fn.source:
+                        continue
+                    text = ('#include "../%s"\n\n' % out.header_name if out.header_name else "") + fn.source
+                    with open(os.path.join(directory, stem, "%08x.c" % fn.entry.offset), "w", encoding="utf-8",
+                              newline="") as f:
+                        f.write(text)
+            else:
+                with open(os.path.join(directory, out.source_name), "w", encoding="utf-8", newline="") as f:
+                    f.write(out.source)
             if out.header_name:
                 with open(os.path.join(directory, out.header_name), "w", encoding="utf-8", newline="") as f:
                     f.write(out.header)
@@ -5761,6 +5808,20 @@ class Program:
     def analysis_status(self) -> analysis_pb2.GetAnalysisStatusResponse:
         req = analysis_pb2.GetAnalysisStatusRequest(program_id=self.id)
         return self.client._call(self.client.stubs.analysis.GetAnalysisStatus, req)
+
+    def wait_for_analysis(self, timeout: float = 3600.0, poll: float = 0.25) -> analysis_pb2.GetAnalysisStatusResponse:
+        """Waits until the program's analysis is idle (the import's, and the
+        background inference that publishes prototypes and structures in a
+        revision of its own), so what is read next has them. Raises
+        TimeoutError after ``timeout`` seconds."""
+        deadline = time.monotonic() + timeout
+        while True:
+            status = self.analysis_status()
+            if status.idle:
+                return status
+            if time.monotonic() >= deadline:
+                raise TimeoutError("analysis of %s still running after %.0f s" % (self.id, timeout))
+            time.sleep(poll)
 
     # -- Function ID (api_minor 49, feature "function-id"; docs/fid.md) ---------------
 

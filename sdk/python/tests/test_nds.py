@@ -94,6 +94,22 @@ def test_dsd_import_names_links_export_and_scratch(image_daemon, game):
         assert "SceneBase::Update(SceneBase *this);" in s.context and s.callees >= 3, s.context
         assert "typedef unsigned int undefined4;" in s.context
         assert "extern" in s.context and "kRetryItems" in s.context, s.context
+        # For an old compiler (api_minor 112, feature "c-dialect"): the scratch's
+        # declarations and a module's whole header in C89, as clang -std=c89
+        # -pedantic-errors for the DS's ARM9 takes them (C++ names left out).
+        assert "c-dialect" in rk.server_info().features
+        s89 = ov0.decomp_scratch(update["addr"], dialect="c89")
+        assert "_Static_assert" not in s89.context and "stdbool" not in s89.context, s89.context
+        assert "typedef unsigned char bool;" in s89.context
+        hdr = ov0.export_c(None, header=True, dialect="c89", per_function=True)
+        assert hdr.function_sources and not hdr.source
+        assert {f.entry.offset for f in hdr.function_sources} >= {update["addr"]}
+        for what, text in (("scratch", s89.context), ("header", hdr.header)):
+            path = game / ("c89-%s.c" % what)
+            path.write_text(text + "\nint revkit_check;\n")
+            cc = subprocess.run([shutil.which("clang"), "-std=c89", "-pedantic-errors", "--target=armv5te-none-eabi",
+                                 "-c", "-o", os.devnull, str(path)], capture_output=True, text=True)
+            assert cc.returncode == 0, what + ":\n" + cc.stderr[-3000:] + "\n" + text
 
         # Back to symbols.txt: the rename in place, a new name added, the demangled form kept.
         main.rename(syms["_ZN9SceneBase4DrawEi"]["addr"], "SceneBase::Draw")

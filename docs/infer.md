@@ -679,7 +679,12 @@ to undefined bytes. A name someone else binds (Auto Structure's
 binding of inference's the user retracted isn't asserted again
 (`FactStoreTest.InferredStructuresArePublishedAsProgramTypes`). As
 program types they are exported with the rest (a type archive of scope
-`all`), and Auto Structure's next name skips theirs.
+`all`), and Auto Structure's next name skips theirs. Export C's header and the
+decomp scratch write them as the decompiler sees them, each gap a byte
+member named as the C names it (`field_0x10`), so the C compiles with
+them (`api_minor` 112; [types.md](types.md#type-archives)); a matching
+run takes header and C after inference has published, from one call
+([nds.md](nds.md#from-revkit-to-a-scratch)).
 
 ## Known gaps
 

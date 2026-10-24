@@ -152,7 +152,7 @@ std::optional<pb::TypeArchiveSidecar> ReadTypeArchiveSidecar(const std::string &
 }
 
 Status ExportTypeArchive(const TypeArchiveContext &c, const pb::ExportTypeArchiveRequest &req,
-                         pb::ExportTypeArchiveResponse &resp) {
+                         pb::ExportTypeArchiveResponse &resp, const HeaderOptions *header) {
   pb::TypeArchiveScope scope = req.scope();
   if (scope == pb::TYPE_ARCHIVE_SCOPE_UNSPECIFIED)
     scope = !req.keys().empty() || !req.hashes().empty() ? pb::TYPE_ARCHIVE_SCOPE_SELECTED
@@ -226,6 +226,11 @@ Status ExportTypeArchive(const TypeArchiveContext &c, const pb::ExportTypeArchiv
   // version), so exporting what an archive brought gives the same files.
   cparse::ArchiveOptions ao;
   ao.profile = ProgramProfile(c.program);
+  if (header) {
+    ao.dialect = header->dialect;
+    ao.decompiler_view = header->decompiler_view;
+    ao.provided = header->provided;
+  }
   const bool any_binding = c.binding && !c.names.bindings.empty();
   ao.name = cparse::archive_stem(!req.name().empty() ? req.name() : any_binding ? "types" : c.program_name);
   cparse::Archive a = cparse::write_archive(store, roots, ao);

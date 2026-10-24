@@ -18,6 +18,7 @@
 #include "revkit/types/store.h"
 
 #include <cstdint>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -33,6 +34,18 @@ struct ArchiveFunction {
   bool noreturn = false;
 };
 
+// The C a header is written in.
+enum class Dialect : std::uint8_t {
+  C11,  // the default: _Bool, _Static_assert, long long, any bitfield width
+  // For old compilers (Metrowerks CodeWarrior, a strict C89 mode): no
+  // <stdbool.h> or _Bool (bool is a typedef of unsigned char), sizes
+  // checked by arrays of negative size instead of _Static_assert, `long
+  // long` only under __extension__ (defined away for compilers without it),
+  // padding bitfields of the target's int, never wider, enumerators within
+  // int's range, and no typedef written twice.
+  C89,
+};
+
 struct ArchiveOptions {
   // The archive's name: the header's comment and include guard.
   std::string name = "types";
@@ -41,6 +54,20 @@ struct ArchiveOptions {
   // Prototypes declared after the types, by name; the named types they
   // reach are written too.
   std::vector<ArchiveFunction> functions;
+  Dialect dialect = Dialect::C11;
+  // Aggregates as the decompiler sees them (types::decompiler_fields), for
+  // a header decompiled C includes (ExportC, ExportDecompScratch): the
+  // fields it drops left out, unnamed ones named as it names them
+  // (field_<ordinal>), and every byte no field covers a one-byte member
+  // named as its C names such bytes (field_0x10), so `&p->field_0x10` and
+  // `p->field_0x12` compile and lay out where the decompiler meant. Such a
+  // header isn't an archive to import back: the members it adds are its
+  // own. Entries are checked by layout only.
+  bool decompiler_view = false;
+  // Type names the file including the header defines itself (Ghidra's
+  // built-in names: uint, undefined4, code): a typedef of one is never
+  // written, nor Ghidra's undefined types, so nothing is defined twice.
+  std::set<std::string> provided;
 };
 
 struct ArchiveEntry {

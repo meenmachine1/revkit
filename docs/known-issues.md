@@ -5,31 +5,65 @@ happens, where it was seen, what's been ruled out, and any workaround.
 
 ## 32-bit inference and matching decompilation (2026-10-23)
 
-- **Status:** open. Found rerunning the DS matching-decompilation pipeline
-  on master `07f58073`.
-- **What happens:** with prototype inference now on for 32-bit ARM, the
-  decompiled C of a DS game's modules scores *lower* when compiled with
-  the original compiler than with inference off, which is about the same as
-  0.1.3. Two causes:
-  - The Export C types header isn't accepted by an old C compiler as
-    written: `<stdbool.h>` and `_Bool`, `_Static_assert` lines, 64-bit
-    padding bitfields, and re-declared built-in typedefs (`code` as `void`).
-  - Inferred structures (`astruct_N`) and the header disagree on fields,
-    and some `_func_*` function types are absent from the header. In one
-    module 213 functions failed to compile with inference on, against 9
-    with it off. On the functions that compiled both ways, the fuzzy score
-    was a little lower with inference on.
-- **Workaround:** decompile with `--no-infer-prototypes` (rk-lift) or
-  inference off for matching work, or decompile both ways and pick per
-  function.
-- **Wanted:** an Export C header option for old compilers (C89, no
-  `stdbool`/`_Static_assert`, no padding bitfields wider than the target's
-  `int`, no redefinition of built-ins), headers fetched at the same revision
-  as the decompilations, and every type a decompilation names present in the
-  header. Also: the cross-module no-return fix only applies to programs
-  imported with `ImportDsdProject` (it needs the module boundaries); raw
-  imports with their own assertions still see calls into other modules as
-  not returning.
+- **Status:** *fixed* (`api_minor` 112, feature `c-dialect`;
+  [api.md](api.md#queries), [nds.md](nds.md#from-revkit-to-a-scratch)).
+  Found rerunning the DS matching-decompilation pipeline on master
+  `07f58073`: with prototype inference on for 32-bit ARM, the decompiled
+  C of a DS game's modules scored *lower* compiled with the original
+  compiler than with inference off (one module: fuzzy 61.0% → 46.3%; off,
+  60.5%). The causes, as found on the 32-bit ARM fixture
+  (`tests/data/arm32`) compiled back with clang at its own flags:
+  - **The header wasn't C89.** `<stdbool.h>`, `_Static_assert`, `long
+    long` padding bitfields (`unsigned long long : 64`), and Ghidra's
+    `undefined4` defined twice (the built-in `unsigned int` and the
+    archive's `unsigned char[4]` for the inferred structures' unknown
+    fields), with `code` a `void` no call through it compiles. Under
+    `clang -std=c89 -pedantic-errors --target=armv5te-none-eabi`, 0 of the
+    fixture's 52 functions compiled with master's header. Now
+    `dialect: C89` writes what an old compiler takes, and Ghidra's names
+    are defined once in any dialect.
+  - **Names the C used weren't in the header.** An inferred structure's
+    gaps, which the decompiler names by offset (`*(int *)&p->field_0x10`),
+    fields it drops (overlaps), the `_func_*` function types (whose
+    functions' prototypes were then left out, so callers declared them
+    implicitly), and the globals (`DAT_...`, never declared by ExportC).
+    Now the header writes the structures as the decompiler sees them, the
+    function types and the globals, and `per_function` gives the header
+    and every function's C in one call, at one revision. Inference
+    publishes in a revision of its own after the import, and renumbers
+    its structures when it runs again: header and C taken on either side
+    of it disagree (`Program.wait_for_analysis()` first).
+  - **Where both compiled, the layout cost the code.** The header wrote
+    an inferred structure with gaps as `#pragma pack(1)` with explicit
+    offsets, and an ARMv5 compiler loads and stores every field of a
+    packed structure a byte at a time: `h_read` 0.11 fuzzy with inference
+    against 1.00 without. Now gaps are byte members and the layout is
+    natural. Inference's prototype choices (widths, signedness, pointers
+    against ints) changed no compiled function for the worse.
+- **Measured** on the fixture (52 functions of the -O2 image, compiled
+  per function with the header, scored by instruction-sequence
+  similarity to the original): master, lenient C89 (`-w`): inference on
+  41 compile, fuzzy 0.698; off 34, 0.715; on the 33 both compile, on
+  0.701 against off 0.725 (the pipeline's "a little worse"). Now, strict
+  C89: on 52 of 52, fuzzy 0.740, 21 exact; off 42, 0.649, 15 exact; on the
+  42 both compile, on 0.755 against off 0.649, no function worse with
+  inference (the -Os image: 0.763 against 0.659). The off failures are
+  calls whose argument counts the decompiler guessed one way in the
+  caller and another in the callee.
+- **For a matching run:** `prog.set_decompiler_settings(comparison_form=
+  "encoded", compilable_c=True)`, `prog.wait_for_analysis()`, then
+  `prog.export_c(None, header=True, dialect="c89", per_function=True)`;
+  compile each `function_sources[i].source` after `#include` of the
+  header. No "matching mode" for inference: nothing it chose hurt the
+  compiled code once the header was right.
+- **Left:** a function returning its last call's result through `blx`;
+  `pop {pc}` (Thumb interworking: `lerpf` tail-calling soft float) is
+  inferred `void`, so its caller passes nothing on (`to_fixed()`); C++
+  names (`Scene::Update`) are left out of a C89 header as comments; the
+  cross-module no-return fix only applies to programs imported with
+  `ImportDsdProject` (it needs the module boundaries); raw imports with
+  their own assertions still see calls into other modules as not
+  returning.
 
 ## Found by a matching-decompilation run on a Nintendo DS game (2026-10-18)
 

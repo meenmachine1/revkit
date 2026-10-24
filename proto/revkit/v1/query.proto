@@ -1293,6 +1293,37 @@ message ExportCRequest {
   uint32 timeout_ms = 7;
   // As DecompileManyRequest.parallelism.
   uint32 parallelism = 8;
+  // The C the header is written in (api_minor 112, feature "c-dialect"):
+  // C89 for old compilers (CodeWarrior's).
+  CDialect dialect = 9;
+  // Each function's C as its own `function_sources` entry instead of one
+  // source file (api_minor 112): to compile each with the header, which is
+  // of the same revision.
+  bool per_function = 10;
+}
+
+// The C dialect of an exported header (ExportC, ExportDecompScratch;
+// api_minor 112, feature "c-dialect"; docs/api.md "Export C").
+enum CDialect {
+  // C11, as before api_minor 112: <stdbool.h>, _Static_assert size checks.
+  C_DIALECT_UNSPECIFIED = 0;
+  C_DIALECT_C11 = 1;
+  // C89 for old compilers (Metrowerks CodeWarrior): bool a typedef of
+  // unsigned char, no _Static_assert (negative-size arrays check the
+  // sizes), `long long` under __extension__, padding bitfields of the
+  // target's int, enumerators within int, no typedef written twice.
+  C_DIALECT_C89 = 2;
+}
+
+// One function of ExportC's per_function output.
+message ExportedCFunction {
+  Address entry = 1;
+  string name = 2;
+  // Its C (no includes: the header's), or empty with `failure`.
+  string source = 3;
+  // Its prototype as the header declares it ("" where the header can't).
+  string prototype = 4;
+  string failure = 5;
 }
 
 message ExportCResponse {
@@ -1315,6 +1346,9 @@ message ExportCResponse {
   repeated Address failed = 10;
   // Notes on the header (types it can't reproduce: ExportTypeArchive's).
   repeated string notes = 11;
+  // With per_function: the functions, in address order, in messages of at
+  // most about 1 MiB after the header (api_minor 112).
+  repeated ExportedCFunction function_sources = 12;
 }
 
 message FindBytesRequest {
@@ -1996,6 +2030,8 @@ message ExportDecompScratchRequest {
   // is (ImportDsdProject, ImportNdsRom), else the program's name.
   string module = 4;
   uint32 timeout_ms = 5;  // the decompilation's; 0: the daemon's
+  // The C the context is written in (api_minor 112, feature "c-dialect").
+  CDialect dialect = 6;
 }
 
 message ExportDecompScratchResponse {

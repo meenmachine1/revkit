@@ -315,6 +315,19 @@ then names the same origin, so **export → import → export is
 byte-identical**; importing an archive again finds everything identical
 and sends nothing.
 
+**Headers for decompiled C.** Export C and the decomp scratch write their
+types with the same writer in two other modes (`cparse::ArchiveOptions`;
+`api_minor` 112, [api.md](api.md#queries)): *the decompiler's view*
+(`decompiler_view`: a structure's fields as the decompiler was given them,
+`types::decompiler_fields`, the same function `inputs::GhidraTypes`
+encodes them with, and a byte member `field_0x10` for each byte no field
+covers, so the C's names for gaps compile) and *C89* (`Dialect::C89`: no
+`_Bool` or `_Static_assert`, `long long` under `__extension__`, int-sized
+padding bitfields, enumerators in `int`, no anonymous members or flexible
+arrays). Neither is an archive to import back: they write members the
+types don't have. Names the including file defines (Ghidra's built-in
+`uint`, `undefined4`, `code`) are never written (`provided`).
+
 ### The gates
 
 - **Round trip** (`TypeArchiveTest`, backend tests): the corpus's debug

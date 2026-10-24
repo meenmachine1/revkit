@@ -79,8 +79,12 @@ class TokenEmitter : public ghidra::Emit {
   explicit TokenEmitter(const ghidra::Architecture *arch) : arch_(arch) {}
   std::vector<RawLine> lines;
 
+  // Function types the text names (TYPE tokens of TYPE_CODE), in order.
+  std::vector<const ghidra::Datatype *> codes;
+
   void Reset() {
     lines.clear();
+    codes.clear();
     prototype_depth_ = 0;
     declarations_.clear();
     comment_depth_ = 0;
@@ -179,6 +183,8 @@ class TokenEmitter : public ghidra::Emit {
   }
   void tagType(const std::string &name, syntax_highlight, const ghidra::Datatype *ct) override {
     RawToken &t = Add(pb::CODE_TOKEN_KIND_TYPE, name);
+    if (ct != nullptr && ct->getMetatype() == ghidra::TYPE_CODE && std::find(codes.begin(), codes.end(), ct) == codes.end())
+      codes.push_back(ct);
     // A struct or union named (a typedef of one too): its id, which the
     // program's types name back (CodeToken.type_hash; feature "type-uses").
     for (int i = 0; i < 16 && ct != nullptr && ct->getTypedef() != nullptr; ++i) ct = ct->getTypedef();
@@ -386,6 +392,36 @@ std::string TypeName(const ghidra::Datatype *t) {
   }
   if (decl.empty()) return base;
   return decl.front() == '[' ? base + decl : base + " " + decl;
+}
+
+// C typedefs of the function types `ct` names by Ghidra's name
+// (`typedef int _func_int_char_ptr(char *);`), the types its prototype
+// names first; `done` holds the names already defined.
+void FunctionTypeDefs(const ghidra::Datatype *ct, std::set<std::string> &done, pb::DecompiledFunction &f, int depth = 0) {
+  if (ct == nullptr || depth > 16) return;
+  for (int i = 0; i < 64; ++i) {
+    if (ct->getMetatype() == ghidra::TYPE_PTR || ct->getMetatype() == ghidra::TYPE_PTRREL)
+      ct = static_cast<const ghidra::TypePointer *>(ct)->getPtrTo();
+    else if (ct->getMetatype() == ghidra::TYPE_ARRAY)
+      ct = static_cast<const ghidra::TypeArray *>(ct)->getBase();
+    else
+      break;
+  }
+  if (ct->getMetatype() != ghidra::TYPE_CODE || !ct->getName().starts_with("_func_") || !done.insert(ct->getName()).second)
+    return;
+  const ghidra::FuncProto *fp = static_cast<const ghidra::TypeCode *>(ct)->getPrototype();
+  if (fp == nullptr) return;
+  FunctionTypeDefs(fp->getOutputType(), done, f, depth + 1);
+  std::string params;
+  for (int i = 0; i < fp->numParams(); ++i) {
+    const ghidra::Datatype *pt = fp->getParam(i)->getType();
+    FunctionTypeDefs(pt, done, f, depth + 1);
+    params += (i ? ", " : "") + TypeName(pt);
+  }
+  if (fp->isDotdotdot() && fp->numParams() > 0) params += ", ...";
+  else if (fp->numParams() == 0 && !fp->isDotdotdot()) params = "void";
+  const std::string ret = TypeName(fp->getOutputType());
+  f.add_function_types("typedef " + ret + (ret.ends_with('*') ? "" : " ") + ct->getName() + "(" + params + ");");
 }
 
 std::int64_t SignedOffset(const ghidra::Address &a) {
@@ -823,6 +859,8 @@ class TokenSession final : private PrinterSlot, public decompd::LiftSession {
       p->set_varargs(proto.isDotdotdot());
       p->set_no_return(proto.isNoReturn());
       Converter(arch, fd, out_).Run(emitter.lines);
+      std::set<std::string> defined;
+      for (const ghidra::Datatype *ct : emitter.codes) FunctionTypeDefs(ct, defined, f);
       emitter.Reset();
       std::string decl;
       for (const auto &ref : out_.prototype) decl += f.lines(ref.line).tokens(ref.token).text();

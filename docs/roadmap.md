@@ -280,7 +280,9 @@ Picked up again after v0.1.1, three at a time:
   `SetDataSettings` per item, field or type, `api_minor` 84, feature
   `data-settings`; [listing-edit.md](listing-edit.md#data-settings)), ~~export C~~
   (*done*: `ExportC`, `api_minor` 80, feature `export-c`;
-  [ui.md](ui.md#export-c)), ~~register values over ranges~~ (*done*: MIPS
+  [ui.md](ui.md#export-c); a header the C compiles with, C89 for old
+  compilers and per-function output, `api_minor` 112, feature
+  `c-dialect`; the UI dialog's dialect choice is left), ~~register values over ranges~~ (*done*: MIPS
   `gp`, the PowerPC TOC and the user's values, `api_minor` 87, feature
   `register-values`; [api.md](api.md#register-values)).
 - **Library follow-ups**: ~~search a container or root file system for

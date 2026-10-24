@@ -424,7 +424,7 @@ struct Inputs {
 
 struct Decompile {
   static constexpr std::string_view name = "decompile.ghidra";
-  static constexpr std::uint32_t version = 17;  // 4: decompiled in a worker from a bundle; failures are values; 5: labels of
+  static constexpr std::uint32_t version = 18;  // 4: decompiled in a worker from a bundle; failures are values; 5: labels of
                                                // the function's own jump targets outside every body; 6: patched bytes
                                                // through patch.page; 7: inferred prototypes through infer.published;
                                                // 8: pointer accesses (auto-struct); 9: variable types committed
@@ -436,7 +436,8 @@ struct Decompile {
                                                // through loaded values by path key ("param:0->0x20"); 16: the
                                                // data-flow graph and tokens' ops (slices); 17: the
                                                // source-shape options (bundle version 6), targets of
-                                               // volatile and string tokens, bitfields
+                                               // volatile and string tokens, bitfields; 18: the function
+                                               // types the text names (function_types)
   using Key = AddressKey;
   using Value = DecompileOutput;
   static Value compute(facts::QueryContext &ctx, const Key &key);

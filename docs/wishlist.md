@@ -154,6 +154,7 @@ Decompiler:
 - offset pointers;
 - splitting and merging variables;
 - ~~exporting C for a function or the program~~ (Export C/C++…, api_minor 80, feature `export-c`).
+- Export C/C++…'s dialog: a C89 choice (`ExportCRequest.dialect`, api_minor 112), which the SDK and MCP have.
 
 Graphs:
 - hover previews and colours shared with the listing;

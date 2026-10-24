@@ -198,18 +198,23 @@ original compiler, objdiff or decomp.me); revkit doesn't run them.
      ending a block, casts on pointer/integer conversions). It reads a little
      worse; use it for drafts you will compile.
 3. **Know what inference does to matching.** revkit infers prototypes and
-   structures on 32-bit code. The C reads better, but where an inferred type
-   is wrong (`uint` for `int`, a pointer for an integer) the compiler emits
-   different instructions, and inferred structures need every field in the
-   header to compile. When a function's draft compiles but doesn't match,
-   check its parameter and local types first; signedness and widths change
-   instruction selection (`ldrsh` vs `ldrh`, signed vs unsigned compares and
-   shifts). docs/known-issues.md says what is still open, and the daemon's
-   `--infer-prototypes off` gives Ghidra-style types if a project needs them.
+   structures on 32-bit code, in the background after the import, in a
+   revision of its own: wait for it (`analysis_status` idle) before taking
+   drafts, and take a header and the drafts from the same revision. The
+   header has the inferred structures as the decompiler saw them (a byte
+   `field_0x10` for each gap), the `_func_*` types and the globals, so the
+   drafts compile with it; `export_c` with `dialect "c89"` writes it for
+   CodeWarrior (no stdbool, no `_Static_assert`). Where an inferred type
+   is wrong (`uint` for `int`, a pointer for an integer) the compiler may
+   still emit different instructions: when a draft compiles but doesn't
+   match, check its parameter and local types first; signedness and widths
+   change instruction selection (`ldrsh` vs `ldrh`, signed vs unsigned
+   compares and shifts). docs/known-issues.md says what is still open.
 4. **Draft one function at a time.** `decomp_scratch` gives a function's C
    with every declaration it needs (types, callees' prototypes, globals),
    split into `context` and `source` for decomp.me, under a
-   `// PROBE: <mangled> <module> <address>` line. Change the draft until the
+   `// PROBE: <mangled> <module> <address>` line (`dialect "c89"` for
+   CodeWarrior). Change the draft until the
    compiler's output matches, then put it in the project's source tree.
 5. **Reuse finished decompilations.** `build_decomp_kb` ingests a matched
    decomp: its module programs, source tree, and the compiler and flags per

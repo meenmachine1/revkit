@@ -24,6 +24,7 @@
 #include "define_type.h"
 #include "parse_c.h"
 #include "type_archive.h"
+#include "export_c.h"
 
 #include "revkit/cparse/archive.h"
 #include "revkit/runtime/runtime.h"
@@ -144,56 +145,8 @@ using facts::FactValue;
 using facts::Seq;
 using google::protobuf::util::TimeUtil;
 
-constexpr std::uint32_t kApiMinor = 106;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language"); 74: SetProgramLanguageRequest.progress_id, followed with GetImportProgress (feature "language-progress"); 76: BSimService.ApplyBSimMatches, PortedFrom.bsim_database and bsim_executable (feature "bsim-apply"); 77: QueryService.ListComments (feature "comment-table"); 78: QueryService.ListRelocations (feature "relocation-table"); 79: libraries from the program's own root file system (ImportOptions.library_root, ImportProgramResponse.library_root, ImportFromFileSystem with import_libraries: FileSystemImport.library_of, libraries_not_found, library_warnings; feature "library-roots"); 80: QueryService.ExportC (feature "export-c"); 81: QueryService.ListLibraryImporters (references back from a library; feature "library-importers"); 82: QueryService.ListSymbolTree (feature "symbol-tree"); 83: QueryService.PlanClearFlow (feature "clear-flow"); 84: SetDataSettings assertions, ListingRow.data_settings (feature "data-settings"); 85: SetFallthrough assertions (FACT_KIND_FALLTHROUGH, ListingRow and InstructionDetail fallthrough_override, XREF_KIND_FALLTHROUGH; feature "fallthrough-override"); 86: ProjectService.LoadDebugFile, SymbolSettings debug_dirs and debuginfod, ProgramSummary build_id, debuglink, debug_file (feature "debug-files"); 87: SetRegisterValue assertions (FACT_KIND_REGISTER_VALUE), QueryService.ListRegisterValues, ListingRow.register_values, analysis's MIPS gp and PowerPC TOC (feature "register-values"); 88: QueryService.GetBuildInfo (feature "build-info"); 89: QueryService.TraceValue (feature "value-trace"); 90: Mach-O (format "macho": ImportOptions.macho_slice, ImportProgramRequest.program_file, ProgramInfo.macho_slice and macho_slices, ProgramSummary.macho; feature "macho"); 91: Objective-C and Swift metadata at import (analysis:objc, analysis:swift, import:objc assertions), QueryService.ListObjcClasses (feature "objc"); 92: ProviderService (external decompilers: ListProviders, DecompileExternal, ReadProviderOutput, GetProviderSettings, SetProviderSettings; feature "external-decompilers"); 93: Go function names, files and lines from the pclntab at import (analysis:go assertions), the golang compiler spec for Go programs, GetBuildInfoResponse.go_pclntab (feature "go-pclntab"); 94: .NET assemblies recognised by their CLR header, IL-only ones imported without code analysis (ProgramInfo.dotnet; feature "dotnet"); 95: bytecode and script formats named in file system listings (FileSystemEntry.content_kind, detected_kind "bytecode"; feature "content-kinds"); 96: packed executables and Lua in firmware as file systems (formats asar, pyinstaller, pyz, node-sea, pkg, nexe, bun, lua-chunks, an appended zip; FileSystemEntry.container_format on programs that carry one, ProgramInfo.payload_format; feature "packed-executables"); 97: result evidence (FactOrigin.tier, SourceTier, Unknown, DecompiledFunction.unknowns, Function.unknowns from GetFunction; feature "result-evidence"); 98: Android packages (FileSystemService.GetAndroidPackage, DecodeAndroidXml, ListAndroidResources; feature "android"); 99: EVM bytecode with revkit's own SLEIGH processor (format "evm", raw_format "hexbytes", ProgramSummary.evm, analysis:evm functions, labels and jump references; feature "evm"); 100: Apple bundles, property lists and code signatures (FileSystemService.GetAppleBundle, ReadPropertyList, FileSystemEntry.bundle_kind, MachoSummary.code_signature, Apple content kinds; feature "apple-bundles"); 101: Interface Builder nibs and storyboards and their UI actions resolved to Objective-C methods (FileSystemService.ListUiActions, ReadPropertyListRequest.resolve_keyed_archive; feature "ui-actions"); 102: crash dumps (DebugCrashTarget, DebugService.GetDebugCrash, ProgramInfo.crash_dump; feature "crash-dumps"); 103: Nintendo DS games (ProjectService.ImportDsdProject, ImportNdsRom, ExportDsdSymbols; loader::RawOptions.symbols; module links across programs; feature "nds"); 104: what a DS matching run needed (AppendAssertionsRequest.skip_invalid, AppendAssertionsResponse.refused: feature "assertion-refusals"; SetFunctionBounds.instruction_set: "bounds-isa"; ImportOptions.memory_preset and the DS imports' volatile I/O: "memory-preset"; NameConflict on the imports: "import-conflict"; ProjectService.CompactProject: "compact"); 105: the decomp knowledge base (ProjectService.BuildDecompKb, ApplyDecompKb, DecompKbFunction, DecompKbCall, DecompKbMatch, DecompKbExport, the revkit:dsd.symbol note; ImportNdsRom asserts functions at other modules' call targets; feature "decomp-kb"); 106: SetDecompilerSettings assertions (DecompilerSettings, ComparisonForm), the source-shape options by default, CodeToken.target on volatile registers and string literals, bitfields printed as fields (feature "decompiler-settings")
+constexpr std::uint32_t kApiMinor = 112;  // 12: EmulatorService; 13: AuthService (transport); 14: DebugService; 15: ListLanguages; 16: DiffService; 17: diff detail; 19: program management, function list filters, type tree; 20: firmware emulation; 22: import progress; 23: raw layout detection; 24: memory map; 25: TypeService.ParseC; 26: address spaces; 27: PatchService; 28: background inference jobs; 29: script batch reads (DecompileMany, FindBytes, ListInstructions), PROVENANCE_KIND_SCRIPT, Provenance.on_behalf_of; 30: listing edits (ListingEdit, SetMutability); 31: ScriptService (feature "scripts-host", added by the transport); 32: TypeService.AutoStructure (feature "auto-struct"); 33: ScriptService.SetupScriptPython (feature "scripts-setup", added by the transport); 34: ListingToken scalar values and widths (feature "token-scalars"); 35: type archives and categories (TypeService.ExportTypeArchive, ParseCRequest.archive_sidecar, SetTypeCategory, FindTypes categories; feature "type-archive"); 36: GetServerInfo uptime, launch args and socket activation (feature "daemon-info", added by the transport); 37: folders and project archives (features "project-folders", "project-archive"); 38: CodeToken.parent_type_hash and field_offset (feature "field-tokens"); 39: OperandDisplay and UserReference assertions, FindTypes.enum_value (features "equates", "user-references"); 40: demangled names (feature "demangle"); 41: SearchMemory, SearchText, SearchScalars, SearchDecompiled (feature "search"); 42: SetImageBase (feature "rebase"); 43: the Python console (RunScriptRequest.interactive, CompleteConsole, CancelScriptRequest.interrupt; features "script-console", "script-completion", added by the transport); 44: GetByteView, GetOverview, FindNext (features "byte-viewer", "overview", "find-next"); 45: MSVC RTTI classes and vftables, QueryService.GetClassHierarchy (feature "msvc-rtti"); 46: PE structures, exception data, TLS and Control Flow Guard markup at import (analysis:pe assertions; feature "pe-analysis"); 47: hover cards from the existing reads (feature "hover", the UI's); 48: FileSystemService, ProgramInfo.container_path (feature "filesystems"); 49: ProjectService.LoadPdb, GetSymbolSettings, SetSymbolSettings (feature "pdb-load"); 50: library prototypes from revkit's type archives (prototype_origin "library:<archive>", TypeArchiveEntry.noreturn) and call-site prototypes from printf/scanf formats (feature "library-types"); 51: Function ID (AnalysisService ListFidDatabases, AttachFidDatabase, DetachFidDatabase, ListFidMatches, ApplyFidMatch, RejectFidMatch, CreateFidDatabase; the function-id analyzer; feature "function-id"); 52: project-wide types (AppendAssertionsRequest.project_scope, TypeService.CopyTypes, ListTypeArchives, AssertionBody.type_archive, TYPE_SOURCE_PROJECT, FactKey.project; feature "project-types"); 53: QueryService.FindTypeUses, CodeToken.type_hash for structs (feature "type-uses"), CallSignatureOverride assertions (FACT_KIND_CALL_SIGNATURE, CodeToken.call_signature, ListingRow.call_signature; feature "call-signature-override"); 54: comparing any two functions (DiffService.CompareFunctions, PortFunctionMarkup, Unmatch; the ops of each decision; instruction comments ported by aligned instruction; feature "function-compare"; 55: MetaService.RestartDaemon (feature "daemon-restart", added by the transport); 56: AutoStructureRequest.edits and field targets, AutoStructureResponse.field_errors and the outer structure (feature "auto-struct-edit"); 57: QueryService.SliceDecompiled, DecompileOptions.include_dataflow, DecompiledFunction.dataflow, CodeToken.op_index (feature "decompile-slices"); 58: QueryService.ListCallingConventions (feature "calling-conventions"); 59: DebugService.GetDebugBacktrace (feature "debugger-stack"); 60: DebugService.EvaluateDebug (feature "debugger-values"); 61: DebugEvalItem.frame_function (feature "debugger-watches"); 62: DebugService.DisassembleDebugMemory (feature "debugger-disassembly"); 63: DebugService.CopyDebugMemory (feature "debugger-copy"); 64: conditional breakpoints (DebugBreakpointSpec.condition, ignore_count, disabled, SetDebugBreakpointsRequest.update; feature "debugger-conditions"); 65: DebugService.RewindDebugSession, DebugState.rewindable (feature "debugger-rewind"); 66: SetNoReturn assertions (FACT_KIND_NO_RETURN, feature "no-return"); 67: DebugEmulatorTarget.from_session, from_snapshot (feature "debugger-emulate-from"); 68: DebugService.SetDebugHooks, AnswerDebugHook, DebugStop.hook (feature "debugger-hooks"); 69: BSimService (BSim signature databases: create, attach, ingest, list, update, delete; feature "bsim"); 70: shared libraries (ProjectService.ListProgramLibraries, LinkProgramLibrary, ResolveImport, ImportOptions.import_libraries, ImportProgramRequest.folder_id; DebugLocation.library_*, DebugModule.program_id; feature "program-libraries"); 71: FunctionMarkupKind GLOBAL_NAME, GLOBAL_TYPE, CALLEE_NAME, CALLEE_SIGNATURE, PortFunctionMarkupResponse.globals, callees (feature "port-globals-callees"); 72: BSimService.SearchBSim (similar functions, overview; feature "bsim-search"); 73: ProjectService.SetProgramLanguage, CompareLanguages, FACT_KIND_LANGUAGE (feature "set-language"); 74: SetProgramLanguageRequest.progress_id, followed with GetImportProgress (feature "language-progress"); 76: BSimService.ApplyBSimMatches, PortedFrom.bsim_database and bsim_executable (feature "bsim-apply"); 77: QueryService.ListComments (feature "comment-table"); 78: QueryService.ListRelocations (feature "relocation-table"); 79: libraries from the program's own root file system (ImportOptions.library_root, ImportProgramResponse.library_root, ImportFromFileSystem with import_libraries: FileSystemImport.library_of, libraries_not_found, library_warnings; feature "library-roots"); 80: QueryService.ExportC (feature "export-c"); 81: QueryService.ListLibraryImporters (references back from a library; feature "library-importers"); 82: QueryService.ListSymbolTree (feature "symbol-tree"); 83: QueryService.PlanClearFlow (feature "clear-flow"); 84: SetDataSettings assertions, ListingRow.data_settings (feature "data-settings"); 85: SetFallthrough assertions (FACT_KIND_FALLTHROUGH, ListingRow and InstructionDetail fallthrough_override, XREF_KIND_FALLTHROUGH; feature "fallthrough-override"); 86: ProjectService.LoadDebugFile, SymbolSettings debug_dirs and debuginfod, ProgramSummary build_id, debuglink, debug_file (feature "debug-files"); 87: SetRegisterValue assertions (FACT_KIND_REGISTER_VALUE), QueryService.ListRegisterValues, ListingRow.register_values, analysis's MIPS gp and PowerPC TOC (feature "register-values"); 88: QueryService.GetBuildInfo (feature "build-info"); 89: QueryService.TraceValue (feature "value-trace"); 90: Mach-O (format "macho": ImportOptions.macho_slice, ImportProgramRequest.program_file, ProgramInfo.macho_slice and macho_slices, ProgramSummary.macho; feature "macho"); 91: Objective-C and Swift metadata at import (analysis:objc, analysis:swift, import:objc assertions), QueryService.ListObjcClasses (feature "objc"); 92: ProviderService (external decompilers: ListProviders, DecompileExternal, ReadProviderOutput, GetProviderSettings, SetProviderSettings; feature "external-decompilers"); 93: Go function names, files and lines from the pclntab at import (analysis:go assertions), the golang compiler spec for Go programs, GetBuildInfoResponse.go_pclntab (feature "go-pclntab"); 94: .NET assemblies recognised by their CLR header, IL-only ones imported without code analysis (ProgramInfo.dotnet; feature "dotnet"); 95: bytecode and script formats named in file system listings (FileSystemEntry.content_kind, detected_kind "bytecode"; feature "content-kinds"); 96: packed executables and Lua in firmware as file systems (formats asar, pyinstaller, pyz, node-sea, pkg, nexe, bun, lua-chunks, an appended zip; FileSystemEntry.container_format on programs that carry one, ProgramInfo.payload_format; feature "packed-executables"); 97: result evidence (FactOrigin.tier, SourceTier, Unknown, DecompiledFunction.unknowns, Function.unknowns from GetFunction; feature "result-evidence"); 98: Android packages (FileSystemService.GetAndroidPackage, DecodeAndroidXml, ListAndroidResources; feature "android"); 99: EVM bytecode with revkit's own SLEIGH processor (format "evm", raw_format "hexbytes", ProgramSummary.evm, analysis:evm functions, labels and jump references; feature "evm"); 100: Apple bundles, property lists and code signatures (FileSystemService.GetAppleBundle, ReadPropertyList, FileSystemEntry.bundle_kind, MachoSummary.code_signature, Apple content kinds; feature "apple-bundles"); 101: Interface Builder nibs and storyboards and their UI actions resolved to Objective-C methods (FileSystemService.ListUiActions, ReadPropertyListRequest.resolve_keyed_archive; feature "ui-actions"); 102: crash dumps (DebugCrashTarget, DebugService.GetDebugCrash, ProgramInfo.crash_dump; feature "crash-dumps"); 103: Nintendo DS games (ProjectService.ImportDsdProject, ImportNdsRom, ExportDsdSymbols; loader::RawOptions.symbols; module links across programs; feature "nds"); 104: what a DS matching run needed (AppendAssertionsRequest.skip_invalid, AppendAssertionsResponse.refused: feature "assertion-refusals"; SetFunctionBounds.instruction_set: "bounds-isa"; ImportOptions.memory_preset and the DS imports' volatile I/O: "memory-preset"; NameConflict on the imports: "import-conflict"; ProjectService.CompactProject: "compact"); 105: the decomp knowledge base (ProjectService.BuildDecompKb, ApplyDecompKb, DecompKbFunction, DecompKbCall, DecompKbMatch, DecompKbExport, the revkit:dsd.symbol note; ImportNdsRom asserts functions at other modules' call targets; feature "decomp-kb"); 106: SetDecompilerSettings assertions (DecompilerSettings, ComparisonForm), the source-shape options by default, CodeToken.target on volatile registers and string literals, bitfields printed as fields (feature "decompiler-settings"); 112 (landed before 107-111, which are reserved for branches not yet landed): Export C's header for decompiled C (ExportCRequest.dialect and per_function, ExportCResponse.function_sources, ExportDecompScratchRequest.dialect, CDialect, DecompiledFunction.function_types; the header's types as the decompiler sees them; feature "c-dialect")
 
-// The type names Ghidra's decompiler prints that C lacks, for ExportC's
-// files (Ghidra's C exporter writes the same).
-constexpr std::string_view kGhidraBuiltinTypedefs = R"(/* Ghidra's built-in type names, as the decompiler prints them. */
-#if !defined(__cplusplus) && (!defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L)
-#include <stdbool.h>
-#endif
-typedef unsigned char undefined;
-typedef unsigned char undefined1;
-typedef unsigned short undefined2;
-typedef unsigned int undefined4;
-typedef unsigned long long undefined8;
-typedef unsigned char byte;
-typedef signed char sbyte;
-typedef unsigned short word;
-typedef unsigned int dword;
-typedef unsigned long long qword;
-typedef unsigned char uchar;
-typedef unsigned short ushort;
-typedef unsigned int uint;
-typedef unsigned long ulong;
-typedef long long longlong;
-typedef unsigned long long ulonglong;
-typedef unsigned short wchar16;
-typedef unsigned int wchar32;
-typedef float float4;
-typedef double float8;
-typedef void code;
-typedef void _func_void(void);
-/* Ghidra's calling-convention names, where the compiler has none. */
-#ifndef _MSC_VER
-#ifndef __stdcall
-#define __stdcall
-#endif
-#ifndef __cdecl
-#define __cdecl
-#endif
-#ifndef __fastcall
-#define __fastcall
-#endif
-#ifndef __thiscall
-#define __thiscall
-#endif
-#ifndef __vectorcall
-#define __vectorcall
-#endif
-#endif
-#define processEntry
-)";
 
 // Fact-store address spaces: project records, then two per program (its
 // addresses in fact keys, and its file's bytes).
@@ -2960,6 +2913,7 @@ class ImageBackend final : public api::Backend {
       resp.add_features(f);
     resp.add_features("decomp-kb");
     resp.add_features("decompiler-settings");
+    resp.add_features("c-dialect");
     if (core_->options.plugins) resp.add_features("plugins");
     if (core_->options.plugins) resp.add_features("plugin-facts-invalidation");
     if (core_->options.plugins && plugins::Host::available()) resp.add_features("peripheral-plugins");
@@ -8593,6 +8547,8 @@ class ImageBackend final : public api::Backend {
     struct Result {
       std::uint64_t entry = 0;
       std::string name, text, why;
+      std::vector<std::string> function_types;
+      std::vector<std::pair<std::string, std::string>> globals;  // name, declaration
     };
     std::vector<Result> results;
     std::uint32_t total = 0;
@@ -8611,6 +8567,10 @@ class ImageBackend final : public api::Backend {
       if (m.has_function()) {
         res.name = m.function().name();
         res.text = m.function().text();
+        res.function_types.assign(m.function().function_types().begin(), m.function().function_types().end());
+        for (const pb::Variable &var : m.function().variables())
+          if (var.kind() == pb::VARIABLE_KIND_GLOBAL && !var.name().empty())
+            res.globals.emplace_back(var.name(), GlobalDeclaration(var));
       } else if (m.has_failure()) {
         res.why = m.failure().detail().empty() ? std::string("the decompiler failed") : m.failure().detail();
       } else {
@@ -8637,20 +8597,41 @@ class ImageBackend final : public api::Backend {
     View v(r);
     for (Result &res : results)
       if (res.name.empty()) res.name = v.Symbol(res.entry);
-    // The prototype of a decompiled function: its C up to the body.
+    // The prototype of a decompiled function: its C up to the body, but
+    // comments (a plate comment's lines too), its last lines.
     auto prototype = [](const std::string &text) -> std::string {
       const std::size_t brace = text.find("\n{");
       if (brace == std::string::npos) return {};
-      std::string head = text.substr(0, brace);
+      const std::string head = text.substr(0, brace);
+      std::string code;
+      for (std::size_t i = 0; i < head.size();) {
+        if (head.compare(i, 2, "/*") == 0) {
+          const std::size_t e = head.find("*/", i + 2);
+          if (e == std::string::npos) break;
+          i = e + 2;
+        } else if (head.compare(i, 2, "//") == 0) {
+          const std::size_t e = head.find('\n', i);
+          i = e == std::string::npos ? head.size() : e;
+        } else {
+          code += head[i++];
+        }
+      }
       std::string out;
+      bool blank = false;
       std::size_t at = 0;
-      while (at <= head.size()) {  // the last lines that aren't comments
-        std::size_t nl = head.find('\n', at);
-        if (nl == std::string::npos) nl = head.size();
-        std::string line = head.substr(at, nl - at);
+      while (at <= code.size()) {  // the last lines with code, joined
+        std::size_t nl = code.find('\n', at);
+        if (nl == std::string::npos) nl = code.size();
+        std::string line = code.substr(at, nl - at);
         while (!line.empty() && (line.back() == ' ' || line.back() == '\r')) line.pop_back();
-        if (line.rfind("/*", 0) == 0 || line.rfind("//", 0) == 0) out.clear();
-        else if (!line.empty()) out += (out.empty() ? "" : " ") + line;
+        while (!line.empty() && line.front() == ' ') line.erase(line.begin());
+        if (line.empty()) {
+          blank = true;
+        } else {
+          if (blank) out.clear();  // a new group of lines
+          blank = false;
+          out += (out.empty() ? "" : " ") + line;
+        }
         at = nl + 1;
       }
       return out.empty() ? out : out + ";";
@@ -8663,6 +8644,10 @@ class ImageBackend final : public api::Backend {
     const std::string program_name = StateOf(*r.project, *r.program, r.log_size).name;
     std::string banner = "/* " + program_name + ": decompiled by revkit at revision " + std::to_string(snap.revision()) + " */\n";
     std::string source = banner;
+    const cparse::Dialect dialect = DialectOf(req.dialect());
+    const std::string builtins = GhidraBuiltinTypedefs(ProgramProfile(v.program()), dialect);
+    // Each function's prototype as the header declares it ("" where it can't).
+    std::vector<std::string> declared_as(results.size());
     if (req.header()) {
       head.set_header_name(name + ".h");
       pb::ExportTypeArchiveRequest tr;
@@ -8671,75 +8656,126 @@ class ImageBackend final : public api::Backend {
       tr.set_name(name);
       tr.mutable_read()->set_revision(snap.revision());
       pb::ExportTypeArchiveResponse types;
+      // The types as the decompiler saw them, without Ghidra's built-in
+      // names (defined above them, once).
+      HeaderOptions ho;
+      ho.dialect = dialect;
+      ho.decompiler_view = true;
+      ho.provided = GhidraBuiltinNames();
       // A program with no named types (stripped, no debug info) has none
       // to write; the rest of the header still is.
-      if (auto ts = ExportTypeArchive(ctx, tr, types); !ts.ok() && ts.code != StatusCode::kFailedPrecondition) return ts;
+      if (auto ts = ExportTypes(ctx, tr, types, &ho); !ts.ok() && ts.code != StatusCode::kFailedPrecondition) return ts;
       std::string guard = "REVKIT_" + name + "_H";
       for (char &c : guard) c = std::isalnum(static_cast<unsigned char>(c)) ? static_cast<char>(std::toupper(static_cast<unsigned char>(c))) : '_';
-      std::string h = banner + "#ifndef " + guard + "\n#define " + guard + "\n\n" + std::string(kGhidraBuiltinTypedefs) + "\n" + types.header();
+      std::string h = banner + "#ifndef " + guard + "\n#define " + guard + "\n\n" + builtins + "\n" + types.header();
       // The decompiler names a struct, union or enum by its tag alone, as
       // Ghidra's exporter does with a typedef of each.
-      std::set<std::string> typedefs;
-      for (const pb::TypeArchiveEntry &t : types.archive().types())
-        if (t.key().rfind("typedef ", 0) == 0) typedefs.insert(t.key().substr(8));
-      std::string tags;
-      for (const pb::TypeArchiveEntry &t : types.archive().types())
-        for (std::string_view kind : {"struct ", "union ", "enum "})
-          if (t.key().rfind(kind, 0) == 0 && !typedefs.contains(t.key().substr(kind.size())) &&
-              typedefs.insert(t.key().substr(kind.size())).second)
-            tags += "typedef " + t.key() + " " + t.key().substr(kind.size()) + ";\n";
+      std::set<std::string> typedefs = GhidraBuiltinNames();
+      const std::string tags = TagTypedefs(types.archive(), typedefs);
       if (!tags.empty()) h += "\n/* The tags as type names */\n" + tags;
+      // The function types the C names by Ghidra's names (_func_int_char_ptr).
+      std::string fn_types;
+      for (const Result &res : results)
+        for (const std::string &t : res.function_types) {
+          const std::string n = FunctionTypeName(t);
+          if (!n.empty() && typedefs.insert(n).second) fn_types += t + "\n";
+        }
+      if (!fn_types.empty()) h += "\n/* Function types */\n" + fn_types;
       h += "\n/* Functions */\n";
       std::set<std::string> declared;
-      for (const Result &res : results) {
+      for (std::size_t i = 0; i < results.size(); ++i) {
+        const Result &res = results[i];
         const std::string p = prototype(res.text);
         if (p.empty()) continue;
-        // Ghidra names a function pointer type after its signature
-        // (_func_int_char_ptr): only _func_void is defined above.
-        bool unnamed = false;
-        for (std::size_t at = p.find("_func_"); at != std::string::npos; at = p.find("_func_", at + 1))
-          if (p.compare(at, 10, "_func_void") != 0 || (at + 10 < p.size() && (std::isalnum(static_cast<unsigned char>(p[at + 10])) || p[at + 10] == '_')))
-            unnamed = true;
-        if (unnamed || !declared.insert(res.name).second)
-          h += "/* " + p + (unnamed ? " (a function pointer type C has no name for) */\n" : " (another function of that name) */\n");
-        else
+        // A function type the header has no name for.
+        const bool unnamed = !FunctionTypesNamed(p, typedefs);
+        // C89's header is for a C compiler: a C++ name isn't declared.
+        const bool c_name =
+            dialect != cparse::Dialect::C89 || (CIdentifier(res.name) && p.find("::") == std::string::npos);
+        if (unnamed || !c_name || !declared.insert(res.name).second) {
+          h += "/* " + p +
+               (unnamed   ? " (a function pointer type C has no name for) */\n"
+                : !c_name ? " (not a name C can declare) */\n"
+                          : " (another function of that name) */\n");
+        } else {
           h += p + "\n";
+          declared_as[i] = p;
+        }
+      }
+      // The globals the C reads and writes (not the functions it names).
+      std::map<std::string, std::string> globals;
+      for (const Result &res : results)
+        for (const auto &[n, decl] : res.globals)
+          if (!declared.contains(n) && !typedefs.contains(n)) globals.emplace(n, decl);
+      if (!globals.empty()) {
+        h += "\n/* Globals */\n";
+        for (const auto &[n, decl] : globals) h += decl + "\n";
       }
       h += "\n#endif /* " + guard + " */\n";
       head.set_header(std::move(h));
       for (const std::string &n : types.notes()) head.add_notes(n);
       source += "#include \"" + name + ".h\"\n";
     } else {
-      source += "\n" + std::string(kGhidraBuiltinTypedefs);
+      source += "\n" + builtins;
     }
     if (!write(head)) return Error(StatusCode::kCancelled, "the client went away");
     constexpr std::size_t kPart = 1u << 20;
     std::uint32_t failed = 0;
     pb::ExportCResponse last;
     *last.mutable_snapshot() = snap;
-    auto flush = [&](bool force) {
-      if (source.size() < kPart && !force) return true;
+    if (req.per_function()) {
+      // Each function on its own, in messages of about kPart.
       pb::ExportCResponse part;
-      *part.mutable_snapshot() = snap;
-      part.set_source_part(std::move(source));
-      source.clear();
-      return write(part);
-    };
-    for (const Result &res : results) {
-      source += "\n\n/* " + res.name + " @ 0x" + Hex(res.entry) + " */\n";
-      if (!res.why.empty()) {
-        ++failed;
-        *last.add_failed() = A(res.entry);
-        std::string why = res.why;
-        for (std::size_t p = why.find("*/"); p != std::string::npos; p = why.find("*/", p)) why.replace(p, 2, "* /");
-        source += "/* not decompiled: " + why + " */\n";
-      } else {
-        source += res.text;
-        if (!res.text.empty() && res.text.back() != '\n') source += '\n';
+      std::size_t bytes = 0;
+      auto send = [&] {
+        *part.mutable_snapshot() = snap;
+        const bool ok = write(part);
+        part = pb::ExportCResponse();
+        bytes = 0;
+        return ok;
+      };
+      for (std::size_t i = 0; i < results.size(); ++i) {
+        const Result &res = results[i];
+        pb::ExportedCFunction &f = *part.add_function_sources();
+        *f.mutable_entry() = A(res.entry);
+        f.set_name(res.name);
+        if (!res.why.empty()) {
+          ++failed;
+          *last.add_failed() = A(res.entry);
+          f.set_failure(res.why);
+        } else {
+          f.set_source(res.text);
+          f.set_prototype(declared_as[i]);
+        }
+        bytes += res.text.size() + res.name.size() + declared_as[i].size() + 32;
+        if (bytes >= kPart && !send()) return Error(StatusCode::kCancelled, "the client went away");
       }
-      if (!flush(false)) return Error(StatusCode::kCancelled, "the client went away");
+      if (part.function_sources_size() && !send()) return Error(StatusCode::kCancelled, "the client went away");
+    } else {
+      auto flush = [&](bool force) {
+        if (source.size() < kPart && !force) return true;
+        pb::ExportCResponse part;
+        *part.mutable_snapshot() = snap;
+        part.set_source_part(std::move(source));
+        source.clear();
+        return write(part);
+      };
+      for (const Result &res : results) {
+        source += "\n\n/* " + res.name + " @ 0x" + Hex(res.entry) + " */\n";
+        if (!res.why.empty()) {
+          ++failed;
+          *last.add_failed() = A(res.entry);
+          std::string why = res.why;
+          for (std::size_t p = why.find("*/"); p != std::string::npos; p = why.find("*/", p)) why.replace(p, 2, "* /");
+          source += "/* not decompiled: " + why + " */\n";
+        } else {
+          source += res.text;
+          if (!res.text.empty() && res.text.back() != '\n') source += '\n';
+        }
+        if (!flush(false)) return Error(StatusCode::kCancelled, "the client went away");
+      }
+      if (!source.empty() && !flush(true)) return Error(StatusCode::kCancelled, "the client went away");
     }
-    if (!source.empty() && !flush(true)) return Error(StatusCode::kCancelled, "the client went away");
     last.set_done(static_cast<std::uint32_t>(results.size()));
     last.set_total(total);
     last.set_finished(true);
@@ -10730,6 +10766,12 @@ class ImageBackend final : public api::Backend {
   // their bindings' provenance, and asserts nothing (type_archive.h).
   Status ExportTypeArchive(const CallContext &ctx, const pb::ExportTypeArchiveRequest &req,
                            pb::ExportTypeArchiveResponse &resp) override {
+    return ExportTypes(ctx, req, resp, nullptr);
+  }
+
+  // ExportTypeArchive, or with `header` a header for decompiled C.
+  Status ExportTypes(const CallContext &ctx, const pb::ExportTypeArchiveRequest &req, pb::ExportTypeArchiveResponse &resp,
+                     const HeaderOptions *header) {
     Read r;
     if (auto st = ResolveProgram(ctx, req.program_id(), req.read(), {}, r); !st.ok()) return st;
     View v(r);
@@ -10750,7 +10792,7 @@ class ImageBackend final : public api::Backend {
                              return MetaOf(*w).provenance();
                            return std::nullopt;
                          }};
-    return backend::ExportTypeArchive(c, req, resp);
+    return backend::ExportTypeArchive(c, req, resp, header);
   }
 
   // TypeService.AutoStructure (api_minor 32): reads decompilations (the
@@ -12221,20 +12263,7 @@ class ImageBackend final : public api::Backend {
     for (const pb::Variable &var : df.variables()) {
       if (!var.type().hash().empty()) hashes.insert(var.type().hash());
       if (var.kind() == pb::VARIABLE_KIND_GLOBAL && !var.name().empty()) {
-        std::string ty = var.type().display().empty() ? std::string("undefined") : var.type().display();
-        // "undefined1 [16]": the array's bounds go after the name.
-        std::string bounds;
-        if (const std::size_t br = ty.find('['); br != std::string::npos) {
-          bounds = ty.substr(br);
-          ty = ty.substr(0, br);
-          while (!ty.empty() && ty.back() == ' ') ty.pop_back();
-        }
-        std::string decl = "extern " + ty + (ty.ends_with('*') ? "" : " ") + var.name() + bounds + ";";
-        if (var.has_address()) {
-          char b[24];
-          std::snprintf(b, sizeof b, "0x%08llx", static_cast<unsigned long long>(var.address().offset()));
-          decl += " /* " + std::string(b) + " */";
-        }
+        std::string decl = GlobalDeclaration(var);
         globals.push_back(std::move(decl));
       }
     }
@@ -12243,7 +12272,9 @@ class ImageBackend final : public api::Backend {
     context += "/* " + resp.function_name() + " from " + req.program_id() + ", decompiled by revkit at revision " +
                std::to_string(resp.snapshot().revision()) +
                ": a starting point to rewrite until it matches, not source that compiles to the same code. */\n\n";
-    context += std::string(kGhidraBuiltinTypedefs) + "\n";
+    const cparse::Dialect dialect = DialectOf(req.dialect());
+    context += GhidraBuiltinTypedefs(ProgramProfile(v.program()), dialect) + "\n";
+    std::set<std::string> names = GhidraBuiltinNames();
     if (!hashes.empty()) {
       pb::ExportTypeArchiveRequest tr;
       tr.set_program_id(req.program_id());
@@ -12252,14 +12283,24 @@ class ImageBackend final : public api::Backend {
       tr.set_name("scratch");
       tr.mutable_read()->set_revision(resp.snapshot().revision());
       pb::ExportTypeArchiveResponse types;
-      if (auto ts = ExportTypeArchive(ctx, tr, types); ts.ok()) {
+      HeaderOptions ho;  // as the decompiler saw them; the built-in names are above
+      ho.dialect = dialect;
+      ho.decompiler_view = true;
+      ho.provided = GhidraBuiltinNames();
+      if (auto ts = ExportTypes(ctx, tr, types, &ho); ts.ok()) {
         resp.set_types(static_cast<std::uint32_t>(types.archive().types_size()));
         if (types.archive().types_size()) context += "/* Types */\n" + types.header() + "\n";
+        if (const std::string tags = TagTypedefs(types.archive(), names); !tags.empty())
+          context += "/* The tags as type names */\n" + tags + "\n";
         for (const std::string &n : types.notes()) resp.add_notes(n);
       } else if (ts.code != StatusCode::kFailedPrecondition && ts.code != StatusCode::kNotFound) {
         resp.add_notes("types not declared: " + ts.message);
       }
     }
+    std::string fn_types;
+    for (const std::string &t : df.function_types())
+      if (const std::string n = FunctionTypeName(t); !n.empty() && names.insert(n).second) fn_types += t + "\n";
+    if (!fn_types.empty()) context += "/* Function types */\n" + fn_types + "\n";
     std::string decls;
     for (std::uint64_t c : callees) {
       std::string program = req.program_id(), where;
@@ -12294,6 +12335,15 @@ class ImageBackend final : public api::Backend {
       if (proto.empty()) {
         decls += "/* " + (name.empty() ? "FUN_" + Hex(c) : name) + ": no prototype known */" + where + "\n";
         resp.add_notes((name.empty() ? Hex(c) : name) + ": no prototype known");
+        continue;
+      }
+      if (dialect == cparse::Dialect::C89 && (!CIdentifier(name.empty() ? "FUN_" : name) || proto.find("::") != std::string::npos)) {
+        decls += "/* " + proto + "; (not a name C can declare) */" + where + "\n";
+        continue;
+      }
+      if (!FunctionTypesNamed(proto, names)) {
+        decls += "/* " + proto + "; (a function pointer type C has no name for) */" + where + "\n";
+        resp.add_notes(name + ": its prototype names a function type the scratch doesn't define");
         continue;
       }
       decls += proto + ";" + where + "\n";

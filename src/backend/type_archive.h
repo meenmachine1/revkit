@@ -10,12 +10,14 @@
 #include "program.h"
 
 #include "revkit/api/backend.h"
+#include "revkit/cparse/archive.h"
 #include "revkit/cparse/cparse.h"
 #include "revkit/v1/types.pb.h"
 
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 
 namespace revkit::backend {
@@ -33,8 +35,16 @@ struct TypeArchiveContext {
   std::function<std::optional<pb::Provenance>(const std::string &key)> binding;
 };
 
+// How a header for decompiled C is written (ExportC, ExportDecompScratch):
+// the archive writer's dialect, decompiler view and provided names.
+struct HeaderOptions {
+  cparse::Dialect dialect = cparse::Dialect::C11;
+  bool decompiler_view = false;
+  std::set<std::string> provided;
+};
+
 api::Status ExportTypeArchive(const TypeArchiveContext &c, const pb::ExportTypeArchiveRequest &req,
-                              pb::ExportTypeArchiveResponse &resp);
+                              pb::ExportTypeArchiveResponse &resp, const HeaderOptions *header = nullptr);
 
 // The sidecar's JSON, read; nullopt (and `error`) when it isn't one.
 std::optional<pb::TypeArchiveSidecar> ReadTypeArchiveSidecar(const std::string &json, std::string *error);

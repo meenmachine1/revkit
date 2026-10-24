@@ -3,6 +3,13 @@ add_executable(revkit_cparse_test
   cparse_test.cc)
 target_link_libraries(revkit_cparse_test PRIVATE revkit::cparse revkit::types GTest::gtest_main)
 target_compile_options(revkit_cparse_test PRIVATE -Wall -Wextra)
+# The C89 dialect is compiled with clang where the build has it (a test
+# oracle only).
+find_program(REVKIT_CPARSE_TEST_CLANG NAMES clang clang-19 clang-18)
+if(NOT REVKIT_CPARSE_TEST_CLANG)
+  set(REVKIT_CPARSE_TEST_CLANG "")
+endif()
+target_compile_definitions(revkit_cparse_test PRIVATE REVKIT_TEST_CLANG="${REVKIT_CPARSE_TEST_CLANG}")
 gtest_discover_tests(revkit_cparse_test)
 
 add_executable(revkit_cparse_spec_test spec_test.cc)

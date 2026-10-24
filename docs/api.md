@@ -641,11 +641,62 @@ no caller" from "no caller was found".
   then the source in parts of at most 1 MiB in address order, and a
   `finished` message with the count and the entries the decompiler failed
   on (the source says why in a comment). The header has Ghidra's built-in
-  type names, the program's named types (as `ExportTypeArchive` with
-  `TYPE_ARCHIVE_SCOPE_ALL` writes them, with its `notes`), a typedef of
-  each tag, and each function's prototype. The UI's Export C/C++…
+  type names (as typedefs of the data model's integers of their sizes,
+  once, in a `REVKIT_GHIDRA_TYPES` guard), the program's named types (as
+  `ExportTypeArchive` with `TYPE_ARCHIVE_SCOPE_ALL` writes them, with its
+  `notes`, but as the decompiler sees them: below), a typedef of each tag,
+  the function types the C names, each function's prototype and the
+  globals the C reads and writes. The UI's Export C/C++…
   ([ui.md](ui.md#export-c)), the SDK's `Program.export_c()` and MCP
   `export_c` use it.
+- **A header the C compiles with** (`api_minor` 112, feature `c-dialect`).
+  Every name the decompiled C uses is in ExportC's header (and in
+  `ExportDecompScratch`'s context), at the revision of the C:
+  - **The types as the decompiler sees them.** A structure's fields are
+    the ones the decompiler was given (`types::decompiler_fields`: it
+    drops a field overlapping the one before, an unnamed or non-integral
+    bitfield, a field of size 0), under the names its C uses (an unnamed
+    one is `field_<ordinal>`), and every byte no field covers is a
+    one-byte member named as the C names such bytes, `field_0x10`, so
+    `*(int *)&p->field_0x10` compiles and lands where the decompiler meant.
+    An inferred structure's gaps are such bytes. The layout stays natural
+    where it can (no `#pragma pack`, whose structures ARM compilers load a
+    byte at a time). Such a header isn't a type archive to import back.
+  - **No built-in name twice.** A typedef of one of Ghidra's names (`uint`,
+    `code`) among the program's types, and Ghidra's undefined types the
+    archive would write (`typedef unsigned char undefined4[4]`, which
+    clashed with the built-in `undefined4`), are left out.
+  - `code` is a function of no prototype returning `int` (`typedef int
+    code();`), so `(*(code *)p)(a, b)` compiles; it was `void`, which C
+    can't call.
+  - **Function types.** `DecompiledFunction.function_types` has a typedef
+    of each function type the text names by Ghidra's name (`typedef int
+    _func_int_char_ptr(char *);`), which the header writes after the tags;
+    a prototype naming one is no longer left out as a comment.
+  - **Globals**: `extern` declarations of the globals the C reads and
+    writes (`extern undefined4 *DAT_02000ca0; /* 0x02000ca0 */`).
+  - **`dialect`** (`CDialect`): `C_DIALECT_C11` (the default) or
+    `C_DIALECT_C89` for an old compiler (Metrowerks CodeWarrior's): no
+    `<stdbool.h>` or `_Bool` (`bool` is an `unsigned char`, `true` and
+    `false` macros), no `_Static_assert` (an array of negative size
+    checks each size), `long long` only under `__extension__` (defined
+    away for compilers without it), padding bitfields of the target's
+    `int` and never wider, enumerators in `int`'s range (`0x80000000` as
+    `(-2147483647 - 1)`), no anonymous members (named `field_<ordinal>`)
+    or flexible arrays, and nothing defined twice. Checked with `clang
+    -std=c89 -pedantic-errors --target=armv5te-none-eabi`.
+  - **`per_function`**: each function's C as its own `ExportedCFunction`
+    (`entry`, `name`, `source`, the `prototype` the header declares,
+    `failure`) in `function_sources`, instead of one source file: header
+    and functions in one call, at one revision. A scratch from
+    `ExportDecompScratch` at that revision (`read.revision`; the SDK's
+    `program.at(revision)`) agrees with it.
+  - Background inference publishes prototypes and structures in a
+    revision of its own, after the import: an export started before it
+    has neither, and a header and C taken from two calls on either side of
+    it disagree (structures renumbered). The SDK's
+    `Program.wait_for_analysis()` (and `export_c(wait_for_analysis=True)`)
+    waits for it first.
 - **Relocations.** `ListRelocations` (`api_minor` 78, feature
   `relocation-table`) lists the relocations the file carries, in address
   order (Ghidra's relocation table): ELF dynamic and object relocations,
@@ -989,7 +1040,10 @@ folder, linked to one another by address.
   callees' prototypes, linked modules' included, its globals, then its C),
   `context` and `source` (for a decomp.me scratch), `probe`,
   `function_name`, `symbol` (as the file spells it), `module`, counts,
-  `notes`, `failure`. A viewer's call.
+  `notes`, `failure`. A viewer's call. Since `api_minor` 112 the context
+  is written as ExportC's header is (the types as the decompiler sees
+  them, the tags as type names, the function types the C names; `dialect`
+  `C_DIALECT_C89` for an old compiler; [Export C](#queries)).
 - **Library prototypes**: a raw image's `_name` no longer takes a library
   archive's `name` (`LibraryPrototypes::find`'s underscore rule is for
   ELF, PE and Mach-O symbols); inputs.program version 16.
@@ -2890,6 +2944,15 @@ then frozen.
 - `api_minor` increments with each additive change. Branches developed in
   parallel may each bump it; on merge, each additive change takes the next
   number, which is why clients should check features rather than numbers.
+  112 added a header decompiled C compiles with: `ExportCRequest.dialect`
+  and `per_function`, `ExportCResponse.function_sources`
+  (`ExportedCFunction`), `ExportDecompScratchRequest.dialect`, `CDialect`
+  and `DecompiledFunction.function_types`; the header's types as the
+  decompiler sees them, its globals, and no built-in name defined twice
+  (feature `c-dialect`; [above](#queries)). It landed before 107–111,
+  which are reserved for branches not yet landed: `kApiMinor` stays at the
+  highest number that has landed, so a daemon at 112 may lack 107–111's
+  features (check the feature strings);
   106 added program decompiler settings (`SetDecompilerSettings`
   assertions, `DecompilerSettings`, `ComparisonForm`, `LoadTypes`) and made
   the source-shape options revkit's default (load signedness from the

@@ -3,6 +3,7 @@
 #include "revkit/types/print.h"
 #include "revkit/types/transform.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <map>
 #include <vector>
@@ -142,6 +143,50 @@ std::string deep_dump(const TypeStore &store, TypeId root) {
     out += "\n";
   }
   return out;
+}
+
+}  // namespace revkit::types
+
+namespace revkit::types {
+
+std::vector<DecompilerField> decompiler_fields(const TypeStore &store, const AggregateType &a) {
+  std::vector<DecompilerField> out;
+  if (!a.complete || a.size == 0) return out;
+  const bool is_union = a.kind == AggregateKind::Union;
+  std::uint64_t end = 0, last_off = 0;
+  bool last_was_bitfield = false;
+  for (std::size_t ordinal = 0; ordinal < a.fields.size(); ++ordinal) {
+    const Field &f = a.fields[ordinal];
+    if (f.bit_size != 0) {
+      const std::uint64_t first_byte = f.bit_offset / 8;
+      const std::uint64_t span = (f.bit_offset % 8 + f.bit_size + 7) / 8;
+      const Type &ft = store.get(store.strip_typedefs(f.type));
+      const bool integral = ft.kind() == Kind::Int || ft.kind() == Kind::Bool || ft.kind() == Kind::Enum;
+      if (is_union || f.name.empty() || !integral || first_byte + span > a.size || first_byte < last_off ||
+          (first_byte < end && !last_was_bitfield))
+        continue;
+      out.push_back({ordinal, f.name});
+      end = std::max(end, first_byte + span);
+      last_off = first_byte;
+      last_was_bitfield = true;
+      continue;
+    }
+    if (f.bit_offset % 8 != 0) continue;
+    const std::uint64_t off = f.bit_offset / 8;
+    const std::uint64_t fsize = store.size_of(f.type);
+    if (fsize == 0 || off + fsize > a.size || (!is_union && off < end)) continue;
+    out.push_back({ordinal, f.name.empty() ? "field_" + std::to_string(ordinal) : f.name});
+    if (!is_union) end = off + fsize;
+    last_off = is_union ? 0 : off;
+    last_was_bitfield = false;
+  }
+  return out;
+}
+
+std::string gap_field_name(std::uint64_t offset) {
+  char buf[32];
+  std::snprintf(buf, sizeof buf, "field_0x%llx", static_cast<unsigned long long>(offset));
+  return buf;
 }
 
 }  // namespace revkit::types

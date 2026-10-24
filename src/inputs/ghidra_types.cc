@@ -1,5 +1,7 @@
 #include "revkit/inputs/ghidra_types.h"
 
+#include "revkit/types/describe.h"
+
 #include "revkit/inputs/demangled.h"
 #include "revkit/lift/abi.hh"
 
@@ -457,66 +459,34 @@ DecompElement GhidraTypes::aggregate(types::TypeId id, const types::AggregateTyp
   Named n{id_of(kStructBase, store_.hash(id)), name, 0};
   named_.emplace(id, n);
   std::vector<DecompElement> fields;
-  if (a.complete && a.size != 0) {
-    int ordinal = 0;
-    std::uint64_t end = 0;
-    std::uint64_t last_off = 0;  // the offset of the field or bitfield before
-    bool last_was_bitfield = false;
-    for (const types::Field &f : a.fields) {
-      if (f.bit_size != 0) {
-        // A bitfield as the decompiler's <bitfield>: the byte offset of
-        // its container (the bytes it spans) and its least significant
-        // bit there. Bits count in memory order (from the least
-        // significant end of a little-endian unit, the most significant
-        // of a big-endian one), as cparse and DWARF lay them out.
-        const std::uint64_t first_byte = f.bit_offset / 8;
-        const std::uint64_t span = (f.bit_offset % 8 + f.bit_size + 7) / 8;
-        const std::uint64_t lsb = org_.big_endian ? span * 8 - (f.bit_offset % 8 + f.bit_size) : f.bit_offset % 8;
-        const types::Type &ft = store_.get(store_.strip_typedefs(f.type));
-        const bool integral = ft.kind() == types::Kind::Int || ft.kind() == types::Kind::Bool ||
-                              ft.kind() == types::Kind::Enum;
-        // In order, inside the aggregate, and sharing bytes only with the
-        // bitfield before it (the decompiler drops anything else).
-        if (is_union || f.name.empty() || !integral || first_byte + span > a.size || first_byte < last_off ||
-            (first_byte < end && !last_was_bitfield)) {
-          ++ordinal;
-          continue;
-        }
-        fields.push_back(el("bitfield",
-                            {{"first", static_cast<std::int64_t>(lsb)},
-                             {"id", std::int64_t{ordinal}},
-                             {"name", f.name},
-                             {"offset", static_cast<std::int64_t>(first_byte)},
-                             {"size", static_cast<std::int64_t>(f.bit_size)}},
-                            {ref(f.type)}));
-        end = std::max(end, first_byte + span);
-        last_off = first_byte;
-        last_was_bitfield = true;
-        ++ordinal;
-        continue;
-      }
-      if (f.bit_offset % 8 != 0) {
-        ++ordinal;
-        continue;
-      }
-      const std::uint64_t off = f.bit_offset / 8;
-      const std::uint64_t fsize = store_.size_of(f.type);
-      if (fsize == 0 || off + fsize > a.size || (!is_union && off < end)) {
-        ++ordinal;
-        continue;
-      }
-      std::string fname = f.name;
-      if (fname.empty()) fname = "field_" + std::to_string(ordinal);
-      Attrs fa;
-      if (is_union) fa.emplace_back("id", std::int64_t{ordinal});
-      fa.emplace_back("name", fname);
-      fa.emplace_back("offset", static_cast<std::int64_t>(is_union ? 0 : off));
-      fields.push_back(el("field", std::move(fa), {ref(f.type)}));
-      if (!is_union) end = off + fsize;
-      last_off = is_union ? 0 : off;
-      last_was_bitfield = false;
-      ++ordinal;
+  // The fields it can lay out (types::decompiler_fields, which a header
+  // for its C writes the same way: ExportC's).
+  for (const types::DecompilerField &d : types::decompiler_fields(store_, a)) {
+    const types::Field &f = a.fields[d.index];
+    const auto ordinal = static_cast<std::int64_t>(d.index);
+    if (f.bit_size != 0) {
+      // A bitfield as the decompiler's <bitfield>: the byte offset of its
+      // container (the bytes it spans) and its least significant bit
+      // there. Bits count in memory order (from the least significant end
+      // of a little-endian unit, the most significant of a big-endian
+      // one), as cparse and DWARF lay them out.
+      const std::uint64_t first_byte = f.bit_offset / 8;
+      const std::uint64_t span = (f.bit_offset % 8 + f.bit_size + 7) / 8;
+      const std::uint64_t lsb = org_.big_endian ? span * 8 - (f.bit_offset % 8 + f.bit_size) : f.bit_offset % 8;
+      fields.push_back(el("bitfield",
+                          {{"first", static_cast<std::int64_t>(lsb)},
+                           {"id", ordinal},
+                           {"name", f.name},
+                           {"offset", static_cast<std::int64_t>(first_byte)},
+                           {"size", static_cast<std::int64_t>(f.bit_size)}},
+                          {ref(f.type)}));
+      continue;
     }
+    Attrs fa;
+    if (is_union) fa.emplace_back("id", ordinal);
+    fa.emplace_back("name", d.name);
+    fa.emplace_back("offset", static_cast<std::int64_t>(is_union ? 0 : f.bit_offset / 8));
+    fields.push_back(el("field", std::move(fa), {ref(f.type)}));
   }
   const std::uint64_t size = a.complete && a.size != 0 ? a.size : 1;
   std::uint32_t align = a.complete && a.size != 0 ? std::max<std::uint32_t>(1, store_.align_of(id)) : 1;

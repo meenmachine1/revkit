@@ -298,6 +298,26 @@ takes as is: no `x._0_2_`, no label ending a block, casts on
 pointer/integer conversions). Scratches, `Decompile` and `ExportC` follow
 the setting.
 
+**Compiling it with CodeWarrior** (`api_minor` 112, feature `c-dialect`;
+[api.md](api.md#queries)). mwcc's C is C89: take the header and the
+scratches in that dialect, and the header and each function's C from one
+call, after inference has published:
+
+```python
+prog.wait_for_analysis()   # background inference: prototypes, astruct_N
+ex = prog.export_c(None, header=True, dialect="c89", per_function=True)
+open("module.h", "w").write(ex.header)
+for f in ex.function_sources:       # entry, name, source, prototype, failure
+    ...                             # '#include "module.h"' + f.source, compiled per function
+s = prog.at(ex.revision).decomp_scratch(entry, dialect="c89")   # the same revision
+```
+
+The header has every name the C uses: the inferred structures as the
+decompiler saw them (a byte member `field_0x10` for each gap, so
+`*(int *)&p->field_0x10` compiles), the `_func_*` function types, the
+globals, and Ghidra's built-in names once. C++ names (`Scene::Update`)
+are left out of a C89 header as comments.
+
 **The C++ in it.** `this` is typed (from the mangled name); its class is
 an empty placeholder (`this + 0x14`) until the program defines it: import
 the game's C++ headers (ParseC with `cplusplus`) and every member function

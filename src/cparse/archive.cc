@@ -16,6 +16,7 @@ namespace revkit::cparse {
 using types::AggregateKind;
 using types::AggregateType;
 using types::EnumType;
+using types::Field;
 using types::Type;
 using types::TypeId;
 using types::TypeStore;
@@ -58,25 +59,6 @@ std::string shape(const TypeStore &s, TypeId id) {
 
 const char *keyword(AggregateKind k) { return k == AggregateKind::Union ? "union" : "struct"; }
 
-// Unnamed bitfields covering `bits` from bit `pos`: to the next byte, then
-// whole bytes (as few bitfields as it can), then what is left. Compilers
-// record no member for them, so they only move what follows.
-std::string gap(std::uint64_t pos, std::uint64_t bits) {
-  std::string out;
-  auto add = [&](const char *type, std::uint64_t n) {
-    out += "    " + std::string(type) + " : " + std::to_string(n) + ";\n";
-    pos += n;
-    bits -= n;
-  };
-  if (pos % 8 && bits) add("unsigned char", std::min<std::uint64_t>(8 - pos % 8, bits));
-  while (bits >= 64) add("unsigned long long", 64);
-  if (bits >= 32) add("unsigned int", 32);
-  if (bits >= 16) add("unsigned short", 16);
-  if (bits >= 8) add("unsigned char", 8);
-  if (bits) add("unsigned char", bits);
-  return out;
-}
-
 struct Writer {
   const TypeStore &s;
   const ArchiveOptions &opt;
@@ -103,6 +85,100 @@ struct Writer {
     popt.inline_anonymous = true;
     popt.offset_comments = true;
     popt.calling_conventions = true;
+  }
+
+  bool c89() const { return opt.dialect == Dialect::C89; }
+
+  // C89 has no `long long`: GCC and clang take it under __extension__
+  // (which the header defines away for other compilers).
+  std::string ext(std::string text) const {
+    if (c89() && text.find("long long") != std::string::npos) return "__extension__ " + text;
+    return text;
+  }
+
+  // Unnamed bitfields covering `bits` from bit `pos`: to the next byte, then
+  // whole bytes (as few bitfields as it can), then what is left. Compilers
+  // record no member for them, so they only move what follows. In C89 they
+  // are of the target's int, at most its width; in the decompiler's view
+  // whole bytes are members named as its C names them (field_0x10).
+  std::string gap(std::uint64_t pos, std::uint64_t bits) const {
+    std::string out;
+    auto add = [&](const char *type, std::uint64_t n) {
+      out += "    " + std::string(type) + " : " + std::to_string(n) + ";\n";
+      pos += n;
+      bits -= n;
+    };
+    const char *small = c89() ? "unsigned int" : "unsigned char";
+    if (pos % 8 && bits) add(small, std::min<std::uint64_t>(8 - pos % 8, bits));
+    if (opt.decompiler_view) {
+      for (; bits >= 8; pos += 8, bits -= 8) out += "    unsigned char " + types::gap_field_name(pos / 8) + ";\n";
+    } else if (c89()) {
+      const std::uint64_t int_bits = std::max<std::uint64_t>(16, std::uint64_t(opt.profile.rules.int_size) * 8);
+      while (bits >= int_bits) add("unsigned int", int_bits);
+      if (bits >= 8) add("unsigned int", bits / 8 * 8);
+    } else {
+      while (bits >= 64) add("unsigned long long", 64);
+      if (bits >= 32) add("unsigned int", 32);
+      if (bits >= 16) add("unsigned short", 16);
+      if (bits >= 8) add("unsigned char", 8);
+    }
+    if (bits) add(small, bits);
+    return out;
+  }
+
+  // An aggregate's members as written: its fields (in the decompiler's
+  // view, those it keeps, under its names, and a byte member for each byte
+  // none covers).
+  struct Member {
+    Field field;      // the field, named as written
+    bool gap = false; // a byte no field covers (field.bit_offset)
+  };
+  bool viewed(const AggregateType &a) const { return opt.decompiler_view && !a.name.empty(); }
+  std::vector<Member> members(const AggregateType &a) const {
+    std::vector<Member> out;
+    if (!viewed(a)) {
+      // C89 has no anonymous members (named as the decompiler names them)
+      // and no flexible array members (left out).
+      for (std::size_t i = 0; i < a.fields.size(); ++i) {
+        Field f = a.fields[i];
+        if (c89() && !f.bit_size && s.size_of(f.type) == 0 && s.get(s.strip_typedefs(f.type)).as<types::ArrayType>())
+          continue;
+        if (c89() && f.name.empty() && !f.bit_size) f.name = "field_" + std::to_string(i);
+        out.push_back({std::move(f), false});
+      }
+      return out;
+    }
+    const bool is_union = a.kind == AggregateKind::Union;
+    std::uint64_t covered = 0;  // bytes before this are covered
+    auto gaps_to = [&](std::uint64_t byte) {
+      for (; covered < byte; ++covered) {
+        Member m;
+        m.gap = true;
+        m.field.name = types::gap_field_name(covered);
+        m.field.bit_offset = covered * 8;
+        out.push_back(std::move(m));
+      }
+    };
+    for (const types::DecompilerField &d : types::decompiler_fields(s, a)) {
+      Field f = a.fields[d.index];
+      f.name = d.name;
+      if (!is_union) {
+        const std::uint64_t first = f.bit_offset / 8;
+        const std::uint64_t end = f.bit_size ? (f.bit_offset + f.bit_size + 7) / 8 : first + s.size_of(f.type);
+        gaps_to(first);
+        covered = std::max(covered, end);
+      }
+      out.push_back({std::move(f), false});
+    }
+    if (!is_union && a.complete) gaps_to(a.size);
+    return out;
+  }
+
+  std::string member_text(const Member &m) const {
+    if (!m.gap) return types::field_definition(s, m.field, 1, popt);
+    char off[24];
+    std::snprintf(off, sizeof off, "0x%llx", static_cast<unsigned long long>(m.field.bit_offset / 8));
+    return "    unsigned char " + m.field.name + ";" + (popt.offset_comments ? std::string(" /* ") + off + " */" : "") + "\n";
   }
 
   bool complete_aggregate(TypeId id) const {
@@ -134,6 +210,7 @@ struct Writer {
         builtins.emplace_back(key, ids.front());
         continue;
       }
+      if (key.starts_with("typedef ") && opt.provided.contains(key.substr(8))) continue;  // the includer's
       if (key.find("::") != std::string::npos || key.starts_with("class ")) {
         notes.push_back(key + ": C++ types aren't written to archives (C headers); left out");
         continue;
@@ -248,7 +325,10 @@ struct Writer {
         if (unit_size) pos = std::max(pos, unit_end);
         unit_size = 0;
       };
-      for (const auto &f : a.fields) {
+      std::vector<Field> fields;  // gaps are the gap()'s here
+      for (const Member &m : members(a))
+        if (!m.gap) fields.push_back(m.field);
+      for (const auto &f : fields) {
         if (msvc && f.bit_size) {
           const std::uint64_t n = s.size_of(f.type);
           const bool same_unit = unit_size == n && f.bit_offset >= pos && f.bit_offset + f.bit_size <= unit_end;
@@ -283,11 +363,12 @@ struct Writer {
       close_unit();
       if (a.size * 8 > pos) body += gap(pos, a.size * 8 - pos);
     } else {
-      for (const auto &f : a.fields) body += types::field_definition(s, f, 1, popt);
+      for (const Member &m : members(a)) body += member_text(m);
     }
     std::string out = std::string(keyword(a.kind)) + " " + name + " {\n" + body + "}";
     if (a.alignment) out += " __attribute__((aligned(" + std::to_string(a.alignment) + ")))";
     out += "; /* size " + hex(a.size) + " */\n";
+    out = ext(std::move(out));
     if (lvl >= 1 && lvl <= 5) {
       const int pack = lvl == 5 ? 1 : 1 << (lvl - 1);
       out = "#pragma pack(push, " + std::to_string(pack) + ")\n" + out + "#pragma pack(pop)\n";
@@ -317,11 +398,57 @@ struct Writer {
     if (const auto *e = t.as<EnumType>()) {
       std::string out = "enum ";
       if (lvl == 5) out += "__attribute__((packed)) ";
-      out += e->name + " {\n" + types::enum_values(*e) + "};";
+      out += e->name + " {\n" + (c89() ? enum_values_c89(*e) : types::enum_values(*e)) + "};";
       if (e->size != 4) out += " /* size " + std::to_string(e->size) + " */";
       return out + "\n";
     }
-    return types::definition(s, id, popt);
+    return ext(types::definition(s, id, popt));
+  }
+
+  // C89's enumerators are ints: a value past INT_MAX that fits the enum's
+  // unsigned size is written as the int of the same bits.
+  long long c89_value(const EnumType &e, long long v) const {
+    const unsigned bits = std::max(16u, opt.profile.rules.int_size * 8u);
+    const long long hi = (1LL << (bits - 1)) - 1;
+    if (v > hi && e.size * 8 <= bits && static_cast<unsigned long long>(v) < (1ULL << bits)) v -= 1LL << bits;
+    return v;
+  }
+  std::string enum_values_c89(const EnumType &e) const {
+    const unsigned bits = std::max(16u, opt.profile.rules.int_size * 8u);
+    const long long lo = -(1LL << (bits - 1));
+    std::string out;
+    for (std::size_t i = 0; i < e.values.size(); ++i) {
+      const long long v = c89_value(e, e.values[i].value);
+      const std::string text = v == lo ? "(" + std::to_string(lo + 1) + " - 1)" : std::to_string(v);
+      out += "    " + e.values[i].name + " = " + text + (i + 1 < e.values.size() ? ",\n" : "\n");
+    }
+    return out;
+  }
+
+  // The layout the header means to write for `id`: shape(), or in the
+  // decompiler's view a named aggregate's members as written.
+  std::string intended_shape(TypeId id) const {
+    const TypeId x = s.strip_typedefs(id, false);
+    if (const auto *e = s.get(x).as<EnumType>(); e && c89()) {
+      // As enum_values_c89 writes the values (an int's bits).
+      std::vector<long long> vals;
+      bool negative = false;
+      for (const auto &v : e->values) {
+        vals.push_back(c89_value(*e, v.value));
+        negative = negative || vals.back() < 0;
+      }
+      std::string out = "e" + std::to_string(e->size) + (e->is_signed || negative ? "s" : "u");
+      for (long long v : vals) out += "," + std::to_string(v);
+      return out;
+    }
+    const auto *a = s.get(x).as<AggregateType>();
+    if (!a || a->name.empty()) return shape(s, id);
+    std::string out = "a" + std::to_string(int(a->kind)) + ":" + std::to_string(a->size) + ":" +
+                      std::to_string(a->alignment) + (a->complete ? "" : "?");
+    for (const Member &m : members(*a))
+      out += "," + std::to_string(m.field.bit_offset) + ":" + std::to_string(m.field.bit_size) + ":" +
+             std::to_string(m.gap ? 1 : s.size_of(m.field.type));
+    return out;
   }
 
   std::string sizeof_expr(const std::string &key) const {
@@ -340,14 +467,17 @@ struct Writer {
     out += " * Data model: " + describe_profile(opt.profile) + ".\n";
     out += " * Each type's content hash is in " + stem + ".json. */\n";
     out += "#ifndef " + guard + "\n#define " + guard + "\n";
-    if (!undefined_sizes.empty()) {
-      out += "\n/* Ghidra's undefined types, for compilers (revkit and Ghidra know them). */\n";
-      out += "#if !defined(__revkit__)\n";
-      for (std::uint32_t n : undefined_sizes)
-        out += n == 1 ? "typedef unsigned char undefined1;\n"
-                      : "typedef unsigned char undefined" + std::to_string(n) + "[" + std::to_string(n) + "];\n";
-      out += "#endif\n";
-    }
+    if (c89())
+      out += "\n/* C89 has no long long: GCC and clang take it under __extension__. */\n"
+             "#if !defined(__GNUC__) && !defined(__extension__)\n#define __extension__\n#endif\n";
+    std::string undefined;
+    for (std::uint32_t n : undefined_sizes)
+      if (!opt.provided.contains("undefined" + std::to_string(n)))
+        undefined += n == 1 ? "typedef unsigned char undefined1;\n"
+                            : "typedef unsigned char undefined" + std::to_string(n) + "[" + std::to_string(n) + "];\n";
+    if (!undefined.empty())
+      out += "\n/* Ghidra's undefined types, for compilers (revkit and Ghidra know them). */\n#if !defined(__revkit__)\n" +
+             undefined + "#endif\n";
     if (!builtins.empty()) {
       std::vector<std::pair<std::string, TypeId>> b = builtins;
       std::stable_sort(b.begin(), b.end(), [](const auto &x, const auto &y) {
@@ -365,9 +495,14 @@ struct Writer {
       }
       out += "#endif\n";
     }
-    if (uses_bool)
-      out += "\n#if !defined(__cplusplus) && !defined(bool) && (!defined(__STDC_VERSION__) || __STDC_VERSION__ < "
-             "202311L)\n#define bool _Bool\n#endif\n";
+    if (uses_bool && !opt.provided.contains("bool")) {
+      if (c89())
+        out += "\n#if !defined(__cplusplus) && !defined(bool) && !defined(REVKIT_BOOL)\n#define REVKIT_BOOL\n"
+               "typedef unsigned char bool;\n#endif\n";
+      else
+        out += "\n#if !defined(__cplusplus) && !defined(bool) && (!defined(__STDC_VERSION__) || __STDC_VERSION__ < "
+               "202311L)\n#define bool _Bool\n#endif\n";
+    }
     auto line_now = [&] { return std::uint32_t(std::count(out.begin(), out.end(), '\n') + 1); };
     if (!declared.empty()) {
       out += "\n";
@@ -385,10 +520,12 @@ struct Writer {
       out += "\n/* Functions */\n";
       for (const ArchiveFunction &f : opt.functions) {
         if (lines) (*lines)["function " + f.name] = line_now();
-        out += std::string(f.noreturn ? "_Noreturn " : "") + types::declaration(s, f.type, f.name, popt) + ";\n";
+        out += ext(std::string(f.noreturn && !c89() ? "_Noreturn " : "") + types::declaration(s, f.type, f.name, popt) + ";\n");
       }
     }
-    std::string asserts;
+    std::string asserts, check_stem;
+    for (char c : stem) check_stem += std::isalnum(static_cast<unsigned char>(c)) ? c : '_';
+    std::size_t checks = 0;
     for (const std::string &k : order) {
       const TypeId id = chosen.at(k);
       const TypeId under = s.strip_typedefs(id, true);
@@ -397,7 +534,11 @@ struct Writer {
       if (const auto *a = u.as<AggregateType>(); a && !a->complete) continue;
       const std::uint64_t size = s.size_of(id);
       if (size == 0) continue;
-      asserts += "_Static_assert(sizeof(" + sizeof_expr(k) + ") == " + std::to_string(size) + ", \"" + k + "\");\n";
+      if (c89())  // an array of negative size where the size is wrong
+        asserts += "typedef char rk_size_" + check_stem + "_" + std::to_string(++checks) + "[sizeof(" + sizeof_expr(k) +
+                   ") == " + std::to_string(size) + " ? 1 : -1]; /* " + k + " */\n";
+      else
+        asserts += "_Static_assert(sizeof(" + sizeof_expr(k) + ") == " + std::to_string(size) + ", \"" + k + "\");\n";
     }
     if (!asserts.empty()) out += "\n" + asserts;
     out += "\n#endif /* " + guard + " */\n";
@@ -467,7 +608,7 @@ Archive write_archive(const TypeStore &store, std::span<const TypeId> roots, con
   };
   auto bad_layout = [&](const std::string &key) {
     auto it = parsed_shape.find(key);
-    return it == parsed_shape.end() || it->second != shape(store, w.chosen.at(key));
+    return it == parsed_shape.end() || it->second != w.intended_shape(w.chosen.at(key));
   };
 
   std::map<std::string, std::uint32_t> lines = check();
@@ -517,7 +658,8 @@ Archive write_archive(const TypeStore &store, std::span<const TypeId> roots, con
     e.size = store.size_of(e.id);
     e.line = lines.contains(k) ? lines.at(k) : 0;
     e.form = form;
-    if (e.hash != e.source_hash) {
+    // The decompiler's view adds and renames members: only the layout counts.
+    if (options.decompiler_view ? e.hash.empty() || bad_layout(k) : e.hash != e.source_hash) {
       ++out.mismatches;
       std::string why = e.hash.empty() ? "doesn't parse"
                         : bad_layout(k) ? "parses to another layout"

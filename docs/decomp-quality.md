@@ -749,6 +749,35 @@ signature, every architecture at or above its baseline): rk-infer keeps Ghidra's
 load types (`Options::load_extension` off), so its observations are as
 before.
 
+### Compiled back: a header the C compiles with (2026-10-23)
+
+A matching decompilation compiles each function's C with the original
+compiler and scores its code against the original bytes; with 32-bit
+inference on, a DS game's modules scored lower than with it off
+([known-issues.md](known-issues.md#32-bit-inference-and-matching-decompilation-2026-10-23)).
+The causes were in Export C's header, not in inference: it wasn't C89,
+it lacked names the C uses (structure gaps, `_func_*` types, globals),
+and it wrote inferred structures with gaps as packed, which an ARMv5
+compiler accesses a byte at a time. On the 32-bit ARM fixture's -O2
+image, each function exported with its header (`ExportC` with
+`per_function`, `dialect` C89, `compilable_c`) and compiled with clang at
+the fixture's flags, scored by instruction-sequence similarity:
+
+| | compile (strict C89) | fuzzy | exact | both compile: on vs off |
+| --- | --- | --- | --- | --- |
+| master, inference on | 0 / 52 (41 lenient) | 0.698 (lenient) | 14 | 0.701 vs 0.725 (33) |
+| master, inference off | 0 / 52 (34 lenient) | 0.715 (lenient) | 15 | |
+| now, inference on | 52 / 52 | 0.740 | 21 | 0.755 vs 0.649 (42) |
+| now, inference off | 42 / 52 | 0.649 | 15 | |
+
+No function compiles to worse code with inference than without; the -Os
+image gives the same (0.763 against 0.659 on 42). Paired source metrics
+(no judges, no held-out sets): the firmware composite is unchanged,
+8628/4521/1481 (WIN), every family as in [Source shape](#source-shape-2026-10-21):
+rk-lift's C is byte-identical (the change is the header and the
+decompiler's list of function types), and the corpus (`rk-decomp-own`),
+firmware and `rk-infer` gates pass unchanged (+8.9 pp at signature).
+
 ## The judged sample
 
 `scripts/decomp-quality.py --judge build/judge` writes a blinded packet:

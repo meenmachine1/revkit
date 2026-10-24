@@ -213,6 +213,11 @@ message DecompiledFunction {
   // the decompiler resolved, computed jumps with no recovered table, flow
   // cut at analysis's limit, a failure, analysis still running.
   repeated Unknown unknowns = 11;
+  // C typedefs of the function types the text names by Ghidra's name
+  // (`typedef int _func_int_char_ptr(char *);`), each after the ones it
+  // names (api_minor 112, feature "c-dialect"): what a header for the C
+  // needs beyond the program's named types.
+  repeated string function_types = 12;
 }
 
 message DecompileOptions {

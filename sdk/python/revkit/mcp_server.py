@@ -2453,16 +2453,18 @@ def create_server(
     @server.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False))
     @guarded
     def export_c(program_id: str, function_addresses: Optional[list[str]] = None, header: bool = True,
-                 directory: str = "", file_name: str = "") -> dict:
+                 directory: str = "", file_name: str = "", dialect: str = "c11") -> dict:
         """Ghidra's C/C++ exporter: functions (function_addresses; default every one) decompiled into one .c
-        file in address order and, with header, a .h of the program's types, Ghidra's built-in type names and
-        each function's prototype. With directory (on this MCP server's machine), both files are written
-        there and only their paths and counts come back; without it the texts come back when the source is
-        at most 200 kB (else an error asking for a directory). file_name: the files' name without the
-        extension (default the program's)."""
+        file in address order and, with header, a .h of the program's types (as the decompiler sees them),
+        Ghidra's built-in type names, the function types the C names and each function's prototype. With
+        directory (on this MCP server's machine), both files are written there and only their paths and
+        counts come back; without it the texts come back when the source is at most 200 kB (else an error
+        asking for a directory). file_name: the files' name without the extension (default the program's).
+        dialect: "c11" (default) or "c89" for old compilers (CodeWarrior: no stdbool, no _Static_assert, long
+        long under __extension__)."""
         prog = rk.program(program_id)
         entries = [at(program_id, a) for a in function_addresses] if function_addresses else None
-        r = prog.export_c(entries, header=header, name=file_name, directory=directory or None)
+        r = prog.export_c(entries, header=header, name=file_name, directory=directory or None, dialect=dialect)
         out = {"source_name": r.source_name, "functions": r.functions,
                "failed": [_hex(a) for a in r.failed][:50], "revision": r.revision}
         if r.header_name:
@@ -2485,13 +2487,14 @@ def create_server(
 
     @server.tool(annotations=READ)
     @guarded
-    def decomp_scratch(program_id: str, function_address: str, module: str = "") -> dict:
+    def decomp_scratch(program_id: str, function_address: str, module: str = "", dialect: str = "c11") -> dict:
         """One function as a matching decompilation's starting scratch: a "// PROBE: <mangled> <module>
         <address>" line, Ghidra's built-in type names, the named types the function uses, its callees'
         prototypes (from linked DS modules too) and the globals it reads, then its decompiled C. text is all of
         it; context and source split it for a decomp.me scratch (context: declarations; source: the probe line
-        and the function). module overrides the PROBE line's module (default: the DS module the program is)."""
-        r = rk.program(program_id).decomp_scratch(at(program_id, function_address), module=module)
+        and the function). module overrides the PROBE line's module (default: the DS module the program is).
+        dialect: "c11" (default) or "c89" (old compilers: CodeWarrior's)."""
+        r = rk.program(program_id).decomp_scratch(at(program_id, function_address), module=module, dialect=dialect)
         out = {"probe": r.probe, "function": r.function_name, "symbol": r.symbol, "module": r.module,
                "types": r.types, "callees": r.callees, "globals": r.globals, "text": r.text,
                "context": r.context, "source": r.source}

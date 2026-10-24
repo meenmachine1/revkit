@@ -105,6 +105,12 @@ class RelocationKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RELOCATION_KIND_GLOB_DAT: _ClassVar[RelocationKind]
     RELOCATION_KIND_ABSOLUTE: _ClassVar[RelocationKind]
 
+class CDialect(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    C_DIALECT_UNSPECIFIED: _ClassVar[CDialect]
+    C_DIALECT_C11: _ClassVar[CDialect]
+    C_DIALECT_C89: _ClassVar[CDialect]
+
 class ByteKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     BYTE_KIND_UNSPECIFIED: _ClassVar[ByteKind]
@@ -226,6 +232,9 @@ RELOCATION_KIND_IRELATIVE: RelocationKind
 RELOCATION_KIND_JUMP_SLOT: RelocationKind
 RELOCATION_KIND_GLOB_DAT: RelocationKind
 RELOCATION_KIND_ABSOLUTE: RelocationKind
+C_DIALECT_UNSPECIFIED: CDialect
+C_DIALECT_C11: CDialect
+C_DIALECT_C89: CDialect
 BYTE_KIND_UNSPECIFIED: ByteKind
 BYTE_KIND_CODE: ByteKind
 BYTE_KIND_DATA: ByteKind
@@ -1351,7 +1360,7 @@ class DecompileManyResponse(_message.Message):
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., index: _Optional[int] = ..., total: _Optional[int] = ..., entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., function: _Optional[_Union[_decompile_pb2.DecompiledFunction, _Mapping]] = ..., failure: _Optional[_Union[_decompile_pb2.DecompileFailure, _Mapping]] = ..., error: _Optional[str] = ..., served_before: _Optional[bool] = ..., elapsed_ms: _Optional[float] = ..., function_ms: _Optional[float] = ...) -> None: ...
 
 class ExportCRequest(_message.Message):
-    __slots__ = ("program_id", "read", "functions", "all", "header", "name", "timeout_ms", "parallelism")
+    __slots__ = ("program_id", "read", "functions", "all", "header", "name", "timeout_ms", "parallelism", "dialect", "per_function")
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
     READ_FIELD_NUMBER: _ClassVar[int]
     FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
@@ -1360,6 +1369,8 @@ class ExportCRequest(_message.Message):
     NAME_FIELD_NUMBER: _ClassVar[int]
     TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
     PARALLELISM_FIELD_NUMBER: _ClassVar[int]
+    DIALECT_FIELD_NUMBER: _ClassVar[int]
+    PER_FUNCTION_FIELD_NUMBER: _ClassVar[int]
     program_id: str
     read: _common_pb2.ReadOptions
     functions: _containers.RepeatedCompositeFieldContainer[_common_pb2.Address]
@@ -1368,10 +1379,26 @@ class ExportCRequest(_message.Message):
     name: str
     timeout_ms: int
     parallelism: int
-    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., functions: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., all: _Optional[bool] = ..., header: _Optional[bool] = ..., name: _Optional[str] = ..., timeout_ms: _Optional[int] = ..., parallelism: _Optional[int] = ...) -> None: ...
+    dialect: CDialect
+    per_function: bool
+    def __init__(self, program_id: _Optional[str] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., functions: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., all: _Optional[bool] = ..., header: _Optional[bool] = ..., name: _Optional[str] = ..., timeout_ms: _Optional[int] = ..., parallelism: _Optional[int] = ..., dialect: _Optional[_Union[CDialect, str]] = ..., per_function: _Optional[bool] = ...) -> None: ...
+
+class ExportedCFunction(_message.Message):
+    __slots__ = ("entry", "name", "source", "prototype", "failure")
+    ENTRY_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
+    PROTOTYPE_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_FIELD_NUMBER: _ClassVar[int]
+    entry: _common_pb2.Address
+    name: str
+    source: str
+    prototype: str
+    failure: str
+    def __init__(self, entry: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., name: _Optional[str] = ..., source: _Optional[str] = ..., prototype: _Optional[str] = ..., failure: _Optional[str] = ...) -> None: ...
 
 class ExportCResponse(_message.Message):
-    __slots__ = ("snapshot", "done", "total", "source_name", "header_name", "header", "source_part", "finished", "functions", "failed", "notes")
+    __slots__ = ("snapshot", "done", "total", "source_name", "header_name", "header", "source_part", "finished", "functions", "failed", "notes", "function_sources")
     SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
     DONE_FIELD_NUMBER: _ClassVar[int]
     TOTAL_FIELD_NUMBER: _ClassVar[int]
@@ -1383,6 +1410,7 @@ class ExportCResponse(_message.Message):
     FUNCTIONS_FIELD_NUMBER: _ClassVar[int]
     FAILED_FIELD_NUMBER: _ClassVar[int]
     NOTES_FIELD_NUMBER: _ClassVar[int]
+    FUNCTION_SOURCES_FIELD_NUMBER: _ClassVar[int]
     snapshot: _common_pb2.Snapshot
     done: int
     total: int
@@ -1394,7 +1422,8 @@ class ExportCResponse(_message.Message):
     functions: int
     failed: _containers.RepeatedCompositeFieldContainer[_common_pb2.Address]
     notes: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., done: _Optional[int] = ..., total: _Optional[int] = ..., source_name: _Optional[str] = ..., header_name: _Optional[str] = ..., header: _Optional[str] = ..., source_part: _Optional[str] = ..., finished: _Optional[bool] = ..., functions: _Optional[int] = ..., failed: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., notes: _Optional[_Iterable[str]] = ...) -> None: ...
+    function_sources: _containers.RepeatedCompositeFieldContainer[ExportedCFunction]
+    def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., done: _Optional[int] = ..., total: _Optional[int] = ..., source_name: _Optional[str] = ..., header_name: _Optional[str] = ..., header: _Optional[str] = ..., source_part: _Optional[str] = ..., finished: _Optional[bool] = ..., functions: _Optional[int] = ..., failed: _Optional[_Iterable[_Union[_common_pb2.Address, _Mapping]]] = ..., notes: _Optional[_Iterable[str]] = ..., function_sources: _Optional[_Iterable[_Union[ExportedCFunction, _Mapping]]] = ...) -> None: ...
 
 class FindBytesRequest(_message.Message):
     __slots__ = ("program_id", "pattern", "mask", "range", "max_results", "alignment", "read", "executable_only")
@@ -2077,18 +2106,20 @@ class ListObjcClassesResponse(_message.Message):
     def __init__(self, snapshot: _Optional[_Union[_common_pb2.Snapshot, _Mapping]] = ..., classes: _Optional[_Iterable[_Union[ObjcClass, _Mapping]]] = ..., protocols: _Optional[_Iterable[_Union[ObjcProtocol, _Mapping]]] = ..., swift_types: _Optional[_Iterable[_Union[SwiftType, _Mapping]]] = ...) -> None: ...
 
 class ExportDecompScratchRequest(_message.Message):
-    __slots__ = ("program_id", "function", "read", "module", "timeout_ms")
+    __slots__ = ("program_id", "function", "read", "module", "timeout_ms", "dialect")
     PROGRAM_ID_FIELD_NUMBER: _ClassVar[int]
     FUNCTION_FIELD_NUMBER: _ClassVar[int]
     READ_FIELD_NUMBER: _ClassVar[int]
     MODULE_FIELD_NUMBER: _ClassVar[int]
     TIMEOUT_MS_FIELD_NUMBER: _ClassVar[int]
+    DIALECT_FIELD_NUMBER: _ClassVar[int]
     program_id: str
     function: _common_pb2.Address
     read: _common_pb2.ReadOptions
     module: str
     timeout_ms: int
-    def __init__(self, program_id: _Optional[str] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., module: _Optional[str] = ..., timeout_ms: _Optional[int] = ...) -> None: ...
+    dialect: CDialect
+    def __init__(self, program_id: _Optional[str] = ..., function: _Optional[_Union[_common_pb2.Address, _Mapping]] = ..., read: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ..., module: _Optional[str] = ..., timeout_ms: _Optional[int] = ..., dialect: _Optional[_Union[CDialect, str]] = ...) -> None: ...
 
 class ExportDecompScratchResponse(_message.Message):
     __slots__ = ("snapshot", "text", "context", "source", "probe", "function_name", "symbol", "module", "types", "callees", "globals", "notes", "failure")

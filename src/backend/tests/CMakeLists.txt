@@ -19,7 +19,7 @@ endforeach()
 add_executable(revkit_backend_tests auto_struct_test.cc bsim_api_test.cc byte_view_test.cc collab_test.cc debugger_api_test.cc decompiler_test.cc diff_api_test.cc emulator_api_test.cc equates_test.cc fact_store_test.cc function_compare_test.cc firmware_api_test.cc
   image_backend_test.cc import_progress_test.cc listing_edit_test.cc memory_map_test.cc param_id_test.cc parse_c_test.cc patch_api_test.cc program_management_test.cc project_org_test.cc program_test.cc raw_detect_test.cc raw_import_test.cc search_test.cc signature_test.cc type_archive_test.cc
   views_test.cc library_test.cc project_types_test.cc callsite_test.cc demangle_test.cc rebase_test.cc msvc_test.cc hover_test.cc symbol_server_test.cc slice_test.cc trace_test.cc libraries_test.cc
-  data_settings_test.cc debug_files_test.cc http_fetch_test.cc extract_test.cc macho_test.cc go_test.cc evm_test.cc apple_test.cc nds_test.cc cxx_this_test.cc)
+  data_settings_test.cc debug_files_test.cc http_fetch_test.cc extract_test.cc macho_test.cc go_test.cc evm_test.cc apple_test.cc nds_test.cc cxx_this_test.cc export_c_test.cc)
 add_dependencies(revkit_backend_tests rk-decompd)
 target_include_directories(revkit_backend_tests PRIVATE ${PROJECT_SOURCE_DIR}/src/backend ${PROJECT_SOURCE_DIR}/src/loader/tests
   ${PROJECT_SOURCE_DIR}/src/apple/tests ${PROJECT_SOURCE_DIR}/src/nds/tests)

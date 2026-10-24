@@ -49,6 +49,7 @@ add_library(revkit_backend STATIC
   param_id.cc
   parse_c.cc
   type_archive.cc
+  export_c.cc
   patching.cc
   project_archive.cc
   program.cc

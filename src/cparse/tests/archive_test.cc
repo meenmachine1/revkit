@@ -9,7 +9,11 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <map>
+#include <unistd.h>
 
 namespace {
 
@@ -279,6 +283,123 @@ TEST(TypeArchive, SystemPrototypes) {
   const auto *fn = store.get(r.prototypes[0].type).as<revkit::types::FunctionType>();
   ASSERT_NE(fn, nullptr);
   EXPECT_EQ(fn->params.at(0).name, "a");
+}
+
+}  // namespace
+
+namespace {
+
+// What a C89 compiler accepts: clang -std=c89 -pedantic-errors for an
+// ARMv5TE target (CodeWarrior's DS games), when the build found clang.
+// Returns the compiler's messages, or "" when it accepted the text.
+std::string CompileC89(const std::string &text, const std::string &name) {
+  const std::filesystem::path dir = std::filesystem::temp_directory_path() / ("revkit-c89-" + std::to_string(::getpid()));
+  std::filesystem::create_directories(dir);
+  std::ofstream(dir / (name + ".c")) << text;
+  const std::string cmd = std::string(REVKIT_TEST_CLANG) +
+                          " -std=c89 -pedantic-errors --target=armv5te-none-eabi -c -o /dev/null " +
+                          (dir / (name + ".c")).string() + " 2>" + (dir / (name + ".log")).string();
+  const int rc = std::system(cmd.c_str());
+  std::ifstream in(dir / (name + ".log"));
+  std::string log((std::istreambuf_iterator<char>(in)), {});
+  std::filesystem::remove_all(dir);
+  return rc == 0 ? std::string() : log.empty() ? std::string("failed") : log;
+}
+
+constexpr const char *kC89Header = R"(
+#include <stdint.h>
+#include <stdbool.h>
+struct node;
+typedef struct node node_t;
+enum color { RED, GREEN = 5, BLUE };
+enum big { TOP = 0x80000000u, LOW = 1 };
+struct node {
+  node_t *next;
+  union { uint32_t u; float f; };
+  unsigned flag : 1, kind : 3;
+  bool live;
+  int64_t wide;
+  enum color c;
+  char name[16];
+};
+struct flex { uint16_t len; uint8_t data[]; };
+)";
+
+// The C89 dialect (cparse::Dialect::C89): what an old compiler accepts,
+// laid out as the types are (the parser checks each layout).
+TEST(TypeArchive, C89Dialect) {
+  auto p = Parse(kC89Header, "arm-none-eabi");
+  ASSERT_EQ(p->r.errors, 0u);
+  std::vector<TypeId> roots;
+  for (const auto &n : p->r.named)
+    if (!n.where.system) roots.push_back(n.id);
+  cparse::ArchiveOptions o;
+  o.name = "t";
+  o.profile = *cparse::profile_named("arm-none-eabi");
+  o.dialect = cparse::Dialect::C89;
+  cparse::Archive a = cparse::write_archive(p->store, roots, o);
+  const std::string &h = a.header;
+  EXPECT_EQ(h.find("_Static_assert"), std::string::npos) << h;
+  EXPECT_EQ(h.find("_Bool"), std::string::npos) << h;
+  EXPECT_NE(h.find("typedef unsigned char bool;"), std::string::npos) << h;
+  EXPECT_NE(h.find("typedef char rk_size_t_1[sizeof("), std::string::npos) << h;
+  EXPECT_NE(h.find("TOP = (-2147483647 - 1)"), std::string::npos) << h;
+  EXPECT_NE(h.find("__extension__ typedef "), std::string::npos) << h;  // int64_t's long long
+  EXPECT_NE(h.find(" field_1;"), std::string::npos) << h;  // the anonymous union, named
+  EXPECT_EQ(h.find("data[]"), std::string::npos) << h;     // no flexible array members
+  // Every layout is the type's (the names and the left-out member aside).
+  for (const auto &e : a.entries)
+    if (e.key != "struct node" && e.key != "typedef node_t" && e.key != "struct flex" && e.key != "enum big")
+      EXPECT_EQ(e.hash, e.source_hash) << e.key;
+  for (const std::string &n : a.notes) EXPECT_EQ(n.find("another layout"), std::string::npos) << n;
+  if (std::string(REVKIT_TEST_CLANG).empty()) GTEST_SKIP() << "no clang";
+  EXPECT_EQ(CompileC89(h + "int revkit_check;\n", "c89"), "") << h;
+  // The default dialect isn't C89.
+  o.dialect = cparse::Dialect::C11;
+  EXPECT_NE(CompileC89(cparse::write_archive(p->store, roots, o).header + "int revkit_check;\n", "c11"), "");
+}
+
+// The decompiler's view (ArchiveOptions::decompiler_view): an inferred
+// structure's gaps are byte members named as the decompiler's C names
+// them, fields it drops (an overlap) are left out, unnamed fields are
+// field_<ordinal>, the layout stays natural (no packing, so loads aren't
+// split into bytes), and nothing is defined that the includer provides.
+TEST(TypeArchive, DecompilerView) {
+  types::TypeStore s;
+  const TypeId i = s.int_type(4, true, types::IntRank::Int);
+  const TypeId sh = s.int_type(2, false, types::IntRank::Short);
+  const TypeId u4 = s.undefined(4);
+  types::AggregateType a;
+  a.name = "astruct_1";
+  a.size = 0x20;
+  a.fields = {{"field_0x0", i, 0, 0},       {"field_0x8", u4, 8 * 8, 0}, {"", sh, 0xc * 8, 0},
+              {"field_0xd", sh, 0xd * 8, 0}, {"field_0x18", i, 0x18 * 8, 0}};
+  const TypeId st = s.intern(types::Type(a));
+  std::vector<TypeId> roots{st};
+  for (cparse::Dialect d : {cparse::Dialect::C11, cparse::Dialect::C89}) {
+    cparse::ArchiveOptions o;
+    o.name = "view";
+    o.profile = *cparse::profile_named("arm-none-eabi");
+    o.dialect = d;
+    o.decompiler_view = true;
+    o.provided = {"undefined4"};
+    cparse::Archive ar = cparse::write_archive(s, roots, o);
+    const std::string &h = ar.header;
+    EXPECT_EQ(ar.mismatches, 0u) << h;
+    for (const std::string &n : ar.notes) ADD_FAILURE() << n;
+    EXPECT_EQ(h.find("typedef unsigned char undefined4"), std::string::npos) << h;  // provided
+    EXPECT_EQ(h.find("#pragma pack"), std::string::npos) << h;                      // natural
+    for (const char *gap : {"field_0x4;", "field_0x7;", "field_0xe;", "field_0x17;", "field_0x1c;", "field_0x1f;"})
+      EXPECT_NE(h.find(std::string("unsigned char ") + gap), std::string::npos) << gap << "\n" << h;
+    EXPECT_NE(h.find("short field_2;"), std::string::npos) << h;  // unnamed: by ordinal
+    EXPECT_EQ(h.find("field_0xd;"), std::string::npos) << h;      // overlaps field_2: dropped
+    if (std::string(REVKIT_TEST_CLANG).empty()) continue;
+    const std::string use = "#include <stddef.h>\ntypedef unsigned int undefined4;\n" + h +
+                            "typedef struct astruct_1 astruct_1;\n"
+                            "int f(astruct_1 *p) { return *(int *)&p->field_0x4 + p->field_0x13 + p->field_0x18; }\n"
+                            "typedef char at_0x18[offsetof(astruct_1, field_0x18) == 0x18 ? 1 : -1];\n";
+    if (d == cparse::Dialect::C89) EXPECT_EQ(CompileC89(use, "view"), "") << use;
+  }
 }
 
 }  // namespace
